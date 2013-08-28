@@ -6,7 +6,7 @@ Created on Mar 21, 2013
 import unittest
 import os
 import logging
-import Utils.Misc
+import utils.misc
 import shutil
 
 
@@ -31,7 +31,7 @@ class ImageTestBase(unittest.TestCase):
 
         os.makedirs(self.VolumeDir)
 
-        Utils.Misc.SetupLogging(os.path.join(TestBaseDir, 'Logs', self.classname))
+        utils.misc.SetupLogging(os.path.join(TestBaseDir, 'Logs', self.classname))
         self.Logger = logging.getLogger(self.classname)
 
 

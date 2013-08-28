@@ -1,15 +1,15 @@
-import os;
-import sys;
-import Utils.Files;
-import Utils.Checksum;
-import Utils.Images;
-import Utils.PrettyOutput as PrettyOutput
-import mosaicfile;
+import os
+import sys
+import utils.files
+import utils.checksum
+import utils.images
+import utils.prettyoutput as PrettyOutput
+import mosaicfile
 import copy
 import logging
 from IrTools.Transforms import factory
 
-StosNameTemplate = "%(mappedsection)04u-%(controlsection)04u_%(channels)s_%(mosaicfilters)s_%(stostype)s_%(downsample)u.stos";
+StosNameTemplate = "%(mappedsection)04u-%(controlsection)04u_%(channels)s_%(mosaicfilters)s_%(stostype)s_%(downsample)u.stos"
 
 
 def __argumentToStos(Argument):
@@ -18,7 +18,7 @@ def __argumentToStos(Argument):
     if isinstance(Argument, str):
         stosObj = StosFile.Load(Argument)
     elif isinstance(Argument, StosFile):
-        stosObj = Argument;
+        stosObj = Argument
 
     assert(not stosObj is None)
 
@@ -48,69 +48,69 @@ class StosFile:
 
     @classmethod
     def LoadChecksum(cls, path):
-        assert(os.path.exists(path));
-        stosObj = StosFile.Load(path);
-        return stosObj.Checksum;
+        assert(os.path.exists(path))
+        stosObj = StosFile.Load(path)
+        return stosObj.Checksum
 
     @property
     def Downsample(self):
-        return self._Downsample;
+        return self._Downsample
 
     @Downsample.setter
     def Downsample(self, newDownsample):
         if(self._Downsample is None):  # Don't scale if
-            self._Downsample = newDownsample;
+            self._Downsample = newDownsample
         else:
-            scalar = self._Downsample / newDownsample;
-            self.Scale(scalar);
-            self._Downsample = newDownsample;
+            scalar = self._Downsample / newDownsample
+            self.Scale(scalar)
+            self._Downsample = newDownsample
 
     @property
     def ControlImageFullPath(self):
-        return os.path.join(self.ControlImagePath, self.ControlImageName);
+        return os.path.join(self.ControlImagePath, self.ControlImageName)
 
     @ControlImageFullPath.setter
     def ControlImageFullPath(self, val):
 
-        d = os.path.dirname(val);
-        f = os.path.basename(val);
+        d = os.path.dirname(val)
+        f = os.path.basename(val)
 
         self.ControlImagePath = d.strip()
         self.ControlImageName = f.strip()
 
     @property
     def MappedImageFullPath(self):
-        return os.path.join(self.MappedImagePath, self.MappedImageName);
+        return os.path.join(self.MappedImagePath, self.MappedImageName)
 
     @MappedImageFullPath.setter
     def MappedImageFullPath(self, val):
 
-        d = os.path.dirname(val);
-        f = os.path.basename(val);
+        d = os.path.dirname(val)
+        f = os.path.basename(val)
         self.MappedImagePath = d.strip()
         self.MappedImageName = f.strip()
 
     @property
     def ControlMaskFullPath(self):
-        return os.path.join(self.ControlMaskPath, self.ControlMaskName);
+        return os.path.join(self.ControlMaskPath, self.ControlMaskName)
 
     @ControlMaskFullPath.setter
     def ControlMaskFullPath(self, val):
 
-        d = os.path.dirname(val);
-        f = os.path.basename(val);
+        d = os.path.dirname(val)
+        f = os.path.basename(val)
         self.ControlMaskPath = d.strip()
         self.ControlMaskName = f.strip()
 
     @property
     def MappedMaskFullPath(self):
-        return os.path.join(self.MappedMaskPath, self.MappedMaskName);
+        return os.path.join(self.MappedMaskPath, self.MappedMaskName)
 
     @MappedMaskFullPath.setter
     def MappedMaskFullPath(self, val):
 
-        d = os.path.dirname(val);
-        f = os.path.basename(val);
+        d = os.path.dirname(val)
+        f = os.path.basename(val)
 
         self.MappedMaskPath = d.strip()
         self.MappedMaskName = f.strip()
@@ -118,123 +118,123 @@ class StosFile:
     @property
     def Checksum(self):
         if self.Transform is None:
-            return "";
+            return ""
 
         compressedString = StosFile.CompressedTransformString(self.Transform)
         return Utils.Checksum.DataChecksum(compressedString)
 
-#   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n");
-#   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber};
+#   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
+#   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
 
     def __init__(self):
 
 #        self.ControlImageName = property(self.__get__ControlImageName,
 #                                         None,
 #                                         None,
-#                                         'Filename of Control Image');
+#                                         'Filename of Control Image')
 #
 #        self.MappedImageName = property(self.__get__MappedImageName,
 #                                         None,
 #                                         None,
-#                                         'Filename of Mapped Image');
+#                                         'Filename of Mapped Image')
 #
 #        self.ControlMaskName = property(self.__get__ControlMaskName,
 #                                         None,
 #                                         None,
-#                                         'Filename of Control Image Mask');
+#                                         'Filename of Control Image Mask')
 #
 #        self.MappedMaskName = property(self.__get__MappedMaskName,
 #                                         None,
 #                                         None,
-#                                         'Filename of Control Image Mask');
+#                                         'Filename of Control Image Mask')
 
-        self.ControlImagePath = None;
-        self.MappedImagePath = None;
+        self.ControlImagePath = None
+        self.MappedImagePath = None
 
-        self.ControlImageName = None;
-        self.MappedImageName = None;
+        self.ControlImageName = None
+        self.MappedImageName = None
 
-        self.ControlMaskPath = None;
-        self.MappedMaskPath = None;
+        self.ControlMaskPath = None
+        self.MappedMaskPath = None
 
-        self.ControlMaskName = None;
-        self.MappedMaskName = None;
+        self.ControlMaskName = None
+        self.MappedMaskName = None
 
-        self.ControlSectionNumber = None;
-        self.MappedSectionNumber = None;
+        self.ControlSectionNumber = None
+        self.MappedSectionNumber = None
 
-        self.ControlChannel = None;  # What channel was used to create the stos file?
-        self.MappedChannel = None;
+        self.ControlChannel = None  # What channel was used to create the stos file?
+        self.MappedChannel = None
 
-        self.ControlMosaicFilter = None;  # mosaic, blob, mask, etc...
-        self.MappedMosaicFilter = None;  # mosaic, blob, mask, etc...
+        self.ControlMosaicFilter = None  # mosaic, blob, mask, etc...
+        self.MappedMosaicFilter = None  # mosaic, blob, mask, etc...
 
-        self._Downsample = None;  # How much the images used for the stos file are downsampled
+        self._Downsample = None  # How much the images used for the stos file are downsampled
 
-        self.UseMasksIfExist = True;
+        self.UseMasksIfExist = True
 
-        self.ControlImageDim = None;
-        self.MappedImageDim = None;
+        self.ControlImageDim = None
+        self.MappedImageDim = None
 
-        self.Transform = None;
+        self.Transform = None
 
-        self.StosSource = None;
+        self.StosSource = None
 
-        self.ImageToTransform = dict();
-        return;
+        self.ImageToTransform = dict()
+        return
 
     @classmethod
     def GetInfo(cls, filename):
         '''Returns details about a stos file we can learn from its name
            returns  [mappedSection, controlSection, Channel, Filter, Source, Downsample]'''
 
-        Logger = logging.getLogger('stos');
+        Logger = logging.getLogger('stos')
 
         # Make sure extension is removed from filename
-        [baseName, ext] = os.path.splitext(filename);
-        baseName = os.path.basename(baseName);
+        [baseName, ext] = os.path.splitext(filename)
+        baseName = os.path.basename(baseName)
 
-        parts = baseName.split("_");
+        parts = baseName.split("_")
         try:
-            sections = parts[0].split('-');
-            mappedSection = int(sections[0]);
-            controlSection = int(sections[1]);
+            sections = parts[0].split('-')
+            mappedSection = int(sections[0])
+            controlSection = int(sections[1])
 
         except:
-            mappedSection = None;
-            controlSection = None;
-            Logger.info('Could not determine section numbers: ' + str(filename));
-            # raise;
+            mappedSection = None
+            controlSection = None
+            Logger.info('Could not determine section numbers: ' + str(filename))
+            # raise
 
         try:
-            Channel = parts[-4];
+            Channel = parts[-4]
         except:
-            Channel = None;
-            Logger.info('Could not determine Channels: ' + str(filename));
-            # raise;
+            Channel = None
+            Logger.info('Could not determine Channels: ' + str(filename))
+            # raise
 
         try:
-            Filter = parts[-3];
+            Filter = parts[-3]
         except:
-            Filter = None;
-            Logger.info('Could not determine Filter: ' + str(filename));
-            # raise;
+            Filter = None
+            Logger.info('Could not determine Filter: ' + str(filename))
+            # raise
 
         try:
-            Source = parts[-2];
+            Source = parts[-2]
         except:
-            Source = None;
-            Logger.info('Could not determine transform: ' + str(filename));
-            # raise;
+            Source = None
+            Logger.info('Could not determine transform: ' + str(filename))
+            # raise
 
         try:
-            Downsample = int(parts[-1]);
+            Downsample = int(parts[-1])
         except:
-            Downsample = None;
-            Logger.info('Could not determine _Downsample: ' + str(filename));
-            # raise;
+            Downsample = None
+            Logger.info('Could not determine _Downsample: ' + str(filename))
+            # raise
 
-        return [mappedSection, controlSection, Channel, Filter, Source, Downsample];
+        return [mappedSection, controlSection, Channel, Filter, Source, Downsample]
 
     @classmethod
     def Create(cls, controlImageFullPath, mappedImageFullPath, Transform, controlMaskFullPath=None, mappedMaskFullPath=None):
@@ -252,39 +252,39 @@ class StosFile:
     @classmethod
     def Load(cls, filename):
         if not os.path.exists(filename):
-            PrettyOutput.Log("Mosaic file not found: " + filename);
-            return;
+            PrettyOutput.Log("Mosaic file not found: " + filename)
+            return
 
-        obj = StosFile();
+        obj = StosFile()
 
         try:
-            [obj.MappedSectionNumber, obj.ControlSectionNumber, Channels, Filters, obj.StosSource, obj._Downsample] = StosFile.GetInfo(filename);
+            [obj.MappedSectionNumber, obj.ControlSectionNumber, Channels, Filters, obj.StosSource, obj._Downsample] = StosFile.GetInfo(filename)
         except:
-            pass;
+            pass
 
-        fMosaic = open(filename, 'r');
-        lines = fMosaic.readlines();
-        fMosaic.close();
+        fMosaic = open(filename, 'r')
+        lines = fMosaic.readlines()
+        fMosaic.close()
 
-        obj.ControlImagePath = os.path.dirname(lines[0].strip());
-        obj.MappedImagePath = os.path.dirname(lines[1].strip());
+        obj.ControlImagePath = os.path.dirname(lines[0].strip())
+        obj.MappedImagePath = os.path.dirname(lines[1].strip())
 
-        obj.ControlImageName = os.path.basename(lines[0].strip());
-        obj.MappedImageName = os.path.basename(lines[1].strip());
+        obj.ControlImageName = os.path.basename(lines[0].strip())
+        obj.MappedImageName = os.path.basename(lines[1].strip())
 
-        ControlDims = lines[4].split();
-        MappedDims = lines[5].split();
+        ControlDims = lines[4].split()
+        MappedDims = lines[5].split()
 
-        obj.ControlImageDim = [float(x) for x in ControlDims];
-        obj.MappedImageDim = [float(x) for x in MappedDims];
+        obj.ControlImageDim = [float(x) for x in ControlDims]
+        obj.MappedImageDim = [float(x) for x in MappedDims]
 
-        obj.Transform = lines[6].strip();
+        obj.Transform = lines[6].strip()
 
         if len(lines) > 8:
-            obj.ControlMaskPath = lines[7];
-            obj.MappedMaskPath = lines[8];
+            obj.ControlMaskPath = lines[7]
+            obj.MappedMaskPath = lines[8]
 
-        return obj;
+        return obj
 
     def Scale(self, scalar):
         '''Scale this stos transform by the requested amount'''
@@ -303,20 +303,20 @@ class StosFile:
         else:
             self.Transform = factory.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
 
-        self._Downsample = self._Downsample * scalar;
+        self._Downsample = self._Downsample * scalar
 
     def Save(self, filename, AddMasks=True):
         # This function needs reworking to use different object variables'
         # assert(False)
-        OutLines = list();
+        OutLines = list()
 
         # mosaic files to be warped
-        OutLines.append(self.ControlImageFullPath);
-        OutLines.append(self.MappedImageFullPath);
+        OutLines.append(self.ControlImageFullPath)
+        OutLines.append(self.MappedImageFullPath)
 
         # Write the header
-        OutLines.append("0");
-        OutLines.append("0");
+        OutLines.append("0")
+        OutLines.append("0")
 
         if self.ControlImageDim is None:
             [ControlImageWidth, ControlImageHeight] = Utils.Images.GetImageSize(self.ControlImageFullPath)
@@ -404,34 +404,34 @@ class StosFile:
 
         NewStosFile = StosFile()
 
-        # NewStosFile.ControlImageDim = [x * scale for x in self.ControlImageDim];
-        NewStosFile.ControlImageDim = copy.copy(self.ControlImageDim);
-        NewStosFile.ControlImageDim[2] = self.ControlImageDim[2] * scale;
-        NewStosFile.ControlImageDim[3] = self.ControlImageDim[3] * scale;
-        # NewStosFile.MappedImageDim = [x * scale for x in self.MappedImageDim];
+        # NewStosFile.ControlImageDim = [x * scale for x in self.ControlImageDim]
+        NewStosFile.ControlImageDim = copy.copy(self.ControlImageDim)
+        NewStosFile.ControlImageDim[2] = self.ControlImageDim[2] * scale
+        NewStosFile.ControlImageDim[3] = self.ControlImageDim[3] * scale
+        # NewStosFile.MappedImageDim = [x * scale for x in self.MappedImageDim]
 
         # Update the filenames which are the first two lines of the file
-        NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim);
-        NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * scale;
-        NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * scale;
+        NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim)
+        NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * scale
+        NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * scale
 
         if(not ControlImageFullPath is None):
-            NewStosFile.ControlImagePath = os.path.dirname(ControlImageFullPath);
-            NewStosFile.ControlImageName = os.path.basename(ControlImageFullPath);
+            NewStosFile.ControlImagePath = os.path.dirname(ControlImageFullPath)
+            NewStosFile.ControlImageName = os.path.basename(ControlImageFullPath)
             NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
 
         if not MappedImageFullPath is None:
-            NewStosFile.MappedImagePath = os.path.dirname(MappedImageFullPath);
-            NewStosFile.MappedImageName = os.path.basename(MappedImageFullPath);
+            NewStosFile.MappedImagePath = os.path.dirname(MappedImageFullPath)
+            NewStosFile.MappedImageName = os.path.basename(MappedImageFullPath)
             NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
 
         if(not ControlMaskFullPath is None):
-            NewStosFile.ControlMaskPath = os.path.dirname(ControlMaskFullPath);
-            NewStosFile.ControlMaskName = os.path.basename(ControlMaskFullPath);
+            NewStosFile.ControlMaskPath = os.path.dirname(ControlMaskFullPath)
+            NewStosFile.ControlMaskName = os.path.basename(ControlMaskFullPath)
 
         if(not MappedMaskFullPath is None):
-            NewStosFile.MappedMaskPath = os.path.dirname(MappedMaskFullPath);
-            NewStosFile.MappedMaskName = os.path.basename(MappedMaskFullPath);
+            NewStosFile.MappedMaskPath = os.path.dirname(MappedMaskFullPath)
+            NewStosFile.MappedMaskName = os.path.basename(MappedMaskFullPath)
 
         # Adjust the grid points
 
@@ -452,80 +452,35 @@ class StosFile:
 
         return NewStosFile
 
-#        parts = self.Transform.split();
-#        outString = "";
-#
-#        outputParts = []
-#
-#        # Multiple all vp parts by the scalar if they are numbers
-#        for i in range(0, len(parts)):
-#            part = parts[i];
-#
-#            # Pass through the transform type, the 'vp', and the number of points
-#            if(i < 3):
-#                # outString = outString + part + " ";
-#                outputParts.append(part)
-#                continue;
-#
-#            # run until we hit the fixed parameters
-#            if(part == "fp"):
-#                iFP = i;
-#                break;
-#
-#            # scale point coordinatesparts
-#            val = float(part) * scale;
-#
-#            # outString = outString + "%g " % val;
-#            outputParts.append(val)
-#
-#        for i in range (iFP, len(parts)):
-#            part = parts[i];
-#
-#            if(i < iFP + 7):
-#                # outString = outString + part + " ";
-#                outputParts.append(part)
-#            else:
-#                # Last two fixed parameters are dimensions of image, multiply them
-#                val = float(part) * scale;
-#                # outString = outString + "%g " % val;
-#                outputParts.append(val)
-#
-#        # outString = outString + '\n';
-#        NewStosFile.Transform = StosFile.CompressedTransformString(outputParts);
-#
-#        NewStosFile.Downsample = newspacing;
-
-#        return NewStosFile;
-
 
     def StomOutputExists(self, StosPath, OutputPath, StosMapPath=None):
 
         '''If we haven't written the stos file itself, return false'''
-        stosfullname = os.path.join(StosPath, self.FormattedStosFileName);
+        stosfullname = os.path.join(StosPath, self.FormattedStosFileName)
         if not os.path.exists(stosfullname):
-            return False;
+            return False
 
         '''Checks whether valid stom output exists for this file.  Returns true if all output files are valid'''
-        predictedMappedOutputName = self.OutputMappedImageName;
+        predictedMappedOutputName = self.OutputMappedImageName
 
-        predictedMappedOutputFullname = os.path.join(OutputPath, predictedMappedOutputName);
+        predictedMappedOutputFullname = os.path.join(OutputPath, predictedMappedOutputName)
         if not os.path.exists(predictedMappedOutputFullname):
-            return False;
+            return False
 
-        if Utils.Files.RemoveOutdatedFile(stosfullname, predictedMappedOutputFullname):
-            return False;
+        if utils.files.RemoveOutdatedFile(stosfullname, predictedMappedOutputFullname):
+            return False
 
-        predictedControlOutputName = self.OutputControlImageName;
-        predictedControlOutputFullname = os.path.join(OutputPath, predictedControlOutputName);
+        predictedControlOutputName = self.OutputControlImageName
+        predictedControlOutputFullname = os.path.join(OutputPath, predictedControlOutputName)
         if not os.path.exists(predictedControlOutputFullname):
-            return False;
+            return False
 
-        if Utils.Files.RemoveOutdatedFile(stosfullname, predictedControlOutputFullname):
-            return False;
+        if utils.files.RemoveOutdatedFile(stosfullname, predictedControlOutputFullname):
+            return False
 
         if(StosMapPath is not None):
-            if Utils.Files.RemoveOutdatedFile(StosMapPath, predictedControlOutputFullname):
-                return False;
+            if utils.files.RemoveOutdatedFile(StosMapPath, predictedControlOutputFullname):
+                return False
 
 
-        return True;
+        return True

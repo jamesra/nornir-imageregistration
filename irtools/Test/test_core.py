@@ -6,7 +6,7 @@ Created on Mar 25, 2013
 import unittest
 import os
 from pylab import *
-import IrTools.core as core
+import irtools.core as core
 import logging
 import setup_imagetest
 import Utils.Images
