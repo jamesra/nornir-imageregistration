@@ -8,11 +8,11 @@ import os
 import irtools.core as core
 import logging
 import setup_imagetest
-import utils.Images
+import utils.images
 import irtools.stos_brute as stos_brute
 from irtools import alignment_record
 import irtools
-import irtools.IO
+import irtools.io
 import irtools.transforms
 
 def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta = None, sdelta = None):
@@ -35,7 +35,7 @@ def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta = None, sdelta = Non
 class TestStos(setup_imagetest.ImageTestBase):
 
     def testStosWrite(self):
-        InputDir = 'C:\\Buildscript\\Test\\Images\\'
+        InputDir = 'C:\\Buildscript\\Test\\images\\'
         OutputDir = 'C:\\Temp\\'
 
         WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
@@ -45,8 +45,8 @@ class TestStos(setup_imagetest.ImageTestBase):
 
         peak = (-4.4, 22.41)
         # peak = (0,0)
-        imWarpedSize = utils.Images.GetImageSize(WarpedImagePath)
-        imFixedSize = utils.Images.GetImageSize(FixedImagePath)
+        imWarpedSize = utils.images.GetImageSize(WarpedImagePath)
+        imFixedSize = utils.images.GetImageSize(FixedImagePath)
         # peak = (peak[0] - ((imWarpedSize[0] - imFixedSize[0])/2), peak[1] - ((imWarpedSize[1] - imFixedSize[1])/2))
 
         rec = alignment_record.AlignmentRecord(peak, 1, 229.2)
@@ -85,8 +85,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 1)
         self.assertIsNotNone(savedstosObj)
 
-        FixedSize = utils.Images.GetImageSize(FixedImagePath)
-        WarpedSize = utils.Images.GetImageSize(WarpedImagePath)
+        FixedSize = utils.images.GetImageSize(FixedImagePath)
+        WarpedSize = utils.images.GetImageSize(WarpedImagePath)
 
         alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
 

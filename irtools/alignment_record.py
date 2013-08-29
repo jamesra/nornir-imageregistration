@@ -106,8 +106,8 @@ class AlignmentRecord:
             stos.MappedMaskName = os.path.basename(WarpedImageMaskPath);
             stos.MappedMaskPath = os.path.dirname(WarpedImageMaskPath);
 
-        stos.ControlImageDim = Images.GetImageSize(ImagePath);
-        stos.MappedImageDim = Images.GetImageSize(WarpedImagePath);
+        stos.ControlImageDim = images.GetImageSize(ImagePath);
+        stos.MappedImageDim = images.GetImageSize(WarpedImagePath);
 
         # transformTemplate = "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 %(cos)g %(negsin)g %(sin)g %(cos)g %(x)g %(y)g 1 1 fp 2 %(mapwidth)d %(mapheight)d"
 

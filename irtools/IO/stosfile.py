@@ -121,7 +121,7 @@ class StosFile:
             return ""
 
         compressedString = StosFile.CompressedTransformString(self.Transform)
-        return Utils.Checksum.DataChecksum(compressedString)
+        return utils.Checksum.DataChecksum(compressedString)
 
 #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
@@ -319,19 +319,19 @@ class StosFile:
         OutLines.append("0")
 
         if self.ControlImageDim is None:
-            [ControlImageWidth, ControlImageHeight] = Utils.Images.GetImageSize(self.ControlImageFullPath)
+            [ControlImageWidth, ControlImageHeight] = utils.images.GetImageSize(self.ControlImageFullPath)
             self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
 
         if len(self.ControlImageDim) == 2:
-            [ControlImageWidth, ControlImageHeight] = Utils.Images.GetImageSize(self.ControlImageFullPath)
+            [ControlImageWidth, ControlImageHeight] = utils.images.GetImageSize(self.ControlImageFullPath)
             self.ControlImageDim = [self.ControlImageDim[0], self.ControlImageDim[1], int(ControlImageWidth), int(ControlImageHeight)]
 
         if self.MappedImageDim is None:
-            [MappedImageWidth, MappedImageHeight] = Utils.Images.GetImageSize(self.MappedImageFullPath)
+            [MappedImageWidth, MappedImageHeight] = utils.images.GetImageSize(self.MappedImageFullPath)
             self.MappedImageDim = [1.0, 1.0, (MappedImageWidth), (MappedImageHeight)]
 
         if len(self.MappedImageDim) == 2:
-            [MappedImageWidth, MappedImageHeight] = Utils.Images.GetImageSize(self.MappedImageFullPath)
+            [MappedImageWidth, MappedImageHeight] = utils.images.GetImageSize(self.MappedImageFullPath)
             self.MappedImageDim = [self.MappedImageDim[0], self.MappedImageDim[1], (MappedImageWidth), (MappedImageHeight)]
 
         ControlDimStr = StosFile.__GetImageDimString(self.ControlImageDim)
@@ -382,7 +382,7 @@ class StosFile:
     def __GetImageDimsArray(cls, ImageFullPath):
         '''Return a string compatible with the ITK .stos file image dimension entries'''
 
-        [ImageWidth, ImageHeight] = Utils.Images.GetImageSize(ImageFullPath)
+        [ImageWidth, ImageHeight] = utils.images.GetImageSize(ImageFullPath)
         return [1.0, 1.0, ImageWidth, ImageHeight]
 
     @classmethod

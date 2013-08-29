@@ -11,7 +11,7 @@ import logging
 import setup_imagetest
 import pools
 import utils.misc
-import PlotHistogram
+import utils.plot
 from irtools import im_histogram_parser
 from irtools import image_stats
 
@@ -52,7 +52,7 @@ class testHistogram(ImageStatsBase):
 
         HistogramImageFullPath = os.path.join(self.VolumeDir, FilePrefix + '_Histogram.png');
 
-        PlotHistogram.PlotHistogram(HistogramDataFullPath, HistogramImageFullPath);
+        utils.plot.histogram(HistogramDataFullPath, HistogramImageFullPath);
 
         self.assertTrue(os.path.exists(HistogramImageFullPath));
 

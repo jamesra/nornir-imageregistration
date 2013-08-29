@@ -22,7 +22,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_identity(self):
 
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = 0.0)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
         # Shape in numpy is (height, width)
         canvasShape = (2, 6)
@@ -35,14 +35,14 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         # ([Y1,X1],
         # ([Y2,X2], ...
 
-        self.assertAlmostEqual(min(points[:, 0]), 0, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 1, delta = 0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 0, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 5, delta = 0.01)
+        self.assertAlmostEqual(min(points[:, 0]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 0]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, 1]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 1]), 5, delta=0.01)
 
     def test_translate(self):
 
-        arecord = AlignmentRecord(peak = (1, 2), weight = 100, angle = 0.0)
+        arecord = AlignmentRecord(peak=(1, 2), weight=100, angle=0.0)
 
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
@@ -50,38 +50,38 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), -1, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 0, delta = 0.01)
-        self.assertAlmostEqual(min(points[:, 1]), -2, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 3, delta = 0.01)
+        self.assertAlmostEqual(min(points[:, 0]), -1, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 0]), 0, delta=0.01)
+        self.assertAlmostEqual(min(points[:, 1]), -2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 1]), 3, delta=0.01)
 
     def test_Rotate180(self):
 
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = 180.0)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=180.0)
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), 0, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 1, delta = 0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 0, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 5, delta = 0.01)
+        self.assertAlmostEqual(min(points[:, 0]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 0]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, 1]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 1]), 5, delta=0.01)
 
     def test_Rotate90(self):
 
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = 90.0)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=90.0)
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), -2, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 3, delta = 0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 2, delta = 0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 3, delta = 0.01)
+        self.assertAlmostEqual(min(points[:, 0]), -2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 0]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, 1]), 2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, 1]), 3, delta=0.01)
 
 class TestAssemble(setup_imagetest.ImageTestBase):
 
@@ -90,7 +90,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         angle = 0
-        arecord = AlignmentRecord(peak = (50, 100), weight = 100, angle = angle)
+        arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
         fixedImage = core.LoadImage(WarpedImagePath)
         warpedImage = core.LoadImage(WarpedImagePath)
@@ -100,7 +100,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Translate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage, angle = angle)
+        rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
 #
 #        ShowComparison([fixedImage, rotatedWarped, transformedImage])
 
@@ -113,7 +113,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         angle = 132
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = angle)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
         fixedImage = core.LoadImage(WarpedImagePath)
         warpedImage = core.LoadImage(WarpedImagePath)
@@ -123,7 +123,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Rotate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage, angle = angle)
+        rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
 #
         # ShowComparison([fixedImage, rotatedWarped, transformedImage])
 
@@ -135,7 +135,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
 
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = 0.0)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
         fixedImage = core.LoadImage(WarpedImagePath)
         warpedImage = core.LoadImage(WarpedImagePath)
@@ -157,7 +157,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-        arecord = AlignmentRecord(peak = (22, -4), weight = 100, angle = -132.0)
+        arecord = AlignmentRecord(peak=(22, -4), weight=100, angle= -132.0)
 
         fixedImage = core.LoadImage(FixedImagePath)
         warpedImage = core.LoadImage(WarpedImagePath)
@@ -175,6 +175,7 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.WarpedImagePath = os.path.join(self.TestDataSource, "Moving.png")
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+
         self.FixedImagePath = os.path.join(self.TestDataSource, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 

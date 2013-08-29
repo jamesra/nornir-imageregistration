@@ -114,9 +114,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap = 0.75):
 
     Debug = False
 
-    pool = Pools.GetGlobalMultithreadingPool()
+    pool = pools.GetGlobalMultithreadingPool()
     if Debug:
-        pool = Pools.GetGlobalThreadPool()
+        pool = pools.GetGlobalThreadPool()
 
     AngleMatchValues = list()
     taskList = list()
