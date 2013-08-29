@@ -4,16 +4,16 @@ Created on Mar 12, 2013
 @author: u0490822
 '''
 import unittest
-import IrTools
+import irtools
 import os
 import shutil
 import logging
 import setup_imagetest
-import Pools
-import Utils.Misc
+import pools
+import utils.misc
 import PlotHistogram
-from IrTools import im_histogram_parser
-from IrTools import image_stats
+from irtools import im_histogram_parser
+from irtools import image_stats
 
 class ImageStatsBase(setup_imagetest.ImageTestBase):
 
@@ -34,7 +34,7 @@ class testHistogram(ImageStatsBase):
         Scale = 0.125
         numBins = 2048
 
-        task = image_stats.__HistogramFileImageMagick__(File, ProcPool = Pools.GetGlobalProcessPool(), Bpp = Bpp, Scale = Scale)
+        task = image_stats.__HistogramFileImageMagick__(File, ProcPool=pools.GetGlobalProcessPool(), Bpp=Bpp, Scale=Scale)
         taskOutput = task.wait_return();
         taskOutput = taskOutput.splitlines();
         histogram = im_histogram_parser.Parse(taskOutput, maxVal = maxVal, numBins = numBins)

@@ -5,15 +5,15 @@ Created on Mar 21, 2013
 '''
 import unittest
 import os
-import IrTools.core as core
+import irtools.core as core
 import logging
 import setup_imagetest
-import Utils.Images
-import IrTools.stos_brute as stos_brute
-from IrTools import alignment_record
-import IrTools
-import IrTools.IO
-import IrTools.Transforms
+import utils.Images
+import irtools.stos_brute as stos_brute
+from irtools import alignment_record
+import irtools
+import irtools.IO
+import irtools.transforms
 
 def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta = None, sdelta = None):
         '''Verifies that an alignment record is more or less equal to expected values'''
@@ -45,8 +45,8 @@ class TestStos(setup_imagetest.ImageTestBase):
 
         peak = (-4.4, 22.41)
         # peak = (0,0)
-        imWarpedSize = Utils.Images.GetImageSize(WarpedImagePath)
-        imFixedSize = Utils.Images.GetImageSize(FixedImagePath)
+        imWarpedSize = utils.Images.GetImageSize(WarpedImagePath)
+        imFixedSize = utils.Images.GetImageSize(FixedImagePath)
         # peak = (peak[0] - ((imWarpedSize[0] - imFixedSize[0])/2), peak[1] - ((imWarpedSize[1] - imFixedSize[1])/2))
 
         rec = alignment_record.AlignmentRecord(peak, 1, 229.2)
@@ -85,8 +85,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 1)
         self.assertIsNotNone(savedstosObj)
 
-        FixedSize = Utils.Images.GetImageSize(FixedImagePath)
-        WarpedSize = Utils.Images.GetImageSize(WarpedImagePath)
+        FixedSize = utils.Images.GetImageSize(FixedImagePath)
+        WarpedSize = utils.Images.GetImageSize(WarpedImagePath)
 
         alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
 
@@ -94,10 +94,10 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         savedstosObj.Save(stosfilepath)
 
-        loadedStosObj = IrTools.IO.stosfile.StosFile.Load(stosfilepath)
+        loadedStosObj = irtools.IO.stosfile.StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
-        loadedTransform = IrTools.Transforms.factory.LoadTransform(loadedStosObj.Transform)
+        loadedTransform = irtools.transforms.factory.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
  

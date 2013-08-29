@@ -7,16 +7,16 @@ Created on Apr 22, 2013
 
 import core
 import numpy as np
-import Utils.PrettyOutput as PrettyOutput
-import Utils.Images
+import utils.prettyoutput as PrettyOutput
+import utils.images
 from scipy.ndimage import interpolation
-from   IrTools.Transforms import factory
-from   IrTools.Transforms import triangulation
-from IrTools.Transforms import utils
-import IrTools.Transforms.base as transformbase
-from IrTools.IO.stosfile import StosFile
+from   irtools.transforms import factory
+from   irtools.transforms import triangulation
+from irtools.transforms import utils
+import irtools.transforms.base as transformbase
+from irtools.io.stosfile import StosFile
 import os
-import Pools
+import pools
 
 from pylab import imsave
 
@@ -130,7 +130,7 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
 
         warpedImageFilename = stos.MappedImageFullPath
 
-    fixedImageSize = Utils.Images.GetImageSize(fixedImageFilename)
+    fixedImageSize = utils.images.GetImageSize(fixedImageFilename)
     fixedImageShape = np.array([fixedImageSize[1], fixedImageSize[0]]) * scalar
     warpedImage = core.LoadImage(warpedImageFilename)
 

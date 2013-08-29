@@ -6,11 +6,11 @@ Created on Mar 25, 2013
 import unittest
 import os
 from pylab import *
-import IrTools.core as core
+import irtools.core as core
 import logging
 import setup_imagetest
-import Utils.Images
-import IrTools.stos_brute as stos_brute
+import utils.images
+import irtools.stos_brute as stos_brute
 
 
 class Test(setup_imagetest.ImageTestBase):
@@ -19,7 +19,7 @@ class Test(setup_imagetest.ImageTestBase):
         super(Test, self).setUp()
 
         self.FixedImagePath = os.path.join(self.TestDataSource, "Fixed.png")
-        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input " + self.FixedImagePath)
 
         self.FixedImage = imread(self.FixedImagePath)
         self.assertIsNotNone(self.FixedImage)

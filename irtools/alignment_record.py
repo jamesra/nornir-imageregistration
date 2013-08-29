@@ -4,10 +4,10 @@ Created on Oct 12, 2012
 @author: u0490822
 '''
 
-from IO import stosfile
-from Utils import Images
+from io import stosfile
+from utils import images
 import numpy as np
-import IrTools
+import irtools
 import os
 from scipy import pi
 
@@ -55,20 +55,20 @@ class AlignmentRecord:
         if self.peak is None:
             self.peak = (0, 0);
 
-        return IrTools.Transforms.factory.__CorrectOffsetForMismatchedImageSizes(FixedImageShape, MovingImageShape)
+        return irtools.transforms.factory.__CorrectOffsetForMismatchedImageSizes(FixedImageShape, MovingImageShape)
 
 
     def GetTransformedCornerPoints(self, warpedImageSize):
-        return IrTools.Transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
+        return irtools.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
 
     def ToTransform(self, fixedImageSize, warpedImageSize):
-        return IrTools.Transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak)
+        return irtools.transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
 
         transform = self.ToTransform(fixedImageSize, warpedImageSize)
 
-        warpedSpaceCorners = IrTools.Transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle = 0, offset = (0, 0))
+        warpedSpaceCorners = irtools.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0))
 
         fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
 #

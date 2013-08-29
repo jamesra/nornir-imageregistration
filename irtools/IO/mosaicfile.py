@@ -1,6 +1,6 @@
 import os;
 import sys;
-from Utils import Checksum, Images, PrettyOutput
+from utils import checksum, images, prettyoutput
 
 ImageNameTemplate = "%(section)04u_%(channel)s_%(filter)s_%(downsample)u.%(ext)s";
 MosaicNameTemplate = "%(channel)s_%(filter)s.mosaic";

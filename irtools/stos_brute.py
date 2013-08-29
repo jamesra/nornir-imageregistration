@@ -5,7 +5,7 @@ Created on Oct 4, 2012
 '''
 import scipy.ndimage.interpolation as interpolation
 import logging
-import Pools
+import pools
 import os
 import numpy as np 
 import core

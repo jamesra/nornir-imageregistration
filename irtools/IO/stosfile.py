@@ -7,7 +7,7 @@ import utils.prettyoutput as PrettyOutput
 import mosaicfile
 import copy
 import logging
-from IrTools.Transforms import factory
+from irtools.transforms import factory
 
 StosNameTemplate = "%(mappedsection)04u-%(controlsection)04u_%(channels)s_%(mosaicfilters)s_%(stostype)s_%(downsample)u.stos"
 

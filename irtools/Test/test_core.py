@@ -9,8 +9,8 @@ from pylab import *
 import irtools.core as core
 import logging
 import setup_imagetest
-import Utils.Images
-import IrTools.stos_brute as stos_brute
+import utils.images
+import irtools.stos_brute as stos_brute
 
 class Test(setup_imagetest.ImageTestBase):
 

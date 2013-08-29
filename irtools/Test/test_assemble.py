@@ -6,10 +6,10 @@ Created on Apr 3, 2013
 import unittest
 import setup_imagetest
 import os
-import IrTools.core as core
-from IrTools.alignment_record import AlignmentRecord
-import IrTools.assemble as assemble
-import Utils.Images
+import irtools.core as core
+from irtools.alignment_record import AlignmentRecord
+import irtools.assemble as assemble
+import utils.images
 from scipy.ndimage import interpolation
 from scipy.misc import imsave
 
@@ -186,8 +186,8 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
 
-        self.assertEquals(Utils.Images.GetImageSize(self.FixedImagePath)[0], Utils.Images.GetImageSize(OutputPath)[0])
-        self.assertEquals(Utils.Images.GetImageSize(self.FixedImagePath)[1], Utils.Images.GetImageSize(OutputPath)[1])
+        self.assertEquals(utils.images.GetImageSize(self.FixedImagePath)[0], utils.images.GetImageSize(OutputPath)[0])
+        self.assertEquals(utils.images.GetImageSize(self.FixedImagePath)[1], utils.images.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.TestDataSource, "..", "Transforms", "FixedMoving_Grid.stos")
