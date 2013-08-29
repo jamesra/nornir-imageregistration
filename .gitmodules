@@ -4,3 +4,12 @@
 [submodule "py-utils"]
 	path = py-utils
 	url = git@github.com:jamesra/py-utils.git
+[submodule "irtools/py-utils"]
+	path = irtools/py-utils
+	url = git@github.com:jamesra/py-utils.git
+[submodule "irtools/libs/py-pools"]
+	path = irtools/libs/py-pools
+	url = git@github.com:jamesra/py-pools.git
+[submodule "irtools/libs/py-utils"]
+	path = irtools/libs/py-utils
+	url = git@github.com:jamesra/py-utils.git
