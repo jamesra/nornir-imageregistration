@@ -94,7 +94,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         savedstosObj.Save(stosfilepath)
 
-        loadedStosObj = irtools.IO.stosfile.StosFile.Load(stosfilepath)
+        loadedStosObj = irtools.io.stosfile.StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
         loadedTransform = irtools.transforms.factory.LoadTransform(loadedStosObj.Transform)

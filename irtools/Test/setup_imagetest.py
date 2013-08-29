@@ -17,13 +17,41 @@ class ImageTestBase(unittest.TestCase):
         clsstr = str(self.__class__.__name__)
         return clsstr
 
-    def setUp(self):
-        TestBaseDir = os.getcwd()
-        if 'TESTDIR' in os.environ:
-            TestBaseDir = os.environ["TESTDIR"]
 
-        self.TestDataSource = os.path.join(os.getcwd(), "Test", "Data", "Images")
-        self.VolumeDir = os.path.join(TestBaseDir, "Test", "Data", "TestOutput", self.classname)
+    @property
+    def TestInputPath(self):
+        if 'TESTINPUTPATH' in os.environ:
+            TestInputDir = os.environ["TESTINPUTPATH"]
+            self.assertTrue(os.path.exists(TestInputDir), "Test input directory specified by TESTINPUTPATH environment variable does not exist")
+            return TestInputDir
+        else:
+            self.fail("TESTINPUTPATH environment variable should specfify input data directory")
+
+        return None
+
+    @property
+    def TestOutputPath(self):
+        if 'TESTOUTPUTPATH' in os.environ:
+            TestOutputDir = os.environ["TESTOUTPUTPATH"]
+            return os.path.join(TestOutputDir, self.classname)
+        else:
+            self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
+
+        return None
+    
+    @property
+    def TestLogPath(self):
+        if 'TESTOUTPUTPATH' in os.environ:
+            TestOutputDir = os.environ["TESTOUTPUTPATH"]
+            return os.path.join(TestOutputDir, "Logs", self.classname)
+        else:
+            self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
+
+        return None
+
+    def setUp(self):
+        self.TestDataSource = os.path.join(self.TestInputPath, "Images")
+        self.VolumeDir = self.TestOutputPath
 
         # Remove output of earlier tests
         if os.path.exists(self.VolumeDir):
@@ -31,7 +59,7 @@ class ImageTestBase(unittest.TestCase):
 
         os.makedirs(self.VolumeDir)
 
-        utils.misc.SetupLogging(os.path.join(TestBaseDir, 'Logs', self.classname))
+        utils.misc.SetupLogging(self.TestLogPath)
         self.Logger = logging.getLogger(self.classname)
 
 

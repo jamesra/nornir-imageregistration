@@ -12,7 +12,7 @@ import utils.images
 from scipy.ndimage import interpolation
 from   irtools.transforms import factory
 from   irtools.transforms import triangulation
-from irtools.transforms import utils
+import irtools.transforms.utils
 import irtools.transforms.base as transformbase
 from irtools.io.stosfile import StosFile
 import os
@@ -38,11 +38,9 @@ def TransformROI(transform, botleft, area):
     fixed_coordArray = ROI(botleft, area)
 
     warped_coordArray = transform.InverseTransform(fixed_coordArray)
-    (valid_warped_coordArray, InvalidIndicies) = utils.InvalidIndicies(warped_coordArray)
+    (valid_warped_coordArray, InvalidIndicies) = irtools.transforms.utils.InvalidIndicies(warped_coordArray)
 
     valid_fixed_coordArray = np.delete(fixed_coordArray, InvalidIndicies, axis=0)
-
-
     valid_fixed_coordArray = valid_fixed_coordArray - botleft
 
     return (valid_fixed_coordArray, valid_warped_coordArray)
@@ -158,7 +156,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
 
     tasks = []
 
-    mpool = Pools.GetGlobalMultithreadingPool()
+    mpool = pools.GetGlobalMultithreadingPool()
 
     for iY in range(0, height, int(tilesize[0])):
 

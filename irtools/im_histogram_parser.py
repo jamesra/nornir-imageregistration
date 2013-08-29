@@ -6,7 +6,7 @@ Created on Mar 12, 2013
 Converts the output from ImageMagick -histogram:info:- flag to a histogram
 '''
 
-import Utils.Histogram
+import utils.histogram
 
 def MinMaxValues(lines):
     '''Given output from the histogram command, return the min/max values'''
@@ -87,7 +87,7 @@ def Parse(lines, minVal = None, maxVal = None, numBins = None):
     if maxVal is None:
         maxVal = 255;
 
-    hist = Utils.Histogram.Histogram.Init(minVal, maxVal, numBins)
+    hist = utils.histogram.Histogram.Init(minVal, maxVal, numBins)
 
     for line in lines:
         (intensityVal, count) = ParseHistogramLine(line);

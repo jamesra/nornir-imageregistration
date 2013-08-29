@@ -4,10 +4,10 @@ Created on Jun 26, 2012
 @author: James Anderson
 '''
 
-import Utils.PrettyOutput as PrettyOutput
-import Utils.Histogram
+import utils.prettyoutput as PrettyOutput
+import utils.histogram
 import subprocess
-from Pools import ProcessPool
+from pools import ProcessPool
 import multiprocessing
 import os
 from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
@@ -15,12 +15,12 @@ import numpy
 import scipy.stats
 import scipy.ndimage.measurements
 import core
-import Pools.Threadpool
+import pools.Threadpool
 
 
 import im_histogram_parser
 
-import Utils.Images;
+import utils.images;
 
 import logging
 
@@ -71,7 +71,7 @@ def Prune(filenames, MaxOverlap = None):
     else:
         listfilenames = filenames;
 
-    logger = logging.getLogger('irtools.prune');
+    # logger = logging.getLogger('irtools.prune');
 
     if MaxOverlap is None:
         MaxOverlap = 0;
@@ -94,7 +94,7 @@ def __InvokeFunctionOnImageList__(listfilenames, Function = None, Pool = None, *
        '''
 
     if Pool is None:
-        TPool = Pools.GetGlobalMultithreadingPool()
+        TPool = pools.GetGlobalMultithreadingPool()
     else:
         TPool = Pool;
 
@@ -206,9 +206,9 @@ def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBin
         return dict();
 
     if Bpp is None:
-        Bpp = Utils.Images.GetImageBpp(listfilenames[0]);
+        Bpp = utils.images.GetImageBpp(listfilenames[0]);
 
-    (Height, Width) = Utils.Images.GetImageSize(listfilenames[0]);
+    (Height, Width) = utils.images.GetImageSize(listfilenames[0]);
     TileTotalPixels = Height * Width;
 
     # Figure out how many pixels belong in our sample
@@ -232,7 +232,7 @@ def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBin
     FilenameToResult = {};
     tasks = [];
     for f in listfilenames:
-        task = __HistogramFileImageMagick__(f, ProcPool = Pools.GetGlobalClusterPool(), Bpp = Bpp, Scale = Scale)
+        task = __HistogramFileImageMagick__(f, ProcPool=pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
 
     # maxVal = (1 << Bpp) - 1;
@@ -267,13 +267,13 @@ def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBin
             maxVal = max(maxVal, fmaxVal);
 
     threadTasks = [];
-    TPool = Pools.GetGlobalMultithreadingPool();
+    TPool = pools.GetGlobalMultithreadingPool();
 
     for f in OutputMap.keys():
         threadTask = TPool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal = minVal, maxVal = maxVal, numBins = numBins);
         threadTasks.append(threadTask);
 
-    HistogramComposite = Utils.Histogram.Histogram.Init(minVal = minVal, maxVal = maxVal, numBins = numBins)
+    HistogramComposite = utils.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for t in threadTasks:
         hist = t.wait_return();
         HistogramComposite.AddHistogram(hist.Bins);
@@ -317,7 +317,7 @@ def __HistogramFileSciPy__(filename, Bpp = None, NumSamples = None, numBins = No
     ImOneD = reshape(Im, Width * Height, 1);
 
     if Bpp is None:
-        Bpp = Utils.Images.GetImageBpp(filename);
+        Bpp = utils.images.GetImageBpp(filename);
 
     if NumSamples is None:
         NumSamples = Height * Width;
@@ -364,8 +364,6 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp = None, Scale = None):
     # NewP = subprocess.Popen(Cmd + " && exit", shell=True, stdout=subprocess.PIPE);
     # interceptor = ProcessOutputInterceptor.HistogramOutputInterceptor(NewP,maxVal=maxVal, numBins=numBins);
     # ProcessOutputInterceptor.ProcessOutputInterceptor.Intercept(interceptor);
-
-
 
 
 

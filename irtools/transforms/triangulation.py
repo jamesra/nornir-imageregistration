@@ -175,8 +175,8 @@ class Triangulation(Base):
            If it is known that the data structures will be needed this function can be faster
            since computations can be performed in parallel'''
 
-        MPool = Pools.MultiprocessThreadpool.Create("Transforms")
-        TPool = Pools.GetGlobalThreadPool()
+        MPool = pools.MultiprocessThreadpool.Create("Transforms")
+        TPool = pools.GetGlobalThreadPool()
         FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
         WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
 
