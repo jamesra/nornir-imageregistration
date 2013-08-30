@@ -59,7 +59,7 @@ class AlignmentRecord:
 
 
     def GetTransformedCornerPoints(self, warpedImageSize):
-        return irtools.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
 
     def ToTransform(self, fixedImageSize, warpedImageSize):
         return nornir_imageregistration.transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak)
