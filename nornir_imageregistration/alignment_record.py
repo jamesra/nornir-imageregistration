@@ -4,7 +4,7 @@ Created on Oct 12, 2012
 @author: u0490822
 '''
 
-from io import stosfile
+import nornir_imageregistration.io.stosfile as stosfile
 from nornir_shared import images
 import numpy as np
 import nornir_imageregistration
