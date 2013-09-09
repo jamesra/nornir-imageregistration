@@ -121,7 +121,7 @@ class StosFile:
             return ""
 
         compressedString = StosFile.CompressedTransformString(self.Transform)
-        return nornir_shared.Checksum.DataChecksum(compressedString)
+        return nornir_shared.checksum.DataChecksum(compressedString)
 
 #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
