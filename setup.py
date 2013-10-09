@@ -16,7 +16,7 @@ if __name__ == '__main__':
     required_packages = ["nornir_pools",
                          "nornir_shared",
                         "numpy",
-                        "scipy",
+                        "scipy>=0.12",
                         "matplotlib"]
 
     packages = ["nornir_imageregistration",
