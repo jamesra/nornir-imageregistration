@@ -415,15 +415,19 @@ class StosFile:
         NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * scale
         NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * scale
 
-        if(not ControlImageFullPath is None):
+        if not ControlImageFullPath is None:
             NewStosFile.ControlImagePath = os.path.dirname(ControlImageFullPath)
             NewStosFile.ControlImageName = os.path.basename(ControlImageFullPath)
-            NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
+            
+            if os.path.exists(ControlImageFullPath):
+                NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
 
         if not MappedImageFullPath is None:
             NewStosFile.MappedImagePath = os.path.dirname(MappedImageFullPath)
             NewStosFile.MappedImageName = os.path.basename(MappedImageFullPath)
-            NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
+            
+            if os.path.exists(MappedImageFullPath):
+                NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
 
         if(not ControlMaskFullPath is None):
             NewStosFile.ControlMaskPath = os.path.dirname(ControlMaskFullPath)
