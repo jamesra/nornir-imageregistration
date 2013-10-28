@@ -183,8 +183,8 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
 
     Left = 0 * pixelSpacing
     Bottom = 0 * pixelSpacing
-    ImageWidth = int(FixedParameters[2]) * pixelSpacing
-    ImageHeight = int(FixedParameters[3]) * pixelSpacing
+    ImageWidth = int(FixedParameters[2]) * pixelSpacing * 2.0
+    ImageHeight = int(FixedParameters[3]) * pixelSpacing * 2.0
 
     array = np.array([[Left, Bottom],
                   [Left, Bottom + ImageHeight],
@@ -193,9 +193,9 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     PointPairs = []
 
     for i in range(0, 4):
-        ControlX, ControlY = array[i, :]
-        mappedX = (FixedParameters[0] * ImageWidth) + ControlX
-        mappedY = (FixedParameters[1] * ImageHeight) + ControlY
+        mappedX, mappedY = array[i, :]
+        ControlX = (FixedParameters[0] * pixelSpacing) + mappedX
+        ControlY = (FixedParameters[1] * pixelSpacing) + mappedY
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
     T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
