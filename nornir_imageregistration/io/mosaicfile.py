@@ -168,6 +168,11 @@ class MosaicFile:
         '''
 
         if ImageSize is None:
+            ImageSize = (4080, 4080) * len(Entries)
+        elif not isinstance(ImageSize, list):
+            assert(len(ImageSize) == 2)  # Expect tuple or list indicating image size
+            ImageSize = ImageSize * len(Entries)
+        else:
             ImageSize = [4080, 4080];
 
         prettyoutput.CurseString('Stage', "WriteMosaicFile " + OutfilePath);
@@ -208,8 +213,9 @@ class MosaicFile:
             keys = Entries.keys();
             keys.sort();
 
-            for key in keys:
-                Coord = Entries[key];
+            for i, key in enumerate(keys):
+                Coord = Entries[key]
+                tilesize = ImageSize[i]
 
                 # prettyoutput.Log( str(key) + " : " + str(Coord);
 
