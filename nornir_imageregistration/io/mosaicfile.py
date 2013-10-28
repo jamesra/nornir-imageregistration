@@ -233,7 +233,7 @@ class MosaicFile:
                 # Remove dirname from key
                 key = os.path.basename(key);
 
-                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(ImageSize[0] / 2) + ' ' + str(ImageSize[1] / 2);
+                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(tilesize[0] / 2) + ' ' + str(tilesize[1] / 2);
                 OutFile.write(outstr + '\n');
 
             OutFile.close();
