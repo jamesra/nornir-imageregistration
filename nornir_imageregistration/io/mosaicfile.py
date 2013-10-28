@@ -1,5 +1,5 @@
-import os
-import sys
+import os;
+import sys;
 from nornir_shared import checksum, images, prettyoutput
 
 ImageNameTemplate = "%(section)04u_%(channel)s_%(filter)s_%(downsample)u.%(ext)s"
@@ -233,8 +233,8 @@ class MosaicFile:
                 # Remove dirname from key
                 key = os.path.basename(key)
 
-                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(tilesize[0] / 2) + ' ' + str(tilesize[1] / 2)
-                OutFile.write(outstr + '\n')
+                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(tilesize[0] / 2) + ' ' + str(tilesize[1] / 2);
+                OutFile.write(outstr + '\n');
 
             OutFile.close()
 
