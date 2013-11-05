@@ -64,3 +64,20 @@ def MappedBoundingBox(transforms):
     maxY = np.max(mbb[:, 3])
 
     return (minX, minY, maxX, maxY)
+
+
+def FixedBoundingBoxWidth(transforms):
+    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    return np.ceil(maxX) - np.floor(minX)
+
+def FixedBoundingBoxHeight(transforms):
+    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    return np.ceil(maxY) - np.floor(minY)
+
+def MappedBoundingBoxWidth(transforms):
+    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    return np.ceil(maxX) - np.floor(minX)
+
+def MappedBoundingBoxHeight(transforms):
+    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    return np.ceil(maxY) - np.floor(minY)
