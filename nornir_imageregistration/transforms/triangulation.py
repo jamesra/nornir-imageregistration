@@ -53,7 +53,7 @@ class Triangulation(Base):
                     sortedpoints = np.delete(sortedpoints, i, 0)
                     i = i + 1
 
-        return np.array(sortedpoints)
+        return np.asarray(sortedpoints)
 
     @property
     def WarpedKDTree(self):
@@ -292,7 +292,7 @@ class Triangulation(Base):
 
     @points.setter
     def points(self, val):
-        self._points = np.array(val, dtype=np.float32)
+        self._points = np.asarray(val, dtype=np.float32)
         self.OnTransformChanged()
 
     def GetFixedPointsRect(self, bounds):
@@ -355,7 +355,7 @@ class Triangulation(Base):
         '''
         super(Triangulation, self).__init__()
 
-        self._points = np.array(pointpairs, dtype=np.float32)
+        self._points = np.asarray(pointpairs, dtype=np.float32)
         self._fixedtri = None
         self._warpedtri = None
         self._WarpedKDTree = None
