@@ -24,7 +24,8 @@ if __name__ == '__main__':
                         "nornir_shared",
                         "numpy>=1.7.1",
                         "scipy>=0.12",
-                        "matplotlib"]
+                        "matplotlib",
+                        "pillow>=2.0"]
 
     dependency_links = ["git+http://github.com/jamesra/nornir-pools#egg=nornir_pools",
                         "git+http://github.com/jamesra/nornir-shared#egg=nornir_shared"]

@@ -17,6 +17,9 @@ from alignment_record import *
 import numpy
 from pylab import *
 
+
+from PIL import Image
+
 logger = logging.getLogger('IrTools.core')
 
 def ScalarForMaxDimension(max_dim, shapes):
@@ -114,6 +117,20 @@ def GenRandomData(height, width, mean, standardDev):
     if mean - (standardDev * 2) < 0:
         Image = abs(Image)
     return Image
+
+
+def GetImageSize(ImageFullPath):
+    '''Returns image size as (height,width)'''
+
+    if not os.path.exists(ImageFullPath):
+        return None
+
+    try:
+        im = Image.open(ImageFullPath)
+        return (im.size[1], im.size[0])
+    except IOError:
+        return None
+
 
 def LoadImage(ImageFullPath, ImageMaskFullPath = None, MaxDimension = None):
     '''Loads an image, masks it, and removes extrema pixels.
