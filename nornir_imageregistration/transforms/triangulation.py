@@ -23,16 +23,16 @@ class Triangulation(Base):
     '''
 
     def __getstate__(self):
-        odict = {};
+        odict = {}
 
-        odict['_points'] = self._points;
+        odict['_points'] = self._points
 
-        return odict;
+        return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary);
-        self.OnChangeEventListeners = [];
-        self.UpdateDataStructures();
+        self.__dict__.update(dictionary)
+        self.OnChangeEventListeners = []
+        self.OnTransformChanged()
 
     @classmethod
     def RemoveDuplicates(cls, points):
@@ -40,32 +40,32 @@ class Triangulation(Base):
 
         (points, InvalidIndicies) = utils.InvalidIndicies(points)
 
-        DuplicateRemoved = False;
-        points = np.around(points, 3);
+        DuplicateRemoved = False
+        points = np.around(points, 3)
         sortedpoints = sorted(points, key=operator.itemgetter(0, 1))
         for i in range(len(sortedpoints) - 1, 0, -1):
-            lastP = sortedpoints[i - 1];
-            testP = sortedpoints[i];
+            lastP = sortedpoints[i - 1]
+            testP = sortedpoints[i]
 
             if lastP[0] == testP[0]:
                 if lastP[1] == testP[1]:
-                    DuplicateRemoved = True;
-                    sortedpoints = np.delete(sortedpoints, i, 0);
-                    i = i + 1;
+                    DuplicateRemoved = True
+                    sortedpoints = np.delete(sortedpoints, i, 0)
+                    i = i + 1
 
         return np.array(sortedpoints)
 
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = KDTree(self.WarpedPoints);
+            self._WarpedKDTree = KDTree(self.WarpedPoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = KDTree(self.FixedPoints);
+            self._FixedKDTree = KDTree(self.FixedPoints)
 
         return self._FixedKDTree
 
@@ -85,85 +85,85 @@ class Triangulation(Base):
 
     def AddTransform(self, mappedTransform):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
-        mappedControlPoints = mappedTransform.FixedPoints;
-        txMappedControlPoints = self.Transform(mappedControlPoints);
+        mappedControlPoints = mappedTransform.FixedPoints
+        txMappedControlPoints = self.Transform(mappedControlPoints)
 
-        pointPairs = np.hstack((txMappedControlPoints, mappedTransform.WarpedPoints));
+        pointPairs = np.hstack((txMappedControlPoints, mappedTransform.WarpedPoints))
 
         newTransform = copy.deepcopy(mappedTransform)
-        newTransform.points = pointPairs;
+        newTransform.points = pointPairs
 
-        return newTransform;
+        return newTransform
 
     def Transform(self, points, **kwargs):
-        transPoints = None;
+        transPoints = None
 
         method = kwargs.get('method', 'linear')
 
         try:
-            transPoints = griddata(self.WarpedPoints, self.FixedPoints, points, method=method);
+            transPoints = griddata(self.WarpedPoints, self.FixedPoints, points, method=method)
         except:
-            log = logging.getLogger(str(self.__class__));
-            log.warning("Could not transform points: " + str(points));
-            transPoints = None;
+            log = logging.getLogger(str(self.__class__))
+            log.warning("Could not transform points: " + str(points))
+            transPoints = None
 
-        return transPoints;
+        return transPoints
 
     def InverseTransform(self, points, **kwargs):
-        transPoints = None;
+        transPoints = None
 
         method = kwargs.get('method', 'linear')
 
         try:
-            transPoints = griddata(self.FixedPoints, self.WarpedPoints, points, method=method);
+            transPoints = griddata(self.FixedPoints, self.WarpedPoints, points, method=method)
         except:
-            log = logging.getLogger(str(self.__class__));
-            log.warning("Could not transform points: " + str(points));
-            transPoints = None;
+            log = logging.getLogger(str(self.__class__))
+            log.warning("Could not transform points: " + str(points))
+            transPoints = None
 
-        return transPoints;
+        return transPoints
 
     def AddPoint(self, pointpair):
         '''Add the point and return the index'''
-        self.points = np.append(self.points, [pointpair], 0);
-        self.points = Triangulation.RemoveDuplicates(self.points);
-        self.OnTransformChanged();
+        self.points = np.append(self.points, [pointpair], 0)
+        self.points = Triangulation.RemoveDuplicates(self.points)
+        self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]]);
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
     def UpdatePointPair(self, index, pointpair):
-        self.points[index, :] = pointpair;
-        self.points = Triangulation.RemoveDuplicates(self.points);
+        self.points[index, :] = pointpair
+        self.points = Triangulation.RemoveDuplicates(self.points)
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]]);
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
         self.OnTransformChanged()
 
     def UpdateFixedPoint(self, index, point):
-        self.points[index, 0:2] = point;
-        self.points = Triangulation.RemoveDuplicates(self.points);
+        self.points[index, 0:2] = point
+        self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([point[0], point[1]]);
+        Distance, index = self.NearestFixedPoint([point[0], point[1]])
         return index
 
     def UpdateWarpedPoint(self, index, point):
-        self.points[index, 2:4] = point;
-        self.points = Triangulation.RemoveDuplicates(self.points);
+        self.points[index, 2:4] = point
+        self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestWarpedPoint([point[0], point[1]]);
+        Distance, index = self.NearestWarpedPoint([point[0], point[1]])
         return index
 
     def RemovePoint(self, index):
         if(self.points.shape[0] <= 3):
-            return;  # Cannot have fewer than three points
+            return  # Cannot have fewer than three points
 
-        self.points = np.delete(self.points, index, 0);
-        self.points = Triangulation.RemoveDuplicates(self.points);
-        self.OnTransformChanged();
+        self.points = np.delete(self.points, index, 0)
+        self.points = Triangulation.RemoveDuplicates(self.points)
+        self.OnTransformChanged()
 
     def OnTransformChanged(self):
         self.ClearDataStructures()
@@ -201,22 +201,22 @@ class Triangulation(Base):
 
     def NearestFixedPoint(self, points):
         '''Return the fixed points nearest to the query points'''
-        return self.FixedKDTree.query(points);
+        return self.FixedKDTree.query(points)
 
     def NearestWarpedPoint(self, points):
         '''Return the warped points nearest to the query points'''
-        return self.WarpedKDTree.query(points);
+        return self.WarpedKDTree.query(points)
 
     def TranslateFixed(self, offset):
         '''Translate all fixed points by the specified amount'''
 
         self.points[:, 0:2] = self.points[:, 0:2] + offset
-        self.OnTransformChanged();
+        self.OnTransformChanged()
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         self.points[:, 2:4] = self.points[:, 2:4] + offset
-        self.OnTransformChanged();
+        self.OnTransformChanged()
 
     def RotateWarped(self, rangle, rotationCenter):
         '''Rotate all warped points about a center by a given angle'''
@@ -229,7 +229,7 @@ class Triangulation(Base):
         rotatedtemp = temp * rmatrix
         rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
         self.points[:, 2:4] = rotatedtemp
-        self.OnTransformChanged();
+        self.OnTransformChanged()
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
@@ -238,54 +238,74 @@ class Triangulation(Base):
 
     @property
     def FixedPoints(self):
-        return self.points[:, 0:2];
+        return self.points[:, 0:2]
 
     @property
     def WarpedPoints(self):
-        return self.points[:, 2:4];
+        return self.points[:, 2:4]
 
     @property
     def ControlPointBoundingBox(self):
-        cp = self.FixedPoints;
+        cp = self.FixedPoints
 
-        minX = np.min(cp[:, 1]);
-        maxX = np.max(cp[:, 1]);
-        minY = np.min(cp[:, 0]);
-        maxY = np.max(cp[:, 0]);
+        minX = np.min(cp[:, 1])
+        maxX = np.max(cp[:, 1])
+        minY = np.min(cp[:, 0])
+        maxY = np.max(cp[:, 0])
 
-        return (minX, minY, maxX, maxY);
+        return (minX, minY, maxX, maxY)
 
     @property
     def MappedPointBoundingBox(self):
-        cp = self.WarpedPoints;
+        cp = self.WarpedPoints
 
-        minX = np.min(cp[:, 1]);
-        maxX = np.max(cp[:, 1]);
-        minY = np.min(cp[:, 0]);
-        maxY = np.max(cp[:, 0]);
+        minX = np.min(cp[:, 1])
+        maxX = np.max(cp[:, 1])
+        minY = np.min(cp[:, 0])
+        maxY = np.max(cp[:, 0])
 
-        return (minX, minY, maxX, maxY);
+        return (minX, minY, maxX, maxY)
+
+    @property
+    def FixedBoundingBoxWidth(self):
+        cx = self.FixedPoints[:, 1]
+        return np.ceil(np.max(cx)) - np.floor(np.min(cx))
+
+    @property
+    def FixedBoundingBoxHeight(self):
+        cy = self.FixedPoints[:, 0]
+        return np.ceil(np.max(cy)) - np.floor(np.min(cy))
+
+    @property
+    def MappedBoundingBoxWidth(self):
+        wx = self.WarpedPoints[:, 1]
+        return np.ceil(np.max(wx)) - np.floor(np.min(wx))
+
+    @property
+    def MappedBoundingBoxHeight(self):
+        wy = self.WarpedPoints[:, 0]
+        return np.ceil(np.max(wy)) - np.floor(np.min(wy))
 
     @property
     def points(self):
-        return self._points;
+        return self._points
 
     @points.setter
     def points(self, val):
         self._points = np.array(val, dtype=np.float32)
-        self.OnTransformChanged();
+        self.OnTransformChanged()
 
     def GetFixedPointsRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.FixedPoints, bounds);
+        return self.GetPointPairsInRect(self.FixedPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.WarpedPoints, bounds);
+        return self.GetPointPairsInRect(self.WarpedPoints, bounds)
 
     def GetPointPairsInRect(self, points, bounds):
-        FixedPoints = [];
-        WarpedPoints = [];
+        FixedPoints = []
+        WarpedPoints = []
 
         # TODO: Matrix version
         # points[:, 0] >= bounds[0] and points[:]
@@ -296,56 +316,54 @@ class Triangulation(Base):
                 FixedPoints.append([self.points[iPoint, 0:2]])
                 WarpedPoints.append([self.points[iPoint, 2:4]])
 
-        return (FixedPoints, WarpedPoints);
+        return (FixedPoints, WarpedPoints)
 
     @property
     def FixedTriangles(self):
-        return self.fixedtri.vertices;
+        return self.fixedtri.vertices
 
     @property
     def WarpedTriangles(self):
-        return self.warpedtri.vertices;
+        return self.warpedtri.vertices
 
     @property
     def MappedBounds(self):
-        mapPoints = self.WarpedPoints;
+        mapPoints = self.WarpedPoints
 
-        minX = np.min(mapPoints[:, 1]);
-        maxX = np.max(mapPoints[:, 1]);
-        minY = np.min(mapPoints[:, 0]);
-        maxY = np.max(mapPoints[:, 0]);
+        minX = np.min(mapPoints[:, 1])
+        maxX = np.max(mapPoints[:, 1])
+        minY = np.min(mapPoints[:, 0])
+        maxY = np.max(mapPoints[:, 0])
 
-        return (minX, minY, maxX, maxY);
+        return (minX, minY, maxX, maxY)
 
     @property
     def ControlBounds(self):
-        ctrlPoints = self.ControlBounds;
+        ctrlPoints = self.ControlBounds
 
-        minX = np.min(ctrlPoints[:, 1]);
-        maxX = np.max(ctrlPoints[:, 1]);
-        minY = np.min(ctrlPoints[:, 0]);
-        maxY = np.max(ctrlPoints[:, 0]);
+        minX = np.min(ctrlPoints[:, 1])
+        maxX = np.max(ctrlPoints[:, 1])
+        minY = np.min(ctrlPoints[:, 0])
+        maxY = np.max(ctrlPoints[:, 0])
 
-        return (minX, minY, maxX, maxY);
-
+        return (minX, minY, maxX, maxY)
 
     def __init__(self, pointpairs):
         '''
         Constructor, expects at least three point pairs
         Point pair is (ControlX, ControlY, MappedX, MappedY)
         '''
-        super(Triangulation, self).__init__();
+        super(Triangulation, self).__init__()
 
-        self._points = np.array(pointpairs, dtype=np.float32);
+        self._points = np.array(pointpairs, dtype=np.float32)
         self._fixedtri = None
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
 
-
     @classmethod
     def load(cls, variableParams, fixedParams):
 
-        points = np.array.fromiter(variableParams);
-        points.reshape(variableParams / 2, 2);
+        points = np.array.fromiter(variableParams)
+        points.reshape(variableParams / 2, 2)
 
