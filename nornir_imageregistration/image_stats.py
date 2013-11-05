@@ -24,7 +24,6 @@ import nornir_shared.images as images
 import logging
 
 from collections import deque
-from Image import Image
 
 class ImageStats():
 
