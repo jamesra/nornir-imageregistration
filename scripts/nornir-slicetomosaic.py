@@ -6,8 +6,8 @@ Created on May 21, 2013
 
 import argparse
 import os
-import IrTools.assemble
-import Utils.Misc
+import nornir_imageregistration.assemble
+import nornir_shared.misc
 import logging
 import sys
 
@@ -103,7 +103,7 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    IrTools.assemble.TransformStos(transformFullpath=Args.inputpath,
+    nornir_imageregistration.assemble.TransformStos(transformFullpath=Args.inputpath,
                                    OutputFilename=Args.outputpath,
                                    fixedImageFilename=Args.fixedimagepath,
                                    warpedImageFilename=Args.warpedimagepath,
@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     (args, extra) = ParseArgs();
 
-    Utils.Misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute();
 

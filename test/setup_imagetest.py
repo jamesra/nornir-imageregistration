@@ -53,10 +53,14 @@ class TestBase(unittest.TestCase):
         self.VolumeDir = self.TestOutputPath
 
         # Remove output of earlier tests
-        if os.path.exists(self.VolumeDir):
-            shutil.rmtree(self.VolumeDir)
 
-        os.makedirs(self.VolumeDir)
+        try:
+            if os.path.exists(self.VolumeDir):
+                shutil.rmtree(self.VolumeDir)
+
+            os.makedirs(self.VolumeDir)
+        except:
+            pass
 
         SetupLogging(self.TestLogPath, Level=logging.INFO)
         self.Logger = logging.getLogger(self.classname)
