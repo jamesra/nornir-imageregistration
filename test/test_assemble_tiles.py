@@ -92,13 +92,14 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         timer.Start("AssembleTiles " + TilesDir)
 
-        mosaicImage = mosaic.AssembleTiles(TilesDir, parallel=parallel)
+        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, parallel=parallel)
 
         timer.End("AssembleTiles " + TilesDir, True)
 
         OutputDir = os.path.join(self.TestOutputPath, outputMosaicPath)
 
         outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
+        outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
 
         self.assertEqual(mosaicImage.shape[0], np.ceil(mosaic.FixedBoundingBoxHeight * expectedScale), "Output mosaic height does not match .mosaic height %g vs %g" % (mosaicImage.shape[0], mosaic.FixedBoundingBoxHeight * expectedScale))
         self.assertEqual(mosaicImage.shape[1], np.ceil(mosaic.FixedBoundingBoxWidth * expectedScale), "Output mosaic width does not match .mosaic height %g vs %g" % (mosaicImage.shape[1], mosaic.FixedBoundingBoxWidth * expectedScale))
@@ -109,10 +110,12 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
             os.makedirs(OutputDir)
 
         imsave(outputImagePath, mosaicImage)
+        imsave(outputImageMaskPath, mask)
 
         self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
         del mosaicImage
+        del mask
 
 
     def test_CreateAssembleEachMosaicType(self):

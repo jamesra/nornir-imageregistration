@@ -218,9 +218,13 @@ def __approxEqual(A, B, epsilon=None):
     return np.abs(A - B) < epsilon
 
 
+def __MaxZBufferValue(dtype):
+    return np.finfo(dtype).max
+
+
 def __CreateOutputBuffer(transforms, requiredScale=None):
     fullImage = np.zeros((np.ceil(requiredScale * tutils.FixedBoundingBoxHeight(transforms)), np.ceil(requiredScale * tutils.FixedBoundingBoxWidth(transforms))), dtype=np.float32)
-    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * np.sum(fullImage.shape)
+    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
 
     return (fullImage, fullImageZbuffer)
 
@@ -264,10 +268,13 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
 
         del transformedImageData
 
+    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
+    del fullImageZbuffer
+
     fullImage[fullImage < 0] = 0
     fullImage[fullImage > 1.0] = 1.0
 
-    return fullImage
+    return (fullImage, mask)
 
 
 def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
@@ -316,6 +323,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
         del transformedImageData
         del t
 
+    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
@@ -323,8 +331,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
 
     logger.info('Final image complete')
 
-
-    return fullImage
+    return (fullImage, mask)
 
 
 def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZBuffer):
