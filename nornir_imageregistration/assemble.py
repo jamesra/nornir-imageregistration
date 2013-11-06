@@ -45,7 +45,7 @@ def TransformROI(transform, botleft, area):
     return (valid_fixed_coordArray, valid_warped_coordArray)
 
 
-def __ExtractRegion(image, botleft=None, area=None):
+def ExtractRegion(image, botleft=None, area=None):
     '''Extract a region from an image'''
     if botleft is None:
         botleft = (0, 0)
@@ -59,6 +59,11 @@ def __ExtractRegion(image, botleft=None, area=None):
 
     transformedImage = transformedImage.reshape(area)
     return transformedImage
+
+
+def __ExtractRegion(image, botleft, area):
+    print "Deprecated __ExtractRegion call being used"
+    return ExtractRegion(image, botleft, area)
 
 
 def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None):
@@ -81,7 +86,6 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
             subroi_warpedImage = __ExtractRegion(WarpedImage, minCoord, (maxCoord - minCoord))
             warped_coords = warped_coords - minCoord
 
-
     warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='nearest', order=2)
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
@@ -92,7 +96,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
         transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
         return transformedImage
-    
+
 
 def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None):
 
@@ -105,7 +109,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
         area = FixedImageArea
 
     (fixed_coords, warped_coords) = TransformROI(transform, botleft, area)
-    
+
     if isinstance(WarpedImage, list):
         FixedImageList = []
         for wi in WarpedImage:
