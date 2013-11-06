@@ -45,7 +45,7 @@ def TransformROI(transform, botleft, area):
     return (valid_fixed_coordArray, valid_warped_coordArray)
 
 
-def FixedImage(image, botleft=None, area=None):
+def __ExtractRegion(image, botleft=None, area=None):
     '''Extract a region from an image'''
     if botleft is None:
         botleft = (0, 0)
@@ -61,7 +61,42 @@ def FixedImage(image, botleft=None, area=None):
     return transformedImage
 
 
+def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None):
+    '''Use the passed coordinates to create a warped image'''
+
+    if area is None:
+        area = FixedImageArea
+
+    if(warped_coords.shape[0] == 0):
+        # No points transformed into the requested area, return empty image
+        transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        return transformedImage
+
+    subroi_warpedImage = WarpedImage
+    if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
+        if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
+            minCoord = np.floor(np.min(warped_coords, 0)) - np.array([1, 1])
+            maxCoord = np.ceil(np.max(warped_coords, 0)) + np.array([1, 1])
+
+            subroi_warpedImage = __ExtractRegion(WarpedImage, minCoord, (maxCoord - minCoord))
+            warped_coords = warped_coords - minCoord
+
+
+    warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='nearest', order=2)
+    if fixed_coords.shape[0] == np.prod(area):
+        # All coordinates mapped, so we can return the output warped image as is.
+        warpedImage = warpedImage.reshape(area)
+        return warpedImage
+    else:
+        # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
+        transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
+        return transformedImage
+    
+
 def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None):
+
+    '''Warps every image in the WarpedImageList using the provided transform'''
 
     if botleft is None:
         botleft = (0, 0)
@@ -70,29 +105,15 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
         area = FixedImageArea
 
     (fixed_coords, warped_coords) = TransformROI(transform, botleft, area)
-    if(warped_coords.shape[0] == 0):
-        transformedImage = np.zeros((area))
-        return transformedImage
-
-    minCoord = np.floor(np.min(warped_coords, 0)) - np.array([1, 1])
-    maxCoord = np.ceil(np.max(warped_coords, 0)) + np.array([1, 1])
-
-    subroi_warpedImage = WarpedImage
-    if area[0] <= FixedImageArea[0] and area[1] <= FixedImageArea[1]:
-        subroi_warpedImage = FixedImage(WarpedImage, minCoord, (maxCoord - minCoord))
-        warped_coords = warped_coords - minCoord
-
-
-    warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant')
-    if fixed_coords.shape[0] == np.prod(area):
-        # All coordinates mapped, so we can return the output warped image as is.
-        warpedImage = warpedImage.reshape(area)
-        return warpedImage
+    
+    if isinstance(WarpedImage, list):
+        FixedImageList = []
+        for wi in WarpedImage:
+            fi = __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, wi, area)
+            FixedImageList.append(fi)
+        return FixedImageList
     else:
-        # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
-        transformedImage = np.zeros((area))
-        transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
-        return transformedImage
+        return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area)
 
 
 def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):

@@ -63,7 +63,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         if len(points) == 0:
             return [];
 
-        points = numpy.array(points);
+        points = numpy.asarray(points, dtype=numpy.float32);
 
         TransformedPoints = super(MeshWithRBFFallback, self).Transform(points)
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
@@ -77,7 +77,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
             else:
                 BadPoints = points;
 
-        BadPoints = numpy.array(BadPoints);
+        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32);
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints);
 
         TransformedPoints[InvalidIndicies] = FixedPoints;
@@ -87,7 +87,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         if len(points) == 0:
             return [];
 
-        points = numpy.array(points);
+        points = numpy.asarray(points, dtype=numpy.float32);
 
         TransformedPoints = super(MeshWithRBFFallback, self).InverseTransform(points);
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints);
@@ -100,7 +100,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
             else:
                 BadPoints = points;
 
-        BadPoints = numpy.array(BadPoints);
+        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32);
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints);
 

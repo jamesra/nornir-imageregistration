@@ -29,3 +29,55 @@ def RotationMatrix(rangle):
 
 if __name__ == '__main__':
     pass
+
+
+def FixedBoundingBox(transforms):
+    '''Calculate the bounding box of the warped position for a set of transforms'''
+
+    mbb = None
+    for t in transforms:
+        if mbb is None:
+            mbb = t.ControlPointBoundingBox
+        else:
+            mbb = np.vstack((mbb, t.ControlPointBoundingBox))
+
+    minX = np.min(mbb[:, 0])
+    minY = np.min(mbb[:, 1])
+    maxX = np.max(mbb[:, 2])
+    maxY = np.max(mbb[:, 3])
+
+    return (minX, minY, maxX, maxY)
+
+def MappedBoundingBox(transforms):
+    '''Calculate the bounding box of the warped position for a set of transforms'''
+
+    mbb = None
+    for t in transforms:
+        if mbb is None:
+            mbb = t.MappedPointBoundingBox
+        else:
+            mbb = np.vstack((mbb, t.MappedPointBoundingBox))
+
+    minX = np.min(mbb[:, 0])
+    minY = np.min(mbb[:, 1])
+    maxX = np.max(mbb[:, 2])
+    maxY = np.max(mbb[:, 3])
+
+    return (minX, minY, maxX, maxY)
+
+
+def FixedBoundingBoxWidth(transforms):
+    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    return np.ceil(maxX) - np.floor(minX)
+
+def FixedBoundingBoxHeight(transforms):
+    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    return np.ceil(maxY) - np.floor(minY)
+
+def MappedBoundingBoxWidth(transforms):
+    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    return np.ceil(maxX) - np.floor(minX)
+
+def MappedBoundingBoxHeight(transforms):
+    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    return np.ceil(maxY) - np.floor(minY)
