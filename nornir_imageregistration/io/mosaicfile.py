@@ -18,14 +18,14 @@ class MosaicFile:
     def Checksum(self):
         # data = self.MosaicStr();
 
-        return checksum.DataChecksum(self.ImageToTransform.values());
+        return checksum.DataChecksum(self.ImageToTransformString.values());
 
     @property
     def NumberOfImages(self):
-        if(self.ImageToTransform is None):
+        if(self.ImageToTransformString is None):
             return 0;
 
-        return len(self.ImageToTransform.keys());
+        return len(self.ImageToTransformString.keys());
 
     def __init__(self):
         self.FileReportedNumberOfImages = None;  # Sometimes files do not accurately report the number of images.  We populate this on load to know if we need to make a correction
@@ -33,20 +33,20 @@ class MosaicFile:
         self.use_std_mask = 0;
         self.format_version_number = 0;
 
-        self.ImageToTransform = dict();
+        self.ImageToTransformString = dict();
         pass;
 
     def RemoveInvalidMosaicImages(self, TileDir):
         '''Runs a time consuming check that verifies all the image files are valid.  Returns true if invalid images were found.'''
 
         ImageList = []
-        ImageList.extend(self.ImageToTransform.keys())
+        ImageList.extend(self.ImageToTransformString.keys())
         InvalidImages = images.IsValidImage(ImageList, TileDir)
 
         FoundInvalid = False;
 
         for InvalidImage in InvalidImages:
-            if InvalidImage in self.ImageToTransform:
+            if InvalidImage in self.ImageToTransformString:
                 InvalidImageFullPath = os.path.join(TileDir, InvalidImage)
                 if os.path.exists(InvalidImageFullPath):
                     prettyoutput.Log('Removing invalid image from disk:');
@@ -54,11 +54,11 @@ class MosaicFile:
                     os.remove(InvalidImageFullPath);
                     
                 prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
-                del self.ImageToTransform[InvalidImage]
+                del self.ImageToTransformString[InvalidImage]
                 FoundInvalid = True
                 
                # prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
-               # del self.ImageToTransform[InvalidImage]
+               # del self.ImageToTransformString[InvalidImage]
 
         return FoundInvalid
     
@@ -145,11 +145,11 @@ class MosaicFile:
                     filename = filename.strip();
                     filename = os.path.basename(filename);
                     transform = transform.strip();
-                    obj.ImageToTransform[filename] = transform;
+                    obj.ImageToTransformString[filename] = transform;
                 else:
                     filename = os.path.basename(lines[iLine + 1].strip());
                     transform = lines[iLine + 2].strip();
-                    obj.ImageToTransform[filename] = transform;
+                    obj.ImageToTransformString[filename] = transform;
                     iLine = iLine + 2;
 
             iLine = iLine + 1;
@@ -248,8 +248,8 @@ class MosaicFile:
         if FloatTemplateStr is None:
             FloatTemplateStr = '%g';
 
-        for FileKey in self.ImageToTransform.keys():
-            TransformStr = self.ImageToTransform[FileKey];
+        for FileKey in self.ImageToTransformString.keys():
+            TransformStr = self.ImageToTransformString[FileKey];
             OutputTransformStr = ""
             parts = TransformStr.split();
 
@@ -291,12 +291,12 @@ class MosaicFile:
                     outStr = "%g" % (floatVal);
                     OutputTransformStr = OutputTransformStr + outStr + NeededSpace;
 
-            self.ImageToTransform[FileKey] = OutputTransformStr;
+            self.ImageToTransformString[FileKey] = OutputTransformStr;
 
 
     def Save(self, filename):
 
-        if(len(self.ImageToTransform) <= 0):
+        if(len(self.ImageToTransformString) <= 0):
             prettyoutput.LogErr("No tiles present in mosaic " + filename + "\nThe save request was aborted");
             return
 
@@ -304,13 +304,13 @@ class MosaicFile:
 
         # Write the header
         fMosaic.write('format_version_number: 1\n');
-        fMosaic.write('number_of_images: ' + str(len(self.ImageToTransform.keys())) + '\n');
+        fMosaic.write('number_of_images: ' + str(len(self.ImageToTransformString.keys())) + '\n');
         fMosaic.write('pixel_spacing: ' + str(self.pixel_spacing) + '\n');
         fMosaic.write('use_std_mask: ' + str(self.use_std_mask) + '\n');
 
-        for filename in sorted(self.ImageToTransform.keys()):
+        for filename in sorted(self.ImageToTransformString.keys()):
             fMosaic.write('image:\n');
-            transform = self.ImageToTransform[filename];
+            transform = self.ImageToTransformString[filename];
 
             filename = os.path.basename(filename);
             fMosaic.write(filename + '\n');
@@ -321,13 +321,13 @@ class MosaicFile:
     def MosaicStr(self):
         OutStrList = list();
         OutStrList.append('format_version_number: 1\n');
-        OutStrList.append('number_of_images: ' + str(len(self.ImageToTransform.keys())) + '\n');
+        OutStrList.append('number_of_images: ' + str(len(self.ImageToTransformString.keys())) + '\n');
         OutStrList.append('pixel_spacing: ' + str(self.pixel_spacing) + '\n');
         OutStrList.append('use_std_mask: ' + str(self.use_std_mask) + '\n');
 
-        for filename in sorted(self.ImageToTransform.keys()):
+        for filename in sorted(self.ImageToTransformString.keys()):
             OutStrList.append('image:\n');
-            transform = self.ImageToTransform[filename];
+            transform = self.ImageToTransformString[filename];
 
             filename = os.path.basename(filename);
             OutStrList.append(filename + '\n');
