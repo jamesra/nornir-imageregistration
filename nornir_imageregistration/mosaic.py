@@ -18,7 +18,7 @@ class Mosaic(object):
     Maps images into a mosaic with a transform
     '''
 
-    @classmethod 
+    @classmethod
     def LoadFromMosaicFile(cls, mosaicfile):
         '''Return a dictionary mapping tiles to transform objects'''
 
@@ -30,7 +30,7 @@ class Mosaic(object):
             raise Exception("Expected valid mosaic file path or object")
 
         ImageToTransform = {}
-        for (k, v) in mosaicfile.ImageToTransform.items():
+        for (k, v) in mosaicfile.ImageToTransformString.items():
             ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
