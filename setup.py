@@ -21,14 +21,14 @@ if __name__ == '__main__':
                 "nornir_imageregistration.transforms"]
 
     install_requires = ["nornir_pools>=1.0.1",
-                        "nornir_shared",
+                        "nornir_shared>=1.0",
                         "numpy>=1.7.1",
                         "scipy>=0.12",
                         "matplotlib",
                         "pillow>=2.0"]
 
     dependency_links = ["git+http://github.com/jamesra/nornir-pools#egg=nornir_pools-1.0.1",
-                        "git+http://github.com/jamesra/nornir-shared#egg=nornir_shared"]
+                        "git+http://github.com/jamesra/nornir-shared#egg=nornir_shared-1.0.0"]
 
     scripts = glob.glob(os.path.join('scripts', '*.py'))
 
