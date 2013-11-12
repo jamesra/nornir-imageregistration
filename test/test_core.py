@@ -29,10 +29,10 @@ class Test(setup_imagetest.ImageTestBase):
 #        self.assertTrue((Image == ReshapeImage).all(), "Images should match exactly after converting to 1D and back to 2D")
 
     def testROIRange(self):
-                     
+
         r = core.ROIRange(0, 16, 32)
-        self.assertEqual(r[0],0)
-        self.assertEqual(r[-1],15)
+        self.assertEqual(r[0], 0)
+        self.assertEqual(r[-1], 15)
         self.assertEqual(len(r), 16)
 
         r = core.ROIRange(-3, 16, 32)
@@ -47,6 +47,77 @@ class Test(setup_imagetest.ImageTestBase):
 
         r = core.ROIRange(24, 16, 5)
         self.assertIsNone(r)
+
+
+    def testCrop(self):
+
+        image = np.zeros((16, 16))
+
+        for i in range(0, 16):
+            image[i, i] = i + 1
+
+        cropsize = 4
+        cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
+        for i in range(0, cropsize):
+            self.assertEqual(cropped[i, i], i + 1, "cropped image not correct")
+
+        cropped = core.CropImage(image, -1, -1, cropsize, cropsize)
+        for i in range(0, cropsize):
+            testVal = i
+            if testVal < 0:
+                testVal = 0
+
+            self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
+
+        cropsize = 20
+        cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
+        for i in range(0, cropsize):
+            testVal = i + 1
+            if testVal < 0:
+                testVal = 0
+
+            if testVal > 16:
+                testVal = 0
+
+            self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
+
+        cropsize = 20
+        cropped = core.CropImage(image, -1, -1, cropsize, cropsize)
+        for i in range(0, cropsize):
+            testVal = i
+            if testVal < 0:
+                testVal = 0
+
+            if testVal > 16:
+                testVal = 0
+
+            self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
+
+
+        cropsize = 17
+        cropped = core.CropImage(image, 1, 1, cropsize, cropsize)
+        for i in range(0, cropsize):
+            testVal = i + 2
+            if testVal < 0:
+                testVal = 0
+
+            if testVal > 16:
+                testVal = 0
+
+            self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
+
+        cropsize = 8
+        cropped = core.CropImage(image, 1, 0, cropsize, 16)
+        for i in range(0, cropsize):
+            testVal = i + 2
+            if testVal < 0:
+                testVal = 0
+
+            if testVal > 16:
+                testVal = 0
+
+            self.assertEqual(cropped[i + 1, i], testVal, "cropped image not correct")
+
 
     def testReplaceImageExtramaWithNoise(self):
 
