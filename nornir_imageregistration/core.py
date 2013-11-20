@@ -22,6 +22,14 @@ from PIL import Image
 
 logger = logging.getLogger('IrTools.core')
 
+
+def ApproxEqual(A, B, epsilon=None):
+
+    if epsilon is None:
+        epsilon = 0.01
+
+    return np.abs(A - B) < epsilon
+
 def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
     shapearray = None
