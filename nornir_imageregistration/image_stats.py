@@ -62,7 +62,7 @@ class ImageStats():
         return istats
 
 
-def Prune(filenames, MaxOverlap = None):
+def Prune(filenames, MaxOverlap=None):
 
     if isinstance(filenames, str):
         listfilenames = [filenames];
@@ -76,7 +76,7 @@ def Prune(filenames, MaxOverlap = None):
 
     assert isinstance(listfilenames, list);
 
-    FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function = __PruneFileSciPy__, MaxOverlap = MaxOverlap);
+    FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__PruneFileSciPy__, MaxOverlap=MaxOverlap);
 
     # Convert results to a float
     for k in FilenameToResult:
@@ -87,7 +87,7 @@ def Prune(filenames, MaxOverlap = None):
     else:
         return FilenameToResult;
 
-def __InvokeFunctionOnImageList__(listfilenames, Function = None, Pool = None, **kwargs):
+def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwargs):
     '''Return a number indicating how interesting the image is using SciPy
        '''
 
@@ -123,7 +123,7 @@ def __InvokeFunctionOnImageList__(listfilenames, Function = None, Pool = None, *
 
     return TileToScore;
 
-def __PruneFileSciPy__(filename, MaxOverlap = 0.15, **kwargs):
+def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     '''Returns a prune score for a single file
         Args:
            MaxOverlap = 0 to 1'''
@@ -190,7 +190,7 @@ def __PruneFileSciPy__(filename, MaxOverlap = 0.15, **kwargs):
     # core.ShowGrayscale(Im);
     return (filename, sum(StdDevList));
 
-def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBins = None):
+def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None):
     '''Returns a single histogram built by combining histograms of all images
        If scale is not none the images are scaled before the histogram is collected'''
 
@@ -268,7 +268,7 @@ def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBin
     TPool = pools.GetGlobalMultithreadingPool();
 
     for f in OutputMap.keys():
-        threadTask = TPool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal = minVal, maxVal = maxVal, numBins = numBins);
+        threadTask = TPool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins);
         threadTasks.append(threadTask);
 
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
@@ -304,7 +304,7 @@ def Histogram(filenames, Bpp = None, MinSampleCount = None, Scale = None, numBin
 
     return HistogramComposite;
 
-def __HistogramFileSciPy__(filename, Bpp = None, NumSamples = None, numBins = None):
+def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None):
     '''Return the histogram of an image'''
 
 
@@ -335,10 +335,10 @@ def __HistogramFileSciPy__(filename, Bpp = None, NumSamples = None, numBins = No
     else:
         assert(isinstance(numBins, int))
 
-    [histogram, low_range, binsize, extrapoints] = scipy.stats.histogram(ImOneD, numbins = numBins, defaultlimits = [0, 1]);
+    [histogram, low_range, binsize, extrapoints] = scipy.stats.histogram(ImOneD, numbins=numBins, defaultlimits=[0, 1]);
     return [histogram, low_range, binsize];
 
-def __HistogramFileImageMagick__(filename, ProcPool, Bpp = None, Scale = None):
+def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 
     if Scale is None:
         Scale = 1;
@@ -355,7 +355,7 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp = None, Scale = None):
     Cmd = CmdTemplate % {'filename' : filename, 'scale' : Scale * 100};
 
 
-    task = ProcPool.add_task(os.path.basename(filename), Cmd, shell = True);
+    task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True);
 
     return task;
 
