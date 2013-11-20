@@ -11,6 +11,7 @@ import numpy as np
 import core
 import multiprocessing.sharedctypes
 import ctypes
+from time import sleep
 from pylab import fftshift
 
 
@@ -58,7 +59,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     # Find the best match
 
-    if AngleSearchRange is None:
+    if not UserDefinedAngleSearchRange:
         BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)])
     else:
         BestRefinedMatch = BestMatch
@@ -136,17 +137,40 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     # Create a shared read-only memory map for the Padded fixed image
     SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
     SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+    
+    CheckTaskInterval = 10
 
-    for theta in AngleList:
+    for i, theta in enumerate(AngleList):
         task = pool.add_task(str(theta), TestOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
         taskList.append(task)
+        
+        if not i % CheckTaskInterval == 0:
+            continue
+        
+        for iTask in range(len(taskList)-1,0,-1):
+            if taskList[iTask].iscompleted:
+                record = taskList[iTask].wait_return()
+                AngleMatchValues.append(record) 
+                del taskList[iTask]
+                
         # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
 
    # taskList.sort(key=tpool.Task.name)
-
-    for task in taskList:
-        record = task.wait_return()
-        AngleMatchValues.append(record)
+   
+    
+    while len(taskList) > 0:
+        
+        
+        for iTask in range(len(taskList)-1,-1,-1):
+            if taskList[iTask].iscompleted:
+                record = taskList[iTask].wait_return()
+                AngleMatchValues.append(record)
+                del taskList[iTask]
+        
+        if len(taskList) > 0:
+            #Wait a bit before checking the task list
+            sleep(0.5)
+        
 
         # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
 
