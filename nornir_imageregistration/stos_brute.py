@@ -3,16 +3,17 @@ Created on Oct 4, 2012
 
 @author: u0490822
 '''
-import scipy.ndimage.interpolation as interpolation
-import logging
-import nornir_pools as pools
-import os
-import numpy as np
-import core
-import multiprocessing.sharedctypes
 import ctypes
-from time import sleep
-from pylab import fftshift
+import logging
+import multiprocessing.sharedctypes
+import os
+
+from numpy.fft import fftshift
+
+import nornir_imageregistration.core as core
+import nornir_pools as pools
+import numpy as np
+import scipy.ndimage.interpolation as interpolation
 
 
 def SliceToSliceBruteForce(FixedImageInput,
@@ -183,4 +184,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 
 
 if __name__ == '__main__':
+
+    SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
+                           'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
+                           AngleSearchRange=range(-180, -160, 1))
+
     pass

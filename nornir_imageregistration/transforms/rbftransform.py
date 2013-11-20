@@ -4,13 +4,14 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-from nornir_imageregistration.transforms import triangulation
-from nornir_imageregistration.transforms import transformbase
-import scipy.interpolate
-import numpy
 import math
-import scipy.spatial as spatial
+
+import numpy
+import scipy.interpolate
+
+from nornir_imageregistration.transforms import transformbase, triangulation
 import scipy.linalg as linalg
+import scipy.spatial as spatial
 
 
 class RBFWithLinearCorrection(triangulation.Triangulation):

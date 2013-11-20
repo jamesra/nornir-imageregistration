@@ -8,6 +8,7 @@ Converts the output from ImageMagick -histogram:info:- flag to a histogram
 
 from nornir_shared.histogram import Histogram
 
+
 def MinMaxValues(lines):
     '''Given output from the histogram command, return the min/max values'''
     minVal = None;

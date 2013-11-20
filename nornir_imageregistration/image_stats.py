@@ -4,26 +4,24 @@ Created on Jun 26, 2012
 @author: James Anderson
 '''
 
-import nornir_shared.prettyoutput as PrettyOutput
-import nornir_shared.histogram
-import subprocess
-import nornir_pools as pools
+from collections import deque
+import logging
 import multiprocessing
 import os
-from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
+import subprocess
+
 import numpy
-import scipy.stats
+from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
 import scipy.ndimage.measurements
+import scipy.stats
+
 import core
-
-
 import im_histogram_parser
-
+import nornir_pools as pools
+import nornir_shared.histogram
 import nornir_shared.images as images
+import nornir_shared.prettyoutput as PrettyOutput
 
-import logging
-
-from collections import deque
 
 class ImageStats():
 
