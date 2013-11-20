@@ -160,7 +160,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
 
 def npArrayToReadOnlySharedArray(npArray):
     '''Returns a shared memory array for a numpy array'''
-    SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_double, npArray.shape[0] * npArray.shape[1])
+    SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
     SharedArray = np.ctypeslib.as_array(SharedBase)
     SharedArray = SharedArray.reshape(npArray.shape)
     np.copyto(SharedArray, npArray)
@@ -188,7 +188,16 @@ def GetImageSize(ImageFullPath):
         return None
 
 
-def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
+def ForceGrayscale(image):
+    '''Ensure an image is greyscale'''
+    
+    if len(image.shape) > 2:
+        image = image[:,:,0]
+        return np.squeeze(image)
+    
+    return image
+
+def LoadImage(ImageFullPath, ImageMaskFullPath = None, MaxDimension = None):
     '''Loads an image, masks it, and removes extrema pixels.
        This is a helper function for registering images'''
     if(not os.path.isfile(ImageFullPath)):
@@ -196,6 +205,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
         return None
 
     image = imread(ImageFullPath)
+    image = ForceGrayscale(image)
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)
@@ -334,7 +344,7 @@ def PadImageForPhaseCorrelation(Image, MinOverlap=.05, ImageMedian=None, ImageSt
         if(ImageStdDev is None):
             ImageStdDev = std(Image1D);
 
-    PaddedImage = numpy.zeros((NewHeight, NewWidth));
+    PaddedImage = numpy.zeros((NewHeight, NewWidth), dtype=numpy.float32);
 
     PaddedImageXOffset = floor((NewWidth - Width) / 2);
     PaddedImageYOffset = floor((NewHeight - Height) / 2);

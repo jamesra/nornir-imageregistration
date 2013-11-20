@@ -96,14 +96,19 @@ def TestOneAngle(imFixed, imWarped, angle, PaddedFixed = None, MinOverlap = 0.75
 
     CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
+    del PaddedFixed
     del RotatedPaddedWarped
 
     CorrelationImage = fftshift(CorrelationImage)
     NormCorrelationImage = CorrelationImage - CorrelationImage.min()
     NormCorrelationImage /= NormCorrelationImage.max()
+    
+    del CorrelationImage
 
     # Timer.Start('Find Peak')
     (peak, weight) = core.FindPeak(NormCorrelationImage)
+    
+    del NormCorrelationImage
 
     record = core.AlignmentRecord(angle = angle, peak = peak, weight = weight)
 
