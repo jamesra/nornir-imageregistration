@@ -6,20 +6,22 @@ Created on Jul 6, 2012
 Remember that the scipy image arrays are indexed [y,x]
 '''
 
-import logging
-import scipy.stats
-import scipy.ndimage.measurements
-import scipy.ndimage.interpolation as interpolation
-import multiprocessing
 import ctypes
+import logging
+import multiprocessing
 import os
-from alignment_record import *
-import numpy
-from pylab import *
-
 
 from PIL import Image
+import numpy
+from pylab import *
+import scipy.ndimage.measurements
+import scipy.stats
 
+from alignment_record import *
+import scipy.ndimage.interpolation as interpolation
+
+
+# from memory_profiler import profile
 logger = logging.getLogger('IrTools.core')
 
 
@@ -98,15 +100,15 @@ def ConstrainedRange(start, count, maxVal, minVal=0):
     return r
 
 
-def ExtractROI(Image, center, area):
+def ExtractROI(image, center, area):
     '''Returns an ROI around a center point with the area, if the area passes a boundary the ROI
        maintains the same area, but is shifted so the entire area remains in the image.
        USES NUMPY (Y,X) INDEXING'''
 
-    x_range = ROIRange(area[1], (center - area[1]) / 2.0, maxVal=Image.shape[1])
-    y_range = ROIRange(area[0], (center - area[0]) / 2.0, maxVal=Image.shape[0])
+    x_range = ROIRange(area[1], (center - area[1]) / 2.0, maxVal=image.shape[1])
+    y_range = ROIRange(area[0], (center - area[0]) / 2.0, maxVal=image.shape[0])
 
-    ROI = Image(y_range, x_range)
+    ROI = image(y_range, x_range)
 
     return ROI
 
@@ -168,11 +170,11 @@ def npArrayToReadOnlySharedArray(npArray):
 
 def GenRandomData(height, width, mean, standardDev):
     '''Generate random data of shape with the specified mean and standard deviation'''
-    Image = (scipy.randn(height, width).astype(numpy.float32) * standardDev) + mean
+    image = (scipy.randn(height, width).astype(numpy.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
-        Image = abs(Image)
-    return Image
+        image = abs(image)
+    return image
 
 
 def GetImageSize(ImageFullPath):
@@ -197,6 +199,7 @@ def ForceGrayscale(image):
 
     return image
 
+# @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     '''Loads an image, masks it, and removes extrema pixels.
        This is a helper function for registering images'''
@@ -229,17 +232,18 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
 
     return image
 
-def RandomNoiseMask(Image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
+
+def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
     '''Fill the masked area with random noise with gaussian distribution about the image
        mean and with standard deviation matching the image's standard deviation'''
 
 
-    assert(Image.shape == Mask.shape)
+    assert(image.shape == Mask.shape)
 
-    Height = Image.shape[0]
-    Width = Image.shape[1]
+    Height = image.shape[0]
+    Width = image.shape[1]
 
-    MaskedImage = Image.copy()
+    MaskedImage = image.copy()
     Image1D = MaskedImage.flat
     Mask1D = Mask.flat
 
@@ -258,7 +262,7 @@ def RandomNoiseMask(Image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
 
     NumMaskedPixels = (Width * Height) - len(iNonZero1D)
     if(NumMaskedPixels == 0):
-        return Image
+        return image
 
     NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
 
@@ -270,10 +274,10 @@ def RandomNoiseMask(Image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
     return MaskedImage
 
 
-def ReplaceImageExtramaWithNoise(Image, ImageMedian=None, ImageStdDev=None):
+def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     '''Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions'''
 
-    Image1D = Image.flat
+    Image1D = image.flat
 
     (minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(Image1D)
 
@@ -288,7 +292,7 @@ def ReplaceImageExtramaWithNoise(Image, ImageMedian=None, ImageStdDev=None):
 
     num_pixels = len(maxima_index) + len(minima_index)
 
-    OutputImage = numpy.copy(Image)
+    OutputImage = numpy.copy(image)
 
 
     if num_pixels > 0:
@@ -302,10 +306,11 @@ def ReplaceImageExtramaWithNoise(Image, ImageMedian=None, ImageStdDev=None):
     return OutputImage
 
 
-def PadImageForPhaseCorrelation(Image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None):
+# @profile
+def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None):
     '''Prepares an image for use with the phase correllation operation.  Padded areas are filled with noise matching the histogram of the 
        original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise'''
-    Size = Image.shape
+    Size = image.shape
 
     Height = Size[0]
     Width = Size[1]
@@ -334,23 +339,23 @@ def PadImageForPhaseCorrelation(Image, MinOverlap=.05, ImageMedian=None, ImageSt
     NewWidth = math.pow(2, math.ceil(math.log(NewWidth, 2)))
 
     if(Width == NewWidth and Height == NewHeight):
-        return Image
+        return image
 
     if(ImageMedian is None or ImageStdDev is None):
-        Image1D = Image.flat
+        Image1D = image.flat
 
         if(ImageMedian is None):
             ImageMedian = median(Image1D)
         if(ImageStdDev is None):
             ImageStdDev = std(Image1D)
 
-    PaddedImage = numpy.zeros((NewHeight, NewWidth), dtype=numpy.float32)
+    PaddedImage = numpy.zeros((NewHeight, NewWidth), dtype=numpy.float16)
 
     PaddedImageXOffset = floor((NewWidth - Width) / 2)
     PaddedImageYOffset = floor((NewHeight - Height) / 2)
 
     # Copy image into padded image
-    PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = Image[:, :]
+    PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
 
     if not Width == NewWidth:
         LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev)
@@ -359,17 +364,23 @@ def PadImageForPhaseCorrelation(Image, MinOverlap=.05, ImageMedian=None, ImageSt
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
 
+        del LeftBorder
+        del RightBorder
+
     if not Height == NewHeight:
 
         TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev)
         BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
-        PaddedImage[ PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
+        PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
+
+        del TopBorder
+        del BottomBorder
 
     return PaddedImage
 
-
+# @profile
 def ImagePhaseCorrelation(FixedImage, MovingImage):
     '''Returns the phase shift correlation of the FFT's of two images. 
        Light pixels indicate the phase is well aligned at that offset'''
@@ -411,12 +422,16 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     CorrelationImage = real(Correlation)
     del Correlation
 
-    return CorrelationImage.astype(np.float32, copy=False)
+    retval = CorrelationImage.astype(np.float32)
+    del CorrelationImage
 
-def FindPeak(Image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
-    CutoffValue = ImageIntensityAtPercent(Image, Cutoff)
+    return retval
 
-    ThresholdImage = scipy.stats.threshold(Image, threshmin=CutoffValue, threshmax=None, newval=0)
+# @profile
+def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
+    CutoffValue = ImageIntensityAtPercent(image, Cutoff)
+
+    ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # ShowGrayscale(ThresholdImage)
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
@@ -424,12 +439,14 @@ def FindPeak(Image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     PeakValueIndex = LabelSums.argmax()
     PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
 
+    del LabelImage
+    del ThresholdImage
+
     # center_of_mass returns results as (y,x)
-    Offset = (Image.shape[0] / 2.0 - PeakCenterOfMass[0], Image.shape[1] / 2.0 - PeakCenterOfMass[1])
+    Offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
     # Offset = (Offset[0], Offset[1])
 
     return (Offset, LabelSums[PeakValueIndex])
-
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
@@ -444,22 +461,27 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     NormCorrelationImage = CorrelationImage - CorrelationImage.min()
     NormCorrelationImage /= NormCorrelationImage.max()
 
+    del CorrelationImage
+
     # Timer.Start('Find Peak')
 
     (peak, weight) = FindPeak(NormCorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap)
+
+    del NormCorrelationImage
+
     record = AlignmentRecord(peak=peak, weight=weight)
 
     return record
 
-def ImageIntensityAtPercent(Image, Percent=0.995):
+def ImageIntensityAtPercent(image, Percent=0.995):
     '''Returns the intensity of the Cutoff% most intense pixel in the image'''
-    NumPixels = Image.size
-    # FlatSortedImage = sort(reshape(Image,NumPixels, 1))
+    NumPixels = image.size
+    # FlatSortedImage = sort(reshape(image,NumPixels, 1))
     # CutoffIndex = int(NumPixels * Percent)
     # CutoffValue = FlatSortedImage[CutoffIndex]
 
     NumBins = 200
-    [histogram, binEdge] = numpy.histogram(Image, bins=NumBins)
+    [histogram, binEdge] = numpy.histogram(image, bins=NumBins)
 
     PixelNum = float(NumPixels) * Percent
     CumulativePixelsInBins = 0
@@ -494,7 +516,7 @@ if __name__ == '__main__':
         # Timer = TaskTimer.TaskTimer()
         # Timer.Start('Correlate One Pair')
 
-        # Timer.Start('Pad Image One Pair')
+        # Timer.Start('Pad image One Pair')
         FixedA = PadImageForPhaseCorrelation(imA)
         MovingB = PadImageForPhaseCorrelation(imB)
 
