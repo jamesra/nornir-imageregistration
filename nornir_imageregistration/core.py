@@ -47,16 +47,16 @@ def ShowGrayscale(imageList):
             if isinstance(image, numpy.ndarray):
                 # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
                 ax = axeslist[i]
-                ax.imshow(image, cmap = gray(), figure = fig)
+                ax.imshow(image, cmap=gray(), figure=fig)
     elif isinstance(imageList, numpy.ndarray):
-        imshow(imageList, cmap = gray())
+        imshow(imageList, cmap=gray())
     else:
         return
 
     show()
 
 
-def ROIRange(start, count, maxVal, minVal = 0):
+def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
 
     r = None
@@ -72,7 +72,7 @@ def ROIRange(start, count, maxVal, minVal = 0):
 
     return r
 
-def ConstrainedRange(start, count, maxVal, minVal = 0):
+def ConstrainedRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within min/max limits.'''
 
     end = start + count
@@ -95,12 +95,60 @@ def ExtractROI(Image, center, area):
        maintains the same area, but is shifted so the entire area remains in the image.
        USES NUMPY (Y,X) INDEXING'''
 
-    x_range = ROIRange(area[1], (center - area[1]) / 2.0, maxVal = Image.shape[1])
-    y_range = ROIRange(area[0], (center - area[0]) / 2.0, maxVal = Image.shape[0])
+    x_range = ROIRange(area[1], (center - area[1]) / 2.0, maxVal=Image.shape[1])
+    y_range = ROIRange(area[0], (center - area[0]) / 2.0, maxVal=Image.shape[0])
 
     ROI = Image(y_range, x_range)
 
     return ROI
+
+
+def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
+    '''Crop the image at the passed bounds and returns the cropped ndarray.
+       IF the requested area is outside the bounds of the array then the correct region is returned
+       with a background color set'''
+
+    image = None
+    if isinstance(imageparam, str):
+        image = LoadImage(imageparam)
+    else:
+        image = imageparam
+
+    if image is None:
+        return None
+
+    in_startY = Yo
+    in_startX = Xo
+    in_endX = Xo + Width
+    in_endY = Yo + Height
+
+    out_startY = 0
+    out_startX = 0
+    out_endX = Width
+    out_endY = Height
+
+    if in_startY < 0:
+        out_startY = -in_startY
+        in_startY = 0
+
+    if in_startX < 0:
+        out_startX = -in_startX
+        in_startX = 0
+
+    if in_endX > image.shape[1]:
+        in_endX = image.shape[1]
+        out_endX = out_startX + (in_endX - in_startX)
+
+    if in_endY > image.shape[0]:
+        in_endY = image.shape[0]
+        out_endY = out_startY + (in_endY - in_startY)
+
+    cropped = zeros((Height, Width), dtype=image.dtype)
+
+    cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
+
+    return cropped
+
 
 def npArrayToReadOnlySharedArray(npArray):
     '''Returns a shared memory array for a numpy array'''
@@ -173,7 +221,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath = None, MaxDimension = None):
 
     return image
 
-def RandomNoiseMask(Image, Mask, ImageMedian = None, ImageStdDev = None, Copy = False):
+def RandomNoiseMask(Image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
     '''Fill the masked area with random noise with gaussian distribution about the image
        mean and with standard deviation matching the image's standard deviation'''
 
@@ -214,7 +262,7 @@ def RandomNoiseMask(Image, Mask, ImageMedian = None, ImageStdDev = None, Copy = 
     return MaskedImage
 
 
-def ReplaceImageExtramaWithNoise(Image, ImageMedian = None, ImageStdDev = None):
+def ReplaceImageExtramaWithNoise(Image, ImageMedian=None, ImageStdDev=None):
     '''Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions'''
 
     Image1D = Image.flat
@@ -246,7 +294,7 @@ def ReplaceImageExtramaWithNoise(Image, ImageMedian = None, ImageStdDev = None):
     return OutputImage
 
 
-def PadImageForPhaseCorrelation(Image, MinOverlap = .05, ImageMedian = None, ImageStdDev = None, NewWidth = None, NewHeight = None):
+def PadImageForPhaseCorrelation(Image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None):
     '''Prepares an image for use with the phase correllation operation.  Padded areas are filled with noise matching the histogram of the 
        original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise'''
     Size = Image.shape;
@@ -351,10 +399,10 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     return CorrelationImage;
 
 
-def FindPeak(Image, Cutoff = 0.995, MinOverlap = 0, MaxOverlap = 1):
+def FindPeak(Image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     CutoffValue = ImageIntensityAtPercent(Image, Cutoff);
 
-    ThresholdImage = scipy.stats.threshold(Image, threshmin = CutoffValue, threshmax = None, newval = 0);
+    ThresholdImage = scipy.stats.threshold(Image, threshmin=CutoffValue, threshmax=None, newval=0);
     # ShowGrayscale(ThresholdImage)
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage);
@@ -364,12 +412,12 @@ def FindPeak(Image, Cutoff = 0.995, MinOverlap = 0, MaxOverlap = 1):
 
     # center_of_mass returns results as (y,x)
     Offset = (Image.shape[0] / 2.0 - PeakCenterOfMass[0], Image.shape[1] / 2.0 - PeakCenterOfMass[1])
-    #Offset = (Offset[0], Offset[1])
+    # Offset = (Offset[0], Offset[1])
 
     return (Offset, LabelSums[PeakValueIndex]);
 
 
-def FindOffset(FixedImage, MovingImage, MinOverlap = 0.0, MaxOverlap = 1.0):
+def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
        moving image must be rotated and translated to align perfectly with the FixedImage'''
 
@@ -384,12 +432,12 @@ def FindOffset(FixedImage, MovingImage, MinOverlap = 0.0, MaxOverlap = 1.0):
 
     # Timer.Start('Find Peak');
 
-    (peak, weight) = FindPeak(NormCorrelationImage, MinOverlap = MinOverlap, MaxOverlap = MaxOverlap);
-    record = AlignmentRecord(peak = peak, weight = weight);
+    (peak, weight) = FindPeak(NormCorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap);
+    record = AlignmentRecord(peak=peak, weight=weight);
 
     return record;
 
-def ImageIntensityAtPercent(Image, Percent = 0.995):
+def ImageIntensityAtPercent(Image, Percent=0.995):
     '''Returns the intensity of the Cutoff% most intense pixel in the image'''
     NumPixels = Image.size;
     # FlatSortedImage = sort(reshape(Image,NumPixels, 1));
@@ -397,7 +445,7 @@ def ImageIntensityAtPercent(Image, Percent = 0.995):
     # CutoffValue = FlatSortedImage[CutoffIndex];
 
     NumBins = 200;
-    [histogram, binEdge] = numpy.histogram(Image, bins = NumBins)
+    [histogram, binEdge] = numpy.histogram(Image, bins=NumBins)
 
     PixelNum = float(NumPixels) * Percent;
     CumulativePixelsInBins = 0;
