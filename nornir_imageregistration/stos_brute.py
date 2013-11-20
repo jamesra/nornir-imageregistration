@@ -15,7 +15,10 @@ import nornir_pools as pools
 import numpy as np
 import scipy.ndimage.interpolation as interpolation
 
+from time import sleep
 
+
+# from memory_profiler import profile
 def SliceToSliceBruteForce(FixedImageInput,
                            WarpedImageInput,
                            FixedImageMaskPath=None,
@@ -71,8 +74,9 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-def TestOneAngle(imFixed, imWarped, angle, PaddedFixed=None, MinOverlap=0.75):
+def ScoreOneAngle(imFixed, imWarped, angle, PaddedFixed=None, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
+
     RotatedPaddedWarped = None
     if angle == 0:
         RotatedPaddedWarped = core.PadImageForPhaseCorrelation(imWarped, MinOverlap=MinOverlap)
@@ -117,6 +121,7 @@ def TestOneAngle(imFixed, imWarped, angle, PaddedFixed=None, MinOverlap=0.75):
 
 
 def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
+    '''Find the best angle to align two images.  This function can be very memory intensive'''
 
     Debug = False
 
@@ -138,40 +143,41 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     # Create a shared read-only memory map for the Padded fixed image
     SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
     SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
-    
+
     CheckTaskInterval = 10
 
     for i, theta in enumerate(AngleList):
-        task = pool.add_task(str(theta), TestOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
+        task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
         taskList.append(task)
-        
+
         if not i % CheckTaskInterval == 0:
             continue
-        
-        for iTask in range(len(taskList)-1,0,-1):
-            if taskList[iTask].iscompleted:
-                record = taskList[iTask].wait_return()
-                AngleMatchValues.append(record) 
-                del taskList[iTask]
-                
-        # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
 
-   # taskList.sort(key=tpool.Task.name)
-   
-    
-    while len(taskList) > 0:
-        
-        
-        for iTask in range(len(taskList)-1,-1,-1):
+        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory
+        for iTask in range(len(taskList) - 1, 0, -1):
             if taskList[iTask].iscompleted:
                 record = taskList[iTask].wait_return()
                 AngleMatchValues.append(record)
                 del taskList[iTask]
-        
+
+        # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
+
+   # taskList.sort(key=tpool.Task.name)
+
+
+    while len(taskList) > 0:
+
+
+        for iTask in range(len(taskList) - 1, -1, -1):
+            if taskList[iTask].iscompleted:
+                record = taskList[iTask].wait_return()
+                AngleMatchValues.append(record)
+                del taskList[iTask]
+
         if len(taskList) > 0:
-            #Wait a bit before checking the task list
+            # Wait a bit before checking the task list
             sleep(0.5)
-        
+
 
         # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
 
