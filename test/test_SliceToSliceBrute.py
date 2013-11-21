@@ -12,10 +12,10 @@ import nornir_shared.images as images
 import nornir_imageregistration.stos_brute as stos_brute
 from nornir_imageregistration import alignment_record
 import nornir_imageregistration
-import nornir_imageregistration.io
+import nornir_imageregistration.files
 import nornir_imageregistration.transforms
 
-def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta = None, sdelta = None):
+def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta=None, sdelta=None):
         '''Verifies that an alignment record is more or less equal to expected values'''
 
         angle = float(angle)
@@ -28,9 +28,9 @@ def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta = None, sdelta = Non
             sdelta = 1.5
 
         test.assertIsNotNone(arecord)
-        test.assertAlmostEqual(arecord.angle, angle, msg = "Wrong angle found: %s" % str(arecord) , delta = adelta)
-        test.assertAlmostEqual(arecord.peak[1], X, msg = "Wrong X offset: %s" % str(arecord), delta = sdelta)
-        test.assertAlmostEqual(arecord.peak[0], Y, msg = "Wrong Y offset: %s" % str(arecord), delta = sdelta)
+        test.assertAlmostEqual(arecord.angle, angle, msg="Wrong angle found: %s" % str(arecord) , delta=adelta)
+        test.assertAlmostEqual(arecord.peak[1], X, msg="Wrong X offset: %s" % str(arecord), delta=sdelta)
+        test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
 
 class TestStos(setup_imagetest.ImageTestBase):
 
@@ -52,7 +52,7 @@ class TestStos(setup_imagetest.ImageTestBase):
         rec = alignment_record.AlignmentRecord(peak, 1, 229.2)
         self.assertIsNotNone(rec)
 
-        stosObj = rec.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 32)
+        stosObj = rec.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=32)
         self.assertIsNotNone(stosObj)
 
         stosObj.Save(os.path.join(self.VolumeDir, '17-18_brute.stos'))
@@ -79,10 +79,10 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle = -132.0, X = -4, Y = 22)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
-        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 1)
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
 
         FixedSize = images.GetImageSize(FixedImagePath)
@@ -94,13 +94,13 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         savedstosObj.Save(stosfilepath)
 
-        loadedStosObj = nornir_imageregistration.io.stosfile.StosFile.Load(stosfilepath)
+        loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
         loadedTransform = nornir_imageregistration.transforms.factory.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
- 
+
     def testStosBruteWithMask(self):
         WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
@@ -118,7 +118,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                WarpedImageMaskPath)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle = -132.0, X = -4, Y = 22)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
 
 class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
@@ -158,7 +158,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                FixedImagePath,
                                FixedImageMaskPath,
                                FixedImageMaskPath)
-        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0, adelta = 1.5)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
 
 if __name__ == "__main__":
     # import syssys.argv = ['', 'Test.testName']

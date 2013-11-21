@@ -4,7 +4,7 @@ Created on Mar 29, 2013
 @author: u0490822
 '''
 
-from nornir_imageregistration.io.mosaicfile import MosaicFile
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 import transforms.factory as tfactory
 import transforms.utils as tutils
 import assemble_tiles as at

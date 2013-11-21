@@ -16,7 +16,7 @@ if __name__ == '__main__':
     use_setuptools()
 
     packages = ["nornir_imageregistration",
-                "nornir_imageregistration.io",
+                "nornir_imageregistration.files",
                 "nornir_imageregistration.geometry",
                 "nornir_imageregistration.transforms"]
 

@@ -8,7 +8,7 @@ import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.tiles as tiles
-from nornir_imageregistration.io.mosaicfile import MosaicFile
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
 import nornir_imageregistration.transforms.factory as tfactory
 # from pylab import *

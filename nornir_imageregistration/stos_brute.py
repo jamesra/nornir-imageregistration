@@ -189,10 +189,14 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     return BestMatch
 
 
-if __name__ == '__main__':
-
+def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
                            AngleSearchRange=range(-180, -160, 1))
 
+if __name__ == '__main__':
+
+    # from nornir_shared import misc
+    # misc.RunWithProfiler("__ExecuteProfiler", "C:\Temo\StosBrute.pr")
+    __ExecuteProfiler()
     pass

@@ -12,7 +12,7 @@ import numpy as np
 
 import scipy.spatial.distance
 from scipy import stats
-# from nornir_imageregistration.io.mosaicfile import MosaicFile
+# from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 import core
 import os
