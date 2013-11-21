@@ -306,6 +306,22 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     return OutputImage
 
 
+def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
+
+    if overlap > 1.0:
+        overlap = 1.0
+
+    if overlap < 0.0:
+        overlap = 0.0
+
+    # Figure out the minimum dimension to accomodate the requested overlap
+    MinDimension = val + (val * (1.0 - overlap))
+
+    # Figure out the power of two dimension
+    NewDimension = math.pow(2, math.ceil(math.log(MinDimension, 2)))
+    return NewDimension
+
+
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None):
     '''Prepares an image for use with the phase correllation operation.  Padded areas are filled with noise matching the histogram of the 
@@ -329,14 +345,14 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 #        MinHeight = Height
 #
     if(NewHeight is None):
-        NewHeight = Height + (Height * (1 - MinOverlap)) + 1
+        NewHeight = NearestPowerOfTwoWithOverlap(Height, MinOverlap)  # Height + (Height * (1 - MinOverlap))  # + 1
 
     if(NewWidth is None):
-        NewWidth = Width + (Width * (1 - MinOverlap)) + 1
+        NewWidth = NearestPowerOfTwoWithOverlap(Width, MinOverlap)  # Width + (Width * (1 - MinOverlap))  # + 1
 
     # Round up size to nearest power of 2
-    NewHeight = math.pow(2, math.ceil(math.log(NewHeight, 2)))
-    NewWidth = math.pow(2, math.ceil(math.log(NewWidth, 2)))
+ #   NewHeight = math.pow(2, math.ceil(math.log(NewHeight, 2)))
+ #   NewWidth = math.pow(2, math.ceil(math.log(NewWidth, 2)))
 
     if(Width == NewWidth and Height == NewHeight):
         return image
@@ -426,6 +442,16 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     del CorrelationImage
 
     return retval
+
+def __findLabelOfBackground(LabelImage, NumLabels, ThresholdImage):
+    '''Returns the index of the label for the background in the image'''
+
+    # We expect mostly background, so find the first background pixel
+
+   # for i in range(0,NumLabels):
+
+  #      if ThresholdImage[LabelImage[i]]
+    return
 
 # @profile
 def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):

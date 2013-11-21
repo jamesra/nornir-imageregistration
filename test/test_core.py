@@ -28,6 +28,24 @@ class Test(setup_imagetest.ImageTestBase):
 #        self.assertEqual(Image.shape, ReshapeImage.shape)
 #        self.assertTrue((Image == ReshapeImage).all(), "Images should match exactly after converting to 1D and back to 2D")
 
+    def __CheckRangeForPowerOfTwo(self, overlap):
+
+         for v in range(2, 129):
+            newDim = core.NearestPowerOfTwoWithOverlap(v, overlap=overlap)
+
+            logOriginalDim = math.log(v, 2)
+            logNewDim = math.log(newDim, 2)
+
+            self.assertTrue(newDim % 2 == 0, "%d is not a power of two" % newDim)
+            self.assertTrue(logOriginalDim <= logNewDim, "%d padded to %d instead of nearest power of two" % (v, newDim))
+
+            print "%d -> %d" % (v, newDim)
+
+    def testNearestPowerOfTwo(self):
+
+        self.__CheckRangeForPowerOfTwo(1.0)
+        self.__CheckRangeForPowerOfTwo(0.5)
+
     def testROIRange(self):
 
         r = core.ROIRange(0, 16, 32)

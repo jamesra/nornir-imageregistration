@@ -147,8 +147,15 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     CheckTaskInterval = 10
 
     for i, theta in enumerate(AngleList):
-        task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
-        taskList.append(task)
+
+        if Debug:
+            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
+            AngleMatchValues.append(record)
+        else:
+            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
+            taskList.append(task)
+
+
 
         if not i % CheckTaskInterval == 0:
             continue
@@ -192,11 +199,11 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                           AngleSearchRange=range(-180, -160, 1))
+                           AngleSearchRange=range(-175, -170, 1))
 
 if __name__ == '__main__':
 
-    # from nornir_shared import misc
-    # misc.RunWithProfiler("__ExecuteProfiler", "C:\Temo\StosBrute.pr")
-    __ExecuteProfiler()
+    from nornir_shared import misc
+    misc.RunWithProfiler("__ExecuteProfiler()", "C:\Temo\StosBrute.pr")
+    # __ExecuteProfiler()
     pass
