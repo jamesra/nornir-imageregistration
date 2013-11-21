@@ -33,7 +33,7 @@ if __name__ == '__main__':
     scripts = glob.glob(os.path.join('scripts', '*.py'))
 
     setup(name='nornir_imageregistration',
-          version='1.0.1',
+          version='1.0.2',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",
