@@ -74,48 +74,63 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-def ScoreOneAngle(imFixed, imWarped, angle, PaddedFixed=None, MinOverlap=0.75):
+
+def ScoreOneAngle(imFixed, imWarped, angle, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    RotatedPaddedWarped = None
-    if angle == 0:
-        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(imWarped, MinOverlap=MinOverlap)
-    else:
-        # axes is set to (X,Y) so rotation matches photoshop results.
-        RotatedWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
-        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, MinOverlap=MinOverlap)
+    try:
+        RotatedWarped = None
+        OKToDelimWarped = False
+        if angle != 0:
+            imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
+            OKToDelimWarped = True
+
+        RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, MinOverlap=MinOverlap)
+
+        assert(RotatedWarped.shape[0] > 0)
+        assert(RotatedWarped.shape[1] > 0)
+
+        if not FixedImagePrePadded:
+            PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap)
+        else:
+            PaddedFixed = imFixed
+
+        # print str(PaddedFixed.shape) + ' ' +  str(RotatedPaddedWarped.shape)
+
+        TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
+        TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
+
+        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, MinOverlap=1.0)
+        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, MinOverlap=1.0)
+
+        if OKToDelimWarped:
+            del imWarped
+
         del RotatedWarped
 
-    assert(RotatedPaddedWarped.shape[0] > 0)
-    assert(RotatedPaddedWarped.shape[1] > 0)
+        assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
 
-    if PaddedFixed is None:
-        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=RotatedPaddedWarped.shape[1], NewHeight=RotatedPaddedWarped.shape[0], MinOverlap=1.0)
+        CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
-    # print str(PaddedFixed.shape) + ' ' +  str(RotatedPaddedWarped.shape)
+        del PaddedFixed
+        del RotatedPaddedWarped
 
-    if PaddedFixed.shape[0] != RotatedPaddedWarped.shape[0] and PaddedFixed.shape[1] != RotatedPaddedWarped.shape[1]:
-        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=RotatedPaddedWarped.shape[1], NewHeight=RotatedPaddedWarped.shape[0], MinOverlap=1.0)
+        CorrelationImage = fftshift(CorrelationImage)
+        NormCorrelationImage = CorrelationImage - CorrelationImage.min()
+        NormCorrelationImage /= NormCorrelationImage.max()
 
-    assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
+        del CorrelationImage
 
-    CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
+        # Timer.Start('Find Peak')
+        (peak, weight) = core.FindPeak(NormCorrelationImage)
 
-    del PaddedFixed
-    del RotatedPaddedWarped
+        del NormCorrelationImage
 
-    CorrelationImage = fftshift(CorrelationImage)
-    NormCorrelationImage = CorrelationImage - CorrelationImage.min()
-    NormCorrelationImage /= NormCorrelationImage.max()
-
-    del CorrelationImage
-
-    # Timer.Start('Find Peak')
-    (peak, weight) = core.FindPeak(NormCorrelationImage)
-
-    del NormCorrelationImage
-
-    record = core.AlignmentRecord(angle=angle, peak=peak, weight=weight)
+        record = core.AlignmentRecord(angle=angle, peak=peak, weight=weight)
+    except Exception as e:
+        print "Exception calculating angle: " + str(angle)
+        print str(e)
+        raise e
 
     return record
 
@@ -123,11 +138,12 @@ def ScoreOneAngle(imFixed, imWarped, angle, PaddedFixed=None, MinOverlap=0.75):
 def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     '''Find the best angle to align two images.  This function can be very memory intensive'''
 
+    SingleThread = False
     Debug = False
 
     pool = pools.GetGlobalMultithreadingPool()
     if Debug:
-        pool = pools.GetGlobalThreadPool()
+        pool = pools.GetThreadPool(Poolname=None, num_threads=3)
 
     AngleMatchValues = list()
     taskList = list()
@@ -144,18 +160,16 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
     SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
 
-    CheckTaskInterval = 10
+    CheckTaskInterval = 16
 
     for i, theta in enumerate(AngleList):
 
-        if Debug:
-            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
+        if SingleThread:
+            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, theta, MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, None, MinOverlap)
+            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, MinOverlap=MinOverlap)
             taskList.append(task)
-
-
 
         if not i % CheckTaskInterval == 0:
             continue
@@ -173,8 +187,6 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 
 
     while len(taskList) > 0:
-
-
         for iTask in range(len(taskList) - 1, -1, -1):
             if taskList[iTask].iscompleted:
                 record = taskList[iTask].wait_return()
@@ -192,6 +204,10 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 
     # print str(AngleMatchValues)
 
+    del PaddedFixed
+    del SharedPaddedFixed
+    del SharedWarped
+
     BestMatch = max(AngleMatchValues, key=core.AlignmentRecord.WeightKey)
     return BestMatch
 
@@ -199,7 +215,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                           AngleSearchRange=range(-175, -170, 1))
+                           AngleSearchRange=range(-175, -174, 1))
 
 if __name__ == '__main__':
 
