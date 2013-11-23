@@ -170,7 +170,7 @@ def npArrayToReadOnlySharedArray(npArray):
 
 def GenRandomData(height, width, mean, standardDev):
     '''Generate random data of shape with the specified mean and standard deviation'''
-    image = (scipy.randn(height, width).astype(numpy.float32) * standardDev) + mean
+    image = (numpy.random.randn(height, width).astype(numpy.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
         image = abs(image)
@@ -306,6 +306,7 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     return OutputImage
 
 
+
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
 
     if overlap > 1.0:
@@ -315,15 +316,25 @@ def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
         overlap = 0.0
 
     # Figure out the minimum dimension to accomodate the requested overlap
-    MinDimension = val + (val * (1.0 - overlap))
+    MinDimension = DimensionWithOverlap(val, overlap)
 
     # Figure out the power of two dimension
     NewDimension = math.pow(2, math.ceil(math.log(MinDimension, 2)))
     return NewDimension
 
 
+def DimensionWithOverlap(val, overlap=1.0):
+    '''Scale an image dimension such that an overlap of the specfied percent can be found'''
+
+    overlap += 0.5  # An overlap of 50% is half of the image, so we don't need to expand the image
+
+    if overlap > 1.0:
+        overlap = 1.0
+
+    return val + (val * (1.0 - overlap))
+
 # @profile
-def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None):
+def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
     '''Prepares an image for use with the phase correllation operation.  Padded areas are filled with noise matching the histogram of the 
        original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise'''
     Size = image.shape
@@ -331,31 +342,20 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     Height = Size[0]
     Width = Size[1]
 
-#
-#    if MinWidth is None:
-#        MinWidth = Width
-#
-#    if MinWidth < Width:
-#        MinWidth = Width
-#
-#    if MinHeight is None:
-#        MinHeight = Height
-#
-#    if MinHeight < Height:
-#        MinHeight = Height
-#
     if(NewHeight is None):
-        NewHeight = NearestPowerOfTwoWithOverlap(Height, MinOverlap)  # Height + (Height * (1 - MinOverlap))  # + 1
+        if PowerOfTwo:
+            NewHeight = NearestPowerOfTwoWithOverlap(Height, MinOverlap)
+        else:
+            NewHeight = DimensionWithOverlap(Height, MinOverlap)  #  # Height + (Height * (1 - MinOverlap))  # + 1
 
     if(NewWidth is None):
-        NewWidth = NearestPowerOfTwoWithOverlap(Width, MinOverlap)  # Width + (Width * (1 - MinOverlap))  # + 1
-
-    # Round up size to nearest power of 2
- #   NewHeight = math.pow(2, math.ceil(math.log(NewHeight, 2)))
- #   NewWidth = math.pow(2, math.ceil(math.log(NewWidth, 2)))
+        if PowerOfTwo:
+            NewWidth = NearestPowerOfTwoWithOverlap(Width, MinOverlap)
+        else:
+            NewWidth = DimensionWithOverlap(Width, MinOverlap)  #  # Height + (Height * (1 - MinOverlap))  # + 1
 
     if(Width == NewWidth and Height == NewHeight):
-        return image
+        return np.copy(image)
 
     if(ImageMedian is None or ImageStdDev is None):
         Image1D = image.flat
