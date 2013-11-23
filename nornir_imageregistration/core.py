@@ -24,6 +24,37 @@ import scipy.ndimage.interpolation as interpolation
 # from memory_profiler import profile
 logger = logging.getLogger('IrTools.core')
 
+class ImageStats(object):
+    '''An container for stats about an image'''
+
+    @property
+    def median(self):
+        return self._median
+
+    @median.setter
+    def median(self, val):
+        self._median = val
+
+    @property
+    def std(self):
+        return self._std
+
+    @std.setter
+    def std(self, val):
+        self._std = val
+
+    def __init__(self):
+        self._median = None
+        self._std = None
+
+    @classmethod
+    def CalcStats(cls, image):
+        image1D = image.flat
+        obj = ImageStats()
+        obj.median = median(image1D)
+        obj.std = std(image1D)
+        return obj
+
 
 def ApproxEqual(A, B, epsilon=None):
 

@@ -75,23 +75,29 @@ def SliceToSliceBruteForce(FixedImageInput,
 
 
 
-def ScoreOneAngle(imFixed, imWarped, angle, FixedImagePrePadded=True, MinOverlap=0.75):
+def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
     try:
+        if fixedStats is None:
+            fixedStats = core.ImageStats.CalcStats(imFixed)
+
+        if warpedStats is None:
+            warpedStats = core.ImageStats.CalcStats(imWarped)
+
         RotatedWarped = None
         OKToDelimWarped = False
         if angle != 0:
             imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
             OKToDelimWarped = True
 
-        RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, MinOverlap=MinOverlap)
+        RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 
         assert(RotatedWarped.shape[0] > 0)
         assert(RotatedWarped.shape[1] > 0)
 
         if not FixedImagePrePadded:
-            PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap)
+            PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=MinOverlap)
         else:
             PaddedFixed = imFixed
 
@@ -100,8 +106,8 @@ def ScoreOneAngle(imFixed, imWarped, angle, FixedImagePrePadded=True, MinOverlap
         TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
         TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
 
-        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, MinOverlap=1.0)
-        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, MinOverlap=1.0)
+        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
+        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
 
         if OKToDelimWarped:
             del imWarped
@@ -135,6 +141,18 @@ def ScoreOneAngle(imFixed, imWarped, angle, FixedImagePrePadded=True, MinOverlap
     return record
 
 
+def GetFixedAndWarpedImageStats(imFixed, imWarped):
+    tpool = pools.GetGlobalThreadPool()
+
+    fixedStatsTask = tpool.add_task('FixedStats', core.ImageStats.CalcStats, imFixed)
+    warpedStatsTask = tpool.add_task('WarpedStats', core.ImageStats.CalcStats, imWarped)
+
+    fixedStats = fixedStatsTask.wait_return()
+    warpedStats = warpedStatsTask.wait_return()
+
+    return (fixedStats, warpedStats)
+
+
 def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     '''Find the best angle to align two images.  This function can be very memory intensive'''
 
@@ -148,13 +166,15 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     AngleMatchValues = list()
     taskList = list()
 
+    (fixedStats, warpedStats) = GetFixedAndWarpedImageStats(imFixed, imWarped)
+
 #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
 #    MinRotatedDimension = max(min(imFixed), min(imWarped))
 #
 #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 
-    PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap)
+    PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
 
     # Create a shared read-only memory map for the Padded fixed image
     SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
@@ -165,10 +185,10 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
     for i, theta in enumerate(AngleList):
 
         if SingleThread:
-            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, theta, MinOverlap=MinOverlap)
+            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, MinOverlap=MinOverlap)
+            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
