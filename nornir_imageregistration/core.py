@@ -515,16 +515,13 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
     CorrelationImage = fftshift(CorrelationImage)
 
-    NormCorrelationImage = CorrelationImage - CorrelationImage.min()
-    NormCorrelationImage /= NormCorrelationImage.max()
-
-    del CorrelationImage
+    CorrelationImage -= CorrelationImage - CorrelationImage.min()
+    CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
+    (peak, weight) = FindPeak(CorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap)
 
-    (peak, weight) = FindPeak(NormCorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap)
-
-    del NormCorrelationImage
+    del CorrelationImage
 
     record = AlignmentRecord(peak=peak, weight=weight)
 
