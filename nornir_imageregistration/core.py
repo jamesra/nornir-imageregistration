@@ -515,7 +515,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
     CorrelationImage = fftshift(CorrelationImage)
 
-    CorrelationImage -= CorrelationImage - CorrelationImage.min()
+    CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
@@ -545,7 +545,7 @@ def ImageIntensityAtPercent(image, Percent=0.995):
             CutOffHistogramValue = binEdge[iBin]
             break
 
-        CumulativePixelsInBins = CumulativePixelsInBins + histogram[iBin]
+        CumulativePixelsInBins += histogram[iBin]
 
     if CutOffHistogramValue is None:
         CutOffHistogramValue = binEdge[-1]
