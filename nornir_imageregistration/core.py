@@ -474,10 +474,10 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     CorrelationImage = real(fftpack.irfft2(conjFFTFixed))
     del conjFFTFixed
 
-    # return CorrelationImage
-    SmallCorrelationImage = CorrelationImage.astype(np.float32)
-    del CorrelationImage
-    return SmallCorrelationImage
+    return CorrelationImage
+    #SmallCorrelationImage = CorrelationImage.astype(np.float32)
+    #del CorrelationImage
+    #return SmallCorrelationImage
 
 
 # @profile
