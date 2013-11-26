@@ -447,42 +447,38 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
 #    FFTFixed = FFTPlan.fft(FixedImage)
 #    FFTMoving  = FFTPlan.fft(MovingImage)
 
+
+    #--------------------------------
+    # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
+    # code has been obfuscated more than I like
+    # FFTFixed = fftpack.rfft2(FixedImage)
+    # FFTMoving = fftpack.rfft2(MovingImage)
+    # conjFFTFixed = conj(FFTFixed)
+    # Numerator = conjFFTFixed * FFTMoving
+    # Divisor = abs(conjFFTFixed * FFTMoving)
+    # T = Numerator / Divisor
+    # CorrelationImage = real(fftpack.irfft2(T))
+    #--------------------------------
+
     FFTFixed = fftpack.rfft2(FixedImage)
     FFTMoving = fftpack.rfft2(MovingImage)
 
     conjFFTFixed = conj(FFTFixed)
     del FFTFixed
 
-    Numerator = conjFFTFixed * FFTMoving
-    Divisor = abs(conjFFTFixed * FFTMoving)
-    del conjFFTFixed
+    conjFFTFixed *= FFTMoving
     del FFTMoving
 
-    T = Numerator / Divisor
-    del Numerator
-    del Divisor
+    conjFFTFixed /= abs(conjFFTFixed)  # Numerator / Divisor
 
-    # Correlation = FFTPlan.ifft(T)
-    Correlation = fftpack.irfft2(T)
-    del T
+    CorrelationImage = real(fftpack.irfft2(conjFFTFixed))
+    del conjFFTFixed
 
-    CorrelationImage = real(Correlation)
-    del Correlation
-
-    retval = CorrelationImage.astype(np.float32)
+    # return CorrelationImage
+    SmallCorrelationImage = CorrelationImage.astype(np.float32)
     del CorrelationImage
+    return SmallCorrelationImage
 
-    return retval
-
-def __findLabelOfBackground(LabelImage, NumLabels, ThresholdImage):
-    '''Returns the index of the label for the background in the image'''
-
-    # We expect mostly background, so find the first background pixel
-
-   # for i in range(0,NumLabels):
-
-  #      if ThresholdImage[LabelImage[i]]
-    return
 
 # @profile
 def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
@@ -495,15 +491,17 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, range(0, NumLabels))
     PeakValueIndex = LabelSums.argmax()
     PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
+    PeakStrength = LabelSums[PeakValueIndex]
 
     del LabelImage
     del ThresholdImage
+    del LabelSums
 
     # center_of_mass returns results as (y,x)
     Offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
     # Offset = (Offset[0], Offset[1])
 
-    return (Offset, LabelSums[PeakValueIndex])
+    return (Offset, PeakStrength)
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
@@ -530,9 +528,16 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
 def ImageIntensityAtPercent(image, Percent=0.995):
     '''Returns the intensity of the Cutoff% most intense pixel in the image'''
     NumPixels = image.size
-    # FlatSortedImage = sort(reshape(image,NumPixels, 1))
-    # CutoffIndex = int(NumPixels * Percent)
-    # CutoffValue = FlatSortedImage[CutoffIndex]
+
+
+#   Sorting the list is a more correct and straightforward implementation, but using numpy.histogram is about 1 second faster
+#   image1D = numpy.sort(image, axis=None)
+#   targetIndex = math.floor(float(NumPixels) * Percent)
+#
+#   val = image1D[targetIndex]
+#
+#   del image1D
+#   return val
 
     NumBins = 200
     [histogram, binEdge] = numpy.histogram(image, bins=NumBins)

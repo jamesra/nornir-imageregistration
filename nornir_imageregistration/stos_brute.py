@@ -78,6 +78,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
+   # gc.set_debug(gc.DEBUG_LEAK)
     try:
         if fixedStats is None:
             fixedStats = core.ImageStats.CalcStats(imFixed)
@@ -122,15 +123,15 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
         del RotatedPaddedWarped
 
         CorrelationImage = fftshift(CorrelationImage)
-        NormCorrelationImage = CorrelationImage - CorrelationImage.min()
-        NormCorrelationImage /= NormCorrelationImage.max()
+        CorrelationImage -= CorrelationImage.min()
+        CorrelationImage /= CorrelationImage.max()
 
-        del CorrelationImage
+        # del CorrelationImage
 
         # Timer.Start('Find Peak')
-        (peak, weight) = core.FindPeak(NormCorrelationImage)
+        (peak, weight) = core.FindPeak(CorrelationImage)
 
-        del NormCorrelationImage
+        del CorrelationImage
 
         record = core.AlignmentRecord(angle=angle, peak=peak, weight=weight)
     except Exception as e:
@@ -235,7 +236,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                           AngleSearchRange=range(-175, -174, 1))
+                            AngleSearchRange=range(-175, -174, 1))
 
 if __name__ == '__main__':
 
