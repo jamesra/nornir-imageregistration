@@ -96,7 +96,7 @@ class Mosaic(object):
         raise Exception("Not implemented")
 
 
-    def AssembleTiles(self, tilesPath, parallel=False):
+    def AssembleTiles(self, tilesPath, usecluster=False):
         '''Create a single large mosaic'''
         
         #Ensure that all transforms map to positive values
@@ -105,7 +105,7 @@ class Mosaic(object):
         # Allocate a buffer for the tiles
         tilesPath = [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
 
-        if parallel:
+        if usecluster:
             cpool = pools.GetGlobalClusterPool()
             return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath, pool=cpool)
         else:
