@@ -273,8 +273,8 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
     if transformedImageData.image is None:
         logger = logging.getLogger('TilesToImageParallel')
         logger.error('Convert task failed: ' + str(transformedImageData))
-        if not transformedImageData.errmsg is None:
-            logger.error(transformedImageData.errmsg)
+        if not transformedImageData.errormsg is None:
+            logger.error(transformedImageData.errormsg)
             return (fullImage, fullImageZBuffer)
 
     (minX, minY, maxX, maxY) = transformedImageData.transform.ControlPointBoundingBox
