@@ -96,7 +96,7 @@ class Mosaic(object):
         raise Exception("Not implemented")
 
 
-    def AssembleTiles(self, tilesPath, parallel=True):
+    def AssembleTiles(self, tilesPath, parallel=False):
         '''Create a single large mosaic'''
         
         #Ensure that all transforms map to positive values
