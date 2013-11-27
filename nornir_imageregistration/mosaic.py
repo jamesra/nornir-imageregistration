@@ -98,6 +98,9 @@ class Mosaic(object):
 
     def AssembleTiles(self, tilesPath, parallel=True):
         '''Create a single large mosaic'''
+        
+        #Ensure that all transforms map to positive values
+        self.TranslateToZeroOrigin()
 
         # Allocate a buffer for the tiles
         tilesPath = [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
