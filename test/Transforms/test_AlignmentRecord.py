@@ -8,7 +8,7 @@ from  nornir_imageregistration.alignment_record import *
 import test.setup_imagetest
 
 import nornir_shared.images as images
-from nornir_imageregistration.io.stosfile import StosFile
+from nornir_imageregistration.files.stosfile import StosFile
 import nornir_imageregistration.transforms.factory as factory
 from test_Transforms import TransformCheck
 from scipy import pi
@@ -137,7 +137,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         FixedSize = (100, 1000)
         WarpedSize = (10, 10)
 
-        arecord = AlignmentRecord(peak = (0, 0), weight = 100, angle = 0)
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0)
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 
         self.assertEqual(FixedSize[1], images.GetImageSize(FixedImagePath)[0])
@@ -149,7 +149,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
-        savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 1)
+        savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
         stosfilepath = os.path.join(self.VolumeDir, 'TestRWScaleOnly.stos')
         savedstosObj.Save(stosfilepath)
@@ -174,7 +174,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (20, 5)
-        arecord = AlignmentRecord(peak, weight = 100, angle = 0)
+        arecord = AlignmentRecord(peak, weight=100, angle=0)
 
         FixedSize = images.GetImageSize(FixedImagePath)
         WarpedSize = images.GetImageSize(WarpedImagePath)
@@ -187,7 +187,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         TransformCheck(self, alignmentTransform, [[(WarpedSize[0] / 2.0), (WarpedSize[1] / 2.0)]], [[(FixedSize[0] / 2.0) + peak[0], (FixedSize[1] / 2.0) + peak[1]]])
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
-        savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing = 1)
+        savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute.stos')
         savedstosObj.Save(stosfilepath)

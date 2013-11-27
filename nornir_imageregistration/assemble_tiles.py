@@ -7,44 +7,20 @@ Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
 import assemble
+import tiles
 import numpy as np
 
 import scipy.spatial.distance
 from scipy import stats
-# from nornir_imageregistration.io.mosaicfile import MosaicFile
+# from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 import core
 import os
 import logging
 import transforms.utils as tutils
+import tiles
 import nornir_pools as pools
 import copy
-
-
-
-
-#
-# def __ArgToMosaic(arg):
-#
-#     mosaicObj = None
-#     if isinstance(arg, str):
-#         mosaicObj = MosaicFile.Load(arg)
-#     elif isinstance(arg, MosaicFile):
-#         mosaicObj = Mosaic.LoadFromMosaicFile(arg)
-#     elif isinstance(arg, Mosaic):
-#         mosaicObj = Mosaic
-#     else:
-#         raise Exception("Unexpected argument type for mosaic")
-#
-#     return mosaicObj
-#
-#
-# def MosaicToImage(mosaicArg):
-#
-#     mosaic = __ArgToMosaic(mosaicArg)
-#     if mosaic is None:
-#         raise Exception("Invalid mosaic argument to MosaicToImage " + str(mosaicArg))
-#
 
 class TransformedImageData(object):
 
@@ -63,7 +39,7 @@ class TransformedImageData(object):
     @property
     def transform(self):
         return self._transform
-    
+
     @property
     def errormsg(self):
         return self._errmsg
@@ -135,7 +111,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     return (FullImage, FullZBuffer)
 
 
-def distFunc(i,j):
+def distFunc(i, j):
     print(str(i) + ", " + str(j))
     a = np.array(i, dtype=np.float)
     a = a * a
@@ -170,54 +146,6 @@ def CreateDistanceImage(shape, dtype=None):
     return distance
 
 
-def __DetermineScale(transform, imageSize):
-    '''Returns a scalar that can be applied to the transform to make the transform bounds match the image dimensions'''
-
-    width = transform.MappedBoundingBoxWidth
-    height = transform.MappedBoundingBoxHeight
-
-    if __approxEqual(imageSize[0], height) and __approxEqual(imageSize[1], width):
-        return 1.0
-    else:
-        heightScale = (imageSize[0] / height)
-        widthScale = (imageSize[1] / width)
-
-        if(__approxEqual(heightScale, widthScale)):
-            return heightScale
-        else:
-            return None
-
-
-def MostCommonScalar(transforms, imagepaths):
-    '''Compare the image size encoded in the transforms to the image sizes on disk. 
-       Return the most common scale factor required to make the transforms match the image dimensions'''
-
-    scales = []
-
-    for i, transform in enumerate(transforms):
-        imagefullpath = imagepaths[i]
-
-        size = core.GetImageSize(imagefullpath)
-
-        if size is None:
-            continue
-
-        scales.append(__DetermineScale(transform, size))
-
-    if len(scales) == 0:
-        raise Exception("No image sizes available to determine scale for assemble")
-
-    return stats.mode(scales)[0]
-
-
-def __approxEqual(A, B, epsilon=None):
-
-    if epsilon is None:
-        epsilon = 0.01
-
-    return np.abs(A - B) < epsilon
-
-
 def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
@@ -249,7 +177,7 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
     logger = logging.getLogger('TilesToImage')
 
     if requiredScale is None:
-        requiredScale = MostCommonScalar(transforms, imagepaths)
+        requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
     (fullImage, fullImageZbuffer) = __CreateOutputBuffer(transforms, requiredScale)
 
@@ -287,7 +215,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
     distanceImage = None
 
     if requiredScale is None:
-        requiredScale = MostCommonScalar(transforms, imagepaths)
+        requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
     if pool is None:
         pool = pools.GetGlobalMultithreadingPool()
@@ -300,7 +228,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
 
     for i, transform in enumerate(transforms):
         imagefullpath = imagepaths[i]
-        task = pool.add_task("__TransformTile" + imagefullpath, __TransformTile, transform, imagefullpath, distanceImage=None, requiredScale=requiredScale)
+        task = pool.add_task("__TransformTile" + imagefullpath, __TransformTile, transform=transform, imagefullpath=imagefullpath, distanceImage=None, requiredScale=requiredScale)
         task.transform = transform
         tasks.append(task)
 
@@ -319,6 +247,12 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
     while len(tasks) > 0:
         t = tasks.pop()
         transformedImageData = t.wait_return()
+
+        if transformedImageData is None:
+            logger = logging.getLogger('TilesToImageParallel')
+            logger.error('Convert task failed: ' + str(t))
+            continue
+
         (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer)
         del transformedImageData
         del t
@@ -338,9 +272,9 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
 
     if transformedImageData.image is None:
         logger = logging.getLogger('TilesToImageParallel')
-        logger.error('Convert task failed: ' + str(t))
-        if not transformedImageData.errmsg is None:
-            logger.error(transformedImageData.errmsg)
+        logger.error('Convert task failed: ' + str(transformedImageData))
+        if not transformedImageData.errormsg is None:
+            logger.error(transformedImageData.errormsg)
             return (fullImage, fullImageZBuffer)
 
     (minX, minY, maxX, maxY) = transformedImageData.transform.ControlPointBoundingBox
@@ -363,10 +297,10 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
     warpedImage = core.LoadImage(imagefullpath)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
-    transformScale = __DetermineScale(transform, warpedImage.shape)
+    transformScale = tiles.__DetermineScale(transform, warpedImage.shape)
 
     if not requiredScale is None:
-        if not __approxEqual(transformScale, requiredScale):
+        if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
 
     if transformScale != 1.0:

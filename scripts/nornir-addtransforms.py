@@ -6,7 +6,7 @@ Created on May 21, 2013
 
 import argparse
 import os
-import nornir_imageregistration.io.stosfile as stosfile
+import nornir_imageregistration.files.stosfile as stosfile
 import nornir_shared.misc
 import logging
 import sys

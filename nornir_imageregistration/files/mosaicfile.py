@@ -2,6 +2,7 @@ import os;
 import sys;
 from nornir_shared import checksum, images, prettyoutput
 
+
 ImageNameTemplate = "%(section)04u_%(channel)s_%(filter)s_%(downsample)u.%(ext)s";
 MosaicNameTemplate = "%(channel)s_%(filter)s.mosaic";
 

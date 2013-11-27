@@ -6,10 +6,11 @@ Created on Nov 13, 2012
 The factory is focused on the loading and saving of transforms
 '''
 
+from scipy import *
+
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
-import utils
-from scipy import  *
 import numpy as np
+import utils
 
 
 def TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
