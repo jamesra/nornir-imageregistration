@@ -69,7 +69,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
             self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
 
 
-    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath, parallel, downsamplePath=None):
+    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath, parallel=False, downsamplePath=None):
 
         if downsamplePath is None:
             downsamplePath = '001'
@@ -93,7 +93,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         timer.Start("AssembleTiles " + TilesDir)
 
-        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, parallel=parallel)
+        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, usecluster=parallel)
 
         timer.End("AssembleTiles " + TilesDir, True)
 

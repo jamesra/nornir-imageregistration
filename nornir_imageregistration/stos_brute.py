@@ -25,7 +25,8 @@ def SliceToSliceBruteForce(FixedImageInput,
                            WarpedImageMaskPath=None,
                            LargestDimension=None,
                            AngleSearchRange=None,
-                           MinOverlap=0.75):
+                           MinOverlap=0.75,
+                           SingleThread=False):
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be'''
 
@@ -59,12 +60,12 @@ def SliceToSliceBruteForce(FixedImageInput,
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = range(-180, 180, 2)
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange)
+    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread)
 
     # Find the best match
 
     if not UserDefinedAngleSearchRange:
-        BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)])
+        BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)], SingleThread=SingleThread)
     else:
         BestRefinedMatch = BestMatch
 
@@ -78,66 +79,61 @@ def SliceToSliceBruteForce(FixedImageInput,
 def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-   # gc.set_debug(gc.DEBUG_LEAK)
-    try:
-        if fixedStats is None:
-            fixedStats = core.ImageStats.CalcStats(imFixed)
+    # gc.set_debug(gc.DEBUG_LEAK)
+    if fixedStats is None:
+        fixedStats = core.ImageStats.CalcStats(imFixed)
 
-        if warpedStats is None:
-            warpedStats = core.ImageStats.CalcStats(imWarped)
+    if warpedStats is None:
+        warpedStats = core.ImageStats.CalcStats(imWarped)
 
-        RotatedWarped = None
-        OKToDelimWarped = False
-        if angle != 0:
-            imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
-            OKToDelimWarped = True
+    RotatedWarped = None
+    OKToDelimWarped = False
+    if angle != 0:
+        imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
+        OKToDelimWarped = True
 
-        RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
+    RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 
-        assert(RotatedWarped.shape[0] > 0)
-        assert(RotatedWarped.shape[1] > 0)
+    assert(RotatedWarped.shape[0] > 0)
+    assert(RotatedWarped.shape[1] > 0)
 
-        if not FixedImagePrePadded:
-            PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=MinOverlap)
-        else:
-            PaddedFixed = imFixed
+    if not FixedImagePrePadded:
+        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=MinOverlap)
+    else:
+        PaddedFixed = imFixed
 
-        # print str(PaddedFixed.shape) + ' ' +  str(RotatedPaddedWarped.shape)
+    # print str(PaddedFixed.shape) + ' ' +  str(RotatedPaddedWarped.shape)
 
-        TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
-        TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
+    TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
+    TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
 
-        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
-        RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
+    PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
+    RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
 
-        if OKToDelimWarped:
-            del imWarped
+    if OKToDelimWarped:
+        del imWarped
 
-        del RotatedWarped
+    del RotatedWarped
 
-        assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
+    assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
 
-        CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
+    CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
-        del PaddedFixed
-        del RotatedPaddedWarped
+    del PaddedFixed
+    del RotatedPaddedWarped
 
-        CorrelationImage = fftshift(CorrelationImage)
-        CorrelationImage -= CorrelationImage.min()
-        CorrelationImage /= CorrelationImage.max()
+    CorrelationImage = fftshift(CorrelationImage)
+    CorrelationImage -= CorrelationImage.min()
+    CorrelationImage /= CorrelationImage.max()
 
-        # del CorrelationImage
+    # del CorrelationImage
 
-        # Timer.Start('Find Peak')
-        (peak, weight) = core.FindPeak(CorrelationImage)
+    # Timer.Start('Find Peak')
+    (peak, weight) = core.FindPeak(CorrelationImage)
 
-        del CorrelationImage
+    del CorrelationImage
 
-        record = core.AlignmentRecord(angle=angle, peak=peak, weight=weight)
-    except Exception as e:
-        print "Exception calculating angle: " + str(angle)
-        print str(e)
-        raise e
+    record = core.AlignmentRecord(peak, weight, angle)
 
     return record
 
@@ -154,10 +150,11 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
-    '''Find the best angle to align two images.  This function can be very memory intensive'''
+def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False):
+    '''Find the best angle to align two images.  This function can be very memory intensive.
+       Setting SingleThread=True makes debugging easier'''
 
-    SingleThread = False
+
     Debug = False
 
     pool = pools.GetGlobalMultithreadingPool()
@@ -236,11 +233,12 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75):
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                            AngleSearchRange=range(-175, -174, 1))
+                            AngleSearchRange=range(-175, -174, 1),
+                            SingleThread=True)
 
 if __name__ == '__main__':
 
     from nornir_shared import misc
-    misc.RunWithProfiler("__ExecuteProfiler()", "C:\Temo\StosBrute.pr")
+    misc.RunWithProfiler("__ExecuteProfiler()", "C:\Temp\StosBrute")
     # __ExecuteProfiler()
     pass
