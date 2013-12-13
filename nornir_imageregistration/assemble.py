@@ -13,7 +13,7 @@ from scipy.ndimage import interpolation
 from   nornir_imageregistration.transforms import factory, triangulation
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
 import nornir_imageregistration.transforms.base as transformbase
-from nornir_imageregistration.io.stosfile import StosFile
+from nornir_imageregistration.files.stosfile import StosFile
 import os
 import nornir_pools as pools
 

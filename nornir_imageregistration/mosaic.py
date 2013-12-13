@@ -4,12 +4,13 @@ Created on Mar 29, 2013
 @author: u0490822
 '''
 
-from nornir_imageregistration.io.mosaicfile import MosaicFile
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 import transforms.factory as tfactory
 import transforms.utils as tutils
 import assemble_tiles as at
 import numpy as np
 import os
+import nornir_pools as pools
 
 
 
@@ -79,8 +80,6 @@ class Mosaic(object):
         '''Return a list of full paths to the tile for each transform'''
         return [os.path.join(tilesDir, x) for x in self.ImageToTransform.keys()]
 
-
-
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
 
@@ -97,17 +96,21 @@ class Mosaic(object):
         raise Exception("Not implemented")
 
 
-
-    def AssembleTiles(self, tilesPath, parallel=True):
+    def AssembleTiles(self, tilesPath, usecluster=False):
         '''Create a single large mosaic'''
+        
+        #Ensure that all transforms map to positive values
+        self.TranslateToZeroOrigin()
 
         # Allocate a buffer for the tiles
         tilesPath = [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
 
-        if parallel:
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath)
+        if usecluster:
+            cpool = pools.GetGlobalClusterPool()
+            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath, pool=cpool)
         else:
-            return at.TilesToImage(self.ImageToTransform.values(), tilesPath)
+            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath)
+            # return at.TilesToImage(self.ImageToTransform.values(), tilesPath)
 
 
 

@@ -7,7 +7,6 @@ Created on Apr 4, 2013
 import numpy as np
 
 
-
 def InvalidIndicies(points):
     '''Removes rows with a NAN value and returns a list of indicies'''
 

@@ -4,17 +4,18 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-from nornir_imageregistration.transforms import triangulation
-from nornir_imageregistration.transforms import base
-from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
-import scipy.interpolate
-import numpy
 import math
-import scipy.spatial as spatial
-import scipy.linalg as linalg
-import nornir_pools as pools
-import utils
 
+import numpy
+import scipy.interpolate
+
+from nornir_imageregistration.transforms import base, triangulation
+from nornir_imageregistration.transforms.rbftransform import \
+    RBFWithLinearCorrection
+import nornir_pools as pools
+import scipy.linalg as linalg
+import scipy.spatial as spatial
+import utils
 
 
 class MeshWithRBFFallback(triangulation.Triangulation):

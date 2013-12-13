@@ -4,17 +4,19 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-import numpy as np
-from base import *
-import math
-
-from scipy.spatial import  *
-from scipy.interpolate import griddata
-import operator
-import logging
 import copy
+import logging
+import math
+import operator
+
+from scipy.interpolate import griddata
+from scipy.spatial import *
+
+from base import *
 from nornir_imageregistration.transforms.utils import InvalidIndicies
+import numpy as np
 import utils
+
 
 class Triangulation(Base):
     '''

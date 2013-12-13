@@ -4,9 +4,12 @@ Created on Jul 12, 2012
 @author: Jamesan
 '''
 
-import numpy
-import fftw3f as fftw3
 import threading
+
+import numpy
+
+import fftw3f as fftw3
+
 
 class FFTWPlan(object):
 

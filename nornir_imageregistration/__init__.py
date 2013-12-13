@@ -1,1 +1,1 @@
-__all__ = ['image_stats', 'core', 'io', 'geometry', 'transforms']
+__all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms']

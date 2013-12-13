@@ -7,7 +7,8 @@ import unittest
 import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
-from nornir_imageregistration.io.mosaicfile import MosaicFile
+import nornir_imageregistration.tiles as tiles
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
 import nornir_imageregistration.transforms.factory as tfactory
 # from pylab import *
@@ -68,7 +69,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
             self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
 
 
-    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath, parallel, downsamplePath=None):
+    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath, parallel=False, downsamplePath=None):
 
         if downsamplePath is None:
             downsamplePath = '001'
@@ -82,7 +83,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         mosaic.TranslateToZeroOrigin()
 
-        assembleScale = at.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(TilesDir))
+        assembleScale = tiles.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(TilesDir))
 
         expectedScale = 1.0 / float(downsamplePath)
 
@@ -92,7 +93,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         timer.Start("AssembleTiles " + TilesDir)
 
-        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, parallel=parallel)
+        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, usecluster=parallel)
 
         timer.End("AssembleTiles " + TilesDir, True)
 
