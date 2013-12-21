@@ -1,9 +1,5 @@
 '''
-Created on Jul 6, 2012
-
-@author: Jamesan
-
-Remember that the scipy image arrays are indexed [y,x]
+scipy image arrays are indexed [y,x]
 '''
 
 import ctypes
@@ -13,7 +9,7 @@ import os
 
 from PIL import Image
 import numpy
-from pylab import *
+import pylab
 import scipy.ndimage.measurements
 import scipy.stats
 
@@ -25,7 +21,7 @@ import scipy.ndimage.interpolation as interpolation
 logger = logging.getLogger('IrTools.core')
 
 class ImageStats(object):
-    '''An container for stats about an image'''
+    '''A container for image statistics'''
 
     @property
     def median(self):
@@ -80,7 +76,10 @@ def ReduceImage(image, scalar):
     return interpolation.zoom(image, scalar)
 
 def ShowGrayscale(imageList):
-
+    '''
+    :param list imageList: A list or single ndimage to be displayed with imshow
+    '''
+    
     if isinstance(imageList, list):
         fig, axeslist = plt.subplots(1, len(imageList))
         # fig = figure()
@@ -145,9 +144,19 @@ def ExtractROI(image, center, area):
 
 
 def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
-    '''Crop the image at the passed bounds and returns the cropped ndarray.
-       IF the requested area is outside the bounds of the array then the correct region is returned
-       with a background color set'''
+    '''
+       Crop the image at the passed bounds and returns the cropped ndarray.
+       If the requested area is outside the bounds of the array then the correct region is returned
+       with a background color set
+       
+       :param int Xo: X origin for crop
+       :param int Yo: Y origin for crop
+       :param int Width: New width of image
+       :param int Height: New height of image
+       :param int background: default value for regions outside the original image boundaries
+       :return: Cropped image
+       :rtype: ndarray
+       '''
 
     image = None
     if isinstance(imageparam, str):
@@ -192,7 +201,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
 
 
 def npArrayToReadOnlySharedArray(npArray):
-    '''Returns a shared memory array for a numpy array'''
+    '''Returns a shared memory array for a numpy array.  Used to reduce memory footprint when passing parameters to multiprocess pools'''
     SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
     SharedArray = np.ctypeslib.as_array(SharedBase)
     SharedArray = SharedArray.reshape(npArray.shape)
@@ -200,7 +209,9 @@ def npArrayToReadOnlySharedArray(npArray):
     return SharedArray
 
 def GenRandomData(height, width, mean, standardDev):
-    '''Generate random data of shape with the specified mean and standard deviation'''
+    '''
+    Generate random data of shape with the specified mean and standard deviation
+    '''
     image = (numpy.random.randn(height, width).astype(numpy.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
@@ -209,7 +220,10 @@ def GenRandomData(height, width, mean, standardDev):
 
 
 def GetImageSize(ImageFullPath):
-    '''Returns image size as (height,width)'''
+    '''
+    :returns: Image (height, width)
+    :rtype: tuple
+    '''
 
     if not os.path.exists(ImageFullPath):
         return None
@@ -222,7 +236,10 @@ def GetImageSize(ImageFullPath):
 
 
 def ForceGrayscale(image):
-    '''Ensure an image is greyscale'''
+    '''
+    :param: ndarray with 3 dimensions
+    :returns: grayscale data 
+    :rtype: ndarray with 2 dimensions'''
 
     if len(image.shape) > 2:
         image = image[:, :, 0]
@@ -232,8 +249,16 @@ def ForceGrayscale(image):
 
 # @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
-    '''Loads an image, masks it, and removes extrema pixels.
-       This is a helper function for registering images'''
+    
+    '''
+    Loads an image, masks it, and removes extrema pixels.
+    
+    :param str ImageFullPath: Path to image
+    :param str ImageMaskFullPath: Path to mask, dimension should match input image
+    :param MaxDimension: Limit the largest dimension of the returned image to this size.  Downsample if necessary.
+    :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
+    :rtype: ndimage
+    '''
     if(not os.path.isfile(ImageFullPath)):
         logger.error('File does not exist: ' + ImageFullPath)
         return None
@@ -355,7 +380,7 @@ def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
 
 
 def DimensionWithOverlap(val, overlap=1.0):
-    '''Scale an image dimension such that an overlap of the specfied percent can be found'''
+    '''Scale an image dimension such that an overlap of the specified percent can be found'''
 
     overlap += 0.5  # An overlap of 50% is half of the image, so we don't need to expand the image
 
@@ -429,8 +454,17 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
 # @profile
 def ImagePhaseCorrelation(FixedImage, MovingImage):
-    '''Returns the phase shift correlation of the FFT's of two images. 
-       Light pixels indicate the phase is well aligned at that offset'''
+    '''
+    Returns the phase shift correlation of the FFT's of two images. 
+    
+    Dimensions of Fixed and Moving images must match
+    
+    :param ndarray FixedImage: grayscale image
+    :param ndarray MovingImage: grayscale image
+    :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
+    :rtype: ndimage
+    
+    '''
 
     if(not (FixedImage.shape == MovingImage.shape)):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -482,6 +516,16 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
 
 # @profile
 def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
+    '''
+    Find the offset of the strongest response in a phase correlation image
+    
+    :param ndimage image: grayscale image
+    :param float Cutoff: Percentile used to threshold image.  Values below the percentile are ignored
+    :param float MinOverlap: Minimum overlap allowed
+    :param float MaxOverlap: Maximum overlap allowed
+    :return: Offset of peak from image center and sum of pixels values at peak
+    :rtype: (tuple, float)
+    '''
     CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)

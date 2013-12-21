@@ -1,7 +1,4 @@
 '''
-Created on Oct 12, 2012
-
-@author: u0490822
 '''
 
 import nornir_imageregistration.files.stosfile as stosfile
@@ -13,26 +10,36 @@ from scipy import pi
 
 
 class AlignmentRecord:
-    '''Records basic registration information as an angle and offset between a fixed and moving image
-       If the offset is zero the center of both images occupy the same point.  
-       The offset determines the translation of the moving image over the fixed image.
-       There is no support for scale, and there should not be unless explicitely added as another variable to the alignment record'''
+    '''
+    Records basic registration information as an angle and offset between a fixed and moving image
+    If the offset is zero the center of both images occupy the same point.  
+    The offset determines the translation of the moving image over the fixed image.
+    There is no support for scale, and there should not be unless added as another variable to the alignment record
+    
+    :param array peak: Translation vector for moving image
+    :param float weight: The strength of the alignment
+    :param float angle: Angle to rotate moving image in degrees
+    
+    '''
 
     @property
     def angle(self):
+        '''Rotation in degrees'''
         return self._angle;
 
     @property
     def rangle(self):
-        '''angle in radians'''
+        '''Rotation in radians'''
         return self._angle * (pi / 180);
 
     @property
     def weight(self):
+        '''Quantifies the quality of the alignment'''
         return self._weight;
 
     @property
     def peak(self):
+        '''Translation vector for the alignment'''
         return self._peak;
 
     def WeightKey(self):
