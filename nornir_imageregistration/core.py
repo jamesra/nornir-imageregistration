@@ -149,11 +149,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
        If the requested area is outside the bounds of the array then the correct region is returned
        with a background color set
        
+       :param ndarray imageparam: An ndarray image to crop.  A string containing a path to an image is also acceptable.e
        :param int Xo: X origin for crop
        :param int Yo: Y origin for crop
        :param int Width: New width of image
        :param int Height: New height of image
-       :param int background: default value for regions outside the original image boundaries
+       :param int background: default value for regions outside the original image boundaries.  Defaults to 0.
        :return: Cropped image
        :rtype: ndarray
        '''
@@ -193,8 +194,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
         in_endY = image.shape[0]
         out_endY = out_startY + (in_endY - in_startY)
 
-    cropped = zeros((Height, Width), dtype=image.dtype)
-
+    cropped = None
+    if background is None:
+        cropped = zeros((Height, Width), dtype=image.dtype)
+    else:
+        cropped = ones((Height, Width), dtype=image.dtype) * background
+        
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
     return cropped
@@ -290,9 +295,17 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
 
 
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
-    '''Fill the masked area with random noise with gaussian distribution about the image
-       mean and with standard deviation matching the image's standard deviation'''
-
+    '''
+    Fill the masked area with random noise with gaussian distribution about the image
+    mean and with standard deviation matching the image's standard deviation
+    
+    :param ndimage image: Input image
+    :param ndimage mask: Mask, zeros are replaced with noise.  Ones pull values from input image
+    :param float ImageMedian: Mean of noise distribution, calculated from image if none
+    :param float ImageStdDev: Standard deviation of noise distribution, calculated from image if none
+    :param bool Copy: Returns a copy of input image if true, otherwise write noise to the input image
+    :rtype: ndimage
+    '''
 
     assert(image.shape == Mask.shape)
 
@@ -331,7 +344,9 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
 
 
 def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
-    '''Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions'''
+    '''
+    Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions
+    '''
 
     Image1D = image.flat
 
@@ -362,8 +377,10 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     return OutputImage
 
 
-
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
+    '''
+    :return: Same as DimensionWithOverlap, but output dimension is increased to the next power of two for faster FFT operations
+    '''
 
     if overlap > 1.0:
         overlap = 1.0
@@ -380,7 +397,11 @@ def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
 
 
 def DimensionWithOverlap(val, overlap=1.0):
-    '''Scale an image dimension such that an overlap of the specified percent can be found'''
+    '''
+    :param float val: Original dimension
+    :param float overlap: Amount of overlap possible between images, from 0 to 1
+    :returns: Required dimension size to unambiguously determine the offset in an fft image
+    '''
 
     overlap += 0.5  # An overlap of 50% is half of the image, so we don't need to expand the image
 
@@ -391,8 +412,22 @@ def DimensionWithOverlap(val, overlap=1.0):
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
-    '''Prepares an image for use with the phase correllation operation.  Padded areas are filled with noise matching the histogram of the 
-       original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise'''
+    '''
+    Prepares an image for use with the phase correlation operation.  Padded areas are filled with noise matching the histogram of the 
+    original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise
+    
+    :param ndarray image: Input image
+    :param float MinOverlap: Minimum overlap allowed between the input image and images it will be registered to
+    :param float ImageMean: Median value of noise, calculated or pulled from cache if none
+    :param float ImageStdDev: Standard deviation of noise, calculated or pulled from cache if none
+    :param int NewWidth: Pad input image to this dimension if not none
+    :param int NewHeight: Pad input image to this dimension if not none
+    :param bool PowerOfTwo: Pad the image to a power of two if true
+    :return: An image with the input image centered surrounded by noise
+    :rtype: ndimage
+    
+    
+    '''
     Size = image.shape
 
     Height = Size[0]

@@ -1,8 +1,6 @@
 '''
 Created on Oct 28, 2013
 
-@author: u0490822
-
 Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
