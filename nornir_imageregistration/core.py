@@ -403,12 +403,13 @@ def DimensionWithOverlap(val, overlap=1.0):
     :returns: Required dimension size to unambiguously determine the offset in an fft image
     '''
 
-    overlap += 0.5  # An overlap of 50% is half of the image, so we don't need to expand the image
+    # An overlap of 50% is half of the image, so we don't need to expand the image to find the peak in the correct quadrant
+    if overlap >= 0.5:
+        return val
 
-    if overlap > 1.0:
-        overlap = 1.0
+    overlap += 0.5
 
-    return val + (val * (1.0 - overlap))
+    return val + (val * (1.0 - overlap) * 4.0)
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
@@ -458,8 +459,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     PaddedImage = numpy.zeros((NewHeight, NewWidth), dtype=numpy.float16)
 
-    PaddedImageXOffset = floor((NewWidth - Width) / 2)
-    PaddedImageYOffset = floor((NewHeight - Height) / 2)
+    PaddedImageXOffset = floor((NewWidth - Width) / 2.0)
+    PaddedImageYOffset = floor((NewHeight - Height) / 2.0)
 
     # Copy image into padded image
     PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
@@ -544,9 +545,9 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     del conjFFTFixed
 
     return CorrelationImage
-    #SmallCorrelationImage = CorrelationImage.astype(np.float32)
-    #del CorrelationImage
-    #return SmallCorrelationImage
+    # SmallCorrelationImage = CorrelationImage.astype(np.float32)
+    # del CorrelationImage
+    # return SmallCorrelationImage
 
 
 # @profile
@@ -561,7 +562,10 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     :return: Offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
-    CutoffValue = ImageIntensityAtPercent(image, Cutoff)
+    
+    # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
+
+    CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
 
     ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # ShowGrayscale(ThresholdImage)
@@ -582,6 +586,24 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
 
     return (Offset, PeakStrength)
 
+
+def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
+    ''' '''
+
+    if not FixedImageSize == MovingImageSize:
+        return CorrelationImage
+
+
+def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+    '''Defines a mask that determines which peaks should be considered'''
+
+    MaxWidth = FixedImageSize[1] + MovingImageSize[1]
+    MaxHeight = FixedImageSize[0] + MovingImageSize[0]
+
+    mask = np.ones([MaxHeight, MaxWidth], dtype=np.Bool)
+
+
+
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
        moving image must be rotated and translated to align perfectly with the FixedImage'''
@@ -591,6 +613,8 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
 
     CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
     CorrelationImage = fftshift(CorrelationImage)
+
+    # Crop the areas that cannot overlap
 
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
@@ -618,7 +642,7 @@ def ImageIntensityAtPercent(image, Percent=0.995):
 #   del image1D
 #   return val
 
-    NumBins = 200
+    NumBins = 1024
     [histogram, binEdge] = numpy.histogram(image, bins=NumBins)
 
     PixelNum = float(NumPixels) * Percent

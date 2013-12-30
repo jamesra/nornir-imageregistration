@@ -71,6 +71,7 @@ class Test(setup_imagetest.ImageTestBase):
 #        self.assertAlmostEqual(record.peak[0], 107, msg = "Expected X offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
 #        self.assertAlmostEqual(record.peak[1], 177, msg = "Expected Y offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
 
+
 class TestBrandeis(setup_imagetest.ImageTestBase):
     '''Test TEM images captured on a different scope than the Moran Eye Center JEOL'''
 
@@ -96,11 +97,9 @@ class TestBrandeis(setup_imagetest.ImageTestBase):
         record = core.FindOffset(PaddedFixedImage, PaddedWarpedImage)
         self.assertIsNotNone(record)
 
-        self.assertIsNotNone(record)
-
         self.assertEqual(record.angle, 0.0)
-        self.assertAlmostEqual(record.peak[0], 452, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.5)
-        self.assertAlmostEqual(record.peak[1], -10, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.5)
+        self.assertAlmostEqual(record.peak[0], 452, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
+        self.assertAlmostEqual(record.peak[1], -10, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
 
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']

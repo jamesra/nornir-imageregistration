@@ -45,6 +45,21 @@ class AlignmentRecord:
     def WeightKey(self):
         return self._weight;
 
+    def scale(self, value):
+        '''Scales the peak position'''
+        self._peak = self._peak * value
+
+    def translate(self, value):
+        '''Translates the peak position using tuple (Y,X)'''
+        self._peak = self._peak + value
+
+    def Invert(self):
+        '''
+        Returns a new alignment record with the coordinates of the peak reversed
+        Used to change the frame of reference of the alignment from one tile to another
+        '''
+        return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
+
     def __str__(self):
         s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight);
         return s;
@@ -54,6 +69,10 @@ class AlignmentRecord:
             angle = float(angle)
 
         self._angle = angle;
+
+        if not isinstance(peak, np.ndarray):
+            peak = np.array(peak)
+
         self._peak = peak;
         self._weight = weight;
 

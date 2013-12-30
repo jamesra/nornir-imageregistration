@@ -245,6 +245,11 @@ def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset)
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
 
+    assert(FixedImageSize[0] > 0)
+    assert(FixedImageSize[1] > 0)
+    assert(WarpedImageSize[0] > 0)
+    assert(WarpedImageSize[1] > 0)
+
     # Adjust offset for any mismatch in dimensions
     AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, FixedImageSize, WarpedImageSize)
 

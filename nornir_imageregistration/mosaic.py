@@ -11,8 +11,18 @@ import assemble_tiles as at
 import numpy as np
 import os
 import nornir_pools as pools
+import nornir_imageregistration.arrange_mosaic as arrange
 
 
+def LayoutToMosaic(layout):
+
+    mosaic = Mosaic()
+
+    for ID, Transform in layout.TileToTransform.items():
+        tile = layout.Tiles[ID]
+        mosaic.ImageToTransform[tile.ImagePath] = Transform
+
+    return mosaic
 
 class Mosaic(object):
     '''
@@ -36,10 +46,13 @@ class Mosaic(object):
 
         return Mosaic(ImageToTransform)
 
-    def __init__(self, ImageToTransform):
+    def __init__(self, ImageToTransform=None):
         '''
         Constructor
         '''
+
+        if ImageToTransform is None:
+            ImageToTransform = dict()
 
         self.ImageToTransform = ImageToTransform
         self.ImageScale = 1
@@ -95,21 +108,37 @@ class Mosaic(object):
 
         raise Exception("Not implemented")
 
+    def CreateTilesPathList(self, tilesPath):
+        if tilesPath is None:
+            return self.ImageToTransform.keys()
+        else:
+            return [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
+
+
+
+    def ArrangeTilesWithTranslate(self, tilesPath, usecluster=False):
+
+        tilesPathList = self.CreateTilesPathList(tilesPath)
+
+        layout = arrange.TranslateTiles(self.ImageToTransform.values(), tilesPathList)
+
+        return LayoutToMosaic(layout)
+
 
     def AssembleTiles(self, tilesPath, usecluster=False):
         '''Create a single large mosaic'''
-        
-        #Ensure that all transforms map to positive values
+
+        # Ensure that all transforms map to positive values
         self.TranslateToZeroOrigin()
 
         # Allocate a buffer for the tiles
-        tilesPath = [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
+        tilesPathList = self.CreateTilesPathList(tilesPath)
 
         if usecluster:
             cpool = pools.GetGlobalClusterPool()
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath, pool=cpool)
+            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList, pool=cpool)
         else:
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPath)
+            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
             # return at.TilesToImage(self.ImageToTransform.values(), tilesPath)
 
 
