@@ -8,13 +8,20 @@ import multiprocessing
 import os
 
 from PIL import Image
-import numpy
-import pylab
+import numpy as np
+import numpy.fft
+import numpy.fft.fftpack as fftpack
 import scipy.ndimage.measurements
 import scipy.stats
 
 from alignment_record import *
 import scipy.ndimage.interpolation as interpolation
+
+from matplotlib.pyplot import imread, imsave, imshow, gray, show
+
+import numpy
+import math
+
 
 
 # from memory_profiler import profile
@@ -45,10 +52,9 @@ class ImageStats(object):
 
     @classmethod
     def CalcStats(cls, image):
-        image1D = image.flat
         obj = ImageStats()
-        obj.median = median(image1D)
-        obj.std = std(image1D)
+        obj.median = np.median(image.flat)
+        obj.std = np.std(image.flat)
         return obj
 
 
@@ -79,16 +85,16 @@ def ShowGrayscale(imageList):
     '''
     :param list imageList: A list or single ndimage to be displayed with imshow
     '''
-    
+
     if isinstance(imageList, list):
         fig, axeslist = plt.subplots(1, len(imageList))
         # fig = figure()
         for i, image in enumerate(imageList):
-            if isinstance(image, numpy.ndarray):
+            if isinstance(image, np.ndarray):
                 # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
                 ax = axeslist[i]
                 ax.imshow(image, cmap=gray(), figure=fig)
-    elif isinstance(imageList, numpy.ndarray):
+    elif isinstance(imageList, np.ndarray):
         imshow(imageList, cmap=gray())
     else:
         return
@@ -196,10 +202,10 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
 
     cropped = None
     if background is None:
-        cropped = zeros((Height, Width), dtype=image.dtype)
+        cropped = np.zeros((Height, Width), dtype=image.dtype)
     else:
-        cropped = ones((Height, Width), dtype=image.dtype) * background
-        
+        cropped = np.ones((Height, Width), dtype=image.dtype) * background
+
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
     return cropped
@@ -217,7 +223,7 @@ def GenRandomData(height, width, mean, standardDev):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
-    image = (numpy.random.randn(height, width).astype(numpy.float32) * standardDev) + mean
+    image = (np.random.randn(height, width).astype(np.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
         image = abs(image)
@@ -254,7 +260,7 @@ def ForceGrayscale(image):
 
 # @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
-    
+
     '''
     Loads an image, masks it, and removes extrema pixels.
     
@@ -320,14 +326,14 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
 
-        MaskedImage1D = ma.masked_array(Image1D, iZero1D)
+        MaskedImage1D = np.ma.masked_array(Image1D, iZero1D)
 
         if(ImageMedian is None):
-            ImageMedian = numpy.median(MaskedImage1D)
+            ImageMedian = np.median(MaskedImage1D)
         if(ImageStdDev is None):
-            ImageStdDev = numpy.std(MaskedImage1D)
+            ImageStdDev = np.std(MaskedImage1D)
 
-    iNonZero1D = np.transpose(nonzero(Mask1D))
+    iNonZero1D = np.transpose(np.nonzero(Mask1D))
 
     NumMaskedPixels = (Width * Height) - len(iNonZero1D)
     if(NumMaskedPixels == 0):
@@ -357,13 +363,13 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
 
     if(ImageMedian is None or ImageStdDev is None):
         if(ImageMedian is None):
-            ImageMedian = numpy.median(Image1D)
+            ImageMedian = np.median(Image1D)
         if(ImageStdDev is None):
-            ImageStdDev = numpy.std(Image1D)
+            ImageStdDev = np.std(Image1D)
 
     num_pixels = len(maxima_index) + len(minima_index)
 
-    OutputImage = numpy.copy(image)
+    OutputImage = np.copy(image)
 
 
     if num_pixels > 0:
@@ -453,14 +459,14 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         Image1D = image.flat
 
         if(ImageMedian is None):
-            ImageMedian = median(Image1D)
+            ImageMedian = np.median(Image1D)
         if(ImageStdDev is None):
-            ImageStdDev = std(Image1D)
+            ImageStdDev = np.std(Image1D)
 
-    PaddedImage = numpy.zeros((NewHeight, NewWidth), dtype=numpy.float16)
+    PaddedImage = np.zeros((NewHeight, NewWidth), dtype=np.float16)
 
-    PaddedImageXOffset = floor((NewWidth - Width) / 2.0)
-    PaddedImageYOffset = floor((NewHeight - Height) / 2.0)
+    PaddedImageXOffset = np.floor((NewWidth - Width) / 2.0)
+    PaddedImageYOffset = np.floor((NewHeight - Height) / 2.0)
 
     # Copy image into padded image
     PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
@@ -533,7 +539,7 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     FFTFixed = fftpack.rfft2(FixedImage)
     FFTMoving = fftpack.rfft2(MovingImage)
 
-    conjFFTFixed = conj(FFTFixed)
+    conjFFTFixed = np.conjugate(FFTFixed)
     del FFTFixed
 
     conjFFTFixed *= FFTMoving
@@ -541,7 +547,7 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
 
     conjFFTFixed /= abs(conjFFTFixed)  # Numerator / Divisor
 
-    CorrelationImage = real(fftpack.irfft2(conjFFTFixed))
+    CorrelationImage = np.real(fftpack.irfft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage
@@ -562,7 +568,7 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     :return: Offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
-    
+
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
@@ -602,6 +608,7 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
 
     mask = np.ones([MaxHeight, MaxWidth], dtype=np.Bool)
 
+    raise NotImplementedError()
 
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
@@ -612,7 +619,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
 
     CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
-    CorrelationImage = fftshift(CorrelationImage)
+    CorrelationImage = np.fft.fftshift(CorrelationImage)
 
     # Crop the areas that cannot overlap
 
@@ -643,7 +650,7 @@ def ImageIntensityAtPercent(image, Percent=0.995):
 #   return val
 
     NumBins = 1024
-    [histogram, binEdge] = numpy.histogram(image, bins=NumBins)
+    [histogram, binEdge] = np.histogram(image, bins=NumBins)
 
     PixelNum = float(NumPixels) * Percent
     CumulativePixelsInBins = 0

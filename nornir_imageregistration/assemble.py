@@ -17,7 +17,7 @@ from nornir_imageregistration.files.stosfile import StosFile
 import os
 import nornir_pools as pools
 
-from pylab import imsave
+from matplotlib.pyplot import imsave
 
 
 def ROI(botleft, area):
@@ -40,7 +40,7 @@ def TransformROI(transform, botleft, area):
     :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
     :rtype: tuple(Nx2 array,Nx2 array)
     '''
-    
+
     fixed_coordArray = ROI(botleft, area)
 
     warped_coordArray = transform.InverseTransform(fixed_coordArray)
