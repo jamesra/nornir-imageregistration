@@ -46,6 +46,15 @@ class Mosaic(object):
 
         return Mosaic(ImageToTransform)
 
+    def SaveToMosaicFile(self, mosaicfile):
+
+        mfile = MosaicFile()
+
+        for k, v in self.ImageToTransform:
+            mfile.ImageToTransformString[k] = tfactory.TransformToIRToolsString(v)
+
+        mfile.save(mosaicfile)
+
     def __init__(self, ImageToTransform=None):
         '''
         Constructor

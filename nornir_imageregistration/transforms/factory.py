@@ -12,8 +12,14 @@ import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffal
 import numpy as np
 import utils
 
+def TransformToIRToolsString(transformObj, bounds=None):
+    if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
+        return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=bounds)
+    else:
+        return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
-def TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
+
+def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
     numPoints = Transform.points.shape[0]
 
@@ -43,7 +49,7 @@ def TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     return output
 
 
-def TransformToIRToolsString(Transform, bounds=None):
+def _TransformToIRToolsString(Transform, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries

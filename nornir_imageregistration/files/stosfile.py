@@ -37,12 +37,14 @@ def AddStosTransforms(A_To_B, B_To_C):
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
-    
-    if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
-        A_To_C_Stos.Transform = factory.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
-    else:
-        A_To_C_Stos.Transform = factory.TransformToIRToolsString(A_To_C_Transform)
-        
+
+    A_To_C_Stos.Transform = factory.TransformToIRToolsString(A_To_C_Transform)
+
+#     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
+#         A_To_C_Stos.Transform = factory.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
+#     else:
+#         A_To_C_Stos.Transform = factory.TransformToIRToolsString(A_To_C_Transform)
+
     A_To_C_Stos.ControlImageDim = B_To_C_Stos.ControlImageDim
     A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim
 
@@ -423,14 +425,14 @@ class StosFile:
         if not ControlImageFullPath is None:
             NewStosFile.ControlImagePath = os.path.dirname(ControlImageFullPath)
             NewStosFile.ControlImageName = os.path.basename(ControlImageFullPath)
-            
+
             if os.path.exists(ControlImageFullPath):
                 NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
 
         if not MappedImageFullPath is None:
             NewStosFile.MappedImagePath = os.path.dirname(MappedImageFullPath)
             NewStosFile.MappedImageName = os.path.basename(MappedImageFullPath)
-            
+
             if os.path.exists(MappedImageFullPath):
                 NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
 
@@ -455,7 +457,7 @@ class StosFile:
 
             if hasattr(transformObj, 'gridWidth'):
                 # Save as a stos grid if we can
-                NewStosFile.Transform = factory.TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=NewStosFile.MappedImageDim)
+                NewStosFile.Transform = factory.TransformToIRToolsString(transformObj, bounds=NewStosFile.MappedImageDim)
             else:
                 NewStosFile.Transform = factory.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
 
