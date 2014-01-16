@@ -258,11 +258,23 @@ def ForceGrayscale(image):
 
     return image
 
+
+def SaveImage(ImageFullPath, image):
+    '''Saves the image as greyscale with no contrast-stretching'''
+
+    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float8:
+        image = image * 255.0
+
+    image = image.astype(np.uint8)
+
+    im = Image.fromarray(image)
+    im.save(ImageFullPath)
+
 # @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
 
     '''
-    Loads an image, masks it, and removes extrema pixels.
+    Loads an image converts to greyscale, masks it, and removes extrema pixels.
     
     :param str ImageFullPath: Path to image
     :param str ImageMaskFullPath: Path to mask, dimension should match input image
