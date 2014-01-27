@@ -43,7 +43,7 @@ class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
 
     def test_Alignments(self):
 
-        self.TilesPath = os.path.join(self.TestDataSource, "Test1", "Leveled", "TilePyramid", "002")
+        self.TilesPath = os.path.join(self.ImportedDataPath, "Test1", "Leveled", "TilePyramid", "002")
 
         Tile1Filename = "Tile000001.png"
         Tile2Filename = "Tile000002.png"
@@ -90,7 +90,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         if testName is None:
             testName = "Test1"
 
-        return glob.glob(os.path.join(self.TestDataSource, testName, "Stage.mosaic"))
+        return glob.glob(os.path.join(self.ImportedDataPath, testName, "Stage.mosaic"))
 
 
     def RigidTransformForTile(self, tile, arecord=None):
@@ -148,7 +148,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = os.path.join(self.TestDataSource, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
+        TilesDir = os.path.join(self.ImportedDataPath, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
 
 #        mosaic.TranslateToZeroOrigin()
 
@@ -195,7 +195,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = os.path.join(self.TestDataSource, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
+        TilesDir = os.path.join(self.ImportedDataPath, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
 
 #        mosaic.TranslateToZeroOrigin()
 

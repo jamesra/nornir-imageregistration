@@ -17,7 +17,7 @@ class Test(setup_imagetest.ImageTestBase):
     def setUp(self):
         super(Test, self).setUp()
 
-        self.FixedImagePath = os.path.join(self.TestDataSource, "Fixed.png")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input " + self.FixedImagePath)
 
         self.FixedImage = imread(self.FixedImagePath)
@@ -46,7 +46,7 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testPhaseCorrelationToOffsetself(self):
         '''Align an image to an identical image with fixed offset and make sure the result matches the offset'''
-        WarpedImagePath = os.path.join(self.TestDataSource, "Moving.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "Moving.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         WarpedImage = imread(WarpedImagePath)
@@ -76,10 +76,10 @@ class TestBrandeis(setup_imagetest.ImageTestBase):
     '''Test TEM images captured on a different scope than the Moran Eye Center JEOL'''
 
     def testPhaseCorrelationToOffset(self):
-        FixedImagePath = os.path.join(self.TestDataSource, "B030.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "B030.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-        WarpedImagePath = os.path.join(self.TestDataSource, "B029.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "B029.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         FixedImage = imread(FixedImagePath)
