@@ -46,14 +46,22 @@ class Mosaic(object):
 
         return Mosaic(ImageToTransform)
 
-    def SaveToMosaicFile(self, mosaicfile):
-
+    def ToMosaicFile(self):
         mfile = MosaicFile()
 
-        for k, v in self.ImageToTransform:
+        for k, v in self.ImageToTransform.items():
             mfile.ImageToTransformString[k] = tfactory.TransformToIRToolsString(v)
 
-        mfile.save(mosaicfile)
+        return mfile
+
+    def SaveToMosaicFile(self, mosaicfile):
+
+        mfile = self.ToMosaicFile()
+        mfile.Save(mosaicfile)
+
+    @property
+    def ImageToTransform(self):
+        return self._ImageToTransform
 
     def __init__(self, ImageToTransform=None):
         '''
@@ -63,7 +71,7 @@ class Mosaic(object):
         if ImageToTransform is None:
             ImageToTransform = dict()
 
-        self.ImageToTransform = ImageToTransform
+        self._ImageToTransform = ImageToTransform
         self.ImageScale = 1
 
 
@@ -147,8 +155,8 @@ class Mosaic(object):
             cpool = pools.GetGlobalClusterPool()
             return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList, pool=cpool)
         else:
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            # return at.TilesToImage(self.ImageToTransform.values(), tilesPath)
+            # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
+            return at.TilesToImage(self.ImageToTransform.values(), tilesPathList)
 
 
 
