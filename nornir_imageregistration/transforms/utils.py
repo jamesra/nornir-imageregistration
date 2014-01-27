@@ -14,10 +14,10 @@ def InvalidIndicies(points):
 
     nanArray = np.isnan(points)
 
-    nan1D = nanArray.any(axis = 1)
+    nan1D = nanArray.any(axis=1)
 
     invalidIndicies = np.nonzero(nan1D)[0]
-    points = np.delete(points, invalidIndicies, axis = 0)
+    points = np.delete(points, invalidIndicies, axis=0)
 
     assert(points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
@@ -64,6 +64,13 @@ def MappedBoundingBox(transforms):
 
     return (minX, minY, maxX, maxY)
 
+def TranslateToZeroOrigin(transforms):
+    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates'''
+
+    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+
+    for t in transforms:
+        t.TranslateFixed((-minY, -minX))
 
 def FixedBoundingBoxWidth(transforms):
     (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)

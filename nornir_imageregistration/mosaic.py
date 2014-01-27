@@ -113,10 +113,7 @@ class Mosaic(object):
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
 
-        (minX, minY, maxX, maxY) = self.FixedBoundingBox
-
-        for t in self.ImageToTransform.values():
-            t.TranslateFixed((-minY, -minX))
+        tutils.TranslateToZeroOrigin(self.ImagesToTransform.values())
 
     @classmethod
     def TranslateLayout(cls, Images, Positions, ImageScale=1):
