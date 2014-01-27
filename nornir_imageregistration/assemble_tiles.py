@@ -149,7 +149,7 @@ def __MaxZBufferValue(dtype):
 
 
 def __CreateOutputBuffer(transforms, requiredScale=None):
-    fullImage = np.zeros((np.ceil(requiredScale * tutils.FixedBoundingBoxHeight(transforms)), np.ceil(requiredScale * tutils.FixedBoundingBoxWidth(transforms))), dtype=np.float32)
+    fullImage = np.zeros((np.ceil(requiredScale * tutils.FixedBoundingBoxHeight(transforms)), np.ceil(requiredScale * tutils.FixedBoundingBoxWidth(transforms))), dtype=np.float16)
     fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
 
     return (fullImage, fullImageZbuffer)
