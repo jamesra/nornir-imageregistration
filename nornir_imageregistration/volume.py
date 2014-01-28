@@ -41,19 +41,19 @@ class Volume(object):
         '''
         self._SectionToVolumeTransforms = dict()
 
-    def AddSection(self, SectionNumber, transform):
+    def AddSection(self, SectionID, transform):
         '''Adds a transform for a section, replacing it if it already exists'''
-        self._SectionToVolumeTransforms[SectionNumber] = transform
+        self._SectionToVolumeTransforms[SectionID] = transform
 
     ##############################
     # Transformations            #
     ##############################
 
-    def SectionToVolume2D(self, SectionNumber, Points):
-        return self._SectionToVolumeTransforms[SectionNumber].Transform(Points)
+    def SectionToVolume2D(self, SectionID, Points):
+        return self._SectionToVolumeTransforms[SectionID].Transform(Points)
 
-    def VolumeToSection2D(self, SectionNumber, Points):
-        self._SectionToVolumeTransforms[SectionNumber].InverseTransform(Points)
+    def VolumeToSection2D(self, SectionID, Points):
+        self._SectionToVolumeTransforms[SectionID].InverseTransform(Points)
 
     def SectionToVolume3D(self, points):
         '''Maps array of [X Y Z] points on sections to volume space'''
@@ -94,10 +94,8 @@ class Volume(object):
 
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
-        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
+        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values)
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
         tutils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
-
-

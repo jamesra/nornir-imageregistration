@@ -113,7 +113,7 @@ class Mosaic(object):
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
 
-        tutils.TranslateToZeroOrigin(self.ImagesToTransform.values())
+        tutils.TranslateToZeroOrigin(self.ImageToTransform.values())
 
     @classmethod
     def TranslateLayout(cls, Images, Positions, ImageScale=1):
