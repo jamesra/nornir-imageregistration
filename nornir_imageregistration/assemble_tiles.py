@@ -255,7 +255,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
         del transformedImageData
         del t
 
-    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
