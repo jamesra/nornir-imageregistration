@@ -99,6 +99,27 @@ def __ParseParameters(parts):
     return (VariableParameters, FixedParameters)
 
 
+def SplitTrasform(transformstring):
+    '''Returns transform name, variable points, fixed points'''
+    parts = transformstring.split()
+    transformName = parts[0]
+    assert(parts[1] == 'vp')
+
+    VariableParts = []
+    iVp = 2
+    while(parts[iVp] != 'fp'):
+        VariableParts = float(parts[iVp])
+        iVp = iVp + 1
+
+    # skip vp # entries
+    iVp = iVp + 2
+    FixedParts = []
+    for iVp in range(iVp, len(parts)):
+        FixedParts = float(parts[iVp])
+
+    return (transformName, FixedParts, VariableParts)
+
+
 def LoadTransform(Transform, pixelSpacing=None):
     '''Transform is a string from either a stos or mosiac file'''
 

@@ -247,7 +247,7 @@ class Triangulation(Base):
         return self.points[:, 2:4]
 
     @property
-    def ControlPointBoundingBox(self):
+    def FixedBoundingBox(self):
         cp = self.FixedPoints
 
         minX = np.min(cp[:, 1])
@@ -258,7 +258,7 @@ class Triangulation(Base):
         return (minX, minY, maxX, maxY)
 
     @property
-    def MappedPointBoundingBox(self):
+    def MappedBoundingBox(self):
         cp = self.WarpedPoints
 
         minX = np.min(cp[:, 1])

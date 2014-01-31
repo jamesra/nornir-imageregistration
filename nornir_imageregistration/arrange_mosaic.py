@@ -22,11 +22,11 @@ class Tile(object):
 
     @property
     def MappedBoundingBox(self):
-        return self._transform.MappedPointBoundingBox
+        return self._transform.MappedBoundingBox
 
     @property
     def ControlBoundingBox(self):
-        return self._transform.ControlPointBoundingBox
+        return self._transform.FixedBoundingBox
 
     @property
     def OriginalImageSize(self):
@@ -104,7 +104,7 @@ class TileLayout(object):
 
     def GetTileOrigin(self, ID):
         refTransform = self.TileToTransform[ID]
-        (minX, minY, maxX, maxY) = refTransform.ControlPointBoundingBox
+        (minX, minY, maxX, maxY) = refTransform.FixedBoundingBox
 
         return (minY, minX)
 

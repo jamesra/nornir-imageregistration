@@ -59,6 +59,12 @@ class Mosaic(object):
         mfile = self.ToMosaicFile()
         mfile.Save(mosaicfile)
 
+    @classmethod
+    def TranslateMosaicFileToZeroOrigin(cls, path):
+        mosaicObj = Mosaic.LoadFromMosaicFile(path)
+        mosaicObj.TranslateToZeroOrigin()
+        mosaicObj.SaveToMosaicFile(path)
+
     @property
     def ImageToTransform(self):
         return self._ImageToTransform
@@ -115,6 +121,11 @@ class Mosaic(object):
 
         tutils.TranslateToZeroOrigin(self.ImageToTransform.values())
 
+    def TranslateFixed(self, offset):
+        '''Translate the fixed space coordinates of all images in the mosaic'''
+        for t in self.ImageToTransform.values():
+            t.TranslateFixed(offset)
+
     @classmethod
     def TranslateLayout(cls, Images, Positions, ImageScale=1):
         '''Creates a layout for the provided images at the provided
@@ -143,7 +154,7 @@ class Mosaic(object):
         '''Create a single large mosaic'''
 
         # Ensure that all transforms map to positive values
-        self.TranslateToZeroOrigin()
+        # self.TranslateToZeroOrigin()
 
         # Allocate a buffer for the tiles
         tilesPathList = self.CreateTilesPathList(tilesPath)
