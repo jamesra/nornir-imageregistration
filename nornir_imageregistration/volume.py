@@ -94,7 +94,7 @@ class Volume(object):
 
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
-        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values)
+        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
