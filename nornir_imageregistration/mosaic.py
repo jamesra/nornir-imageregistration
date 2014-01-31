@@ -22,6 +22,8 @@ def LayoutToMosaic(layout):
         tile = layout.Tiles[ID]
         mosaic.ImageToTransform[tile.ImagePath] = Transform
 
+    mosaic.TranslateToZeroOrigin()
+
     return mosaic
 
 class Mosaic(object):
