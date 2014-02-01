@@ -92,10 +92,11 @@ class Volume(object):
     # Boundary data              #
     ##############################
 
+    @property
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
         return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
-        tutils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
+        return tutils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
