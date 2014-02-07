@@ -1,7 +1,7 @@
 '''
 Created on Apr 22, 2013
 
-@author: u0490822
+
 '''
 
 
@@ -17,7 +17,7 @@ from nornir_imageregistration.files.stosfile import StosFile
 import os
 import nornir_pools as pools
 
-from pylab import imsave
+from matplotlib.pyplot import imsave
 
 
 def ROI(botleft, area):
@@ -31,8 +31,15 @@ def ROI(botleft, area):
     return coordArray
 
 def TransformROI(transform, botleft, area):
-    '''Apply a transform to an image ROI, center and area are in fixed space
-       Returns an array of indicies into the warped image'''
+    '''
+    Apply a transform to a region of interest within an image. Center and area are in fixed space
+    
+    :param transform transform: The transform used to map points between fixed and mapped space
+    :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
+    :param 1x2_array area: The (Height, Width) of the region of interest
+    :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
+    :rtype: tuple(Nx2 array,Nx2 array)
+    '''
 
     fixed_coordArray = ROI(botleft, area)
 
@@ -46,7 +53,16 @@ def TransformROI(transform, botleft, area):
 
 
 def ExtractRegion(image, botleft=None, area=None):
-    '''Extract a region from an image'''
+    '''
+    Extract a region from an image
+    
+    :param ndarray image: Source image
+    :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
+    :param 1x2_array area: The (Height, Width) of the region of interest
+    :return: Image of requested region
+    :rtype: ndarray
+    
+    '''
     if botleft is None:
         botleft = (0, 0)
 

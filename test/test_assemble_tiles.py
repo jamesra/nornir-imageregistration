@@ -27,7 +27,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         if testName is None:
             testName = "Test1"
 
-        return glob.glob(os.path.join(self.TestDataSource, testName, "*.mosaic"))
+        return glob.glob(os.path.join(self.ImportedDataPath, testName, "*.mosaic"))
 
 
     def test_CreateDistanceBuffer(self):
@@ -79,7 +79,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = os.path.join(self.TestDataSource, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
+        TilesDir = os.path.join(self.ImportedDataPath, 'Test1', 'Leveled', 'TilePyramid', downsamplePath)
 
         mosaic.TranslateToZeroOrigin()
 

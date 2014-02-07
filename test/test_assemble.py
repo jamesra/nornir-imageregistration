@@ -87,7 +87,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 class TestAssemble(setup_imagetest.ImageTestBase):
 
     def test_warpedImageToFixedSpaceTranslate(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         angle = 0
@@ -110,7 +110,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
 
     def test_warpedImageToFixedSpaceRotateTransform(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         angle = 132
@@ -132,7 +132,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         # self.assertTrue((delta < 0.01).all())
 
     def test_warpedImageToFixedSpaceIdentityTransform(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
 
@@ -153,9 +153,9 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
 
     def test_warpedImageToFixedSpace(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle= -132.0)
@@ -174,10 +174,10 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
     def setUp(self):
         super(TestStosFixedMovingAssemble, self).setUp()
 
-        self.WarpedImagePath = os.path.join(self.TestDataSource, "Moving.png")
+        self.WarpedImagePath = os.path.join(self.ImportedDataPath, "Moving.png")
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
 
-        self.FixedImagePath = os.path.join(self.TestDataSource, "Fixed.png")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
     def RunStosAssemble(self, stosFullPath):
@@ -192,11 +192,11 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.assertEquals(images.GetImageSize(self.FixedImagePath)[1], images.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
-        stosFullPath = os.path.join(self.TestDataSource, "..", "Transforms", "FixedMoving_Grid.stos")
+        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
         self.RunStosAssemble(stosFullPath)
 
     def test_MeshStosAssemble(self):
-        stosFullPath = os.path.join(self.TestDataSource, "..", "Transforms", "FixedMoving_Mesh.stos")
+        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
         self.RunStosAssemble(stosFullPath)
 
 

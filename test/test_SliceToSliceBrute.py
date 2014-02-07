@@ -38,9 +38,9 @@ class TestStos(setup_imagetest.ImageTestBase):
         InputDir = 'C:\\Buildscript\\Test\\images\\'
         OutputDir = 'C:\\Temp\\'
 
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (-4.4, 22.41)
@@ -66,9 +66,9 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
     def testStosBrute(self):
 
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
@@ -102,14 +102,14 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
 
     def testStosBruteWithMask(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-        WarpedImageMaskPath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImageMaskPath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImageMaskPath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
@@ -124,9 +124,9 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
 #    def testSameSimpleImage(self):
 #        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-#        FixedImagePath = os.path.join(self.TestDataSource, "fixed.png")
+#        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
 #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#        FixedImageMaskPath = os.path.join(self.TestDataSource, "fixedmask.png")
+#        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
 #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 #
 #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath, FixedImagePath)
@@ -136,9 +136,9 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 #
 #    def testSameSimpleImageWithMask(self):
 #        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-#        FixedImagePath = os.path.join(self.TestDataSource, "fixed.png")
+#        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
 #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#        FixedImageMaskPath = os.path.join(self.TestDataSource, "fixedmask.png")
+#        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
 #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 #
 #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
@@ -149,9 +149,9 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImage(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-        FixedImageMaskPath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,

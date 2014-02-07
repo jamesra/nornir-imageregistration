@@ -9,7 +9,7 @@ import math
 import numpy
 import scipy.interpolate
 
-from nornir_imageregistration.transforms import transformbase, triangulation
+from nornir_imageregistration.transforms import triangulation
 import scipy.linalg as linalg
 import scipy.spatial as spatial
 
@@ -22,11 +22,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         odict['_Weights'] = self._Weights
 
         return odict
-        
+
     @property
     def Weights(self):
         return self._Weights
-        
+
     @classmethod
     def DefaultBasisFunction(cls, distance):
         if distance == 0:
@@ -34,13 +34,13 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         return distance * distance * math.log(distance)
 
-    def __init__(self, WarpedPoints, FixedPoints, BasisFunction = None):
+    def __init__(self, WarpedPoints, FixedPoints, BasisFunction=None):
 
         points = numpy.hstack((FixedPoints, WarpedPoints))
         super(RBFWithLinearCorrection, self).__init__(points)
-        
-        #self.ControlPoints = FixedPoints
-        #self.WarpedPoints = WarpedPoints
+
+        # self.ControlPoints = FixedPoints
+        # self.WarpedPoints = WarpedPoints
         self.BasisFunction = BasisFunction
         if(self.BasisFunction is None):
             self.BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
@@ -58,8 +58,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         FuncValues = numpy.power(Distances, 2)
         FuncValues = numpy.multiply(FuncValues, numpy.log(Distances))
 
-        MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis = 1)
-        MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis = 1)
+        MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis=1)
+        MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis=1)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
         Xb = Points[:, 0] * self.Weights[NumCtrlPts + 1]
@@ -72,8 +72,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         XBase = numpy.vstack((MatrixWeightSumX, Xa, Xb))
         YBase = numpy.vstack((MatrixWeightSumY, Ya, Yb))
 
-        Xf = numpy.sum(XBase, axis = 0) + Xc
-        Yf = numpy.sum(YBase, axis = 0) + Yc
+        Xf = numpy.sum(XBase, axis=0) + Xc
+        Yf = numpy.sum(YBase, axis=0) + Yc
 
         MatrixOutpoints = numpy.vstack((Xf, Yf)).transpose()
 
@@ -113,12 +113,12 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         return (ResultMatrixX, ResultMatrixY)
 
     @classmethod
-    def CreateBetaMatrix(cls, Points, BasisFunction = None):
+    def CreateBetaMatrix(cls, Points, BasisFunction=None):
         if BasisFunction is None:
             BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
 
         NumPts = len(Points)
-        BetaMatrix = numpy.zeros([NumPts + 3, NumPts + 3], dtype = numpy.float32)
+        BetaMatrix = numpy.zeros([NumPts + 3, NumPts + 3], dtype=numpy.float32)
 
         for iRow in range(3, NumPts + 3):
             iPointA = iRow - 3
@@ -152,7 +152,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         return BetaMatrix
 
-    def CalculateRBFWeights(self, WarpedPoints, ControlPoints, BasisFunction = None):
+    def CalculateRBFWeights(self, WarpedPoints, ControlPoints, BasisFunction=None):
 
         BetaMatrix = RBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
@@ -161,9 +161,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         WeightsY = linalg.solve(BetaMatrix, SolutionMatrix_Y)
 
         return numpy.hstack([WeightsX, WeightsY])
-    
-#    
-#class RBFTransform(triangulation.Triangulation):
+
+#
+# class RBFTransform(triangulation.Triangulation):
 #    '''
 #    classdocs
 #    '''
@@ -183,10 +183,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #
 #
 #
-##        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
-##        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
-##        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
-##        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
+# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
+# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
+# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
+# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
 #
 #    @classmethod
 #    def InvalidIndicies(self, points):
@@ -259,7 +259,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #        super(RBFTransform, self).__init__(pointpairs)
 
 #
-#if __name__ == '__main__':
+# if __name__ == '__main__':
 #    p = numpy.array([[0, 0, 0, 0],
 #                  [0, 10, 0, -10],
 #                  [10, 0, -10, 0],
