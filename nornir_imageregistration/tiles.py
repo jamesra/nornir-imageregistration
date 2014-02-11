@@ -89,14 +89,15 @@ def __CompositeTiles(imagepaths, func):
 def __CalculateBrightfieldShadeImage(imagepaths):
      InitialCorrection = __CompositeTiles(imagepaths, func=np.maximum)
 
-     # Once we have the max we want to add to it so the largest number is one
-     AddValue = 1 - np.max(InitialCorrection)
-     ZerodCorrectionImage = InitialCorrection + AddValue
+
+     # AddValue = 1.0 - np.max(InitialCorrection)
+     # ZerodCorrectionImage = InitialCorrection + AddValue
 
      # Invert the Correction so that bright areas have nothing added
-     InvertedCorrection = np.abs(ZerodCorrectionImage - 1)
+     # InvertedCorrection = np.abs(ZerodCorrectionImage - 1)
 
-     return InvertedCorrection
+     # return InvertedCorrection
+     return InitialCorrection
 
 
 def __CalculateDarkfieldShadeImage(imagepaths):
@@ -117,8 +118,27 @@ def CalculateShadeImage(imagepaths, type=None):
 
     return None
 
+def NormalizeImage(image):
+    miniszeroimage = image - image.min()
+    scalar = (1.0 / miniszeroimage.max())
+
+    if np.isinf(scalar).all():
+        scalar = 1.0
+
+    return miniszeroimage * scalar
+
 
 def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
+
+    outputPaths = []
+
+    # nshadeimage = shadeimage - shadeimage.min()
+    # nshadeimage = NormalizeImage(shadeimage)
+    # nshadeimage[np.isinf(shadeimage)] = 1.0
+
+    # How much do we need to scale nonmax pixel values so the maximum pixel value is uniform across the entire image
+    imagescalar = shadeimage / shadeimage.max()
+    # imagescalar[np.isinf(imagescalar)] = 1.0
 
     for imagepath in imagepaths:
         image = core.LoadImage(imagepath)
@@ -126,11 +146,36 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
         imageFilename = os.path.basename(imagepath)
         outputFilename = os.path.join(outputpath, imageFilename)
 
-        correctedimage = image + shadeimage
+        # Shadeimage is the max of all tiles.  Figure out what the multiplier is for each pixel.
+        # invertedimage = 1.0 - shadeimage
+        # zerodshadeimage = invertedimage - invertedimage.min()
+
+        # Make max shading value a 1 so the brightest pixel is unchanged
+        # multiplierimage = zerodshadeimage.max() - zerodshadeimage
+
+        # NormalizeImage(shadeimage)
+
+        # shadeimage = shadeimage * (shadeimage / 1.0)
+
+        correctedimage = image / imagescalar
+
+        correctedimage[np.isinf(correctedimage)] = 0
+        correctedimage[correctedimage > 1.0] = 1.0
+        correctedimage[correctedimage < 0] = 0
+
         core.SaveImage(outputFilename, correctedimage)
+
+        del image
+        del correctedimage
+
+        outputPaths.append(outputFilename)
+
+    return outputPaths
 
 
 def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
+
+    outputPaths = []
 
     for imagepath in imagepaths:
         image = core.LoadImage(imagepath)
@@ -140,6 +185,13 @@ def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
 
         correctedimage = image - shadeimage
         core.SaveImage(outputFilename, correctedimage)
+
+        outputPaths.append(outputFilename)
+
+        del image
+        del correctedimage
+
+    return outputPaths
 
 
 def ShadeCorrect(imagepaths, shadeimagepath, outputpath, type=None):
@@ -151,9 +203,9 @@ def ShadeCorrect(imagepaths, shadeimagepath, outputpath, type=None):
         shadeimage = shadeimagepath
 
     if type == ShadeCorrectionTypes.BRIGHTFIELD:
-       return __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath)
+        return __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath)
     elif type == ShadeCorrectionTypes.DARKFIELD:
-       return __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath)
+        return __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath)
 
 if __name__ == '__main__':
     pass
