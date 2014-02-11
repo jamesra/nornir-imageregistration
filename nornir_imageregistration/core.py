@@ -262,7 +262,7 @@ def ForceGrayscale(image):
 def SaveImage(ImageFullPath, image):
     '''Saves the image as greyscale with no contrast-stretching'''
 
-    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float8:
+    if image.dtype == np.float32 or image.dtype == np.float16:
         image = image * 255.0
 
     image = image.astype(np.uint8)
