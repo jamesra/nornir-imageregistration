@@ -17,7 +17,7 @@ import scipy.stats
 from alignment_record import *
 import scipy.ndimage.interpolation as interpolation
 
-from matplotlib.pyplot import imread, imsave, imshow, gray, show
+import matplotlib.pyplot as plt
 
 import numpy
 import math
@@ -93,13 +93,13 @@ def ShowGrayscale(imageList):
             if isinstance(image, np.ndarray):
                 # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
                 ax = axeslist[i]
-                ax.imshow(image, cmap=gray(), figure=fig)
+                ax.imshow(image, cmap=plt.gray(), figure=fig)
     elif isinstance(imageList, np.ndarray):
-        imshow(imageList, cmap=gray())
+        plt.imshow(imageList, cmap=plt.gray())
     else:
         return
 
-    show()
+    plt.show()
 
 
 def ROIRange(start, count, maxVal, minVal=0):
@@ -262,10 +262,13 @@ def ForceGrayscale(image):
 def SaveImage(ImageFullPath, image):
     '''Saves the image as greyscale with no contrast-stretching'''
 
-    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float8:
+    if image.dtype == np.float32 or image.dtype == np.float16:
         image = image * 255.0
 
-    image = image.astype(np.uint8)
+    if image.dtype == np.bool:
+        image = image.astype(np.uint8) * 255
+    else:
+        image = image.astype(np.uint8)
 
     im = Image.fromarray(image)
     im.save(ImageFullPath)
@@ -286,7 +289,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
         logger.error('File does not exist: ' + ImageFullPath)
         return None
 
-    image = imread(ImageFullPath)
+    image = plt.imread(ImageFullPath)
     image = ForceGrayscale(image)
 
     if not MaxDimension is None:
@@ -300,7 +303,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
         if(not os.path.isfile(ImageMaskFullPath)):
             logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
-            image_mask = imread(ImageMaskFullPath)
+            image_mask = plt.imread(ImageMaskFullPath)
             if not MaxDimension is None:
                 scalar = ScalarForMaxDimension(MaxDimension, image_mask.shape)
                 if scalar < 1.0:
@@ -720,8 +723,8 @@ if __name__ == '__main__':
     def SecondMain():
 
 
-        imA = imread(FilenameA)
-        imB = imread(FilenameB)
+        imA = plt.imread(FilenameA)
+        imB = plt.imread(FilenameB)
 
         for i in range(1, 5):
             print(str(i))

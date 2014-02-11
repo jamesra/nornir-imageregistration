@@ -93,8 +93,13 @@ def __ParseParameters(parts):
             iFP = i
         elif iFP > 0 and i > iFP + 1:
             FixedParameters.append(float(val))
+            if FixedParameters[-1] >= 1.79769e+308:
+                raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
+
         elif iVP > 0 and i > iVP + 1:
             VariableParameters.append(float(val))
+            if VariableParameters[-1] >= 1.79769e+308:
+                raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
 
     return (VariableParameters, FixedParameters)
 

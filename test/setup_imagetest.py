@@ -68,6 +68,9 @@ class TestBase(unittest.TestCase):
 
 class ImageTestBase(TestBase):
 
+    def GetImagePath(self, ImageFilename):
+        return os.path.join(self.ImportedDataPath, ImageFilename)
+
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Images")
 
