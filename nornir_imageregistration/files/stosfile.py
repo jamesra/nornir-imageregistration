@@ -269,9 +269,8 @@ class StosFile:
         except:
             pass
 
-        fMosaic = open(filename, 'r')
-        lines = fMosaic.readlines()
-        fMosaic.close()
+        with open(filename, 'r') as fMosaic:
+            lines = fMosaic.readlines()
 
         obj.ControlImagePath = os.path.dirname(lines[0].strip())
         obj.MappedImagePath = os.path.dirname(lines[1].strip())
@@ -292,6 +291,23 @@ class StosFile:
             obj.MappedMaskPath = lines[8]
 
         return obj
+
+    @classmethod
+    def IsValid(cls, filename):
+        '''#If stos-grid completely fails it uses the maximum float value for each data point.  This function loads the transform and ensures it is valid'''
+
+        if not os.path.exists(filename):
+            return False
+
+        stos = StosFile.Load(filename)
+
+        try:
+            Transform = factory.LoadTransform(stos.Transform, pixelSpacing=1)
+        except:
+            return False
+
+        return True
+
 
     def Scale(self, scalar):
         '''Scale this stos transform by the requested amount'''
