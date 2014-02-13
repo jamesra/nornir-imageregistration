@@ -319,7 +319,7 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
         if not np.array_equal(distanceImage.shape, warpedImage.shape):
             distanceImage = CreateDistanceImage(warpedImage.shape)
 
-    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform, (height, width), [warpedImage, distanceImage], botleft=(minY, minX), area=(height, width))
+    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform, (height, width), [warpedImage, distanceImage], botleft=(minY, minX), area=(height, width), cval=[0, distanceImage.max() + 1])
 
     del warpedImage
     del distanceImage
