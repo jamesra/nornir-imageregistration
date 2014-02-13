@@ -113,8 +113,10 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         core.SaveImage(outputImagePath, mosaicImage)
         core.SaveImage(outputImageMaskPath, mask)
-
         self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+
+        outputMask = core.LoadImage(outputImageMaskPath)
+        self.assertTrue(outputMask[outputMask.shape[0] / 2.0, outputMask.shape[1] / 2.0] > 0, "Center of assembled image mask should be non-zero")
 
         del mosaicImage
         del mask
@@ -131,11 +133,11 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         self.ParallelAssembleEachMosaic(mosaicFiles)
 
-    def test_AssembleIDOC(self):
-
-        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
-
-        self.CreateAssembleEachMosaic(mosaicFiles)
+#     def test_AssembleIDOC(self):
+#
+#         mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
+#
+#         self.CreateAssembleEachMosaic(mosaicFiles)
 
     def test_AssembleIDOCParallel(self):
 
