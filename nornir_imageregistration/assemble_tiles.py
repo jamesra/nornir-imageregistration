@@ -17,6 +17,8 @@ import os
 import logging
 import transforms.utils as tutils
 import tiles
+# import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+# import nornir_imageregistration.transforms.triangulation as triangulation
 import nornir_pools as pools
 import copy
 
@@ -196,7 +198,7 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
 
         del transformedImageData
 
-    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
@@ -294,6 +296,10 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
     if not os.path.exists(imagefullpath):
         return TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
 
+    # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
+       # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
+    #   transform = triangulation.Triangulation(transform.points)
+
     warpedImage = core.LoadImage(imagefullpath)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
@@ -319,7 +325,12 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
         if not np.array_equal(distanceImage.shape, warpedImage.shape):
             distanceImage = CreateDistanceImage(warpedImage.shape)
 
-    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform, (height, width), [warpedImage, distanceImage], botleft=(minY, minX), area=(height, width), cval=[0, __MaxZBufferValue(distanceImage.dtype)])
+    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform,
+                                                                         (height, width),
+                                                                         [warpedImage, distanceImage],
+                                                                         botleft=(minY, minX),
+                                                                         area=(height, width),
+                                                                         cval=[0, __MaxZBufferValue(np.float16)])
 
     del warpedImage
     del distanceImage

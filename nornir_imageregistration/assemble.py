@@ -124,6 +124,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
         transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        fixed_coords = np.asarray(np.round(fixed_coords), dtype=np.int64)
         transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
         return transformedImage
 
@@ -150,8 +151,6 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
 
     if not isinstance(cval, list):
         cval = [cval] * len(WarpedImage)
-
-    # Only run through about 4000 pixels at a time since transforming huge numbers of pixels can have an enormous memory footprint
 
     (fixed_coords, warped_coords) = TransformROI(transform, botleft, area)
 

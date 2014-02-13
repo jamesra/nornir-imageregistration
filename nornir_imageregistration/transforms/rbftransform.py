@@ -78,8 +78,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
                     iEnd = Points.shape[0]
 
                 (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
-                                                                                      FixedPoints[iStart:iEnd, :],
-                                                                                      WarpedPoints[iStart:iEnd, :])
+                                                                                      FixedPoints,
+                                                                                      WarpedPoints)
 
                 # Failing these asserts means we are stomping earlier results
                 assert(MatrixWeightSumX[iStart] == 0)
@@ -92,9 +92,6 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
             return (MatrixWeightSumX, MatrixWeightSumY)
 
-
-
-
     def Transform(self, Points):
 
         if not isinstance(Points, numpy.ndarray):
@@ -103,6 +100,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         NumCtrlPts = len(self.FixedPoints)
 
         (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints)
+       # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
+       # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
         Xb = Points[:, 0] * self.Weights[NumCtrlPts + 1]

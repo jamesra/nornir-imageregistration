@@ -133,11 +133,11 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         self.ParallelAssembleEachMosaic(mosaicFiles)
 
-#     def test_AssembleIDOC(self):
-#
-#         mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
-#
-#         self.CreateAssembleEachMosaic(mosaicFiles)
+    def test_AssembleIDOC(self):
+
+        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
+
+        self.CreateAssembleEachMosaic(mosaicFiles)
 
     def test_AssembleIDOCParallel(self):
 
