@@ -47,33 +47,85 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         self._Weights = self.CalculateRBFWeights(WarpedPoints, FixedPoints, self.BasisFunction)
 
+    def _GetMatrixWeightSums(self, Points, FixedPoints, WarpedPoints, MaxChunkSize=65536):
+        NumCtrlPts = len(FixedPoints)
+        NumPts = Points.shape[0]
+
+        # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
+        if NumPts <= MaxChunkSize:
+            Distances = spatial.distance.cdist(Points, WarpedPoints)
+
+            # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
+            # FuncValues = VectorBasisFunc(Distances)
+            FuncValues = numpy.multiply(numpy.power(Distances, 2), numpy.log(Distances))
+
+            del Distances
+
+            MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis=1)
+            MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis=1)
+
+            del FuncValues
+
+            return (MatrixWeightSumX, MatrixWeightSumY)
+        else:
+            # Cut the array into chunks and build the weights over a loop
+            iStart = 0
+            MatrixWeightSumX = numpy.zeros((NumPts))
+            MatrixWeightSumY = numpy.zeros((NumPts))
+            while iStart < NumPts:
+                iEnd = iStart + MaxChunkSize
+                if iEnd > Points.shape[0]:
+                    iEnd = Points.shape[0]
+
+                (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
+                                                                                      FixedPoints,
+                                                                                      WarpedPoints)
+
+                # Failing these asserts means we are stomping earlier results
+                assert(MatrixWeightSumX[iStart] == 0)
+                assert(MatrixWeightSumY[iStart] == 0)
+
+                MatrixWeightSumX[iStart:iEnd] = MatrixWeightSumXChunk
+                MatrixWeightSumY[iStart:iEnd] = MatrixWeightSumYChunk
+
+                iStart = iEnd
+
+            return (MatrixWeightSumX, MatrixWeightSumY)
+
     def Transform(self, Points):
 
-        Points = numpy.array(Points)
+        if not isinstance(Points, numpy.ndarray):
+            Points = numpy.array(Points)
+
         NumCtrlPts = len(self.FixedPoints)
 
-        Distances = spatial.distance.cdist(Points, self.WarpedPoints)
-        # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
-        # FuncValues = VectorBasisFunc(Distances)
-        FuncValues = numpy.power(Distances, 2)
-        FuncValues = numpy.multiply(FuncValues, numpy.log(Distances))
-
-        MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis=1)
-        MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis=1)
+        (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints)
+       # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
+       # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
         Xb = Points[:, 0] * self.Weights[NumCtrlPts + 1]
         Xc = self.Weights[NumCtrlPts + 2]
+        XBase = numpy.vstack((MatrixWeightSumX, Xa, Xb))
+        Xf = numpy.sum(XBase, axis=0) + Xc
+
+        del Xa
+        del Xb
+        del Xc
+        del XBase
+        del MatrixWeightSumX
 
         Ya = Points[:, 1] * self.Weights[NumCtrlPts + 3 + NumCtrlPts]
         Yb = Points[:, 0] * self.Weights[NumCtrlPts + NumCtrlPts + 3 + 1]
         Yc = self.Weights[NumCtrlPts + NumCtrlPts + 3 + 2]
-
-        XBase = numpy.vstack((MatrixWeightSumX, Xa, Xb))
         YBase = numpy.vstack((MatrixWeightSumY, Ya, Yb))
-
-        Xf = numpy.sum(XBase, axis=0) + Xc
         Yf = numpy.sum(YBase, axis=0) + Yc
+
+        del Ya
+        del Yb
+        del Yc
+        del YBase
+        del MatrixWeightSumY
 
         MatrixOutpoints = numpy.vstack((Xf, Yf)).transpose()
 

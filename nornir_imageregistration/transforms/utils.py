@@ -12,9 +12,7 @@ def InvalidIndicies(points):
 
     numPoints = points.shape[0]
 
-    nanArray = np.isnan(points)
-
-    nan1D = nanArray.any(axis=1)
+    nan1D = np.isnan(points).any(axis=1)
 
     invalidIndicies = np.nonzero(nan1D)[0]
     points = np.delete(points, invalidIndicies, axis=0)
