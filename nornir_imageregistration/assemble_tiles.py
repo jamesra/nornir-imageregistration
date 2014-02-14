@@ -1,8 +1,6 @@
 '''
 Created on Oct 28, 2013
 
-@author: u0490822
-
 Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
@@ -19,6 +17,8 @@ import os
 import logging
 import transforms.utils as tutils
 import tiles
+# import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+# import nornir_imageregistration.transforms.triangulation as triangulation
 import nornir_pools as pools
 import copy
 
@@ -151,7 +151,9 @@ def __MaxZBufferValue(dtype):
 
 
 def __CreateOutputBuffer(transforms, requiredScale=None):
-    fullImage = np.zeros((np.ceil(requiredScale * tutils.FixedBoundingBoxHeight(transforms)), np.ceil(requiredScale * tutils.FixedBoundingBoxWidth(transforms))), dtype=np.float32)
+    (minX, minY, maxX, maxY) = tutils.FixedBoundingBox(transforms)
+
+    fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
     fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
 
     return (fullImage, fullImageZbuffer)
@@ -190,13 +192,13 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
 
         transformedImageData = __TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale)
 
-        (minX, minY, maxX, maxY) = transformedImageData.transform.ControlPointBoundingBox
+        (minX, minY, maxX, maxY) = transformedImageData.transform.FixedBoundingBox
 
         (fullImage, fullImageZbuffer) = CompositeImageWithZBuffer(fullImage, fullImageZbuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
 
         del transformedImageData
 
-    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
@@ -257,7 +259,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
         del transformedImageData
         del t
 
-    mask = fullImageZbuffer >= __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
@@ -277,7 +279,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
             logger.error(transformedImageData.errormsg)
             return (fullImage, fullImageZBuffer)
 
-    (minX, minY, maxX, maxY) = transformedImageData.transform.ControlPointBoundingBox
+    (minX, minY, maxX, maxY) = transformedImageData.transform.FixedBoundingBox
     # print "%g %g" % (minX, minY)
     (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
     transformedImageData.Clear()
@@ -293,6 +295,10 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
 
     if not os.path.exists(imagefullpath):
         return TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
+
+    # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
+       # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
+    #   transform = triangulation.Triangulation(transform.points)
 
     warpedImage = core.LoadImage(imagefullpath)
 
@@ -311,7 +317,7 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
     width = transform.FixedBoundingBoxWidth
     height = transform.FixedBoundingBoxHeight
 
-    (minX, minY, maxX, maxY) = transform.ControlPointBoundingBox
+    (minX, minY, maxX, maxY) = transform.FixedBoundingBox
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage(warpedImage.shape)
@@ -319,7 +325,12 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
         if not np.array_equal(distanceImage.shape, warpedImage.shape):
             distanceImage = CreateDistanceImage(warpedImage.shape)
 
-    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform, (height, width), [warpedImage, distanceImage], botleft=(minY, minX), area=(height, width))
+    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform,
+                                                                         (height, width),
+                                                                         [warpedImage, distanceImage],
+                                                                         botleft=(minY, minX),
+                                                                         area=(height, width),
+                                                                         cval=[0, __MaxZBufferValue(np.float16)])
 
     del warpedImage
     del distanceImage

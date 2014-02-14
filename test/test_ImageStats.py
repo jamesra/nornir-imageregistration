@@ -20,7 +20,7 @@ class ImageStatsBase(setup_imagetest.ImageTestBase):
 
         super(ImageStatsBase, self).setUp()
 
-        self.ImagePath = os.path.join(self.TestInputPath, "PlatformRaw", "IDoc", "17");
+        self.ImagePath = os.path.join(self.TestInputPath, "PlatformRaw", "IDoc", "RC2_Micro", "17");
 
 
 class testHistogram(ImageStatsBase):
@@ -48,7 +48,6 @@ class testHistogram(ImageStatsBase):
 
         return histogram
 
-
     def SaveHistogram(self, histogram, FilePrefix):
 
         HistogramDataFullPath = os.path.join(self.VolumeDir, FilePrefix + '_Histogram.xml');
@@ -60,7 +59,6 @@ class testHistogram(ImageStatsBase):
         plot.Histogram(HistogramDataFullPath, HistogramImageFullPath);
 
         self.assertTrue(os.path.exists(HistogramImageFullPath));
-
 
     def testHistogramParse(self):
         tileAFullPath = os.path.join(self.ImagePath, '10000.tif');

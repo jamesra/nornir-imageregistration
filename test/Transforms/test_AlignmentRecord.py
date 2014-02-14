@@ -129,9 +129,9 @@ class TestIO(test.setup_imagetest.ImageTestBase):
 
     def TestReadWriteTransform(self):
         '''A simple test of a transform which maps points from a 10,10 image to a 100,100 without translation or rotation'''
-        WarpedImagePath = os.path.join(self.TestDataSource, "10x10.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "1000x100.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "1000x100.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         FixedSize = (100, 1000)
@@ -168,9 +168,9 @@ class TestIO(test.setup_imagetest.ImageTestBase):
 
     def TestTranslateReadWriteAlignment(self):
 
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (20, 5)
@@ -202,9 +202,9 @@ class TestIO(test.setup_imagetest.ImageTestBase):
 
 #    def TestReadWriteAlignment(self):
 #
-#        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+#        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
 #        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-#        FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+#        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
 #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 #
 #        peak = (-4,22)

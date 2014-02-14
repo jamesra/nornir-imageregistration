@@ -12,8 +12,14 @@ import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffal
 import numpy as np
 import utils
 
+def TransformToIRToolsString(transformObj, bounds=None):
+    if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
+        return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=bounds)
+    else:
+        return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
-def TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
+
+def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
     numPoints = Transform.points.shape[0]
 
@@ -43,7 +49,7 @@ def TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     return output
 
 
-def TransformToIRToolsString(Transform, bounds=None):
+def _TransformToIRToolsString(Transform, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
@@ -87,10 +93,36 @@ def __ParseParameters(parts):
             iFP = i
         elif iFP > 0 and i > iFP + 1:
             FixedParameters.append(float(val))
+            if FixedParameters[-1] >= 1.79769e+308:
+                raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
+
         elif iVP > 0 and i > iVP + 1:
             VariableParameters.append(float(val))
+            if VariableParameters[-1] >= 1.79769e+308:
+                raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
 
     return (VariableParameters, FixedParameters)
+
+
+def SplitTrasform(transformstring):
+    '''Returns transform name, variable points, fixed points'''
+    parts = transformstring.split()
+    transformName = parts[0]
+    assert(parts[1] == 'vp')
+
+    VariableParts = []
+    iVp = 2
+    while(parts[iVp] != 'fp'):
+        VariableParts = float(parts[iVp])
+        iVp = iVp + 1
+
+    # skip vp # entries
+    iVp = iVp + 2
+    FixedParts = []
+    for iVp in range(iVp, len(parts)):
+        FixedParts = float(parts[iVp])
+
+    return (transformName, FixedParts, VariableParts)
 
 
 def LoadTransform(Transform, pixelSpacing=None):
@@ -244,6 +276,11 @@ def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageS
 def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset):
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
+
+    assert(FixedImageSize[0] > 0)
+    assert(FixedImageSize[1] > 0)
+    assert(WarpedImageSize[0] > 0)
+    assert(WarpedImageSize[1] > 0)
 
     # Adjust offset for any mismatch in dimensions
     AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, FixedImageSize, WarpedImageSize)

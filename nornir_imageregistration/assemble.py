@@ -1,7 +1,7 @@
 '''
 Created on Apr 22, 2013
 
-@author: u0490822
+
 '''
 
 
@@ -17,7 +17,7 @@ from nornir_imageregistration.files.stosfile import StosFile
 import os
 import nornir_pools as pools
 
-from pylab import imsave
+from matplotlib.pyplot import imsave
 
 
 def ROI(botleft, area):
@@ -31,13 +31,22 @@ def ROI(botleft, area):
     return coordArray
 
 def TransformROI(transform, botleft, area):
-    '''Apply a transform to an image ROI, center and area are in fixed space
-       Returns an array of indicies into the warped image'''
+    '''
+    Apply a transform to a region of interest within an image. Center and area are in fixed space
+    
+    :param transform transform: The transform used to map points between fixed and mapped space
+    :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
+    :param 1x2_array area: The (Height, Width) of the region of interest
+    :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
+    :rtype: tuple(Nx2 array,Nx2 array)
+    '''
 
     fixed_coordArray = ROI(botleft, area)
 
     warped_coordArray = transform.InverseTransform(fixed_coordArray)
     (valid_warped_coordArray, InvalidIndiciesList) = InvalidIndicies(warped_coordArray)
+
+    del warped_coordArray
 
     valid_fixed_coordArray = np.delete(fixed_coordArray, InvalidIndiciesList, axis=0)
     valid_fixed_coordArray = valid_fixed_coordArray - botleft
@@ -46,7 +55,16 @@ def TransformROI(transform, botleft, area):
 
 
 def ExtractRegion(image, botleft=None, area=None):
-    '''Extract a region from an image'''
+    '''
+    Extract a region from an image
+    
+    :param ndarray image: Source image
+    :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
+    :param 1x2_array area: The (Height, Width) of the region of interest
+    :return: Image of requested region
+    :rtype: ndarray
+    
+    '''
     if botleft is None:
         botleft = (0, 0)
 
@@ -66,11 +84,23 @@ def __ExtractRegion(image, botleft, area):
     return ExtractRegion(image, botleft, area)
 
 
-def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None):
-    '''Use the passed coordinates to create a warped image'''
+def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None, cval=0):
+    '''Use the passed coordinates to create a warped image
+    :Param fixed_coords: 2D coordinates in fixed space
+    :Param warped_coords: 2D coordinates in warped space
+    :Param FixedImageArea: Dimensions of fixed space
+    :Param WarpedImage: Image to read pixel values from while creating fixed space images
+    :Param area: Expected dimensions of output
+    :Param cval: Value to place in unmappable regions, defaults to zero.'''
 
     if area is None:
         area = FixedImageArea
+
+    if not isinstance(area, np.ndarray):
+        area = np.asarray(area, dtype=np.uint64)
+
+    if area.dtype != np.uint64:
+        area = area.asarray(dtype=np.uint64)
 
     if(warped_coords.shape[0] == 0):
         # No points transformed into the requested area, return empty image
@@ -86,7 +116,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
             subroi_warpedImage = __ExtractRegion(WarpedImage, minCoord, (maxCoord - minCoord))
             warped_coords = warped_coords - minCoord
 
-    warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='nearest', order=2)
+    warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=2, cval=cval)
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
         warpedImage = warpedImage.reshape(area)
@@ -94,13 +124,21 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
         transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        fixed_coords = np.asarray(np.round(fixed_coords), dtype=np.int64)
         transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
         return transformedImage
 
 
-def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None):
+def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None, cval=None):
 
-    '''Warps every image in the WarpedImageList using the provided transform'''
+    '''Warps every image in the WarpedImageList using the provided transform.
+    :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
+    :Param FixedImageArea: Size of fixed space region to map pixels into
+    :Param WarpedImage: Image to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.
+    :Param botleft: Origin of region to map
+    :Param area: Expected dimensions of output
+    :Param cval: Value to place in unmappable regions, defaults to zero.
+    '''
 
     if botleft is None:
         botleft = (0, 0)
@@ -108,16 +146,22 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
     if area is None:
         area = FixedImageArea
 
+    if cval is None:
+        cval = [0] * len(WarpedImage)
+
+    if not isinstance(cval, list):
+        cval = [cval] * len(WarpedImage)
+
     (fixed_coords, warped_coords) = TransformROI(transform, botleft, area)
 
     if isinstance(WarpedImage, list):
         FixedImageList = []
-        for wi in WarpedImage:
-            fi = __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, wi, area)
+        for i, wi in enumerate(WarpedImage):
+            fi = __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, wi, area, cval=cval[i])
             FixedImageList.append(fi)
         return FixedImageList
     else:
-        return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area)
+        return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area, cval=cval[0])
 
 
 def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):

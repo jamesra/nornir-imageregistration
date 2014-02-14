@@ -20,24 +20,25 @@ if __name__ == '__main__':
                 "nornir_imageregistration.geometry",
                 "nornir_imageregistration.transforms"]
 
-    install_requires = ["nornir_pools>=1.0.2",
-                        "nornir_shared>=1.0.1",
+    install_requires = ["nornir_pools>=1.1.0",
+                        "nornir_shared>=1.1.0",
                         "numpy>=1.8.0",
-                        "scipy>=0.13.1",
+                        "scipy>=0.13.2",
                         "matplotlib",
-                        "pillow>=2.0"]
+                        "pillow>=2.0",
+                        "rtree>=0.7"]
 
-    dependency_links = ["git+http://github.com/jamesra/nornir-pools#egg=nornir_pools-1.0.2",
-                        "git+http://github.com/jamesra/nornir-shared#egg=nornir_shared-1.0.1"]
+    dependency_links = ["git+http://github.com/nornir/nornir-pools#egg=nornir_pools-1.1.0",
+                        "git+http://github.com/nornir/nornir-shared#egg=nornir_shared-1.1.0"]
 
     scripts = glob.glob(os.path.join('scripts', '*.py'))
 
     setup(name='nornir_imageregistration',
-          version='1.0.2',
+          version='1.1.0',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",
-          url="https://github.com/jamesra/nornir-imageregistration",
+          url="https://github.com/nornir/nornir-imageregistration",
           packages=packages,
           scripts=scripts,
           test_suite='test',

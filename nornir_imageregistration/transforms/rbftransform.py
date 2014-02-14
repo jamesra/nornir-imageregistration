@@ -9,7 +9,7 @@ import math
 import numpy
 import scipy.interpolate
 
-from nornir_imageregistration.transforms import transformbase, triangulation
+from nornir_imageregistration.transforms import triangulation
 import scipy.linalg as linalg
 import scipy.spatial as spatial
 
@@ -22,11 +22,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         odict['_Weights'] = self._Weights
 
         return odict
-        
+
     @property
     def Weights(self):
         return self._Weights
-        
+
     @classmethod
     def DefaultBasisFunction(cls, distance):
         if distance == 0:
@@ -34,46 +34,98 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         return distance * distance * math.log(distance)
 
-    def __init__(self, WarpedPoints, FixedPoints, BasisFunction = None):
+    def __init__(self, WarpedPoints, FixedPoints, BasisFunction=None):
 
         points = numpy.hstack((FixedPoints, WarpedPoints))
         super(RBFWithLinearCorrection, self).__init__(points)
-        
-        #self.ControlPoints = FixedPoints
-        #self.WarpedPoints = WarpedPoints
+
+        # self.ControlPoints = FixedPoints
+        # self.WarpedPoints = WarpedPoints
         self.BasisFunction = BasisFunction
         if(self.BasisFunction is None):
             self.BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
 
         self._Weights = self.CalculateRBFWeights(WarpedPoints, FixedPoints, self.BasisFunction)
 
+    def _GetMatrixWeightSums(self, Points, FixedPoints, WarpedPoints, MaxChunkSize=65536):
+        NumCtrlPts = len(FixedPoints)
+        NumPts = Points.shape[0]
+
+        # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
+        if NumPts <= MaxChunkSize:
+            Distances = spatial.distance.cdist(Points, WarpedPoints)
+
+            # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
+            # FuncValues = VectorBasisFunc(Distances)
+            FuncValues = numpy.multiply(numpy.power(Distances, 2), numpy.log(Distances))
+
+            del Distances
+
+            MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis=1)
+            MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis=1)
+
+            del FuncValues
+
+            return (MatrixWeightSumX, MatrixWeightSumY)
+        else:
+            # Cut the array into chunks and build the weights over a loop
+            iStart = 0
+            MatrixWeightSumX = numpy.zeros((NumPts))
+            MatrixWeightSumY = numpy.zeros((NumPts))
+            while iStart < NumPts:
+                iEnd = iStart + MaxChunkSize
+                if iEnd > Points.shape[0]:
+                    iEnd = Points.shape[0]
+
+                (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
+                                                                                      FixedPoints,
+                                                                                      WarpedPoints)
+
+                # Failing these asserts means we are stomping earlier results
+                assert(MatrixWeightSumX[iStart] == 0)
+                assert(MatrixWeightSumY[iStart] == 0)
+
+                MatrixWeightSumX[iStart:iEnd] = MatrixWeightSumXChunk
+                MatrixWeightSumY[iStart:iEnd] = MatrixWeightSumYChunk
+
+                iStart = iEnd
+
+            return (MatrixWeightSumX, MatrixWeightSumY)
+
     def Transform(self, Points):
 
-        Points = numpy.array(Points)
+        if not isinstance(Points, numpy.ndarray):
+            Points = numpy.array(Points)
+
         NumCtrlPts = len(self.FixedPoints)
 
-        Distances = spatial.distance.cdist(Points, self.WarpedPoints)
-        # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
-        # FuncValues = VectorBasisFunc(Distances)
-        FuncValues = numpy.power(Distances, 2)
-        FuncValues = numpy.multiply(FuncValues, numpy.log(Distances))
-
-        MatrixWeightSumX = numpy.sum(self.Weights[0:NumCtrlPts] * FuncValues, axis = 1)
-        MatrixWeightSumY = numpy.sum(self.Weights[3 + NumCtrlPts:(NumCtrlPts * 2) + 3] * FuncValues, axis = 1)
+        (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints)
+       # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
+       # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
         Xb = Points[:, 0] * self.Weights[NumCtrlPts + 1]
         Xc = self.Weights[NumCtrlPts + 2]
+        XBase = numpy.vstack((MatrixWeightSumX, Xa, Xb))
+        Xf = numpy.sum(XBase, axis=0) + Xc
+
+        del Xa
+        del Xb
+        del Xc
+        del XBase
+        del MatrixWeightSumX
 
         Ya = Points[:, 1] * self.Weights[NumCtrlPts + 3 + NumCtrlPts]
         Yb = Points[:, 0] * self.Weights[NumCtrlPts + NumCtrlPts + 3 + 1]
         Yc = self.Weights[NumCtrlPts + NumCtrlPts + 3 + 2]
-
-        XBase = numpy.vstack((MatrixWeightSumX, Xa, Xb))
         YBase = numpy.vstack((MatrixWeightSumY, Ya, Yb))
+        Yf = numpy.sum(YBase, axis=0) + Yc
 
-        Xf = numpy.sum(XBase, axis = 0) + Xc
-        Yf = numpy.sum(YBase, axis = 0) + Yc
+        del Ya
+        del Yb
+        del Yc
+        del YBase
+        del MatrixWeightSumY
 
         MatrixOutpoints = numpy.vstack((Xf, Yf)).transpose()
 
@@ -113,12 +165,12 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         return (ResultMatrixX, ResultMatrixY)
 
     @classmethod
-    def CreateBetaMatrix(cls, Points, BasisFunction = None):
+    def CreateBetaMatrix(cls, Points, BasisFunction=None):
         if BasisFunction is None:
             BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
 
         NumPts = len(Points)
-        BetaMatrix = numpy.zeros([NumPts + 3, NumPts + 3], dtype = numpy.float32)
+        BetaMatrix = numpy.zeros([NumPts + 3, NumPts + 3], dtype=numpy.float32)
 
         for iRow in range(3, NumPts + 3):
             iPointA = iRow - 3
@@ -152,7 +204,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         return BetaMatrix
 
-    def CalculateRBFWeights(self, WarpedPoints, ControlPoints, BasisFunction = None):
+    def CalculateRBFWeights(self, WarpedPoints, ControlPoints, BasisFunction=None):
 
         BetaMatrix = RBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
@@ -161,9 +213,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         WeightsY = linalg.solve(BetaMatrix, SolutionMatrix_Y)
 
         return numpy.hstack([WeightsX, WeightsY])
-    
-#    
-#class RBFTransform(triangulation.Triangulation):
+
+#
+# class RBFTransform(triangulation.Triangulation):
 #    '''
 #    classdocs
 #    '''
@@ -183,10 +235,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #
 #
 #
-##        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
-##        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
-##        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
-##        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
+# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
+# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
+# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
+# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
 #
 #    @classmethod
 #    def InvalidIndicies(self, points):
@@ -259,7 +311,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #        super(RBFTransform, self).__init__(pointpairs)
 
 #
-#if __name__ == '__main__':
+# if __name__ == '__main__':
 #    p = numpy.array([[0, 0, 0, 0],
 #                  [0, 10, 0, -10],
 #                  [10, 0, -10, 0],

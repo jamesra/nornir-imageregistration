@@ -17,7 +17,7 @@ class Test(setup_imagetest.ImageTestBase):
 #    def testSciPyRavel(self):
 #        '''I was having a problem with SciPy's ravel operator not returning the same image after converting to 1D array and back.
 #            I never got ravel working so I only use the .flat or .flatiter from now on'''
-#        self.FixedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+#        self.FixedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
 #        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 #
 #        Image = imread(self.FixedImagePath)
@@ -139,7 +139,7 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testReplaceImageExtramaWithNoise(self):
 
-        self.FixedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
@@ -149,10 +149,10 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testRandomNoiseMask(self):
 
-        self.FixedImagePath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
-        self.FixedImageMaskPath = os.path.join(self.TestDataSource, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImageMaskPath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
         image = imread(self.FixedImagePath)
@@ -171,10 +171,10 @@ class Test(setup_imagetest.ImageTestBase):
 
 
     def testRandomNoiseMask2(self):
-        WarpedImagePath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
-        WarpedImageMaskPath = os.path.join(self.TestDataSource, "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImageMaskPath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
         image = imread(WarpedImagePath)
@@ -192,7 +192,7 @@ class Test(setup_imagetest.ImageTestBase):
 
 #    def testPadImage(self):
 #
-#        self.FixedImagePath = os.path.join(self.TestDataSource, "PadImageTestPattern.png")
+#        self.FixedImagePath = os.path.join(self.ImportedDataPath, "PadImageTestPattern.png")
 #        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 #
 #        image = imread(self.FixedImagePath)

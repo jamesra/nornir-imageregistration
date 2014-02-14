@@ -68,8 +68,11 @@ class TestBase(unittest.TestCase):
 
 class ImageTestBase(TestBase):
 
+    def GetImagePath(self, ImageFilename):
+        return os.path.join(self.ImportedDataPath, ImageFilename)
+
     def setUp(self):
-        self.TestDataSource = os.path.join(self.TestInputPath, "Images")
+        self.ImportedDataPath = os.path.join(self.TestInputPath, "Images")
 
         super(ImageTestBase, self).setUp()
 
@@ -77,7 +80,7 @@ class ImageTestBase(TestBase):
 class MosaicTestBase(TestBase):
 
     def setUp(self):
-        self.TestDataSource = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
+        self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
 
         super(MosaicTestBase, self).setUp()
 
