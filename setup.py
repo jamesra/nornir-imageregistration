@@ -22,10 +22,10 @@ if __name__ == '__main__':
 
     install_requires = ["nornir_pools>=1.1.0",
                         "nornir_shared>=1.1.0",
-                        "numpy>=1.8.0",
+                        "numpy>=1.8",
                         "scipy>=0.13.2",
                         "matplotlib",
-                        "pillow>=2.0",
+                        "pillow>=2.3",
                         "rtree>=0.7"]
 
     dependency_links = ["git+http://github.com/nornir/nornir-pools#egg=nornir_pools-1.1.0",
@@ -43,5 +43,4 @@ if __name__ == '__main__':
           scripts=scripts,
           test_suite='test',
           install_requires=install_requires,
-          test_requires=install_requires,
           dependency_links=dependency_links)
