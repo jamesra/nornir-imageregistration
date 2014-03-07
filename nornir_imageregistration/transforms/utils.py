@@ -38,12 +38,12 @@ def FixedBoundingBox(transforms):
         else:
             mbb = np.vstack((mbb, t.FixedBoundingBox))
 
-    minX = np.min(mbb[:, 0])
-    minY = np.min(mbb[:, 1])
-    maxX = np.max(mbb[:, 2])
-    maxY = np.max(mbb[:, 3])
+    minX = np.min(mbb[:, 1])
+    minY = np.min(mbb[:, 0])
+    maxX = np.max(mbb[:, 3])
+    maxY = np.max(mbb[:, 2])
 
-    return (minX, minY, maxX, maxY)
+    return  (minY, minX, maxY, maxX)
 
 def MappedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
@@ -55,33 +55,37 @@ def MappedBoundingBox(transforms):
         else:
             mbb = np.vstack((mbb, t.MappedBoundingBox))
 
-    minX = np.min(mbb[:, 0])
-    minY = np.min(mbb[:, 1])
-    maxX = np.max(mbb[:, 2])
-    maxY = np.max(mbb[:, 3])
+    minX = np.min(mbb[:, 1])
+    minY = np.min(mbb[:, 0])
+    maxX = np.max(mbb[:, 3])
+    maxY = np.max(mbb[:, 2])
 
-    return (minX, minY, maxX, maxY)
+    return  (minY, minX, maxY, maxX)
 
 def TranslateToZeroOrigin(transforms):
     '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates'''
 
-    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
 
     for t in transforms:
         t.TranslateFixed((-minY, -minX))
 
+
 def FixedBoundingBoxWidth(transforms):
-    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
     return np.ceil(maxX) - np.floor(minX)
+
 
 def FixedBoundingBoxHeight(transforms):
-    (minX, minY, maxX, maxY) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
     return np.ceil(maxY) - np.floor(minY)
 
+
 def MappedBoundingBoxWidth(transforms):
-    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms)
     return np.ceil(maxX) - np.floor(minX)
 
+
 def MappedBoundingBoxHeight(transforms):
-    (minX, minY, maxX, maxY) = MappedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms)
     return np.ceil(maxY) - np.floor(minY)

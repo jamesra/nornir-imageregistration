@@ -12,6 +12,7 @@ from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
 import nornir_imageregistration.core as core
 import nornir_imageregistration.transforms.factory as tfactory
+
 # from pylab import *
 from scipy.misc import imsave
 import numpy as np
@@ -68,19 +69,28 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
             self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
 
+    def MosaicTilePath(self, mosaicFilePath, downsamplePath):
+        '''Returns the tiles path from a mosaic FilePath'''
 
-    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath, parallel=False, downsamplePath=None):
+        mosaicDir = os.path.dirname(mosaicFilePath)
+
+
+        return os.path.join(mosaicDir, 'Leveled', 'TilePyramid', downsamplePath)
+
+
+
+    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath=None, parallel=False, downsamplePath=None):
 
         if downsamplePath is None:
             downsamplePath = '001'
 
+        SaveFiles = not outputMosaicPath is None
+
         mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         mosaicBaseName = os.path.basename(mosaicFilePath)
-
-        mosaicDir = os.path.dirname(mosaicFilePath)
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = os.path.join(mosaicDir, 'Leveled', 'TilePyramid', downsamplePath)
+        TilesDir = self.MosaicTilePath(mosaicFilePath, downsamplePath)
 
         mosaic.TranslateToZeroOrigin()
 
@@ -98,28 +108,31 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         timer.End("AssembleTiles " + TilesDir, True)
 
-        OutputDir = os.path.join(self.TestOutputPath, outputMosaicPath)
-
-        outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
-        outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
-
         self.assertEqual(mosaicImage.shape[0], np.ceil(mosaic.FixedBoundingBoxHeight * expectedScale), "Output mosaic height does not match .mosaic height %g vs %g" % (mosaicImage.shape[0], mosaic.FixedBoundingBoxHeight * expectedScale))
         self.assertEqual(mosaicImage.shape[1], np.ceil(mosaic.FixedBoundingBoxWidth * expectedScale), "Output mosaic width does not match .mosaic height %g vs %g" % (mosaicImage.shape[1], mosaic.FixedBoundingBoxWidth * expectedScale))
         # img = im.fromarray(mosaicImage, mode="I")
         # img.save(outputImagePath, mosaicImage, bits=8)
 
-        if not os.path.exists(OutputDir):
-            os.makedirs(OutputDir)
+        if SaveFiles:
+            OutputDir = os.path.join(self.TestOutputPath, outputMosaicPath)
 
-        core.SaveImage(outputImagePath, mosaicImage)
-        core.SaveImage(outputImageMaskPath, mask)
-        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+            if not os.path.exists(OutputDir):
+                os.makedirs(OutputDir)
 
-        outputMask = core.LoadImage(outputImageMaskPath)
-        self.assertTrue(outputMask[outputMask.shape[0] / 2.0, outputMask.shape[1] / 2.0] > 0, "Center of assembled image mask should be non-zero")
+            outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
+            outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
 
-        del mosaicImage
-        del mask
+            core.SaveImage(outputImagePath, mosaicImage)
+            core.SaveImage(outputImageMaskPath, mask)
+            self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+
+            outputMask = core.LoadImage(outputImageMaskPath)
+            self.assertTrue(outputMask[outputMask.shape[0] / 2.0, outputMask.shape[1] / 2.0] > 0, "Center of assembled image mask should be non-zero")
+
+            del mosaicImage
+            del mask
+        else:
+            return (mosaicImage, mask)
 
     def test_AssemblePMG(self):
 
@@ -145,6 +158,88 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         self.ParallelAssembleEachMosaic(mosaicFiles)
 
+    def test_AssembleTilesIDoc(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
+
+        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], downsamplePath='004')
+
+        self.CreateAssembleOptimizedTile(mosaicFiles[0])
+
+
+    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath, downsamplePath='001'):
+        '''
+        1) Assemble the entire mosaic
+        2) Assemble subregion of the mosaic
+        3) Assemble subregion directly using _TransformTile
+        4) Check the output of all match
+        '''
+
+        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        self.assertIsNotNone(mosaic, "Mosaic not loaded")
+
+        mosaic.TranslateToZeroOrigin()
+
+        (imageKey, transform) = mosaic.ImageToTransform.items()[0]
+
+        TilesDir = self.MosaicTilePath(mosaicFilePath, downsamplePath)
+
+
+
+        (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
+
+        FixedRegion = np.array([MinY + 512, MinX + 1024, 1024, 512])
+        ScaledFixedRegion = FixedRegion / float(downsamplePath)
+
+        (tileImage, tileMask) = mosaic.AssembleTiles(TilesDir, usecluster=False, FixedRegion=FixedRegion)
+        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
+
+        (clustertileImage, clustertileMask) = mosaic.AssembleTiles(TilesDir, usecluster=True, FixedRegion=FixedRegion)
+        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
+
+        self.assertTrue(np.sum(np.abs(clustertileImage - tileImage).flat) < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
+        self.assertTrue(np.all(clustertileMask == tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
+
+        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
+        self.assertEqual(result.image.shape, (ScaledFixedRegion[2], ScaledFixedRegion[3]))
+
+        # core.ShowGrayscale([tileImage, result.image])
+        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, outputMosaicPath=None, parallel=False, downsamplePath=downsamplePath)
+        self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
+
+        croppedWholeImage = core.CropImage(wholeimage, ScaledFixedRegion[1], ScaledFixedRegion[0], ScaledFixedRegion[3], ScaledFixedRegion[2])
+
+        core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage])
+
+
+    def CreateAssembleOptimizedTile(self, mosaicFilePath):
+
+        downsamplePath = '001'
+
+        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        mosaicBaseName = os.path.basename(mosaicFilePath)
+
+        mosaicDir = os.path.dirname(mosaicFilePath)
+        (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
+
+        TilesDir = os.path.join(mosaicDir, 'Leveled', 'TilePyramid', downsamplePath)
+
+        imageKey = mosaic.ImageToTransform.keys()[0]
+        transform = mosaic.ImageToTransform[imageKey]
+
+        (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
+
+        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, transform.FixedBoundingBoxHeight, 256))
+        self.assertEqual(result.image.shape, (transform.FixedBoundingBoxHeight, 256))
+
+        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, 256, transform.FixedBoundingBoxWidth))
+        self.assertEqual(result.image.shape, (256, transform.FixedBoundingBoxWidth))
+
+        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, 512, 512))
+        self.assertEqual(result.image.shape, (512, 512))
+
+
     def CreateAssembleEachMosaic(self, mosaicFiles):
 
         # Make sure we save images before starting a long test
@@ -156,7 +251,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         for m in mosaicFiles:
 
             self. AssembleMosaic(m, 'CreateAssembleEachMosaicTypeDS4', parallel=False, downsamplePath='004')
-            self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
+           # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
 
         print("All done")
 
@@ -171,9 +266,14 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         for m in mosaicFiles:
 
             self. AssembleMosaic(m, 'ParallelAssembleEachMosaicTypeDS4', parallel=True, downsamplePath='004')
-            self. AssembleMosaic(m, 'ParallelAssembleEachMosaicType', parallel=True)
+            # self. AssembleMosaic(m, 'ParallelAssembleEachMosaicType', parallel=True)
 
         print("All done")
+
+
+
+
+
 
 
 if __name__ == "__main__":

@@ -87,7 +87,17 @@ class AlignmentRecord:
     def GetTransformedCornerPoints(self, warpedImageSize):
         return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
 
-    def ToTransform(self, fixedImageSize, warpedImageSize):
+
+    def ToTransform(self, fixedImageSize, warpedImageSize=None):
+        '''
+        :param (Height, Width) fixedImageSize: Size of translated image in fixed space
+        :param (Height, Width) warpedImageSize: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
+        :return: A rigid rotation+translation transform described by the alignment record
+        '''
+
+        if warpedImageSize is None:
+            warpedImageSize = fixedImageSize
+
         return nornir_imageregistration.transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):

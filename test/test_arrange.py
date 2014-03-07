@@ -52,7 +52,6 @@ class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
         Tile7Filename = "Tile000007.png"
         Tile9Filename = "Tile000009.png"
 
-
         self.RunAlignment(Tile1Filename, Tile2Filename, (0, 630))
         self.RunAlignment(Tile5Filename, Tile6Filename, (1, 630))
         self.RunAlignment(Tile7Filename, Tile9Filename, (454, 0))
@@ -83,7 +82,7 @@ class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
         self.assertAlmostEqual(alignrecord.peak[0], ExpectedOffset[0], delta=2, msg="Y dimension incorrect: " + str(alignrecord.peak) + " != " + str(ExpectedOffset))
 
 
-class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
+class TestMosaicArrange(setup_imagetest.MosaicTestBase):
 
     @property
     def MosaicFiles(self, testName=None):

@@ -26,7 +26,8 @@ def SliceToSliceBruteForce(FixedImageInput,
                            LargestDimension=None,
                            AngleSearchRange=None,
                            MinOverlap=0.75,
-                           SingleThread=False):
+                           SingleThread=False,
+                           Cluster=False):
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be'''
 
@@ -60,7 +61,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = range(-180, 180, 2)
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread)
+    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
 
     # Find the best match
 
@@ -150,16 +151,20 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False):
+def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False, Cluster=False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
-
     Debug = False
+    pool = None
 
-    pool = pools.GetGlobalMultithreadingPool()
     if Debug:
         pool = pools.GetThreadPool(Poolname=None, num_threads=3)
+    elif Cluster:
+        pool = pools.GetGlobalClusterPool()
+    else:
+        pool = pools.GetGlobalMultithreadingPool()
+
 
     AngleMatchValues = list()
     taskList = list()
@@ -175,8 +180,13 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
 
     # Create a shared read-only memory map for the Padded fixed image
-    SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
-    SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+
+    if not Cluster:
+        SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
+        SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+    else:
+        SharedPaddedFixed = PaddedFixed
+        SharedWarped = imWarped
 
     CheckTaskInterval = 16
 
@@ -223,8 +233,10 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
 
     del PaddedFixed
-    del SharedPaddedFixed
-    del SharedWarped
+
+    if not Cluster:
+        del SharedPaddedFixed
+        del SharedWarped
 
     BestMatch = max(AngleMatchValues, key=core.AlignmentRecord.WeightKey)
     return BestMatch

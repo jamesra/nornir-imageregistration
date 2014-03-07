@@ -22,6 +22,8 @@ import tiles
 import nornir_pools as pools
 import copy
 
+import nornir_imageregistration.spatial as spatial
+
 class TransformedImageData(object):
 
     @property
@@ -150,10 +152,25 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
-def __CreateOutputBuffer(transforms, requiredScale=None):
-    (minX, minY, maxX, maxY) = tutils.FixedBoundingBox(transforms)
+def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
+    '''Create output images using the passed rectangle
+    :param tuple rectangle: (minY, minX, maxY, maxX)
+    :return: (fullImage, ZBuffer)
+    '''
+    (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
 
     fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
+    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
+
+    return (fullImage, fullImageZbuffer)
+
+
+def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
+    '''Create output images using the passed width and height
+    
+    '''
+
+    fullImage = np.zeros((np.ceil(requiredScale * Height), np.ceil(requiredScale * Width)), dtype=np.float16)
     fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
 
     return (fullImage, fullImageZbuffer)
@@ -172,7 +189,12 @@ def __GetOrCreateDistanceImage(distanceImage, imagePath):
     return distanceImage
 
 
-def TilesToImage(transforms, imagepaths, requiredScale=None):
+def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
+    '''
+
+    :param tuple FixedRegion: (MinX, MinY, Width, Height)
+
+    '''
 
     assert(len(transforms) == len(imagepaths))
 
@@ -181,18 +203,36 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
-    (fullImage, fullImageZbuffer) = __CreateOutputBuffer(transforms, requiredScale)
-
     distanceImage = None
+    fixedRect = None
+    fullImage = None
+    fullImageZBuffer = None
+
+    if not FixedRegion is None:
+        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2], FixedRegion[3]))
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2], FixedRegion[3], requiredScale)
+    else:
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
+
+    minY = 0
+    minX = 0
 
     for i, transform in enumerate(transforms):
+
+        if not fixedRect is None:
+            trect = spatial.Rectangle(transform.FixedBoundingBox)
+            # assert(False)  # Friday, left off here.  Rectangle creation isn't correct.
+            if not spatial.Rectangle.contains(trect, fixedRect):
+                continue
+
         imagefullpath = imagepaths[i]
 
         distanceImage = __GetOrCreateDistanceImage(distanceImage, imagefullpath)
 
-        transformedImageData = __TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale)
+        transformedImageData = _TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale, FixedRegion=FixedRegion)
 
-        (minX, minY, maxX, maxY) = transformedImageData.transform.FixedBoundingBox
+        if fixedRect is None:
+            (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
 
         (fullImage, fullImageZbuffer) = CompositeImageWithZBuffer(fullImage, fullImageZbuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
 
@@ -207,7 +247,7 @@ def TilesToImage(transforms, imagepaths, requiredScale=None):
     return (fullImage, mask)
 
 
-def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
+def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale=None, pool=None):
     '''Assembles a set of transforms and imagepaths to a single image using parallel techniques'''
 
     assert(len(transforms) == len(imagepaths))
@@ -223,14 +263,32 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
         pool = pools.GetGlobalMultithreadingPool()
 
     tasks = []
+    fixedRect = None
+    fullImage = None
+    fullImageZBuffer = None
 
-    (fullImage, fullImageZbuffer) = __CreateOutputBuffer(transforms, requiredScale)
+    if not FixedRegion is None:
+        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2], FixedRegion[3]))
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2], FixedRegion[3], requiredScale)
+    else:
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
     CheckTaskInterval = 10
 
+    minY = 0
+    minX = 0
+
     for i, transform in enumerate(transforms):
+
+        if not fixedRect is None:
+            trect = spatial.Rectangle(transform.FixedBoundingBox)
+            # assert(False)  # Friday, left off here.  Rectangle creation isn't correct.
+            if not spatial.Rectangle.contains(trect, fixedRect):
+                continue
+
         imagefullpath = imagepaths[i]
-        task = pool.add_task("__TransformTile" + imagefullpath, __TransformTile, transform=transform, imagefullpath=imagefullpath, distanceImage=None, requiredScale=requiredScale)
+
+        task = pool.add_task("__TransformTile" + imagefullpath, _TransformTile, transform=transform, imagefullpath=imagefullpath, distanceImage=None, requiredScale=requiredScale, FixedRegion=FixedRegion)
         task.transform = transform
         tasks.append(task)
 
@@ -240,7 +298,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
         for iTask, t in enumerate(tasks):
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer)
+                (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
                 del transformedImageData
                 del tasks[iTask]
 
@@ -255,7 +313,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
             logger.error('Convert task failed: ' + str(t))
             continue
 
-        (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer)
+        (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
         del transformedImageData
         del t
 
@@ -270,7 +328,7 @@ def TilesToImageParallel(transforms, imagepaths, pool=None, requiredScale=None):
     return (fullImage, mask)
 
 
-def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZBuffer):
+def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZBuffer, FixedRegion=None):
 
     if transformedImageData.image is None:
         logger = logging.getLogger('TilesToImageParallel')
@@ -279,7 +337,11 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
             logger.error(transformedImageData.errormsg)
             return (fullImage, fullImageZBuffer)
 
-    (minX, minY, maxX, maxY) = transformedImageData.transform.FixedBoundingBox
+    minY = 0
+    minX = 0
+    if FixedRegion is None:
+        (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
+
     # print "%g %g" % (minX, minY)
     (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
     transformedImageData.Clear()
@@ -287,7 +349,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
     return (fullImage, fullImageZBuffer)
 
 
-def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None):
+def _TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None, FixedRegion=None):
     '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  requiredScale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 
@@ -314,10 +376,20 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
         scaledTransform.Scale(transformScale)
         transform = scaledTransform
 
-    width = transform.FixedBoundingBoxWidth
-    height = transform.FixedBoundingBoxHeight
+        if not FixedRegion is None:
+            FixedRegion = np.array(FixedRegion) * transformScale
 
-    (minX, minY, maxX, maxY) = transform.FixedBoundingBox
+    (width, height, minX, minY) = (0, 0, 0, 0)
+
+    if FixedRegion is None:
+
+        width = transform.FixedBoundingBoxWidth
+        height = transform.FixedBoundingBoxHeight
+
+        (minY, minX, maxY, maxX) = transform.FixedBoundingBox
+    else:
+        assert(len(FixedRegion) == 4)
+        (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2], FixedRegion[3])
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage(warpedImage.shape)
@@ -336,9 +408,6 @@ def __TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=
     del distanceImage
 
     return TransformedImageData.Create(fixedImage, centerDistanceImage, transform, transformScale)
-
-
-
 
 if __name__ == '__main__':
     pass

@@ -24,6 +24,7 @@ class ShadeCorrectionTypes(object):
     BRIGHTFIELD = 0
     DARKFIELD = 1
 
+
 def __DetermineScale(transform, imageSize):
     '''Returns a scalar that can be applied to the transform to make the transform bounds match the image dimensions'''
 
@@ -117,15 +118,6 @@ def CalculateShadeImage(imagepaths, type=None):
        return __CalculateDarkfieldShadeImage(imagepaths)
 
     return None
-
-def NormalizeImage(image):
-    miniszeroimage = image - image.min()
-    scalar = (1.0 / miniszeroimage.max())
-
-    if np.isinf(scalar).all():
-        scalar = 1.0
-
-    return miniszeroimage * scalar
 
 
 def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):

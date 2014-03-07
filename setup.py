@@ -15,12 +15,9 @@ import glob
 if __name__ == '__main__':
     use_setuptools()
 
-    packages = ["nornir_imageregistration",
-                "nornir_imageregistration.files",
-                "nornir_imageregistration.geometry",
-                "nornir_imageregistration.transforms"]
+    packages = find_packages()
 
-    install_requires = ["nornir_pools>=1.1.1",
+    install_requires = ["nornir_pools>=1.1.3",
                         "nornir_shared>=1.1.2",
                         "numpy>=1.8",
                         "scipy>=0.13.2",
@@ -34,7 +31,7 @@ if __name__ == '__main__':
     scripts = glob.glob(os.path.join('scripts', '*.py'))
 
     setup(name='nornir_imageregistration',
-          version='1.1.2',
+          version='1.1.3',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",
