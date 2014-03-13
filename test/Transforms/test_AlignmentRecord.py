@@ -7,7 +7,7 @@ import unittest
 from  nornir_imageregistration.alignment_record import *
 import test.setup_imagetest
 
-import nornir_shared.images as images
+import nornir_imageregistration.core as core
 from nornir_imageregistration.files.stosfile import StosFile
 import nornir_imageregistration.transforms.factory as factory
 from test_Transforms import TransformCheck
@@ -140,10 +140,10 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0)
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 
-        self.assertEqual(FixedSize[1], images.GetImageSize(FixedImagePath)[0])
-        self.assertEqual(FixedSize[0], images.GetImageSize(FixedImagePath)[1])
-        self.assertEqual(WarpedSize[0], images.GetImageSize(WarpedImagePath)[1])
-        self.assertEqual(WarpedSize[1], images.GetImageSize(WarpedImagePath)[0])
+        self.assertEqual(FixedSize[0], core.GetImageSize(FixedImagePath)[0])
+        self.assertEqual(FixedSize[1], core.GetImageSize(FixedImagePath)[1])
+        self.assertEqual(WarpedSize[0], core.GetImageSize(WarpedImagePath)[0])
+        self.assertEqual(WarpedSize[1], core.GetImageSize(WarpedImagePath)[1])
 
         TransformCheck(self, alignmentTransform, [[0, 0]], [[45, 495]])
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
@@ -176,11 +176,8 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         peak = (20, 5)
         arecord = AlignmentRecord(peak, weight=100, angle=0)
 
-        FixedSize = images.GetImageSize(FixedImagePath)
-        WarpedSize = images.GetImageSize(WarpedImagePath)
-
-        FixedSize = (FixedSize[1], FixedSize[0])
-        WarpedSize = (WarpedSize[1], WarpedSize[0])
+        FixedSize = core.GetImageSize(FixedImagePath)
+        WarpedSize = core.GetImageSize(WarpedImagePath)
 
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 

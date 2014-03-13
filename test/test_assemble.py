@@ -158,7 +158,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-        arecord = AlignmentRecord(peak=(22, -4), weight=100, angle= -132.0)
+        arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
         fixedImage = core.LoadImage(FixedImagePath)
         warpedImage = core.LoadImage(WarpedImagePath)
@@ -188,8 +188,8 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
 
-        self.assertEquals(images.GetImageSize(self.FixedImagePath)[0], images.GetImageSize(OutputPath)[0])
-        self.assertEquals(images.GetImageSize(self.FixedImagePath)[1], images.GetImageSize(OutputPath)[1])
+        self.assertEquals(core.GetImageSize(self.FixedImagePath)[0], core.GetImageSize(OutputPath)[0])
+        self.assertEquals(core.GetImageSize(self.FixedImagePath)[1], core.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
