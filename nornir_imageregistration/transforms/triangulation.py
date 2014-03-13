@@ -338,7 +338,7 @@ class Triangulation(Base):
 
     @property
     def MappedBounds(self):
-        raise DeprecationWarning("MappedBounds is replaced by WarpedBoundingBox")
+        raise DeprecationWarning("MappedBounds is replaced by MappedBoundingBox")
 
     @property
     def ControlBounds(self):
