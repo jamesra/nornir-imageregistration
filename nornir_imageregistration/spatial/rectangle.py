@@ -6,6 +6,7 @@ Points are represented as (Y,X)
 '''
 
 from indicies import *
+import numpy as np
 
 class Rectangle(object):
     '''
@@ -19,6 +20,22 @@ class Rectangle(object):
     @property
     def Height(self):
         return self._bounds[iRect.MaxY] - self._bounds[iRect.MinY]
+
+    @property
+    def BottomLeft(self):
+        return np.array([self._bounds[iRect.MinY], self._bounds[iRect.MinX]])
+
+    @property
+    def TopLeft(self):
+        return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MinX]])
+
+    @property
+    def BottomRight(self):
+        return np.array([self._bounds[iRect.MinY], self._bounds[iRect.MaxX]])
+
+    @property
+    def TopRight(self):
+        return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MaxX]])
 
     @property
     def BoundingBox(self):
@@ -49,31 +66,35 @@ class Rectangle(object):
         return Rectangle(Bounds)
 
     @classmethod
-    def contains(cls, rect, primitive):
+    def PrimitiveToRectange(cls, primitive):
+        '''Privitive can be a list of (Y,X) or (MinY, MinX, MaxY, MaxX) or a Rectangle'''
+
+        if isinstance(primitive, Rectangle):
+            return primitive
+
+        if len(primitive) == 2:
+            return Rectangle(primitive[0], primitive[1], primitive[0], primitive[1])
+        elif len(primitive) == 4:
+            return Rectangle(primitive)
+        else:
+            raise ValueError("Unknown primitve type %s" % str(primitive))
+
+    @classmethod
+    def contains(cls, A, B):
         '''If len == 2 primitive is a point,
            if len == 4 primitive is a rect [left bottom right top]'''
-        if isinstance(primitive, Rectangle):
-            primitive = primitive.BoundingBox
 
-        IsPoint = len(primitive) == 2
-        IsRect = len(primitive) == 4
+        A = Rectangle.PrimitiveToRectange(A)
+        B = Rectangle.PrimitiveToRectange(B)
 
-        if(IsPoint):
-            point = primitive
-            if point[iPoint.X] < rect[iRect.MinX] or \
-                point[iPoint.X] > rect[iRect.MaxX] or \
-                point[iPoint.Y] < rect[iRect.MinY] or \
-                point[iPoint.Y] > rect[iRect.MaxY]:
-                    return False
+        if(A.BoundingBox[iRect.MaxX] < B.BoundingBox[iRect.MinX] or
+           A.BoundingBox[iRect.MinX] > B.BoundingBox[iRect.MaxX] or
+           A.BoundingBox[iRect.MaxY] < B.BoundingBox[iRect.MinY] or
+           A.BoundingBox[iRect.MinY] > B.BoundingBox[iRect.MaxY]):
 
-            return True
-        if(IsRect):
-            if(primitive[iRect.MaxX] < rect.BoundingBox[iRect.MinX] or
-                   primitive[iRect.MinX] > rect.BoundingBox[iRect.MaxX] or
-                   primitive[iRect.MaxY] < rect.BoundingBox[iRect.MinY] or
-                   primitive[iRect.MinY] > rect.BoundingBox[iRect.MaxY]):
-                    return False
-            return True
+            return False
+
+        return True
 
     def __str__(self):
         return "MinX: %g MinY: %g MaxX: %g MaxY: %g" % (self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])
