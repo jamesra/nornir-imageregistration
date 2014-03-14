@@ -8,6 +8,7 @@ import mosaicfile
 import copy
 import logging
 from nornir_imageregistration.transforms import factory
+import nornir_imageregistration.core
 
 StosNameTemplate = "%(mappedsection)04u-%(controlsection)04u_%(channels)s_%(mosaicfilters)s_%(stostype)s_%(downsample)u.stos"
 
@@ -342,19 +343,19 @@ class StosFile:
         OutLines.append("0")
 
         if self.ControlImageDim is None:
-            [ControlImageWidth, ControlImageHeight] = nornir_shared.images.GetImageSize(self.ControlImageFullPath)
+            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(self.ControlImageFullPath)
             self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
 
         if len(self.ControlImageDim) == 2:
-            [ControlImageWidth, ControlImageHeight] = nornir_shared.images.GetImageSize(self.ControlImageFullPath)
+            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(self.ControlImageFullPath)
             self.ControlImageDim = [self.ControlImageDim[0], self.ControlImageDim[1], int(ControlImageWidth), int(ControlImageHeight)]
 
         if self.MappedImageDim is None:
-            [MappedImageWidth, MappedImageHeight] = nornir_shared.images.GetImageSize(self.MappedImageFullPath)
+            [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
             self.MappedImageDim = [1.0, 1.0, (MappedImageWidth), (MappedImageHeight)]
 
         if len(self.MappedImageDim) == 2:
-            [MappedImageWidth, MappedImageHeight] = nornir_shared.images.GetImageSize(self.MappedImageFullPath)
+            [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
             self.MappedImageDim = [self.MappedImageDim[0], self.MappedImageDim[1], (MappedImageWidth), (MappedImageHeight)]
 
         ControlDimStr = StosFile.__GetImageDimString(self.ControlImageDim)
@@ -405,7 +406,7 @@ class StosFile:
     def __GetImageDimsArray(cls, ImageFullPath):
         '''Return a string compatible with the ITK .stos file image dimension entries'''
 
-        [ImageWidth, ImageHeight] = nornir_shared.images.GetImageSize(ImageFullPath)
+        [ImageHeight, ImageWidth] = nornir_imageregistration.core.GetImageSize(ImageFullPath)
         return [1.0, 1.0, ImageWidth, ImageHeight]
 
     @classmethod

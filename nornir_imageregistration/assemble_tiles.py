@@ -229,7 +229,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
         distanceImage = __GetOrCreateDistanceImage(distanceImage, imagefullpath)
 
-        transformedImageData = _TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale, FixedRegion=FixedRegion)
+        transformedImageData = TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale, FixedRegion=FixedRegion)
 
         if fixedRect is None:
             (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
@@ -288,7 +288,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
         imagefullpath = imagepaths[i]
 
-        task = pool.add_task("__TransformTile" + imagefullpath, _TransformTile, transform=transform, imagefullpath=imagefullpath, distanceImage=None, requiredScale=requiredScale, FixedRegion=FixedRegion)
+        task = pool.add_task("TransformTile" + imagefullpath, TransformTile, transform=transform, imagefullpath=imagefullpath, distanceImage=None, requiredScale=requiredScale, FixedRegion=FixedRegion)
         task.transform = transform
         tasks.append(task)
 
@@ -349,7 +349,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
     return (fullImage, fullImageZBuffer)
 
 
-def _TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None, FixedRegion=None):
+def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None, FixedRegion=None):
     '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  requiredScale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 

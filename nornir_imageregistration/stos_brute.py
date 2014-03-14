@@ -6,16 +6,18 @@ Created on Oct 4, 2012
 import ctypes
 import logging
 import multiprocessing.sharedctypes
+import numpy as np
 import os
 
 from numpy.fft import fftshift
+import scipy.ndimage.interpolation as interpolation
+from time import sleep
+
+import nornir_pools as pools
 
 import nornir_imageregistration.core as core
-import nornir_pools as pools
-import numpy as np
-import scipy.ndimage.interpolation as interpolation
+import nornir_imageregistration
 
-from time import sleep
 
 
 # from memory_profiler import profile
@@ -134,7 +136,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
 
     del CorrelationImage
 
-    record = core.AlignmentRecord(peak, weight, angle)
+    record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
 
     return record
 
@@ -238,7 +240,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         del SharedPaddedFixed
         del SharedWarped
 
-    BestMatch = max(AngleMatchValues, key=core.AlignmentRecord.WeightKey)
+    BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
     return BestMatch
 
 

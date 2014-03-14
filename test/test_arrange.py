@@ -9,6 +9,7 @@ import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.tiles as tiles
+import nornir_imageregistration.tile as tile
 import nornir_imageregistration.core as core
 from nornir_imageregistration.alignment_record import AlignmentRecord
 from nornir_imageregistration.files.mosaicfile import MosaicFile
@@ -165,7 +166,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase):
 
         tilesPathList = mosaic.CreateTilesPathList(TilesDir)
 
-        tiles = arrange.CreateTiles(mosaic.ImageToTransform.values(), tilesPathList)
+        tiles = tile.Tile.CreateTiles(mosaic.ImageToTransform.values(), tilesPathList)
 
         arrange._FindTileOffsets(tiles, scale)
 

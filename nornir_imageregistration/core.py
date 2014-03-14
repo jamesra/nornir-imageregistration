@@ -9,18 +9,19 @@ import os
 
 from PIL import Image
 import numpy as np
+import math
 import numpy.fft
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.measurements
 import scipy.stats
 
-from alignment_record import *
+import nornir_imageregistration
+
 import scipy.ndimage.interpolation as interpolation
 
 import matplotlib.pyplot as plt
 
-import numpy
-import math
+
 
 
 
@@ -119,8 +120,14 @@ def ShowGrayscale(imageList):
                     iCol = (i - (iRow * width)) % width
 
                     print "Row %d Col %d" % (iRow, iCol)
-                    ax = axeslist[iRow, iCol ]
+
+                    if height > 1:
+                        ax = axeslist[iRow, iCol ]
+                    else:
+                        ax = axeslist[iCol]
+
                     ax.imshow(image, cmap=plt.gray(), figure=fig)
+
     elif isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
     else:
@@ -469,7 +476,7 @@ def DimensionWithOverlap(val, overlap=1.0):
 
     overlap += 0.5
 
-    return val + (val * (1.0 - overlap) * 4.0)
+    return val + (val * (1.0 - overlap) * 2.0)
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
@@ -685,7 +692,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
 
     del CorrelationImage
 
-    record = AlignmentRecord(peak=peak, weight=weight)
+    record = nornir_imageregistration.AlignmentRecord(peak=peak, weight=weight)
 
     return record
 

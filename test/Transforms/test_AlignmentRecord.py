@@ -2,6 +2,27 @@
 Created on Mar 21, 2013
 
 @author: u0490822
+
+Rotation tests should have a positive angle result in a clockwise rotation
+Corner points should be (BotLeft, BotRight, TopLeft, TopRight)
+
+Raw Data::
+
+  2---3
+  |   |
+  |   |
+  0---1
+  
+Rotated 90 Degrees::
+
+  0---2
+  |   |
+  |   |
+  1---3
+  
+
+
+
 '''
 import unittest
 from  nornir_imageregistration.alignment_record import *
@@ -28,6 +49,8 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 9],
                                    [9, 0],
                                    [9, 9]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
         Corners = record.GetTransformedCornerPoints([10, 10])
         self.assertTrue((Corners == predictedArray).all())
 
@@ -43,6 +66,8 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 0],
                                    [9, 9],
                                    [0, 9]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
         Corners = record.GetTransformedCornerPoints([10, 10])
         self.assertTrue((Corners == predictedArray).all())
 
@@ -53,11 +78,14 @@ class TestAlignmentRecord(unittest.TestCase):
         peak = [3, 1]
         record = AlignmentRecord(peak, 100, 0)
 
-        # Get the corners for a 10,10  image rotated 90 degrees
+        # Get the corners for a 10,10  translated 3x, 1y
         predictedArray = np.array([[3, 1],
                                    [3, 10],
                                    [12, 1],
                                    [12, 10]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
+
         Corners = record.GetTransformedCornerPoints([10, 10])
 
         self.assertTrue((Corners == predictedArray).all())
@@ -75,6 +103,8 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [2.5, 0],
                                    [11.5, 9],
                                    [2.5, 9]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
         Corners = record.GetTransformedCornerPoints([10, 10])
         self.assertTrue((Corners == predictedArray).all())
 
@@ -86,6 +116,9 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [-2.5, 2.5],
                                    [6.5, 11.5],
                                    [-2.5, 11.5]])
+
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
         Corners = record.GetTransformedCornerPoints([10, 10])
         self.assertTrue((Corners == predictedArray).all())
 
@@ -100,11 +133,11 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[2.5, 2.5]], [[47.5, 47.5]])
         TransformCheck(self, transform, [[7.5, 7.5]], [[52.5, 52.5]])
 
-        transform = record.ToTransform([100, 100], [50, 10])
+        transform = record.ToTransform([100, 100], [10, 50])
 
         # OK, we should be able to map points
-        TransformCheck(self, transform, [[2.5, 2.5]], [[27.5, 47.5]])
-        TransformCheck(self, transform, [[7.5, 7.5]], [[32.5, 52.5]])
+        TransformCheck(self, transform, [[2.5, 2.5]], [[47.5, 27.5]])
+        TransformCheck(self, transform, [[7.5, 7.5]], [[52.5, 32.5]])
 
     def testAlignmentTransformSizeMismatchWithRotation(self):
         record = AlignmentRecord((0, 0), 100, 90)

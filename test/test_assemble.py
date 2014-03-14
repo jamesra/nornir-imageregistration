@@ -13,6 +13,7 @@ import nornir_imageregistration.assemble as assemble
 import nornir_shared.images as images
 from scipy.ndimage import interpolation
 from scipy.misc import imsave
+import nornir_imageregistration.spatial as spatial
 
 
 def ShowComparison(*args):
@@ -36,10 +37,10 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         # ([Y1,X1],
         # ([Y2,X2], ...
 
-        self.assertAlmostEqual(min(points[:, 0]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 1, delta=0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 5, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
     def test_translate(self):
 
@@ -51,10 +52,10 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), -1, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 0, delta=0.01)
-        self.assertAlmostEqual(min(points[:, 1]), -2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -1, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), -2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 3, delta=0.01)
 
     def test_Rotate180(self):
 
@@ -65,10 +66,10 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 1, delta=0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 5, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
     def test_Rotate90(self):
 
@@ -79,10 +80,10 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, 0]), -2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 0]), 3, delta=0.01)
-        self.assertAlmostEqual(min(points[:, 1]), 2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, 1]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 2, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 3, delta=0.01)
 
 class TestAssemble(setup_imagetest.ImageTestBase):
 
@@ -103,7 +104,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
 #
-#        ShowComparison([fixedImage, rotatedWarped, transformedImage])
+        ShowComparison([fixedImage, rotatedWarped, transformedImage])
 
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())
@@ -113,7 +114,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
 
-        angle = 132
+        angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
         fixedImage = core.LoadImage(WarpedImagePath)
@@ -126,7 +127,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
 #
-        # ShowComparison([fixedImage, rotatedWarped, transformedImage])
+        ShowComparison([fixedImage, rotatedWarped, transformedImage])
 
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())
@@ -148,7 +149,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         delta = fixedImage[0:64, 0:64] - transformedImage
 
-        # core.ShowGrayscale([fixedImage[0:64,0:64], transformedImage, delta])
+        # core.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
         self.assertTrue((delta < 0.01).all())
 
 

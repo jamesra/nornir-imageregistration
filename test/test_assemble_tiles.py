@@ -201,7 +201,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         self.assertTrue(np.sum(np.abs(clustertileImage - tileImage).flat) < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
         self.assertTrue(np.all(clustertileMask == tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
-        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
         self.assertEqual(result.image.shape, (ScaledFixedRegion[2], ScaledFixedRegion[3]))
 
         # core.ShowGrayscale([tileImage, result.image])
@@ -230,13 +230,13 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
 
-        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, transform.FixedBoundingBoxHeight, 256))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, transform.FixedBoundingBoxHeight, 256))
         self.assertEqual(result.image.shape, (transform.FixedBoundingBoxHeight, 256))
 
-        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, 256, transform.FixedBoundingBoxWidth))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, 256, transform.FixedBoundingBoxWidth))
         self.assertEqual(result.image.shape, (256, transform.FixedBoundingBoxWidth))
 
-        result = at._TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, 512, 512))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, 512, 512))
         self.assertEqual(result.image.shape, (512, 512))
 
 
