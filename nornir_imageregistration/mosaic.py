@@ -152,7 +152,7 @@ class Mosaic(object):
         return LayoutToMosaic(layout)
 
 
-    def AssembleTiles(self, tilesPath, usecluster=False):
+    def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False):
         '''Create a single large mosaic'''
 
         # Ensure that all transforms map to positive values
@@ -163,10 +163,10 @@ class Mosaic(object):
 
         if usecluster:
             cpool = pools.GetGlobalClusterPool()
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList, pool=cpool)
+            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList, pool=cpool, FixedRegion=FixedRegion)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(self.ImageToTransform.values(), tilesPathList)
+            return at.TilesToImage(self.ImageToTransform.values(), tilesPathList, FixedRegion=FixedRegion)
 
 
 

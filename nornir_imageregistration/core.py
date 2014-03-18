@@ -9,18 +9,19 @@ import os
 
 from PIL import Image
 import numpy as np
+import math
 import numpy.fft
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.measurements
 import scipy.stats
 
-from alignment_record import *
+import nornir_imageregistration
+
 import scipy.ndimage.interpolation as interpolation
 
 import matplotlib.pyplot as plt
 
-import numpy
-import math
+
 
 
 
@@ -81,19 +82,52 @@ def ScalarForMaxDimension(max_dim, shapes):
 def ReduceImage(image, scalar):
     return interpolation.zoom(image, scalar)
 
+def _GridLayoutDims(imagelist):
+    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    '''
+
+    numImages = len(imagelist)
+    width = math.ceil(math.sqrt(numImages))
+    height = math.ceil(numImages / width)
+
+    if height > width:
+        tempH = height
+        height = width
+        height = tempH
+
+    return (int(height), int(width))
+
 def ShowGrayscale(imageList):
     '''
     :param list imageList: A list or single ndimage to be displayed with imshow
     '''
 
     if isinstance(imageList, list):
-        fig, axeslist = plt.subplots(1, len(imageList))
-        # fig = figure()
-        for i, image in enumerate(imageList):
-            if isinstance(image, np.ndarray):
-                # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
-                ax = axeslist[i]
-                ax.imshow(image, cmap=plt.gray(), figure=fig)
+
+        if len(imageList) == 1:
+            plt.imshow(imageList[0], cmap=plt.gray())
+        else:
+            plot_cnt = 0
+
+            height, width = _GridLayoutDims(imageList)
+            fig, axeslist = plt.subplots(height, width)
+
+            for i, image in enumerate(imageList):
+                # fig = figure()
+                if isinstance(image, np.ndarray):
+                    # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
+                    iRow = i / width
+                    iCol = (i - (iRow * width)) % width
+
+                    print "Row %d Col %d" % (iRow, iCol)
+
+                    if height > 1:
+                        ax = axeslist[iRow, iCol ]
+                    else:
+                        ax = axeslist[iCol]
+
+                    ax.imshow(image, cmap=plt.gray(), figure=fig)
+
     elif isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
     else:
@@ -315,6 +349,18 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     return image
 
 
+def NormalizeImage(image):
+    '''Adjusts the image to have a range of 0 to 1.0'''
+
+    miniszeroimage = image - image.min()
+    scalar = (1.0 / miniszeroimage.max())
+
+    if np.isinf(scalar).all():
+        scalar = 1.0
+
+    return miniszeroimage * scalar
+
+
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
     '''
     Fill the masked area with random noise with gaussian distribution about the image
@@ -430,7 +476,7 @@ def DimensionWithOverlap(val, overlap=1.0):
 
     overlap += 0.5
 
-    return val + (val * (1.0 - overlap) * 4.0)
+    return val + (val * (1.0 - overlap) * 2.0)
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
@@ -646,7 +692,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
 
     del CorrelationImage
 
-    record = AlignmentRecord(peak=peak, weight=weight)
+    record = nornir_imageregistration.AlignmentRecord(peak=peak, weight=weight)
 
     return record
 

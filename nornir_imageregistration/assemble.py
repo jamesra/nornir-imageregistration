@@ -196,8 +196,8 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
 
         warpedImageFilename = stos.MappedImageFullPath
 
-    fixedImageSize = images.GetImageSize(fixedImageFilename)
-    fixedImageShape = np.array([fixedImageSize[1], fixedImageSize[0]]) * scalar
+    fixedImageSize = core.GetImageSize(fixedImageFilename)
+    fixedImageShape = np.array(fixedImageSize) * scalar
     warpedImage = core.LoadImage(warpedImageFilename)
 
     stostransform.points = stostransform.points * scalar

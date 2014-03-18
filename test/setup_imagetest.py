@@ -5,6 +5,7 @@ Created on Mar 21, 2013
 '''
 import unittest
 import os
+import glob
 import logging
 from nornir_shared.misc import SetupLogging
 import shutil
@@ -78,6 +79,19 @@ class ImageTestBase(TestBase):
 
 
 class MosaicTestBase(TestBase):
+
+    @property
+    def TestName(self):
+        raise NotImplementedError("Test should override TestName property")
+
+    def GetMosaicFiles(self):
+        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
+
+    def GetTileFullPath(self, downsamplePath=None):
+        if downsamplePath is None:
+            downsamplePath = "001"
+
+        return os.path.join(self.ImportedDataPath, self.TestName, "Leveled", "TilePyramid", downsamplePath)
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")

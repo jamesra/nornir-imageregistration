@@ -40,7 +40,7 @@ class Triangulation(Base):
     def RemoveDuplicates(cls, points):
         '''Returns tuple of the array sorted on fixed x,y without duplicates'''
 
-        (points, InvalidIndicies) = utils.InvalidIndicies(points)
+        (points, indicies) = utils.InvalidIndicies(points)
 
         DuplicateRemoved = False
         points = np.around(points, 3)
@@ -240,33 +240,41 @@ class Triangulation(Base):
 
     @property
     def FixedPoints(self):
+        ''' [[Y1, X1],
+             [Y2, X2],
+             [Yn, Xn]]'''
         return self.points[:, 0:2]
 
     @property
     def WarpedPoints(self):
+        ''' [[Y1, X1],
+             [Y2, X2],
+             [Yn, Xn]]'''
         return self.points[:, 2:4]
 
     @property
     def FixedBoundingBox(self):
+        '''
+        :return: (minY, minX, maxY, maxX)
+        '''
         cp = self.FixedPoints
 
-        minX = np.min(cp[:, 1])
-        maxX = np.max(cp[:, 1])
-        minY = np.min(cp[:, 0])
-        maxY = np.max(cp[:, 0])
+        (minY, minX) = np.min(cp, 0)
+        (maxY, maxX) = np.max(cp, 0)
 
-        return (minX, minY, maxX, maxY)
+        return (minY, minX, maxY, maxX)
 
     @property
     def MappedBoundingBox(self):
+        '''
+        :return: (minY, minX, maxY, maxX)
+        '''
         cp = self.WarpedPoints
 
-        minX = np.min(cp[:, 1])
-        maxX = np.max(cp[:, 1])
-        minY = np.min(cp[:, 0])
-        maxY = np.max(cp[:, 0])
+        (minY, minX) = np.min(cp, 0)
+        (maxY, maxX) = np.max(cp, 0)
 
-        return (minX, minY, maxX, maxY)
+        return (minY, minX, maxY, maxX)
 
     @property
     def FixedBoundingBoxWidth(self):
@@ -330,25 +338,12 @@ class Triangulation(Base):
 
     @property
     def MappedBounds(self):
-        mapPoints = self.WarpedPoints
-
-        minX = np.min(mapPoints[:, 1])
-        maxX = np.max(mapPoints[:, 1])
-        minY = np.min(mapPoints[:, 0])
-        maxY = np.max(mapPoints[:, 0])
-
-        return (minX, minY, maxX, maxY)
+        raise DeprecationWarning("MappedBounds is replaced by MappedBoundingBox")
 
     @property
     def ControlBounds(self):
-        ctrlPoints = self.ControlBounds
 
-        minX = np.min(ctrlPoints[:, 1])
-        maxX = np.max(ctrlPoints[:, 1])
-        minY = np.min(ctrlPoints[:, 0])
-        maxY = np.max(ctrlPoints[:, 0])
-
-        return (minX, minY, maxX, maxY)
+        raise DeprecationWarning("ControlBounds is replaced by FixedBoundingBox")
 
     def __init__(self, pointpairs):
         '''

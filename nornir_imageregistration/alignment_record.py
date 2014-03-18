@@ -1,12 +1,13 @@
 '''
 '''
 
-import nornir_imageregistration.files.stosfile as stosfile
-from nornir_shared import images
+
 import numpy as np
 import nornir_imageregistration
 import os
 from scipy import pi
+
+import nornir_imageregistration.files.stosfile
 
 
 class AlignmentRecord:
@@ -25,25 +26,25 @@ class AlignmentRecord:
     @property
     def angle(self):
         '''Rotation in degrees'''
-        return self._angle;
+        return self._angle
 
     @property
     def rangle(self):
         '''Rotation in radians'''
-        return self._angle * (pi / 180);
+        return self._angle * (pi / 180.0)
 
     @property
     def weight(self):
         '''Quantifies the quality of the alignment'''
-        return self._weight;
+        return self._weight
 
     @property
     def peak(self):
         '''Translation vector for the alignment'''
-        return self._peak;
+        return self._peak
 
     def WeightKey(self):
-        return self._weight;
+        return self._weight
 
     def scale(self, value):
         '''Scales the peak position'''
@@ -61,33 +62,46 @@ class AlignmentRecord:
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
     def __str__(self):
-        s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight);
-        return s;
+        s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
+        return s
 
     def __init__(self, peak, weight, angle=0.0):
         if not isinstance(angle, float):
             angle = float(angle)
 
-        self._angle = angle;
+        self._angle = angle
 
         if not isinstance(peak, np.ndarray):
             peak = np.array(peak)
 
-        self._peak = peak;
-        self._weight = weight;
+        self._peak = peak
+        self._weight = weight
 
     def CorrectPeakForOriginalImageSize(self, FixedImageShape, MovingImageShape):
 
         if self.peak is None:
-            self.peak = (0, 0);
+            self.peak = (0, 0)
 
         return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(FixedImageShape, MovingImageShape)
 
 
     def GetTransformedCornerPoints(self, warpedImageSize):
+        '''
+        
+        '''
         return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak)
 
-    def ToTransform(self, fixedImageSize, warpedImageSize):
+
+    def ToTransform(self, fixedImageSize, warpedImageSize=None):
+        '''
+        :param (Height, Width) fixedImageSize: Size of translated image in fixed space
+        :param (Height, Width) warpedImageSize: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
+        :return: A rigid rotation+translation transform described by the alignment record
+        '''
+
+        if warpedImageSize is None:
+            warpedImageSize = fixedImageSize
+
         return nornir_imageregistration.transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
@@ -97,7 +111,7 @@ class AlignmentRecord:
         warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0))
 
         fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
-#
+
 #        list = [str(BotLeft.item(0)),
 #                str(BotLeft.item(1)),
 #                str(BotRight.item(0)),
@@ -112,28 +126,31 @@ class AlignmentRecord:
         fixedSpaceCorners = np.fliplr(fixedSpaceCorners)
 
         for s in fixedSpaceCorners.flat:
-            string = string + ' %g' % s;
+            string = string + ' %g' % s
 
-        return string;
+        return string
 
     def ToStos(self, ImagePath, WarpedImagePath, FixedImageMaskPath=None, WarpedImageMaskPath=None, PixelSpacing=1):
-        stos = stosfile.StosFile();
-        stos.ControlImageName = os.path.basename(ImagePath);
-        stos.ControlImagePath = os.path.dirname(ImagePath);
+        stos = nornir_imageregistration.files.stosfile.StosFile()
+        stos.ControlImageName = os.path.basename(ImagePath)
+        stos.ControlImagePath = os.path.dirname(ImagePath)
 
-        stos.MappedImageName = os.path.basename(WarpedImagePath);
-        stos.MappedImagePath = os.path.dirname(WarpedImagePath);
+        stos.MappedImageName = os.path.basename(WarpedImagePath)
+        stos.MappedImagePath = os.path.dirname(WarpedImagePath)
 
         if not FixedImageMaskPath is None:
-            stos.ControlMaskName = os.path.basename(FixedImageMaskPath);
-            stos.ControlMaskPath = os.path.dirname(FixedImageMaskPath);
+            stos.ControlMaskName = os.path.basename(FixedImageMaskPath)
+            stos.ControlMaskPath = os.path.dirname(FixedImageMaskPath)
 
         if not WarpedImageMaskPath is None:
-            stos.MappedMaskName = os.path.basename(WarpedImageMaskPath);
-            stos.MappedMaskPath = os.path.dirname(WarpedImageMaskPath);
+            stos.MappedMaskName = os.path.basename(WarpedImageMaskPath)
+            stos.MappedMaskPath = os.path.dirname(WarpedImageMaskPath)
 
-        stos.ControlImageDim = images.GetImageSize(ImagePath);
-        stos.MappedImageDim = images.GetImageSize(WarpedImagePath);
+        (ControlHeight, ControlWidth) = nornir_imageregistration.core.GetImageSize(ImagePath)
+        stos.ControlImageDim = (ControlWidth, ControlHeight)
+
+        (MappedHeight, MappedWidth) = nornir_imageregistration.core.GetImageSize(WarpedImagePath)
+        stos.MappedImageDim = (MappedWidth, MappedHeight)
 
         # transformTemplate = "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 %(cos)g %(negsin)g %(sin)g %(cos)g %(x)g %(y)g 1 1 fp 2 %(mapwidth)d %(mapheight)d"
 
@@ -143,7 +160,7 @@ class AlignmentRecord:
         #                                 'x' : Match.peak[0],
         #                                 'y' : -Match.peak[1],
         #                                 'mapwidth' : stos.MappedImageDim[0]/2,
-        #                                 'mapheight' : stos.MappedImageDim[1]/2};
+        #                                 'mapheight' : stos.MappedImageDim[1]/2}
 
         transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)f %(height)f"
 
@@ -154,8 +171,8 @@ class AlignmentRecord:
                                               'width' : stos.MappedImageDim[0] - 1,
                                               'height' : stos.MappedImageDim[1] - 1}
 
-        stos.Downsample = PixelSpacing;
+        stos.Downsample = PixelSpacing
 
 #        print "Done!"
 
-        return stos;
+        return stos

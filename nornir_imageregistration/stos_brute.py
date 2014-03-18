@@ -6,16 +6,18 @@ Created on Oct 4, 2012
 import ctypes
 import logging
 import multiprocessing.sharedctypes
+import numpy as np
 import os
 
 from numpy.fft import fftshift
+import scipy.ndimage.interpolation as interpolation
+from time import sleep
+
+import nornir_pools as pools
 
 import nornir_imageregistration.core as core
-import nornir_pools as pools
-import numpy as np
-import scipy.ndimage.interpolation as interpolation
+import nornir_imageregistration
 
-from time import sleep
 
 
 # from memory_profiler import profile
@@ -26,7 +28,8 @@ def SliceToSliceBruteForce(FixedImageInput,
                            LargestDimension=None,
                            AngleSearchRange=None,
                            MinOverlap=0.75,
-                           SingleThread=False):
+                           SingleThread=False,
+                           Cluster=False):
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be'''
 
@@ -60,7 +63,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = range(-180, 180, 2)
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread)
+    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
 
     # Find the best match
 
@@ -133,7 +136,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
 
     del CorrelationImage
 
-    record = core.AlignmentRecord(peak, weight, angle)
+    record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
 
     return record
 
@@ -150,16 +153,20 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False):
+def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False, Cluster=False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
-
     Debug = False
+    pool = None
 
-    pool = pools.GetGlobalMultithreadingPool()
     if Debug:
         pool = pools.GetThreadPool(Poolname=None, num_threads=3)
+    elif Cluster:
+        pool = pools.GetGlobalClusterPool()
+    else:
+        pool = pools.GetGlobalMultithreadingPool()
+
 
     AngleMatchValues = list()
     taskList = list()
@@ -175,8 +182,13 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
 
     # Create a shared read-only memory map for the Padded fixed image
-    SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
-    SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+
+    if not Cluster:
+        SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
+        SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+    else:
+        SharedPaddedFixed = PaddedFixed
+        SharedWarped = imWarped
 
     CheckTaskInterval = 16
 
@@ -223,10 +235,12 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
 
     del PaddedFixed
-    del SharedPaddedFixed
-    del SharedWarped
 
-    BestMatch = max(AngleMatchValues, key=core.AlignmentRecord.WeightKey)
+    if not Cluster:
+        del SharedPaddedFixed
+        del SharedWarped
+
+    BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
     return BestMatch
 
 
