@@ -474,7 +474,8 @@ class StosFile:
 
             if hasattr(transformObj, 'gridWidth'):
                 # Save as a stos grid if we can
-                NewStosFile.Transform = factory.TransformToIRToolsString(transformObj, bounds=NewStosFile.MappedImageDim)
+                bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3], NewStosFile.MappedImageDim[2])
+                NewStosFile.Transform = factory.TransformToIRToolsString(transformObj, bounds=bounds)
             else:
                 NewStosFile.Transform = factory.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
 

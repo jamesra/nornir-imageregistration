@@ -22,67 +22,27 @@ from nornir_shared.tasktimer import TaskTimer
 
 from nornir_imageregistration.mosaic  import Mosaic
 
+
 class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
-    def GetMosaicFiles(self, testName=None):
-        if testName is None:
-            testName = "PMG1"
+    def DownsampleFromTilePath(self, tilePath):
+        downsamplePath = os.path.basename(tilePath)
+        return float(downsamplePath)
 
-        return glob.glob(os.path.join(self.ImportedDataPath, testName, "*.mosaic"))
+    def setUp(self):
+        setup_imagetest.MosaicTestBase.setUp(self)
 
+        # Make sure we save images before starting a long test
+        z = np.zeros((16, 16))
+        outputImagePath = os.path.join(self.TestOutputPath, 'z.png')
+        imsave(outputImagePath, z)
 
-    def test_CreateDistanceBuffer(self):
+        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
-        firstShape = (10, 10)
-        dMatrix = at.CreateDistanceImage(firstShape)
-        self.assertAlmostEqual(dMatrix[0, 0], 7.07, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[9, 9], 7.07, 2, "Distance matrix incorrect")
-
-        secondShape = (11, 11)
-        dMatrix = at.CreateDistanceImage(secondShape)
-
-        self.assertAlmostEqual(dMatrix[0, 0], 7.78, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[10, 10], 7.78, 2, "Distance matrix incorrect")
-
-        thirdShape = (10, 11)
-        dMatrix = at.CreateDistanceImage(thirdShape)
-
-        self.assertAlmostEqual(dMatrix[0, 0], 7.43, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[9, 0], 7.43, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[9, 10], 7.43, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[0, 10], 7.43, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[0, 5], 5, 2, "Distance matrix incorrect")
-        self.assertAlmostEqual(dMatrix[4, 0], 5.53, 2, "Distance matrix incorrect")
+        os.remove(outputImagePath)
 
 
-    def test_MosaicBoundsEachMosaicType(self):
-
-        for m in self.GetMosaicFiles(testName="PMG1"):
-
-            mosaic = Mosaic.LoadFromMosaicFile(m)
-
-            self.assertIsNotNone(mosaic.MappedBoundingBox, "No bounding box returned for mosiac")
-
-            self.Logger.info(m + " mapped bounding box: " + str(mosaic.MappedBoundingBox))
-
-            self.assertIsNotNone(mosaic.FixedBoundingBox, "No bounding box returned for mosiac")
-
-            self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
-
-    def MosaicTilePath(self, mosaicFilePath, downsamplePath):
-        '''Returns the tiles path from a mosaic FilePath'''
-
-        mosaicDir = os.path.dirname(mosaicFilePath)
-
-
-        return os.path.join(mosaicDir, 'Leveled', 'TilePyramid', downsamplePath)
-
-
-
-    def AssembleMosaic(self, mosaicFilePath, outputMosaicPath=None, parallel=False, downsamplePath=None):
-
-        if downsamplePath is None:
-            downsamplePath = '001'
+    def AssembleMosaic(self, mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False, downsamplePath=None):
 
         SaveFiles = not outputMosaicPath is None
 
@@ -90,23 +50,21 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         mosaicBaseName = os.path.basename(mosaicFilePath)
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = self.MosaicTilePath(mosaicFilePath, downsamplePath)
-
         mosaic.TranslateToZeroOrigin()
 
-        assembleScale = tiles.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(TilesDir))
+        assembleScale = tiles.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(tilesDir))
 
-        expectedScale = 1.0 / float(downsamplePath)
+        expectedScale = 1.0 / self.DownsampleFromTilePath(tilesDir)
 
         self.assertEqual(assembleScale, expectedScale, "Scale for assemble does not match the expected scale")
 
         timer = TaskTimer()
 
-        timer.Start("AssembleTiles " + TilesDir)
+        timer.Start("AssembleTiles " + tilesDir)
 
-        (mosaicImage, mask) = mosaic.AssembleTiles(TilesDir, usecluster=parallel)
+        (mosaicImage, mask) = mosaic.AssembleTiles(tilesDir, usecluster=parallel)
 
-        timer.End("AssembleTiles " + TilesDir, True)
+        timer.End("AssembleTiles " + tilesDir, True)
 
         self.assertEqual(mosaicImage.shape[0], np.ceil(mosaic.FixedBoundingBoxHeight * expectedScale), "Output mosaic height does not match .mosaic height %g vs %g" % (mosaicImage.shape[0], mosaic.FixedBoundingBoxHeight * expectedScale))
         self.assertEqual(mosaicImage.shape[1], np.ceil(mosaic.FixedBoundingBoxWidth * expectedScale), "Output mosaic width does not match .mosaic height %g vs %g" % (mosaicImage.shape[1], mosaic.FixedBoundingBoxWidth * expectedScale))
@@ -134,41 +92,9 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         else:
             return (mosaicImage, mask)
 
-    def test_AssemblePMG(self):
-
-        mosaicFiles = self.GetMosaicFiles(testName="PMG1")
-
-        self.CreateAssembleEachMosaic(mosaicFiles)
-
-    def test_AssemblePMGParallel(self):
-
-        mosaicFiles = self.GetMosaicFiles(testName="PMG1")
-
-        self.ParallelAssembleEachMosaic(mosaicFiles)
-
-    def test_AssembleIDOC(self):
-
-        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
-
-        self.CreateAssembleEachMosaic(mosaicFiles)
-
-    def test_AssembleIDOCParallel(self):
-
-        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
-
-        self.ParallelAssembleEachMosaic(mosaicFiles)
-
-    def test_AssembleTilesIDoc(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
-
-        mosaicFiles = self.GetMosaicFiles(testName="IDOC1")
-
-        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], downsamplePath='004')
-
-        self.CreateAssembleOptimizedTile(mosaicFiles[0])
 
 
-    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath, downsamplePath='001'):
+    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath, tilesDir):
         '''
         1) Assemble the entire mosaic
         2) Assemble subregion of the mosaic
@@ -183,97 +109,173 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (imageKey, transform) = mosaic.ImageToTransform.items()[0]
 
-        TilesDir = self.MosaicTilePath(mosaicFilePath, downsamplePath)
-
-
-
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
 
         FixedRegion = np.array([MinY + 512, MinX + 1024, 1024, 512])
-        ScaledFixedRegion = FixedRegion / float(downsamplePath)
+        ScaledFixedRegion = FixedRegion / self.DownsampleFromTilePath(tilesDir)
 
-        (tileImage, tileMask) = mosaic.AssembleTiles(TilesDir, usecluster=False, FixedRegion=FixedRegion)
+        (tileImage, tileMask) = mosaic.AssembleTiles(tilesDir, usecluster=False, FixedRegion=FixedRegion)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
-        (clustertileImage, clustertileMask) = mosaic.AssembleTiles(TilesDir, usecluster=True, FixedRegion=FixedRegion)
+        (clustertileImage, clustertileMask) = mosaic.AssembleTiles(tilesDir, usecluster=True, FixedRegion=FixedRegion)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         self.assertTrue(np.sum(np.abs(clustertileImage - tileImage).flat) < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
         self.assertTrue(np.all(clustertileMask == tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
+        result = at.TransformTile(transform, os.path.join(tilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
         self.assertEqual(result.image.shape, (ScaledFixedRegion[2], ScaledFixedRegion[3]))
 
         # core.ShowGrayscale([tileImage, result.image])
-        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, outputMosaicPath=None, parallel=False, downsamplePath=downsamplePath)
+        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False)
         self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
+        self.assertIsNotNone(wholemask, "Assemble did not produce a mask")
 
         croppedWholeImage = core.CropImage(wholeimage, ScaledFixedRegion[1], ScaledFixedRegion[0], ScaledFixedRegion[3], ScaledFixedRegion[2])
 
         core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage])
 
 
-    def CreateAssembleOptimizedTile(self, mosaicFilePath):
-
-        downsamplePath = '001'
-
+    def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir):
         mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         mosaicBaseName = os.path.basename(mosaicFilePath)
 
         mosaicDir = os.path.dirname(mosaicFilePath)
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        TilesDir = os.path.join(mosaicDir, 'Leveled', 'TilePyramid', downsamplePath)
-
         imageKey = mosaic.ImageToTransform.keys()[0]
         transform = mosaic.ImageToTransform[imageKey]
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
 
+        expectedScale = 1.0 / self.DownsampleFromTilePath(TilesDir)
+
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, transform.FixedBoundingBoxHeight, 256))
-        self.assertEqual(result.image.shape, (transform.FixedBoundingBoxHeight, 256))
+        self.assertEqual(result.image.shape, (int(transform.FixedBoundingBoxHeight * expectedScale), int(256 * expectedScale)))
 
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, 256, transform.FixedBoundingBoxWidth))
-        self.assertEqual(result.image.shape, (256, transform.FixedBoundingBoxWidth))
+        self.assertEqual(result.image.shape, (int(256 * expectedScale), int(transform.FixedBoundingBoxWidth * expectedScale)))
 
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, 512, 512))
-        self.assertEqual(result.image.shape, (512, 512))
+        self.assertEqual(result.image.shape, (int(512 * expectedScale), int(512 * expectedScale)))
 
 
-    def CreateAssembleEachMosaic(self, mosaicFiles):
-
-        # Make sure we save images before starting a long test
-        z = np.zeros((16, 16))
-        outputImagePath = os.path.join(self.TestOutputPath, 'z.png')
-        imsave(outputImagePath, z)
-        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+    def CreateAssembleEachMosaic(self, mosaicFiles, tilesDir):
 
         for m in mosaicFiles:
-
-            self. AssembleMosaic(m, 'CreateAssembleEachMosaicTypeDS4', parallel=False, downsamplePath='004')
-           # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
+            self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaicTypeDS4', parallel=False)
+            # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
 
         print("All done")
 
 
-    def ParallelAssembleEachMosaic(self, mosaicFiles):
-        # Make sure we save images before starting a long test
-        z = np.zeros((16, 16))
-        outputImagePath = os.path.join(self.TestOutputPath, 'z.png')
-        imsave(outputImagePath, z)
-        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+    def ParallelAssembleEachMosaic(self, mosaicFiles, tilesDir):
 
         for m in mosaicFiles:
 
-            self. AssembleMosaic(m, 'ParallelAssembleEachMosaicTypeDS4', parallel=True, downsamplePath='004')
+            self.AssembleMosaic(m, tilesDir , 'ParallelAssembleEachMosaicTypeDS4', parallel=True)
             # self. AssembleMosaic(m, 'ParallelAssembleEachMosaicType', parallel=True)
 
         print("All done")
 
 
+class BasicTests(TestMosaicAssemble):
+
+    @property
+    def TestName(self):
+        return "PMG1"
+
+    def test_CreateDistanceBuffer(self):
+
+        firstShape = (10, 10)
+        dMatrix = at.CreateDistanceImage(firstShape)
+        self.assertAlmostEqual(dMatrix[0, 0], 7.07, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[9, 9], 7.07, 2, "Distance matrix incorrect")
+
+        secondShape = (11, 11)
+        dMatrix = at.CreateDistanceImage(secondShape)
+
+        self.assertAlmostEqual(dMatrix[0, 0], 7.78, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[10, 10], 7.78, 2, "Distance matrix incorrect")
+
+        thirdShape = (10, 11)
+        dMatrix = at.CreateDistanceImage(thirdShape)
+
+        self.assertAlmostEqual(dMatrix[0, 0], 7.43, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[9, 0], 7.43, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[9, 10], 7.43, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[0, 10], 7.43, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[0, 5], 5, 2, "Distance matrix incorrect")
+        self.assertAlmostEqual(dMatrix[4, 0], 5.53, 2, "Distance matrix incorrect")
 
 
+    def test_MosaicBoundsEachMosaicType(self):
 
+        for m in self.GetMosaicFiles():
+
+            mosaic = Mosaic.LoadFromMosaicFile(m)
+
+            self.assertIsNotNone(mosaic.MappedBoundingBox, "No bounding box returned for mosiac")
+
+            self.Logger.info(m + " mapped bounding box: " + str(mosaic.MappedBoundingBox))
+
+            self.assertIsNotNone(mosaic.FixedBoundingBox, "No bounding box returned for mosiac")
+
+            self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
+
+
+class PMGTests(TestMosaicAssemble):
+
+    @property
+    def TestName(self):
+        return "PMG1"
+
+    def test_AssemblePMG(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath()
+
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
+
+    def test_AssemblePMGParallel(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath()
+
+        self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
+
+
+class IDOCTests(TestMosaicAssemble):
+
+    @property
+    def TestName(self):
+        return "IDOC1"
+
+    def test_AssembleIDOC(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='004')
+
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
+
+    def test_AssembleIDOCParallel(self):
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='001')
+
+        self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
+
+    def test_AssembleTilesIDoc(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], tilesDir)
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir)
 
 
 if __name__ == "__main__":

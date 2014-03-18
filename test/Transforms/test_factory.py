@@ -5,17 +5,22 @@ Created on Apr 1, 2013
 '''
 import unittest
 import math
+import os
 
 import numpy as np
 import numpy.testing
 
 import nornir_imageregistration.transforms.factory as factory
 import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.mosaic as mosaic
+import nornir_imageregistration.core as core
+
+import test.setup_imagetest
 
 
 tau = math.pi * 2.0
 
-class Test(unittest.TestCase):
+class TestMath(unittest.TestCase):
 
     def ValidateCornersMatchRectangle(self, points, rectangle):
 
@@ -65,6 +70,56 @@ class Test(unittest.TestCase):
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
         return
+
+class TestIO(test.setup_imagetest.MosaicTestBase):
+
+    @property
+    def TestName(self):
+        return "PMG1"
+
+    def testTransformIO(self):
+        mfiles = self.GetMosaicFiles()
+
+        for mfile in mfiles:
+            mosaicObj = mosaic.Mosaic.LoadFromMosaicFile(mfile)
+
+            (imagePath, transform) = mosaicObj.ImageToTransform.items()[0]
+
+            imageFullPath = os.path.join(self.GetTileFullPath(), imagePath)
+
+            # Load the first image and transform
+            (height, width) = core.GetImageSize(imageFullPath)
+
+            self.LoadSaveTransform(transform)
+
+            MappedBounds = transform.MappedBoundingBox
+
+            imageBoundRect = spatial.Rectangle.CreateFromPointAndArea((0, 0), (height, width))
+
+            mappedBoundRect = spatial.Rectangle.CreateFromBounds(MappedBounds)
+
+            self.assertTrue(spatial.Rectangle.contains(MappedBounds, imageBoundRect), "Mapped points should fall inside the image mapped for mosaic files")
+
+            self.assertGreaterEqual(imageBoundRect.Width, mappedBoundRect.Width)
+            self.assertGreaterEqual(imageBoundRect.Height, mappedBoundRect.Height)
+
+
+    def LoadSaveTransform(self, transform):
+
+        transformString = factory.TransformToIRToolsString(transform)
+
+        loadedTransform = factory.LoadTransform(transformString)
+
+        pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.5)
+
+        self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
+
+        self.assertTrue(numpy.allclose(transform.FixedBoundingBox, loadedTransform.FixedBoundingBox), "Fixed bounding box should match after converting transform to string and back")
+        self.assertTrue(numpy.allclose(transform.MappedBoundingBox, loadedTransform.MappedBoundingBox), "Mapped bounding box should match after converting transform to string and back")
+
+        secondString = factory.TransformToIRToolsString(loadedTransform)
+        self.assertTrue(secondString == transformString, "Converting transform to string twice should produce identical string")
+
 
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']
