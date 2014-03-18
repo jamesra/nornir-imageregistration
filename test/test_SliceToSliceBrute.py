@@ -45,8 +45,8 @@ class TestStos(setup_imagetest.ImageTestBase):
 
         peak = (-4.4, 22.41)
         # peak = (0,0)
-        imWarpedSize = images.GetImageSize(WarpedImagePath)
-        imFixedSize = images.GetImageSize(FixedImagePath)
+        # imWarpedSize = core.GetImageSize(WarpedImagePath)
+        # imFixedSize = core.GetImageSize(FixedImagePath)
         # peak = (peak[0] - ((imWarpedSize[0] - imFixedSize[0])/2), peak[1] - ((imWarpedSize[1] - imFixedSize[1])/2))
 
         rec = alignment_record.AlignmentRecord(peak, 1, 229.2)
@@ -73,10 +73,22 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
+        # Check both clustered and non-clustered output
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=range(-140, -130))
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
+
+        # Check both clustered and non-clustered output
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                               WarpedImagePath, SingleThread=False, Cluster=True)
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
+
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath)
-
-
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
@@ -85,8 +97,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
 
-        FixedSize = images.GetImageSize(FixedImagePath)
-        WarpedSize = images.GetImageSize(WarpedImagePath)
+        FixedSize = core.GetImageSize(FixedImagePath)
+        WarpedSize = core.GetImageSize(WarpedImagePath)
 
         alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
 

@@ -24,4 +24,6 @@ assemble_tiles
 
 '''
 
-__all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms']
+from nornir_imageregistration.alignment_record import *
+
+__all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']

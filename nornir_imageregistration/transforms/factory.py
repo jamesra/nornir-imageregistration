@@ -9,6 +9,7 @@ The factory is focused on the loading and saving of transforms
 from scipy import *
 
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+from nornir_imageregistration.spatial.indicies import *
 import numpy as np
 import utils
 
@@ -24,11 +25,11 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (left, bottom, right, top) = (None, None, None, None)
+    (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
-        (left, bottom, right, top) = Transform.MappedBounds
+        (bottom, left, top, right) = Transform.MappedBoundingBox
     else:
-        (left, bottom, right, top) = bounds
+        (bottom, left, top, right) = bounds
 
 
     output = "GridTransform_double_2_2 vp " + str(numPoints * 2)
@@ -53,11 +54,11 @@ def _TransformToIRToolsString(Transform, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (left, bottom, right, top) = (None, None, None, None)
+    (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
-        (left, bottom, right, top) = Transform.MappedBounds
+        (bottom, left, top, right) = Transform.MappedBoundingBox
     else:
-        (left, bottom, right, top) = bounds
+        (bottom, left, top, right) = bounds
 
     output = "MeshTransform_double_2_2 vp " + str(numPoints * 4)
 
@@ -298,17 +299,29 @@ def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset)
 
 
 def GetTransformedRigidCornerPoints(size, rangle, offset):
-    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.
-       return [BotLeft, TopLeft, BotRight, TopRight]'''
-
+    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center
+    :param tuple size: (Height, Width)
+    :param float rangle: Angle in radians
+    :param tuple offset: (Y, X)
+    :return: Nx2 array of points [[BotLeft], [BotRight], [TopLeft],  [TopRight]]
+    :rtype: numpy.ndarray
+    '''
     CenteredRotation = utils.RotationMatrix(rangle)
 
-    BotLeft = CenteredRotation * matrix([[-(size[0] - 1) / 2.0], [-(size[1] - 1) / 2.0], [1]])
-    TopLeft = CenteredRotation * matrix([[-(size[0] - 1) / 2.0], [(size[1] - 1) / 2.0], [1]])
-    BotRight = CenteredRotation * matrix([[(size[0] - 1) / 2.0], [-(size[1] - 1) / 2.0], [1]])
-    TopRight = CenteredRotation * matrix([[(size[0] - 1) / 2.0], [(size[1] - 1) / 2.0], [1]])
+    HalfWidth = (size[iArea.Width] - 1) / 2.0
+    HalfHeight = (size[iArea.Height] - 1) / 2.0
 
-    Translation = matrix([[1, 0, (size[0] - 1) / 2.0], [0, 1, (size[1] - 1) / 2.0], [0, 0, 1]])
+#     BotLeft = CenteredRotation * matrix([[-HalfWidth], [-HalfHeight], [1]])
+#     TopLeft = CenteredRotation * matrix([[-HalfWidth], [HalfHeight], [1]])
+#     BotRight = CenteredRotation * matrix([[HalfWidth], [-HalfHeight], [1]])
+#     TopRight = CenteredRotation * matrix([[HalfWidth], [HalfHeight], [1]])
+
+    BotLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
+    TopLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
+    BotRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
+    TopRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+
+    Translation = matrix([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
 
     BotLeft = Translation * BotLeft
     BotRight = Translation * BotRight
@@ -316,12 +329,13 @@ def GetTransformedRigidCornerPoints(size, rangle, offset):
     TopRight = Translation * TopRight
 
     # Adjust to the peak location
-    PeakTranslation = matrix([[1, 0, offset[0]], [0, 1, offset[1]], [0, 0, 1]])
+    PeakTranslation = matrix([[1, 0, offset[iPoint.Y]], [0, 1, offset[iPoint.X]], [0, 0, 1]])
 
     BotLeft = PeakTranslation * BotLeft
     TopLeft = PeakTranslation * TopLeft
     BotRight = PeakTranslation * BotRight
     TopRight = PeakTranslation * TopRight
 
-    arr = np.vstack([BotLeft[:2].getA1(), TopLeft[:2].getA1(), BotRight[:2].getA1(), TopRight[:2].getA1()])
+    arr = np.vstack([BotLeft[:2].getA1(), BotRight[:2].getA1(), TopLeft[:2].getA1(), TopRight[:2].getA1()])
+    # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
     return arr
