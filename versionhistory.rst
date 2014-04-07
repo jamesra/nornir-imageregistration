@@ -1,4 +1,11 @@
 
+1.1.7
+-----
+
+**New**
+
+* RegistrationTree supports missing centers by finding the nearest section to the requested center
+
 1.1.3
 -----
 
