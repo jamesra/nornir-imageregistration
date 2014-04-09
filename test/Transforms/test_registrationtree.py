@@ -31,6 +31,8 @@ class TestRegistrationTree(unittest.TestCase):
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=2, center=center)
         self.assertTrue(center in RT.RootNodes, "Center number not in RootNodes")
 
+        self.assertFalse(RT.IsEmpty, "Tree with nodes should not report itself as empty")
+
         checkRegistrationTree(self, RT, 1, [2, 3])
         checkRegistrationTree(self, RT, 2, [3, 4])
         checkRegistrationTree(self, RT, 3, [4])
@@ -112,6 +114,7 @@ class TestRegistrationTree(unittest.TestCase):
         center = 3
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
         self.assertEqual(len(RT.RootNodes), 0, "Should not be a root if input was empty list")
+        self.assertTrue(RT.IsEmpty, "Tree without nodes should report itself as empty")
 
 
     def test_SingleEntryList(self):
