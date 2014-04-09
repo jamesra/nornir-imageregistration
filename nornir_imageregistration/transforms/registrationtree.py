@@ -63,6 +63,10 @@ class RegistrationTree(object):
         '''List of all section numbers contained in tree'''
         return self.Nodes.keys()
 
+    @property
+    def IsEmpty(self):
+        return len(self.Nodes) == 0
+
     def __init__(self):
         '''
         Constructor
@@ -210,6 +214,7 @@ class RegistrationTree(object):
             if not center is None:
                 center = NearestSection(sectionNumbers, center)
                 centerindex = sectionNumbers.index(center)
+
 
             listAdjacentBelowCenter = AdjacentPairs(sectionNumbers, adjacentThreshold, startindex=0, endindex=centerindex)
             listAdjacentAboveCenter = AdjacentPairs(sectionNumbers, adjacentThreshold, startindex=len(sectionNumbers) - 1, endindex=centerindex)
