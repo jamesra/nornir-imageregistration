@@ -61,7 +61,7 @@ class RegistrationTree(object):
     @property
     def SectionNumbers(self):
         '''List of all section numbers contained in tree'''
-        return self.Nodes.keys()
+        return list(self.Nodes.keys())
 
     @property
     def IsEmpty(self):
@@ -188,7 +188,7 @@ class RegistrationTree(object):
 
         assert(len(self.RootNodes) == 1)  # This should be used on trees that have only one root
 
-        rtnode = self.RootNodes.values()[0]
+        rtnode = list(self.RootNodes.values())[0]
         if center:
             center = NearestSection(self.SectionNumbers, center)
             rtnode = self.Nodes[center]

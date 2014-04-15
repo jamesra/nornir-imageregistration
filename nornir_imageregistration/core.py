@@ -72,7 +72,7 @@ def ScalarForMaxDimension(max_dim, shapes):
     if not isinstance(shapes, list):
          shapearray = np.array(shapes)
     else:
-        shapeArrays = map(np.array, shapes)
+        shapeArrays = list(map(np.array, shapes))
         shapearray = np.hstack(shapeArrays)
 
     maxVal = float(np.max(shapearray))
@@ -119,7 +119,7 @@ def ShowGrayscale(imageList):
                     iRow = i / width
                     iCol = (i - (iRow * width)) % width
 
-                    print "Row %d Col %d" % (iRow, iCol)
+                    print("Row %d Col %d" % (iRow, iCol))
 
                     if height > 1:
                         ax = axeslist[iRow, iCol ]
@@ -144,11 +144,11 @@ def ROIRange(start, count, maxVal, minVal=0):
         return None
 
     if start < minVal:
-        r = range(minVal, minVal + count)
+        r = list(range(minVal, minVal + count))
     elif start + count >= maxVal:
-        r = range(maxVal - count, maxVal)
+        r = list(range(maxVal - count, maxVal))
     else:
-        r = range(start, start + count)
+        r = list(range(start, start + count))
 
     return r
 
@@ -158,14 +158,14 @@ def ConstrainedRange(start, count, maxVal, minVal=0):
     end = start + count
     r = None
     if maxVal - minVal < count:
-        return range(minVal, maxVal)
+        return list(range(minVal, maxVal))
 
     if start < minVal:
-        r = range(minVal, end)
+        r = list(range(minVal, end))
     elif end >= maxVal:
-        r = range(start, maxVal)
+        r = list(range(start, maxVal))
     else:
-        r = range(start, end)
+        r = list(range(start, end))
 
     return r
 
@@ -638,7 +638,7 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     # ShowGrayscale(ThresholdImage)
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
-    LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, range(0, NumLabels))
+    LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, list(range(0, NumLabels)))
     PeakValueIndex = LabelSums.argmax()
     PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
     PeakStrength = LabelSums[PeakValueIndex]
@@ -751,7 +751,7 @@ if __name__ == '__main__':
         MovingB = PadImageForPhaseCorrelation(imB)
 
         record = FindOffset(FixedA, MovingB)
-        print str(record)
+        print(str(record))
 
         stos = record.ToStos(FilenameA, FilenameB)
 
@@ -773,7 +773,7 @@ if __name__ == '__main__':
         imB = plt.imread(FilenameB)
 
         for i in range(1, 5):
-            print(str(i))
+            print((str(i)))
             TestPhaseCorrelation(imA, imB)
 
     import cProfile
@@ -781,5 +781,5 @@ if __name__ == '__main__':
     cProfile.run('SecondMain()', 'CoreProfile.pr')
     pr = pstats.Stats('CoreProfile.pr')
     pr.sort_stats('time')
-    print str(pr.print_stats(.5))
+    print(str(pr.print_stats(.5)))
 

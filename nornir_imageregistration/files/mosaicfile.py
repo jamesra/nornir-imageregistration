@@ -19,14 +19,14 @@ class MosaicFile:
     def Checksum(self):
         # data = self.MosaicStr()
 
-        return checksum.DataChecksum(self.ImageToTransformString.values())
+        return checksum.DataChecksum(list(self.ImageToTransformString.values()))
 
     @property
     def NumberOfImages(self):
         if(self.ImageToTransformString is None):
             return 0
 
-        return len(self.ImageToTransformString.keys())
+        return len(list(self.ImageToTransformString.keys()))
 
     def __init__(self):
         self.FileReportedNumberOfImages = None  # Sometimes files do not accurately report the number of images.  We populate this on load to know if we need to make a correction
@@ -41,7 +41,7 @@ class MosaicFile:
         '''Runs a time consuming check that verifies all the image files are valid.  Returns true if invalid images were found.'''
 
         ImageList = []
-        ImageList.extend(self.ImageToTransformString.keys())
+        ImageList.extend(list(self.ImageToTransformString.keys()))
         InvalidImages = images.IsValidImage(ImageList, TileDir)
 
         FoundInvalid = False
@@ -186,12 +186,12 @@ class MosaicFile:
 
 
         # TODO - find min/max values and center image in .mosaic file
-        minX = sys.maxint
-        minY = sys.maxint
-        maxX = -sys.maxint - 1
-        maxY = -sys.maxint - 1
+        minX = sys.maxsize
+        minY = sys.maxsize
+        maxX = -sys.maxsize - 1
+        maxY = -sys.maxsize - 1
 
-        keys = Entries.keys()
+        keys = list(Entries.keys())
         keys.sort()
 
         for key in keys:
@@ -217,7 +217,7 @@ class MosaicFile:
             OutFile.write('use_std_mask: 0\n')
 
         #    prettyoutput.Log( "Keys: " + str(Entries.keys())
-            keys = Entries.keys()
+            keys = list(Entries.keys())
             keys.sort()
 
             for i, key in enumerate(keys):
@@ -249,7 +249,7 @@ class MosaicFile:
         if FloatTemplateStr is None:
             FloatTemplateStr = '%g'
 
-        for FileKey in self.ImageToTransformString.keys():
+        for FileKey in list(self.ImageToTransformString.keys()):
             TransformStr = self.ImageToTransformString[FileKey]
             OutputTransformStr = ""
             parts = TransformStr.split()
@@ -304,7 +304,7 @@ class MosaicFile:
 
         # Write the header
         fMosaic.write('format_version_number: 1\n')
-        fMosaic.write('number_of_images: ' + str(len(self.ImageToTransformString.keys())) + '\n')
+        fMosaic.write('number_of_images: ' + str(len(list(self.ImageToTransformString.keys()))) + '\n')
         fMosaic.write('pixel_spacing: ' + str(self.pixel_spacing) + '\n')
         fMosaic.write('use_std_mask: ' + str(self.use_std_mask) + '\n')
 
@@ -321,7 +321,7 @@ class MosaicFile:
     def MosaicStr(self):
         OutStrList = list()
         OutStrList.append('format_version_number: 1\n')
-        OutStrList.append('number_of_images: ' + str(len(self.ImageToTransformString.keys())) + '\n')
+        OutStrList.append('number_of_images: ' + str(len(list(self.ImageToTransformString.keys()))) + '\n')
         OutStrList.append('pixel_spacing: ' + str(self.pixel_spacing) + '\n')
         OutStrList.append('use_std_mask: ' + str(self.use_std_mask) + '\n')
 

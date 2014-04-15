@@ -4,19 +4,18 @@ Created on Oct 28, 2013
 Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
-import assemble
-import tiles
 import numpy as np
-
-import scipy.spatial.distance
 from scipy import stats
-# from nornir_imageregistration.files.mosaicfile import MosaicFile
-# from nornir_imageregistration.mosaic import Mosaic
-import core
+import scipy.spatial.distance
 import os
 import logging
-import transforms.utils as tutils
-import tiles
+
+import nornir_imageregistration.assemble  as assemble
+# from nornir_imageregistration.files.mosaicfile import MosaicFile
+# from nornir_imageregistration.mosaic import Mosaic
+import nornir_imageregistration.core as core
+import nornir_imageregistration.transforms.utils as tutils
+import nornir_imageregistration.tiles as tiles
 # import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 # import nornir_imageregistration.transforms.triangulation as triangulation
 import nornir_pools as pools
@@ -114,7 +113,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
 
 def distFunc(i, j):
-    print(str(i) + ", " + str(j))
+    print((str(i) + ", " + str(j)))
     a = np.array(i, dtype=np.float)
     a = a * a
     b = np.array(j, dtype=np.float)

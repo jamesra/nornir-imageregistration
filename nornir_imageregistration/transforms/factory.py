@@ -11,7 +11,7 @@ from scipy import *
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.spatial.indicies import *
 import numpy as np
-import utils
+from . import utils
 
 def TransformToIRToolsString(transformObj, bounds=None):
     if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):

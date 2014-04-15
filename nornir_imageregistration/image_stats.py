@@ -15,8 +15,8 @@ from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
 import scipy.ndimage.measurements
 import scipy.stats
 
-import core
-import im_histogram_parser
+from . import core
+from . import im_histogram_parser
 import nornir_pools as pools
 import nornir_shared.histogram
 import nornir_shared.images as images
@@ -81,7 +81,7 @@ def Prune(filenames, MaxOverlap=None):
         FilenameToResult[k] = float(FilenameToResult[k][1]);
 
     if isinstance(filenames, str):
-        return FilenameToResult.items()[0];
+        return list(FilenameToResult.items())[0];
     else:
         return FilenameToResult;
 
@@ -244,7 +244,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     OutputMap = {};
     minVal = None;
     maxVal = None;
-    for f in FilenameToTask.keys():
+    for f in list(FilenameToTask.keys()):
         task = FilenameToTask[f]
         taskOutput = task.wait_return();
         lines = taskOutput.splitlines();
@@ -265,7 +265,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     threadTasks = [];
     TPool = pools.GetGlobalMultithreadingPool();
 
-    for f in OutputMap.keys():
+    for f in list(OutputMap.keys()):
         threadTask = TPool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins);
         threadTasks.append(threadTask);
 
@@ -390,7 +390,7 @@ if __name__ == '__main__':
         pr = pstats.Stats(ProfilePath);
         if not pr is None:
             pr.sort_stats('time');
-            print str(pr.print_stats(.05));
+            print(str(pr.print_stats(.05)));
 
 
 

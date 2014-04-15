@@ -10,10 +10,10 @@ import numpy as np
 import logging
 import os
 import nornir_imageregistration.tiles as tileModule
-from alignment_record import AlignmentRecord
+from .alignment_record import AlignmentRecord
 import nornir_imageregistration.transforms.factory as tfactory
 
-import layout
+from . import layout
 
 from operator import attrgetter
 
@@ -62,7 +62,7 @@ def _FindTileOffsets(tiles, imageScale=None):
 
     for t in tiles:
         intersectingTilesIndex = list(idx.intersection(t.ControlBoundingBox, objects=False))
-        intersectingTiles = map(lambda x: tiles[x], intersectingTilesIndex)
+        intersectingTiles = [tiles[x] for x in intersectingTilesIndex]
 
         __RemoveTilesWithKnownOffset(t, intersectingTiles)
 
@@ -76,10 +76,10 @@ def _FindTileOffsets(tiles, imageScale=None):
             t.OffsetToTile[overlappingTile.ID] = offset
             overlappingTile.OffsetToTile[t.ID] = offset.Invert()
 
-        print "Calculated %d offsets for %s" % (len(intersectingTiles), str(t))
+        print("Calculated %d offsets for %s" % (len(intersectingTiles), str(t)))
 
     # TODO: Reposition the tiles based on the offsets
-    print("Total offset calculations: " + str(CalculationCount))
+    print(("Total offset calculations: " + str(CalculationCount)))
 
     return tiles
 
@@ -106,7 +106,7 @@ def _BuildAlignmentRecordListWithTileIDs(tiles):
     offsets = []
 
     for t in tiles:
-        for targetID, Offset in t.OffsetToTile.items():
+        for targetID, Offset in list(t.OffsetToTile.items()):
             Offset.FixedTileID = t.ID
             Offset.MovingTileID = targetID
 
@@ -129,10 +129,10 @@ def BuildBestTransformFirstMosaic(tiles):
     LayoutList = []
 
     for record in arecords:
-        print str(record.FixedTileID) + ' -> ' + str(record.MovingTileID) + " " + str(record) + " " + os.path.basename(tiles[record.FixedTileID].ImagePath) + " " + os.path.basename(tiles[record.MovingTileID].ImagePath)
+        print(str(record.FixedTileID) + ' -> ' + str(record.MovingTileID) + " " + str(record) + " " + os.path.basename(tiles[record.FixedTileID].ImagePath) + " " + os.path.basename(tiles[record.MovingTileID].ImagePath))
 
         if np.isnan(record.weight):
-            print "Skip: Invalid weight, not a number"
+            print("Skip: Invalid weight, not a number")
             continue
 
         fixedTileLayout = layout.TileLayout.GetLayoutForID(LayoutList, record.FixedTileID)
@@ -142,7 +142,7 @@ def BuildBestTransformFirstMosaic(tiles):
             fixedTileLayout = layout.TileLayout(tiles)
             fixedTileLayout.AddTileViaAlignment(record)
             LayoutList.append(fixedTileLayout)
-            print "New layout"
+            print("New layout")
 
         elif (not fixedTileLayout is None) and (not movingTileLayout is None):
             # Need to merge the layouts? See if they are the same
@@ -152,12 +152,12 @@ def BuildBestTransformFirstMosaic(tiles):
                 continue
             else:
                 layout.TileLayout.MergeLayoutsWithAlignmentRecord(fixedTileLayout, movingTileLayout, record)
-                print "Merged"
+                print("Merged")
                 LayoutList.remove(movingTileLayout)
         else:
             if fixedTileLayout is None and not movingTileLayout is  None:
                 # We'll pick it up on the next pass
-                print "Skip: Getting it next time"
+                print("Skip: Getting it next time")
                 continue
 
             fixedTileLayout.AddTileViaAlignment(record)

@@ -4,7 +4,7 @@ Created on Oct 28, 2013
 @author: u0490822
 '''
 import unittest
-import setup_imagetest
+from . import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.tiles as tiles
@@ -52,7 +52,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         mosaic.TranslateToZeroOrigin()
 
-        assembleScale = tiles.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(tilesDir))
+        assembleScale = tiles.MostCommonScalar(list(mosaic.ImageToTransform.values()), mosaic.TileFullPaths(tilesDir))
 
         expectedScale = 1.0 / self.DownsampleFromTilePath(tilesDir)
 
@@ -107,7 +107,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         mosaic.TranslateToZeroOrigin()
 
-        (imageKey, transform) = mosaic.ImageToTransform.items()[0]
+        (imageKey, transform) = list(mosaic.ImageToTransform.items())[0]
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
 
@@ -143,7 +143,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         mosaicDir = os.path.dirname(mosaicFilePath)
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        imageKey = mosaic.ImageToTransform.keys()[0]
+        imageKey = list(mosaic.ImageToTransform.keys())[0]
         transform = mosaic.ImageToTransform[imageKey]
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox

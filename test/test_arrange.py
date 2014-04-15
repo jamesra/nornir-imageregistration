@@ -5,7 +5,7 @@ Created on Dec 13, 2013
 '''
 
 import unittest
-import setup_imagetest
+from . import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.tiles as tiles
@@ -31,7 +31,7 @@ def _GetFirstOffsetPair(tiles):
 
     tileA = tiles[0]
 
-    tileB_ID = tileA.OffsetToTile.keys()[0]
+    tileB_ID = list(tileA.OffsetToTile.keys())[0]
 
     tileB = tiles[tileB_ID]
 
@@ -128,7 +128,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase):
     def __RemoveExtraImages(self, mosaic):
 
         '''Remove all but the first two images'''
-        keys = mosaic.ImageToTransform.keys()
+        keys = list(mosaic.ImageToTransform.keys())
         keys.sort()
 
         for i, k in enumerate(keys):
@@ -166,7 +166,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase):
 
         tilesPathList = mosaic.CreateTilesPathList(TilesDir)
 
-        tiles = tile.Tile.CreateTiles(mosaic.ImageToTransform.values(), tilesPathList)
+        tiles = tile.Tile.CreateTiles(list(mosaic.ImageToTransform.values()), tilesPathList)
 
         arrange._FindTileOffsets(tiles, scale)
 

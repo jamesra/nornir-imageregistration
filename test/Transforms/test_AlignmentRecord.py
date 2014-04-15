@@ -31,7 +31,7 @@ import test.setup_imagetest
 import nornir_imageregistration.core as core
 from nornir_imageregistration.files.stosfile import StosFile
 import nornir_imageregistration.transforms.factory as factory
-from test_Transforms import TransformCheck
+from .test_Transforms import TransformCheck
 from scipy import pi
 
 # ##An alignment record records how a warped image should be translated and rotated to be

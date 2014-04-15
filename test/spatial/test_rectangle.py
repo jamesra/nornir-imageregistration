@@ -31,13 +31,13 @@ class Test(unittest.TestCase):
     def CompareGroups(self, DictA, DictB):
         '''Compare two dictionaries of non-overlapping rectangles'''
 
-        for KeyA, A in DictA.items():
-            for keyB, B in DictB.items():
+        for KeyA, A in list(DictA.items()):
+            for keyB, B in list(DictB.items()):
                 self.assertFalse(spatial.Rectangle.contains(A, B), "Non overlapping rectangles %s - %s should not contain each other" % (KeyA, keyB))
 
     def CompareCombinations(self, DictA):
 
-        for (iOne, iTwo) in itertools.combinations(DictA.keys(), 2):
+        for (iOne, iTwo) in itertools.combinations(list(DictA.keys()), 2):
             RectOne = DictA[iOne]
             RectTwo = DictA[iTwo]
 

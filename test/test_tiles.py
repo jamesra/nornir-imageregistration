@@ -6,7 +6,7 @@ Created on Feb 11, 2014
 import os
 import unittest
 
-import setup_imagetest
+from . import setup_imagetest
 import nornir_imageregistration as nir
 import nornir_imageregistration.tiles as tiles
 

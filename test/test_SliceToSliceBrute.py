@@ -7,7 +7,7 @@ import unittest
 import os
 import nornir_imageregistration.core as core
 import logging
-import setup_imagetest
+from . import setup_imagetest
 import nornir_shared.images as images
 import nornir_imageregistration.stos_brute as stos_brute
 from nornir_imageregistration import alignment_record
@@ -57,7 +57,7 @@ class TestStos(setup_imagetest.ImageTestBase):
 
         stosObj.Save(os.path.join(self.VolumeDir, '17-18_brute.stos'))
 
-        print str(rec)
+        print(str(rec))
 
 
 class TestStosBrute(setup_imagetest.ImageTestBase):
@@ -75,7 +75,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=True, AngleSearchRange=range(-140, -130))
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(-140, -130)))
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)

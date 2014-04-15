@@ -61,7 +61,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
-        AngleSearchRange = range(-180, 180, 2)
+        AngleSearchRange = list(range(-180, 180, 2))
 
     BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
 
@@ -247,7 +247,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                            AngleSearchRange=range(-175, -174, 1),
+                            AngleSearchRange=list(range(-175, -174, 1)),
                             SingleThread=True)
 
 if __name__ == '__main__':

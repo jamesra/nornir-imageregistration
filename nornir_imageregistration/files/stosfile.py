@@ -4,7 +4,7 @@ import nornir_shared.files
 import nornir_shared.checksum
 import nornir_shared.images
 import nornir_shared.prettyoutput as PrettyOutput
-import mosaicfile
+from . import mosaicfile
 import copy
 import logging
 from nornir_imageregistration.transforms import factory

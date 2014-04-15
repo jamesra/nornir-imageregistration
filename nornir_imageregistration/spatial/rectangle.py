@@ -5,7 +5,7 @@ Points are represented as (Y,X)
 
 '''
 
-from indicies import *
+from .indicies import *
 import numpy as np
 
 class Rectangle(object):

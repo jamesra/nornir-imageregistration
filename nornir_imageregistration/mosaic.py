@@ -5,9 +5,9 @@ Created on Mar 29, 2013
 '''
 
 from nornir_imageregistration.files.mosaicfile import MosaicFile
-import transforms.factory as tfactory
-import transforms.utils as tutils
-import assemble_tiles as at
+import nornir_imageregistration.transforms.factory as tfactory
+import nornir_imageregistration.transforms.utils as tutils
+import nornir_imageregistration.assemble_tiles as at
 import numpy as np
 import os
 import nornir_pools as pools
@@ -18,7 +18,7 @@ def LayoutToMosaic(layout):
 
     mosaic = Mosaic()
 
-    for ID, Transform in layout.TileToTransform.items():
+    for ID, Transform in list(layout.TileToTransform.items()):
         tile = layout.Tiles[ID]
         mosaic.ImageToTransform[tile.ImagePath] = Transform
 
@@ -43,7 +43,7 @@ class Mosaic(object):
             raise Exception("Expected valid mosaic file path or object")
 
         ImageToTransform = {}
-        for (k, v) in mosaicfile.ImageToTransformString.items():
+        for (k, v) in list(mosaicfile.ImageToTransformString.items()):
             ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
@@ -51,7 +51,7 @@ class Mosaic(object):
     def ToMosaicFile(self):
         mfile = MosaicFile()
 
-        for k, v in self.ImageToTransform.items():
+        for k, v in list(self.ImageToTransform.items()):
             mfile.ImageToTransformString[k] = tfactory.TransformToIRToolsString(v)
 
         return mfile
@@ -88,44 +88,44 @@ class Mosaic(object):
         '''Calculate the bounding box of the warped position for a set of transforms
            (minX, minY, maxX, maxY)'''
 
-        return tutils.FixedBoundingBox(self.ImageToTransform.values())
+        return tutils.FixedBoundingBox(list(self.ImageToTransform.values()))
 
     @property
     def MappedBoundingBox(self):
         '''Calculate the bounding box of the warped position for a set of transforms
            (minX, minY, maxX, maxY)'''
 
-        return tutils.MappedBoundingBox(self.ImageToTransform.values())
+        return tutils.MappedBoundingBox(list(self.ImageToTransform.values()))
 
     @property
     def FixedBoundingBoxWidth(self):
-        return tutils.FixedBoundingBoxWidth(self.ImageToTransform.values())
+        return tutils.FixedBoundingBoxWidth(list(self.ImageToTransform.values()))
 
     @property
     def FixedBoundingBoxHeight(self):
-        return tutils.FixedBoundingBoxHeight(self.ImageToTransform.values())
+        return tutils.FixedBoundingBoxHeight(list(self.ImageToTransform.values()))
 
     @property
     def MappedBoundingBoxWidth(self):
-        return tutils.MappedBoundingBoxWidth(self.ImageToTransform.values())
+        return tutils.MappedBoundingBoxWidth(list(self.ImageToTransform.values()))
 
     @property
     def MappedBoundingBoxHeight(self):
-        return tutils.MappedBoundingBoxHeight(self.ImageToTransform.values())
+        return tutils.MappedBoundingBoxHeight(list(self.ImageToTransform.values()))
 
 
     def TileFullPaths(self, tilesDir):
         '''Return a list of full paths to the tile for each transform'''
-        return [os.path.join(tilesDir, x) for x in self.ImageToTransform.keys()]
+        return [os.path.join(tilesDir, x) for x in list(self.ImageToTransform.keys())]
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
 
-        tutils.TranslateToZeroOrigin(self.ImageToTransform.values())
+        tutils.TranslateToZeroOrigin(list(self.ImageToTransform.values()))
 
     def TranslateFixed(self, offset):
         '''Translate the fixed space coordinates of all images in the mosaic'''
-        for t in self.ImageToTransform.values():
+        for t in list(self.ImageToTransform.values()):
             t.TranslateFixed(offset)
 
     @classmethod
@@ -137,9 +137,9 @@ class Mosaic(object):
 
     def CreateTilesPathList(self, tilesPath):
         if tilesPath is None:
-            return self.ImageToTransform.keys()
+            return list(self.ImageToTransform.keys())
         else:
-            return [os.path.join(tilesPath, x) for x in self.ImageToTransform.keys()]
+            return [os.path.join(tilesPath, x) for x in list(self.ImageToTransform.keys())]
 
 
 
@@ -147,7 +147,7 @@ class Mosaic(object):
 
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
-        layout = arrange.TranslateTiles(self.ImageToTransform.values(), tilesPathList)
+        layout = arrange.TranslateTiles(list(self.ImageToTransform.values()), tilesPathList)
 
         return LayoutToMosaic(layout)
 
@@ -163,10 +163,10 @@ class Mosaic(object):
 
         if usecluster:
             cpool = pools.GetGlobalClusterPool()
-            return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList, pool=cpool, FixedRegion=FixedRegion)
+            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(self.ImageToTransform.values(), tilesPathList, FixedRegion=FixedRegion)
+            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion)
 
 
 

@@ -5,14 +5,14 @@ Created on Nov 18, 2013
 '''
 
 import numpy as np
-import core
+from . import core
 from scipy import stats
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
-import core
+from . import core
 import os
 import logging
-import transforms.utils as tutils
+import nornir_imageregistration.transforms.utils as tutils
 import nornir_pools as pools
 import copy
 from scipy.misc import imsave
