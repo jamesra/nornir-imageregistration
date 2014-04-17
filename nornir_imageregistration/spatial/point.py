@@ -6,6 +6,7 @@ Created on Mar 12, 2014
 
 import numpy
 
+
 def PointBoundingBox(points):
     '''
     :param ndarray points: (Y,X) Nx2 array of points

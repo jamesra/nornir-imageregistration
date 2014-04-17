@@ -36,6 +36,7 @@ class Mosaic(object):
         '''Return a dictionary mapping tiles to transform objects'''
 
         if isinstance(mosaicfile, str):
+            print("Loading mosaic: " + mosaicfile)
             mosaicfile = MosaicFile.Load(mosaicfile)
             if mosaicfile is None:
                 raise Exception("Expected valid mosaic file path")
@@ -43,7 +44,10 @@ class Mosaic(object):
             raise Exception("Expected valid mosaic file path or object")
 
         ImageToTransform = {}
-        for (k, v) in list(mosaicfile.ImageToTransformString.items()):
+        keys = list(mosaicfile.ImageToTransformString.keys())
+        keys.sort()
+        for k, v in mosaicfile.ImageToTransformString.items():
+            print("Parsing transform for : " + k)
             ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)

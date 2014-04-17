@@ -15,12 +15,13 @@ from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
 import scipy.ndimage.measurements
 import scipy.stats
 
-from . import core
-from . import im_histogram_parser
 import nornir_pools as pools
 import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
+
+from . import core
+from . import im_histogram_parser
 
 
 class ImageStats():
@@ -348,10 +349,8 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
     if Scale > 1:
         Scale = 1;
 
-
     CmdTemplate = "convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
     Cmd = CmdTemplate % {'filename' : filename, 'scale' : Scale * 100};
-
 
     task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True);
 

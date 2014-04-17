@@ -8,7 +8,7 @@ import unittest
 
 from . import setup_imagetest
 import nornir_imageregistration as nir
-import nornir_imageregistration.tiles as tiles
+import nornir_imageregistration.tileset as tiles
 
 
 

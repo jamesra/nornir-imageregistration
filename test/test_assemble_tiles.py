@@ -7,7 +7,7 @@ import unittest
 from . import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
-import nornir_imageregistration.tiles as tiles
+import nornir_imageregistration.tileset as tiles
 from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
 import nornir_imageregistration.core as core
@@ -172,7 +172,6 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
     def ParallelAssembleEachMosaic(self, mosaicFiles, tilesDir):
 
         for m in mosaicFiles:
-
             self.AssembleMosaic(m, tilesDir , 'ParallelAssembleEachMosaicTypeDS4', parallel=True)
             # self. AssembleMosaic(m, 'ParallelAssembleEachMosaicType', parallel=True)
 

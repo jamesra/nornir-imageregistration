@@ -15,7 +15,7 @@ import nornir_imageregistration.assemble  as assemble
 # from nornir_imageregistration.mosaic import Mosaic
 import nornir_imageregistration.core as core
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_imageregistration.tiles as tiles
+import nornir_imageregistration.tileset as tiles
 # import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 # import nornir_imageregistration.transforms.triangulation as triangulation
 import nornir_pools as pools

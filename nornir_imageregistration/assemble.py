@@ -5,19 +5,21 @@ Created on Apr 22, 2013
 '''
 
 
-from . import core
-import numpy as np
-import nornir_shared.prettyoutput as PrettyOutput
-import nornir_shared.images as images
-from scipy.ndimage import interpolation
-from   nornir_imageregistration.transforms import factory, triangulation
-from   nornir_imageregistration.transforms.utils import InvalidIndicies
-import nornir_imageregistration.transforms.base as transformbase
-from nornir_imageregistration.files.stosfile import StosFile
 import os
-import nornir_pools as pools
 
 from matplotlib.pyplot import imsave
+from scipy.ndimage import interpolation
+
+from nornir_imageregistration.files.stosfile import StosFile
+from   nornir_imageregistration.transforms import factory, triangulation
+import nornir_imageregistration.transforms.base as transformbase
+from   nornir_imageregistration.transforms.utils import InvalidIndicies
+import nornir_pools as pools
+import nornir_shared.images as images
+import nornir_shared.prettyoutput as PrettyOutput
+import numpy as np
+
+from . import core
 
 
 def ROI(botleft, area):

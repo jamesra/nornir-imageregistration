@@ -4,18 +4,20 @@ Created on Jul 10, 2012
 @author: Jamesan
 '''
 
-import scipy.sparse
-import nornir_imageregistration.core as core
-import numpy as np
 import logging
-import os
-import nornir_imageregistration.tiles as tileModule
-from .alignment_record import AlignmentRecord
-import nornir_imageregistration.transforms.factory as tfactory
-
-from . import layout
-
 from operator import attrgetter
+import os
+import numpy as np
+
+import scipy.sparse
+
+import nornir_imageregistration.core as core
+import nornir_imageregistration.tileset as tileModule
+import nornir_imageregistration.transforms.factory as tfactory
+import nornir_imageregistration.tileset as tileset
+import nornir_imageregistration.layout as layout
+from nornir_imageregistration.alignment_record import AlignmentRecord
+
 
 def __RemoveTilesWithKnownOffset(reference, overlappingtiles):
     '''
@@ -56,7 +58,7 @@ def _FindTileOffsets(tiles, imageScale=None):
     if imageScale is None:
         imageScale = 1.0
 
-    idx = tiles.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
+    idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
 
     CalculationCount = 0
 

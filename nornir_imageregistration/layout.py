@@ -1,13 +1,11 @@
-import os
 import logging
+import os
 
-from . import core
-from . import alignment_record
 import nornir_imageregistration.transforms.factory as tfactory
-
-from rtree import index
 import numpy as np
 
+from . import alignment_record
+from . import core
 from . import spatial
 
 

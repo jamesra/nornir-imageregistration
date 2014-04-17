@@ -1,12 +1,10 @@
 import os
 import sys
-from nornir_shared import checksum, images, prettyoutput
 
+from nornir_shared import checksum, prettyoutput
+import nornir_shared.images as images
 
-ImageNameTemplate = "%(section)04u_%(channel)s_%(filter)s_%(downsample)u.%(ext)s"
-MosaicNameTemplate = "%(channel)s_%(filter)s.mosaic"
-
-class MosaicFile:
+class MosaicFile(object):
     """description of class"""
 
     @classmethod

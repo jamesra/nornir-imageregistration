@@ -6,18 +6,16 @@ Created on Oct 4, 2012
 import ctypes
 import logging
 import multiprocessing.sharedctypes
-import numpy as np
 import os
-
-from numpy.fft import fftshift
-import scipy.ndimage.interpolation as interpolation
 from time import sleep
 
-import nornir_pools as pools
+from numpy.fft import fftshift
 
-import nornir_imageregistration.core as core
 import nornir_imageregistration
-
+import nornir_imageregistration.core as core
+import nornir_pools as pools
+import numpy as np
+import scipy.ndimage.interpolation as interpolation
 
 
 # from memory_profiler import profile
@@ -72,7 +70,10 @@ def SliceToSliceBruteForce(FixedImageInput,
     else:
         BestRefinedMatch = BestMatch
 
-    BestRefinedMatch.peak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
+    if scalar > 1.0:
+        AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
+        BestRefinedMatch = AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle)
+
    # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
 
     return BestRefinedMatch

@@ -4,25 +4,20 @@ scipy image arrays are indexed [y,x]
 
 import ctypes
 import logging
+import math
 import multiprocessing
 import os
 
 from PIL import Image
-import numpy as np
-import math
 import numpy.fft
-import numpy.fft.fftpack as fftpack
 import scipy.ndimage.measurements
 import scipy.stats
 
-import nornir_imageregistration
-
-import scipy.ndimage.interpolation as interpolation
-
 import matplotlib.pyplot as plt
-
-
-
+import nornir_imageregistration
+import numpy as np
+import numpy.fft.fftpack as fftpack
+import scipy.ndimage.interpolation as interpolation
 
 
 # from memory_profiler import profile
@@ -116,7 +111,7 @@ def ShowGrayscale(imageList):
                 # fig = figure()
                 if isinstance(image, np.ndarray):
                     # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
-                    iRow = i / width
+                    iRow = i // width
                     iCol = (i - (iRow * width)) % width
 
                     print("Row %d Col %d" % (iRow, iCol))

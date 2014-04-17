@@ -12,10 +12,11 @@ import operator
 from scipy.interpolate import griddata
 from scipy.spatial import *
 
-from .base import *
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import numpy as np
+
 from . import utils
+from .base import *
 
 
 class Triangulation(Base):

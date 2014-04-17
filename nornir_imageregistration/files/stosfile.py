@@ -1,17 +1,14 @@
-import os
-import sys
-import nornir_shared.files
-import nornir_shared.checksum
-import nornir_shared.images
-import nornir_shared.prettyoutput as PrettyOutput
-from . import mosaicfile
 import copy
 import logging
+import os
+import sys
+
+import nornir_imageregistration
+
 from nornir_imageregistration.transforms import factory
-import nornir_imageregistration.core
-
-StosNameTemplate = "%(mappedsection)04u-%(controlsection)04u_%(channels)s_%(mosaicfilters)s_%(stostype)s_%(downsample)u.stos"
-
+import nornir_shared.checksum
+import nornir_shared.files
+import nornir_shared.prettyoutput as PrettyOutput
 
 def __argumentToStos(Argument):
 
@@ -51,7 +48,7 @@ def AddStosTransforms(A_To_B, B_To_C):
 
     return A_To_C_Stos
 
-class StosFile:
+class StosFile(object):
     """description of class"""
 
     @classmethod
