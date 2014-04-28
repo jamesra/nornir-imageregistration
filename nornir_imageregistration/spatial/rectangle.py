@@ -43,12 +43,30 @@ class Rectangle(object):
     def BoundingBox(self):
         return self._bounds
 
+    def __getitem__(self, i):
+        return self._bounds.__getitem__(i)
+
+    def __setitem__(self, i, sequence):
+        self._bounds.__setitem__(i, sequence)
+
+    def __getslice__(self, i, j):
+        return self._bounds.__getslice__(i, j)
+
+    def __setslice__(self, i, j, sequence):
+        self._bounds.__setslice__(i, j, sequence)
+
+    def __delslice__(self, i, j, sequence):
+        raise Exception("Spatial objects should not have elements deleted from the array")
+
     def __init__(self, bounds):
         '''
         Constructor, bounds = [left bottom right top]
         '''
 
         self._bounds = bounds
+
+    def ToArray(self):
+        return np.array(self._bounds)
 
     @classmethod
     def CreateFromPointAndArea(cls, point, area):

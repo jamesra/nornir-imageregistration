@@ -8,6 +8,7 @@ Points are represented as (Y,X)
 import numpy as np
 
 from .indicies import *
+from .rectangle import Rectangle
 
 
 class BoundingBox(object):
@@ -25,7 +26,7 @@ class BoundingBox(object):
 
     @property
     def Depth(self):
-        return self._bounds[iBox.MaxY] - self._bounds[iBox.MinY]
+        return self._bounds[iBox.MaxZ] - self._bounds[iBox.MinZ]
 
     @property
     def BottomLeftFront(self):
@@ -37,6 +38,30 @@ class BoundingBox(object):
     @property
     def BoundingBox(self):
         return self._bounds
+
+    def __getitem__(self, i):
+        return self._bounds.__getitem__(i)
+
+    def __setitem__(self, i, sequence):
+        self._bounds.__setitem__(i, sequence)
+
+    def __getslice__(self, i, j):
+        return self._bounds.__getslice__(i, j)
+
+    def __setslice__(self, i, j, sequence):
+        self._bounds.__setslice__(i, j, sequence)
+
+    def __delslice__(self, i, j, sequence):
+        raise Exception("Spatial objects should not have elements deleted from the array")
+
+    @property
+    def RectangleXY(self):
+        '''Returns a rectangle based on the XY plane of the box'''
+        return Rectangle.CreateFromBounds([self._bounds[iBox.MinY],
+                                          self._bounds[iBox.MinX],
+                                          self._bounds[iBox.MaxY],
+                                          self._bounds[iBox.MaxX]])
+
 
     def __init__(self, bounds):
         '''
