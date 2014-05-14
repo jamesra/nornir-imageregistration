@@ -111,7 +111,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
 
-        FixedRegion = np.array([MinY + 512, MinX + 1024, 1024, 512])
+        FixedRegion = np.array([MinY + 512, MinX + 1024, MinY + 1024, MinX + 2048])
         ScaledFixedRegion = FixedRegion / self.DownsampleFromTilePath(tilesDir)
 
         (tileImage, tileMask) = mosaic.AssembleTiles(tilesDir, usecluster=False, FixedRegion=FixedRegion)
@@ -124,14 +124,14 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         self.assertTrue(np.all(clustertileMask == tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
         result = at.TransformTile(transform, os.path.join(tilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
-        self.assertEqual(result.image.shape, (ScaledFixedRegion[2], ScaledFixedRegion[3]))
+        self.assertEqual(result.image.shape, (ScaledFixedRegion[2] - ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1]))
 
         # core.ShowGrayscale([tileImage, result.image])
         (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False)
         self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
         self.assertIsNotNone(wholemask, "Assemble did not produce a mask")
 
-        croppedWholeImage = core.CropImage(wholeimage, ScaledFixedRegion[1], ScaledFixedRegion[0], ScaledFixedRegion[3], ScaledFixedRegion[2])
+        croppedWholeImage = core.CropImage(wholeimage, ScaledFixedRegion[1], ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1], ScaledFixedRegion[2] - ScaledFixedRegion[0])
 
         core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage])
 
@@ -146,17 +146,17 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         imageKey = list(mosaic.ImageToTransform.keys())[0]
         transform = mosaic.ImageToTransform[imageKey]
 
-        (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
+        (MinY, MinX, MaxY, MaxX) = transform.FixedBoundingBox
 
         expectedScale = 1.0 / self.DownsampleFromTilePath(TilesDir)
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, transform.FixedBoundingBoxHeight, 256))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MaxY, MinX + 256))
         self.assertEqual(result.image.shape, (int(transform.FixedBoundingBoxHeight * expectedScale), int(256 * expectedScale)))
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, 256, transform.FixedBoundingBoxWidth))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MinY + 256, MaxX))
         self.assertEqual(result.image.shape, (int(256 * expectedScale), int(transform.FixedBoundingBoxWidth * expectedScale)))
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, 512, 512))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512))
         self.assertEqual(result.image.shape, (int(512 * expectedScale), int(512 * expectedScale)))
 
 

@@ -10,6 +10,15 @@ import numpy as np
 from .indicies import *
 
 
+def RaiseValueErrorOnInvalidBounds(bounds):
+    if not IsValidBoundingBox(bounds):
+        raise ValueError("Negative dimensions are not allowed")
+
+def IsValidBoundingBox(bounds):
+    '''Raise a value error if the bounds have negative dimensions'''
+    return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
+
+
 class Rectangle(object):
     '''
     

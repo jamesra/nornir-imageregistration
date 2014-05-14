@@ -24,14 +24,14 @@ assemble_tiles
 
 '''
 
-from core import *
+from nornir_imageregistration.core import *
 from nornir_imageregistration.alignment_record import AlignmentRecord
-from volume import Volume
-from mosaic import Mosaic
+from nornir_imageregistration.volume import Volume
+from nornir_imageregistration.mosaic import Mosaic
 
-import files
-from spatial import *
-import transforms
+import nornir_imageregistration.files
+from nornir_imageregistration.spatial import *
+import nornir_imageregistration.transforms
 
 
 

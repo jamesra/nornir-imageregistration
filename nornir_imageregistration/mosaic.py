@@ -8,6 +8,7 @@ from nornir_imageregistration.files.mosaicfile import MosaicFile
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
 import nornir_imageregistration.assemble_tiles as at
+from . import spatial
 import numpy as np
 import os
 import nornir_pools as pools
@@ -157,10 +158,19 @@ class Mosaic(object):
 
 
     def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False):
-        '''Create a single large mosaic'''
+        '''Create a single large mosaic.
+        :param str tilesPath: Directory containing tiles referenced in our transform
+        :param array FixedRegion: [MinY MinX MaxY MaxX] boundary of image to assemble
+        :param boolean usecluster: Offload work to other threads or nodes if true
+        '''
+
+        # Left off here, I need to split this function so that FixedRegion has a consistent meaning
 
         # Ensure that all transforms map to positive values
         # self.TranslateToZeroOrigin()
+
+        if not FixedRegion is None:
+            spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
 
         # Allocate a buffer for the tiles
         tilesPathList = self.CreateTilesPathList(tilesPath)
