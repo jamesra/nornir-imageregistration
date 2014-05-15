@@ -8,7 +8,7 @@ import os
 from pylab import *
 import nornir_imageregistration.core as core
 import logging
-import setup_imagetest
+from . import setup_imagetest
 import nornir_imageregistration.stos_brute as stos_brute
 
 

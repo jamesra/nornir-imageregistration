@@ -83,7 +83,7 @@ class TestIO(test.setup_imagetest.MosaicTestBase):
         for mfile in mfiles:
             mosaicObj = mosaic.Mosaic.LoadFromMosaicFile(mfile)
 
-            (imagePath, transform) = mosaicObj.ImageToTransform.items()[0]
+            (imagePath, transform) = list(mosaicObj.ImageToTransform.items())[0]
 
             imageFullPath = os.path.join(self.GetTileFullPath(), imagePath)
 

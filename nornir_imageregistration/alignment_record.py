@@ -2,12 +2,13 @@
 '''
 
 
-import numpy as np
-import nornir_imageregistration
 import os
+
 from scipy import pi
 
+import nornir_imageregistration
 import nornir_imageregistration.files.stosfile
+import numpy as np
 
 
 class AlignmentRecord:

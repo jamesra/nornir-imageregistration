@@ -27,7 +27,7 @@ class TestRegistrationTree(unittest.TestCase):
         '''Generate registration trees and check the contents'''
 
         center = 1
-        numbers = range(1, 5)
+        numbers = list(range(1, 5))
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=2, center=center)
         self.assertTrue(center in RT.RootNodes, "Center number not in RootNodes")
 
@@ -65,7 +65,7 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 4, [3])
 
 
-        numbers = range(1, 6)
+        numbers = list(range(1, 6))
         center = 3
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=2, center=center)
         self.assertTrue(center in RT.RootNodes, "Center number not in RootNodes")
@@ -91,13 +91,13 @@ class TestRegistrationTree(unittest.TestCase):
     def test_InvalidCenter(self):
         ''' Check registration tree using center that does not exist '''
 
-        numbers = range(1, 3)
-        numbers.extend(range(4, 7))
+        numbers = list(range(1, 3))
+        numbers.extend(list(range(4, 7)))
         center = 3
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
 
         self.assertEqual(len(RT.RootNodes), 1, "Should only be one root if center is missing")
-        root = RT.RootNodes.values()[0]
+        root = list(RT.RootNodes.values())[0]
         self.assertEqual(abs(root.SectionNumber - center), 1, "Adjusted center should be next to the specified center")
 
         checkRegistrationTree(self, RT, 1, [])
@@ -124,7 +124,7 @@ class TestRegistrationTree(unittest.TestCase):
         center = 2
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
         self.assertEqual(len(RT.RootNodes), 1, "Should only be one root if center is missing")
-        root = RT.RootNodes.values()[0]
+        root = list(RT.RootNodes.values())[0]
         self.assertEqual(root.SectionNumber, numbers[0], "Root should be the only entry in the list")
 
         checkRegistrationTree(self, RT, 3, [])
@@ -136,7 +136,7 @@ class TestRegistrationTree(unittest.TestCase):
         numbers = [4, 7, 10, 12, 20, 30]
         center = 19
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
-        root = RT.RootNodes.values()[0]
+        root = list(RT.RootNodes.values())[0]
         self.assertEqual(root.SectionNumber, 20, "Root should be closest node to requested value")
 
         checkRegistrationTree(self, RT, 4, [])

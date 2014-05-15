@@ -175,7 +175,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         for iRow in range(3, NumPts + 3):
             iPointA = iRow - 3
 
-            p = Points[range((iPointA + 1), NumPts)]
+            p = Points[list(range((iPointA + 1), NumPts))]
             dList = spatial.distance.cdist([Points[iPointA]], p)
 
 
@@ -183,8 +183,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             valueList = numpy.multiply(valueList, numpy.log(dList))
             valueList = valueList.ravel()
 
-            BetaMatrix[iRow, range(iPointA + 1, NumPts)] = valueList
-            BetaMatrix[range(iPointA + 1 + 3, NumPts + 3), iRow - 3] = valueList
+            BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
+            BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
 
 #            for iCol in range(iPointA+1, NumPts):
 #                iPointB = iCol

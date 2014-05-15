@@ -43,7 +43,7 @@ def FixedBoundingBox(transforms):
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  (minY, minX, maxY, maxX)
+    return  (float(minY), float(minX), float(maxY), float(maxX))
 
 def MappedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
@@ -60,7 +60,7 @@ def MappedBoundingBox(transforms):
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  (minY, minX, maxY, maxX)
+    return  (float(minY), float(minX), float(maxY), float(maxX))
 
 def TranslateToZeroOrigin(transforms):
     '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates'''

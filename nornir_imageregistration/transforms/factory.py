@@ -8,10 +8,12 @@ The factory is focused on the loading and saving of transforms
 
 from scipy import *
 
-import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.spatial.indicies import *
+import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 import numpy as np
-import utils
+
+from . import utils
+
 
 def TransformToIRToolsString(transformObj, bounds=None):
     if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
@@ -159,7 +161,7 @@ def ParseGridTransform(parts, pixelSpacing=None):
     PointPairs = []
 
     for i in range(0, len(VariableParameters) - 1, 2):
-        iY = (i / 2) / gridWidth
+        iY = (i / 2) // gridWidth
         iX = (i / 2) % gridWidth
 
         # print str((iX,iY))
@@ -256,7 +258,7 @@ def ParseRigid2DTransform(parts, pixelSpacing=None):
     PointPairs = []
 
     for i in range(0, len(VariableParameters) - 1, 4):
-        iY = i / gridWidth
+        iY = i // gridWidth
         iX = i % gridWidth
 
         mappedX = (VariableParameters[i + 0] * ImageWidth) + Left

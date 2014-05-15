@@ -1,4 +1,12 @@
 
+1.1.8
+-----
+
+**New**
+
+* Added bounding box to spatial
+* Python 3 support
+
 1.1.7
 -----
 

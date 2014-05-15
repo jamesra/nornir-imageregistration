@@ -193,9 +193,9 @@ def Execute(ExecArgs=None):
     # self.assertTrue(os.path.exists(stosArgs.stosOutput), "No output stos file created")
 
     if os.path.exists(stosArgs.stosOutput):
-        print "Wrote: " + stosArgs.stosOutput
+        print("Wrote: " + stosArgs.stosOutput)
     else:
-        print "Outputfile is missing, unknown error: " + stosArgs.stosOutput
+        print("Outputfile is missing, unknown error: " + stosArgs.stosOutput)
 
 
 if __name__ == '__main__':

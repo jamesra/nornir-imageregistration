@@ -1,14 +1,12 @@
-import os
 import logging
+import os
 
-import core
-import alignment_record
 import nornir_imageregistration.transforms.factory as tfactory
-
-from rtree import index
 import numpy as np
 
-import spatial
+from . import alignment_record
+from . import core
+from . import spatial
 
 
 def CreateTiles(transforms, imagepaths):
@@ -124,7 +122,7 @@ class TileLayout(object):
 
     @property
     def TileIDs(self):
-        return self._TileToTransform.keys()
+        return list(self._TileToTransform.keys())
 
     def Contains(self, ID):
         return ID in self.TileToTransform
@@ -178,7 +176,7 @@ class TileLayout(object):
         Then update the dictionary of A
         '''
 
-        for t in layoutB.values():
+        for t in list(layoutB.values()):
             t.translate(offset)
 
         layoutA.TileToTransform.update(layoutB.TileToTransform)
@@ -204,7 +202,7 @@ class TileLayout(object):
 
         MovingPositionDifference = np.array([ExpectedMovingTilePosition[0] - movingMinY, ExpectedMovingTilePosition[1] - movingMinX])
 
-        for t in MovingLayout.TileToTransform.values():
+        for t in list(MovingLayout.TileToTransform.values()):
             t.TranslateFixed(MovingPositionDifference)
 
         FixedLayout.TileToTransform.update(MovingLayout.TileToTransform)

@@ -5,8 +5,7 @@ Created on Jan 27, 2014
 '''
 
 import numpy as np
-import transforms.utils as tutils
-
+import nornir_imageregistration.transforms.utils as tutils
 
 def _SortArrayByColumn(arr, SortColumn=None):
     '''Sort an array using the column order, either an integer or a list, and return the array'''

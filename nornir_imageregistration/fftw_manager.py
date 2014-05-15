@@ -8,7 +8,7 @@ import threading
 
 import numpy
 
-import fftw3f as fftw3
+import pyfftw
 
 
 class FFTWPlan(object):
@@ -67,11 +67,11 @@ class FFTWManager(object):
         if SizeTuple in self.dictPlans:
             return self.dictPlans[SizeTuple];
 
-        InputArray = fftw3.create_aligned_array(SizeTuple, dtype = numpy.singlecomplex);
-        OutputArray = fftw3.create_aligned_array(SizeTuple, dtype = numpy.singlecomplex);
+        InputArray = pyfftw.create_aligned_array(SizeTuple, dtype=numpy.singlecomplex);
+        OutputArray = pyfftw.create_aligned_array(SizeTuple, dtype=numpy.singlecomplex);
 
-        fft = fftw3.Plan(InputArray, OutputArray, direction = 'forward', flags = ['measure']);
-        ifft = fftw3.Plan(OutputArray, InputArray, direction = 'backward', flags = ['measure']);
+        fft = pyfftw.Plan(InputArray, OutputArray, direction='forward', flags=['measure']);
+        ifft = pyfftw.Plan(OutputArray, InputArray, direction='backward', flags=['measure']);
 
         PlanObj = FFTWPlan(fft, ifft, InputArray, OutputArray);
         self.dictPlans[SizeTuple] = PlanObj;

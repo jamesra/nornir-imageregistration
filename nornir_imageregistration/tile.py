@@ -4,10 +4,12 @@ Created on Feb 21, 2014
 @author: u0490822
 '''
 
+import logging
+import os
+
 import nornir_imageregistration.core as core
 import numpy as np
-import os
-import logging
+
 
 class Tile(object):
     '''
