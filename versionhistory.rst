@@ -1,11 +1,17 @@
 
-1.1.8
+1.2.0
 -----
 
 **New**
 
 * Added bounding box to spatial
 * Python 3 support
+* Better documentation for assemble parameters.
+* Added bounding box structure to spatial module
+
+**Fixed**
+
+* The output buffer in assemble is now the correct size.  Previously a larger buffer was allocated and cropped.
 
 1.1.7
 -----

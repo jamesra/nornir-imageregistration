@@ -1,9 +1,3 @@
-'''
-Created on Mar 12, 2014
-
-@author: u0490822
-'''
-
 import numpy
 from .indicies import *
 
