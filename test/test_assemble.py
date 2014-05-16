@@ -4,7 +4,7 @@ Created on Apr 3, 2013
 @author: u0490822
 '''
 import unittest
-import setup_imagetest
+from . import setup_imagetest
 import os
 
 import nornir_imageregistration.core as core

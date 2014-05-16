@@ -102,9 +102,9 @@ def Execute(ExecArgs=None):
     self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
     if os.path.exists(Args.outputpath):
-        print "Wrote: " + Args.outputpath
+        print("Wrote: " + Args.outputpath)
     else:
-        print "Outputfile is missing, unknown error: " + Args.outputpath
+        print("Outputfile is missing, unknown error: " + Args.outputpath)
 
 
 if __name__ == '__main__':

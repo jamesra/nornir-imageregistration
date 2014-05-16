@@ -1,4 +1,25 @@
 
+1.2.0
+-----
+
+**New**
+
+* Added bounding box to spatial
+* Python 3 support
+* Better documentation for assemble parameters.
+* Added bounding box structure to spatial module
+
+**Fixed**
+
+* The output buffer in assemble is now the correct size.  Previously a larger buffer was allocated and cropped.
+
+1.1.7
+-----
+
+**New**
+
+* RegistrationTree supports missing centers by finding the nearest section to the requested center
+
 1.1.3
 -----
 

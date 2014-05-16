@@ -4,19 +4,18 @@ Created on Oct 28, 2013
 Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
-import assemble
-import tiles
 import numpy as np
-
-import scipy.spatial.distance
 from scipy import stats
-# from nornir_imageregistration.files.mosaicfile import MosaicFile
-# from nornir_imageregistration.mosaic import Mosaic
-import core
+import scipy.spatial.distance
 import os
 import logging
-import transforms.utils as tutils
-import tiles
+
+import nornir_imageregistration.assemble  as assemble
+# from nornir_imageregistration.files.mosaicfile import MosaicFile
+# from nornir_imageregistration.mosaic import Mosaic
+import nornir_imageregistration.core as core
+import nornir_imageregistration.transforms.utils as tutils
+import nornir_imageregistration.tileset as tiles
 # import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 # import nornir_imageregistration.transforms.triangulation as triangulation
 import nornir_pools as pools
@@ -114,7 +113,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
 
 def distFunc(i, j):
-    print(str(i) + ", " + str(j))
+    print((str(i) + ", " + str(j)))
     a = np.array(i, dtype=np.float)
     a = a * a
     b = np.array(j, dtype=np.float)
@@ -209,8 +208,8 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     fullImageZBuffer = None
 
     if not FixedRegion is None:
-        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2], FixedRegion[3]))
-        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2], FixedRegion[3], requiredScale)
+        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1], requiredScale)
     else:
         (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
@@ -268,8 +267,8 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     fullImageZBuffer = None
 
     if not FixedRegion is None:
-        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2], FixedRegion[3]))
-        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2], FixedRegion[3], requiredScale)
+        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1], requiredScale)
     else:
         (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
@@ -353,10 +352,21 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  requiredScale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 
-       not be transformed.'''
+       not be transformed.
+       :param transform transform: Transformation used to map pixels from source image to output image
+       :param str imagefullpath: Full path to the image on disk
+       :param ndarray distanceImage: Optional pre-allocated array to contain the distance of each pixel from the center for use as a depth mask
+       :param float requiredScale: Optional pre-calculated scalar to apply to the transform.  If None the scale is calculated based on the difference
+                                   between input image size and the image size of the transform
+       :param array FixedRegion: [MinY MinX MaxY MaxX] If specified only the specified region is transformed.  Otherwise transform the entire image.'''
+
+    if not FixedRegion is None:
+        spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
 
     if not os.path.exists(imagefullpath):
         return TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
+
+
 
     # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
        # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
@@ -389,7 +399,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
         (minY, minX, maxY, maxX) = transform.FixedBoundingBox
     else:
         assert(len(FixedRegion) == 4)
-        (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2], FixedRegion[3])
+        (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1])
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage(warpedImage.shape)

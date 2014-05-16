@@ -15,7 +15,8 @@ from nornir_imageregistration.transforms.rbftransform import \
 import nornir_pools as pools
 import scipy.linalg as linalg
 import scipy.spatial as spatial
-import utils
+
+from . import utils
 
 
 class MeshWithRBFFallback(triangulation.Triangulation):
@@ -131,57 +132,57 @@ if __name__ == '__main__':
 
     warpedPoints = [[0, 0], [-5, -5]];
     fp = T.ViewTransform(warpedPoints);
-    print("__Transform " + str(warpedPoints) + " to " + str(fp))
+    print(("__Transform " + str(warpedPoints) + " to " + str(fp)))
     wp = T.InverseTransform(fp);
 
 
-    print "Fixed Verts"
-    print T.FixedTriangles;
-    print "\nWarped Verts"
-    print T.WarpedTriangles;
+    print("Fixed Verts")
+    print(T.FixedTriangles);
+    print("\nWarped Verts")
+    print(T.WarpedTriangles);
 
     T.AddPoint([5, 5, -5, -5]);
-    print "\nPoint added"
-    print "Fixed Verts"
-    print T.FixedTriangles;
-    print "\nWarped Verts"
-    print T.WarpedTriangles;
+    print("\nPoint added")
+    print("Fixed Verts")
+    print(T.FixedTriangles);
+    print("\nWarped Verts")
+    print(T.WarpedTriangles);
 
     T.AddPoint([5, 5, 5, 5]);
-    print "\nDuplicate Point added"
-    print "Fixed Verts"
-    print T.FixedTriangles;
-    print "\nWarped Verts"
-    print T.WarpedTriangles;
+    print("\nDuplicate Point added")
+    print("Fixed Verts")
+    print(T.FixedTriangles);
+    print("\nWarped Verts")
+    print(T.WarpedTriangles);
 
     warpedPoint = [[-5, -5]];
     fp = T.ViewTransform(warpedPoint);
-    print("__Transform " + str(warpedPoint) + " to " + str(fp))
+    print(("__Transform " + str(warpedPoint) + " to " + str(fp)))
     wp = T.InverseTransform(fp);
 
     T.UpdatePoint(3, [10, 15, -10, -15]);
-    print "\nPoint updated"
-    print "Fixed Verts"
-    print T.FixedTriangles;
-    print "\nWarped Verts"
-    print T.WarpedTriangles;
+    print("\nPoint updated")
+    print("Fixed Verts")
+    print(T.FixedTriangles);
+    print("\nWarped Verts")
+    print(T.WarpedTriangles);
 
     warpedPoint = [[-9, -14]];
     fp = T.ViewTransform(warpedPoint);
-    print("__Transform " + str(warpedPoint) + " to " + str(fp))
+    print(("__Transform " + str(warpedPoint) + " to " + str(fp)))
     wp = T.InverseTransform(fp);
 
     T.RemovePoint(1);
-    print "\nPoint removed"
-    print "Fixed Verts"
-    print T.FixedTriangles;
-    print "\nWarped Verts"
-    print T.WarpedTriangles;
+    print("\nPoint removed")
+    print("Fixed Verts")
+    print(T.FixedTriangles);
+    print("\nWarped Verts")
+    print(T.WarpedTriangles);
 
 
 
 
-    print "\nFixedPointsInRect"
-    print T.GetFixedPointsRect([-1, -1, 14, 4]);
+    print("\nFixedPointsInRect")
+    print(T.GetFixedPointsRect([-1, -1, 14, 4]));
 
 

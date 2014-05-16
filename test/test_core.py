@@ -8,7 +8,7 @@ import os
 from pylab import *
 import nornir_imageregistration.core as core
 import logging
-import setup_imagetest
+from . import setup_imagetest
 import nornir_imageregistration.stos_brute as stos_brute
 
 class Test(setup_imagetest.ImageTestBase):
@@ -39,7 +39,7 @@ class Test(setup_imagetest.ImageTestBase):
             self.assertTrue(newDim % 2 == 0, "%d is not a power of two" % newDim)
             self.assertTrue(logOriginalDim <= logNewDim, "%d padded to %d instead of nearest power of two" % (v, newDim))
 
-            print "%d -> %d" % (v, newDim)
+            print("%d -> %d" % (v, newDim))
 
     def testNearestPowerOfTwo(self):
 

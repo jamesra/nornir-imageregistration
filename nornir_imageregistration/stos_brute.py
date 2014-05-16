@@ -6,18 +6,16 @@ Created on Oct 4, 2012
 import ctypes
 import logging
 import multiprocessing.sharedctypes
-import numpy as np
 import os
-
-from numpy.fft import fftshift
-import scipy.ndimage.interpolation as interpolation
 from time import sleep
 
-import nornir_pools as pools
+from numpy.fft import fftshift
 
-import nornir_imageregistration.core as core
 import nornir_imageregistration
-
+import nornir_imageregistration.core as core
+import nornir_pools as pools
+import numpy as np
+import scipy.ndimage.interpolation as interpolation
 
 
 # from memory_profiler import profile
@@ -61,7 +59,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
-        AngleSearchRange = range(-180, 180, 2)
+        AngleSearchRange = list(range(-180, 180, 2))
 
     BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
 
@@ -72,7 +70,10 @@ def SliceToSliceBruteForce(FixedImageInput,
     else:
         BestRefinedMatch = BestMatch
 
-    BestRefinedMatch.peak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
+    if scalar > 1.0:
+        AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
+        BestRefinedMatch = AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle)
+
    # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
 
     return BestRefinedMatch
@@ -247,7 +248,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 def __ExecuteProfiler():
     SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                            AngleSearchRange=range(-175, -174, 1),
+                            AngleSearchRange=list(range(-175, -174, 1)),
                             SingleThread=True)
 
 if __name__ == '__main__':

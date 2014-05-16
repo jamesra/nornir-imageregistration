@@ -8,7 +8,7 @@ import nornir_imageregistration
 import os
 import shutil
 import logging
-import setup_imagetest
+from . import setup_imagetest
 import nornir_pools as pools
 import nornir_shared.plot as plot
 from nornir_imageregistration import im_histogram_parser

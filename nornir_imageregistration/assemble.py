@@ -5,24 +5,26 @@ Created on Apr 22, 2013
 '''
 
 
-import core
-import numpy as np
-import nornir_shared.prettyoutput as PrettyOutput
-import nornir_shared.images as images
-from scipy.ndimage import interpolation
-from   nornir_imageregistration.transforms import factory, triangulation
-from   nornir_imageregistration.transforms.utils import InvalidIndicies
-import nornir_imageregistration.transforms.base as transformbase
-from nornir_imageregistration.files.stosfile import StosFile
 import os
-import nornir_pools as pools
 
 from matplotlib.pyplot import imsave
+from scipy.ndimage import interpolation
+
+from nornir_imageregistration.files.stosfile import StosFile
+from   nornir_imageregistration.transforms import factory, triangulation
+import nornir_imageregistration.transforms.base as transformbase
+from   nornir_imageregistration.transforms.utils import InvalidIndicies
+import nornir_pools as pools
+import nornir_shared.images as images
+import nornir_shared.prettyoutput as PrettyOutput
+import numpy as np
+
+from . import core
 
 
 def ROI(botleft, area):
-    x_range = range(int(botleft[1]), int(botleft[1]) + int(area[1]))
-    y_range = range(int(botleft[0]), int(botleft[0]) + int(area[0]))
+    x_range = list(range(int(botleft[1]), int(botleft[1]) + int(area[1])))
+    y_range = list(range(int(botleft[0]), int(botleft[0]) + int(area[0])))
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
@@ -80,7 +82,7 @@ def ExtractRegion(image, botleft=None, area=None):
 
 
 def __ExtractRegion(image, botleft, area):
-    print "Deprecated __ExtractRegion call being used"
+    print("Deprecated __ExtractRegion call being used")
     return ExtractRegion(image, botleft, area)
 
 

@@ -4,18 +4,20 @@ Created on Jul 10, 2012
 @author: Jamesan
 '''
 
-import scipy.sparse
-import nornir_imageregistration.core as core
-import numpy as np
 import logging
-import os
-import nornir_imageregistration.tiles as tileModule
-from alignment_record import AlignmentRecord
-import nornir_imageregistration.transforms.factory as tfactory
-
-import layout
-
 from operator import attrgetter
+import os
+import numpy as np
+
+import scipy.sparse
+
+import nornir_imageregistration.core as core
+import nornir_imageregistration.tileset as tileModule
+import nornir_imageregistration.transforms.factory as tfactory
+import nornir_imageregistration.tileset as tileset
+import nornir_imageregistration.layout as layout
+from nornir_imageregistration.alignment_record import AlignmentRecord
+
 
 def __RemoveTilesWithKnownOffset(reference, overlappingtiles):
     '''
@@ -56,13 +58,13 @@ def _FindTileOffsets(tiles, imageScale=None):
     if imageScale is None:
         imageScale = 1.0
 
-    idx = tiles.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
+    idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
 
     CalculationCount = 0
 
     for t in tiles:
         intersectingTilesIndex = list(idx.intersection(t.ControlBoundingBox, objects=False))
-        intersectingTiles = map(lambda x: tiles[x], intersectingTilesIndex)
+        intersectingTiles = [tiles[x] for x in intersectingTilesIndex]
 
         __RemoveTilesWithKnownOffset(t, intersectingTiles)
 
@@ -76,10 +78,10 @@ def _FindTileOffsets(tiles, imageScale=None):
             t.OffsetToTile[overlappingTile.ID] = offset
             overlappingTile.OffsetToTile[t.ID] = offset.Invert()
 
-        print "Calculated %d offsets for %s" % (len(intersectingTiles), str(t))
+        print("Calculated %d offsets for %s" % (len(intersectingTiles), str(t)))
 
     # TODO: Reposition the tiles based on the offsets
-    print("Total offset calculations: " + str(CalculationCount))
+    print(("Total offset calculations: " + str(CalculationCount)))
 
     return tiles
 
@@ -106,7 +108,7 @@ def _BuildAlignmentRecordListWithTileIDs(tiles):
     offsets = []
 
     for t in tiles:
-        for targetID, Offset in t.OffsetToTile.items():
+        for targetID, Offset in list(t.OffsetToTile.items()):
             Offset.FixedTileID = t.ID
             Offset.MovingTileID = targetID
 
@@ -129,10 +131,10 @@ def BuildBestTransformFirstMosaic(tiles):
     LayoutList = []
 
     for record in arecords:
-        print str(record.FixedTileID) + ' -> ' + str(record.MovingTileID) + " " + str(record) + " " + os.path.basename(tiles[record.FixedTileID].ImagePath) + " " + os.path.basename(tiles[record.MovingTileID].ImagePath)
+        print(str(record.FixedTileID) + ' -> ' + str(record.MovingTileID) + " " + str(record) + " " + os.path.basename(tiles[record.FixedTileID].ImagePath) + " " + os.path.basename(tiles[record.MovingTileID].ImagePath))
 
         if np.isnan(record.weight):
-            print "Skip: Invalid weight, not a number"
+            print("Skip: Invalid weight, not a number")
             continue
 
         fixedTileLayout = layout.TileLayout.GetLayoutForID(LayoutList, record.FixedTileID)
@@ -142,7 +144,7 @@ def BuildBestTransformFirstMosaic(tiles):
             fixedTileLayout = layout.TileLayout(tiles)
             fixedTileLayout.AddTileViaAlignment(record)
             LayoutList.append(fixedTileLayout)
-            print "New layout"
+            print("New layout")
 
         elif (not fixedTileLayout is None) and (not movingTileLayout is None):
             # Need to merge the layouts? See if they are the same
@@ -152,12 +154,12 @@ def BuildBestTransformFirstMosaic(tiles):
                 continue
             else:
                 layout.TileLayout.MergeLayoutsWithAlignmentRecord(fixedTileLayout, movingTileLayout, record)
-                print "Merged"
+                print("Merged")
                 LayoutList.remove(movingTileLayout)
         else:
             if fixedTileLayout is None and not movingTileLayout is  None:
                 # We'll pick it up on the next pass
-                print "Skip: Getting it next time"
+                print("Skip: Getting it next time")
                 continue
 
             fixedTileLayout.AddTileViaAlignment(record)
