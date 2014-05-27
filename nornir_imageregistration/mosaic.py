@@ -48,7 +48,7 @@ class Mosaic(object):
         keys = list(mosaicfile.ImageToTransformString.keys())
         keys.sort()
         for k, v in mosaicfile.ImageToTransformString.items():
-            print("Parsing transform for : " + k)
+            #print("Parsing transform for : " + k)
             ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
