@@ -99,6 +99,9 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
     tempFullImage = FullImage[minY:maxY, minX:maxX]
     tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]
+    
+    if(tempZBuffer.shape != SubZBuffer.shape):
+        raise ValueError("Buffers do not have the same dimensions")
 
     iUpdate = tempZBuffer > SubZBuffer
 
@@ -342,7 +345,14 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
         (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
 
     # print "%g %g" % (minX, minY)
-    (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+    try:
+        (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+    except ValueError: 
+        #This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
+        logger = logging.getLogger('TilesToImageParallel')
+        logger.error('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
+        pass
+    
     transformedImageData.Clear()
 
     return (fullImage, fullImageZBuffer)
