@@ -62,13 +62,19 @@ def MappedBoundingBox(transforms):
 
     return  (float(minY), float(minX), float(maxY), float(maxX))
 
-def TranslateToZeroOrigin(transforms):
-    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates'''
-
+def IsOriginAtZero(transforms):
+    ''':return: True if transform bounding box has origin at 0,0 otherise false'''
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    return minY == 0 and minX == 0
 
+def TranslateToZeroOrigin(transforms):
+    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    
     for t in transforms:
         t.TranslateFixed((-minY, -minX))
+        
+    return True
 
 
 def FixedBoundingBoxWidth(transforms):

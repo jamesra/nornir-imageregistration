@@ -68,9 +68,17 @@ class Mosaic(object):
 
     @classmethod
     def TranslateMosaicFileToZeroOrigin(cls, path):
+        '''Translate the origin to zero if needed.
+        :return: True if translation was required.  False if the mosaic was already at zero
+        ''' 
         mosaicObj = Mosaic.LoadFromMosaicFile(path)
+        
+        if mosaicObj.IsOriginAtZero():
+            return False
+            
         mosaicObj.TranslateToZeroOrigin()
         mosaicObj.SaveToMosaicFile(path)
+        return True
 
     @property
     def ImageToTransform(self):
@@ -122,6 +130,14 @@ class Mosaic(object):
     def TileFullPaths(self, tilesDir):
         '''Return a list of full paths to the tile for each transform'''
         return [os.path.join(tilesDir, x) for x in list(self.ImageToTransform.keys())]
+    
+    
+    def IsOriginAtZero(self):
+        '''
+        :return True if the mosaic origin is at (0,0).  Otherwise False
+        :rtype: bool
+        ''' 
+        return tutils.IsOriginAtZero(self.ImageToTransform.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
