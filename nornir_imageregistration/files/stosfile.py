@@ -193,7 +193,7 @@ class StosFile(object):
         '''Returns details about a stos file we can learn from its name
            returns  [mappedSection, controlSection, Channel, Filter, Source, Downsample]'''
 
-        Logger = logging.getLogger('stos')
+        Logger = logging.getLogger(__name__ + str(cls.__class__))
 
         # Make sure extension is removed from filename
         [baseName, ext] = os.path.splitext(filename)

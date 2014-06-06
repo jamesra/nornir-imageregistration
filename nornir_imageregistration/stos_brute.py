@@ -31,7 +31,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be'''
 
-    logger = logging.getLogger('IrTools.SliceToSliceBruteForce')
+    logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
 
     imFixed = None
     if isinstance(FixedImageInput, str):

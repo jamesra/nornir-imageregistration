@@ -48,7 +48,7 @@ class Mosaic(object):
         keys = list(mosaicfile.ImageToTransformString.keys())
         keys.sort()
         for k, v in mosaicfile.ImageToTransformString.items():
-            #print("Parsing transform for : " + k)
+            # print("Parsing transform for : " + k)
             ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
@@ -70,12 +70,12 @@ class Mosaic(object):
     def TranslateMosaicFileToZeroOrigin(cls, path):
         '''Translate the origin to zero if needed.
         :return: True if translation was required.  False if the mosaic was already at zero
-        ''' 
+        '''
         mosaicObj = Mosaic.LoadFromMosaicFile(path)
-        
+
         if mosaicObj.IsOriginAtZero():
             return False
-            
+
         mosaicObj.TranslateToZeroOrigin()
         mosaicObj.SaveToMosaicFile(path)
         return True
@@ -130,13 +130,13 @@ class Mosaic(object):
     def TileFullPaths(self, tilesDir):
         '''Return a list of full paths to the tile for each transform'''
         return [os.path.join(tilesDir, x) for x in list(self.ImageToTransform.keys())]
-    
-    
+
+
     def IsOriginAtZero(self):
         '''
         :return True if the mosaic origin is at (0,0).  Otherwise False
         :rtype: bool
-        ''' 
+        '''
         return tutils.IsOriginAtZero(self.ImageToTransform.values())
 
     def TranslateToZeroOrigin(self):
