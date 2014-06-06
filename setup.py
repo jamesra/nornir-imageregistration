@@ -27,7 +27,6 @@ if __name__ == '__main__':
                         "scipy>=0.13.2",
                         "matplotlib",
                         "pillow>=2.3",
-                        "rtree>=0.7",
                         "six"]
 
     dependency_links = ["git+http://github.com/nornir/nornir-pools#egg=nornir_pools-1.2.0",
