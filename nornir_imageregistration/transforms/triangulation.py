@@ -260,19 +260,19 @@ class Triangulation(Base):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        if not self._FixedBoundingBox is None:
+        if self._FixedBoundingBox is None:
             self._FixedBoundingBox = utils.PointBoundingBox(self.FixedPoints)
-                
+
         return self._FixedBoundingBox
-    
+
     @property
     def MappedBoundingBox(self):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        if not self._MappedBoundingBox is None:
+        if self._MappedBoundingBox is None:
             self._MappedBoundingBox = utils.PointBoundingBox(self.WarpedPoints)
-             
+
         return self._MappedBoundingBox
 
     @property
