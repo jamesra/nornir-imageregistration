@@ -28,11 +28,11 @@ if __name__ == '__main__':
     pass
 
 
-def PointBoundingBox(self, points):
+def PointBoundingBox(points):
         (minY, minX) = np.min(points, 0)
         (maxY, maxX) = np.max(points, 0)
         return (minY, minX, maxY, maxX)
-    
+
 
 def FixedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
@@ -76,10 +76,10 @@ def IsOriginAtZero(transforms):
 def TranslateToZeroOrigin(transforms):
     '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
-    
+
     for t in transforms:
         t.TranslateFixed((-minY, -minX))
-        
+
     return True
 
 
