@@ -33,23 +33,26 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     else:
         (bottom, left, top, right) = bounds
 
-
-    output = "GridTransform_double_2_2 vp " + str(numPoints * 2)
-
+    output = []
+    output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
+    
     template = " %(cx)g %(cy)g"
 
     NumAdded = int(0)
     for CY, CX, MY, MX in Transform.points:
         pstr = template % {'cx' : CX, 'cy' : CY}
-        output = output + pstr
+        output.append(pstr)
         NumAdded = NumAdded + 1
 
    # print str(NumAdded) + " points added"
 
     boundsStr = " ".join(map(str, [left, bottom, right - left, top - bottom]))
-    output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
-
-    return output
+    
+    output.append(" fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr)
+    #output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
+    transform_string = ''.join(output)
+    
+    return transform_string
 
 
 def _TransformToIRToolsString(Transform, bounds=None):
@@ -62,7 +65,8 @@ def _TransformToIRToolsString(Transform, bounds=None):
     else:
         (bottom, left, top, right) = bounds
 
-    output = "MeshTransform_double_2_2 vp " + str(numPoints * 4)
+    output = []
+    output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
     template = " %(mx)g %(my)g %(cx)g %(cy)g"
 
@@ -71,13 +75,19 @@ def _TransformToIRToolsString(Transform, bounds=None):
 
     for CY, CX, MY, MX in Transform.points:
         pstr = template % {'cx' : CX, 'cy' : CY, 'mx' : (MX - left) / width , 'my' : (MY - bottom) / height}
-        output = output + pstr
+        output.append(pstr)
 
     boundsStr = " ".join(map(str, [left, bottom, width, height]))
+    
+    output.append(" fp 8 0 16 16 ")
+    output.append(boundsStr)
+    output.append(' ' + str(numPoints))
+    
     # boundsStr = " ".join(map(str, [0, 0, width, height]))
-    output = output + " fp 8 0 16 16 " + boundsStr + ' ' + str(numPoints)
+    #transform_string = #output + " fp 8 0 16 16 " + boundsStr + ' ' + str(numPoints)
+    transform_string = ''.join(output)
 
-    return output
+    return transform_string
 
 
 def __ParseParameters(parts):
