@@ -28,6 +28,12 @@ if __name__ == '__main__':
     pass
 
 
+def PointBoundingBox(self, points):
+        (minY, minX) = np.min(points, 0)
+        (maxY, maxX) = np.max(points, 0)
+        return (minY, minX, maxY, maxX)
+    
+
 def FixedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
 

@@ -201,6 +201,8 @@ class Triangulation(Base):
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
+        self._FixedBoundingBox = None
+        self._MappedBoundingBox = None
 
     def NearestFixedPoint(self, points):
         '''Return the fixed points nearest to the query points'''
@@ -258,24 +260,20 @@ class Triangulation(Base):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        cp = self.FixedPoints
-
-        (minY, minX) = np.min(cp, 0)
-        (maxY, maxX) = np.max(cp, 0)
-
-        return (minY, minX, maxY, maxX)
-
+        if not self._FixedBoundingBox is None:
+            self._FixedBoundingBox = utils.PointBoundingBox(self.FixedPoints)
+                
+        return self._FixedBoundingBox
+    
     @property
     def MappedBoundingBox(self):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        cp = self.WarpedPoints
-
-        (minY, minX) = np.min(cp, 0)
-        (maxY, maxX) = np.max(cp, 0)
-
-        return (minY, minX, maxY, maxX)
+        if not self._MappedBoundingBox is None:
+            self._MappedBoundingBox = utils.PointBoundingBox(self.WarpedPoints)
+             
+        return self._MappedBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):
@@ -358,6 +356,8 @@ class Triangulation(Base):
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
+        self._FixedBoundingBox = None
+        self._MappedBoundingBox = None
 
     @classmethod
     def load(cls, variableParams, fixedParams):
