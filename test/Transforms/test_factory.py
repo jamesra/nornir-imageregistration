@@ -29,7 +29,7 @@ class TestMath(unittest.TestCase):
         # self.assertTrue((rectangle.BottomRight == points[2, :]).all(), "Bottom Right coordinate incorrect")
        # self.assertTrue((rectangle.TopRight == points[3, :]).all(), "Top Right coordinate incorrect")
 
-        (minY, minX, maxY, maxX) = spatial.PointBoundingBox(points)
+        (minY, minX, maxY, maxX) = spatial.BoundsArrayFromPoints(points)
 
         numpy.testing.assert_allclose(rectangle.BottomLeft, np.array([minY, minX]), atol=0.01, err_msg="Bottom Left coordinate incorrect", verbose=True)
         numpy.testing.assert_allclose(rectangle.TopLeft, np.array([maxY, minX]), atol=0.01, err_msg="Top Left coordinate incorrect", verbose=True)

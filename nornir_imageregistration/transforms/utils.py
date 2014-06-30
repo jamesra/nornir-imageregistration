@@ -28,10 +28,20 @@ if __name__ == '__main__':
     pass
 
 
+def PointBoundingRect(points):
+    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
+
+    (minY, minX) = np.min(points, 0)
+    (maxY, maxX) = np.max(points, 0)
+    return (minY, minX, maxY, maxX)
+
+
 def PointBoundingBox(points):
-        (minY, minX) = np.min(points, 0)
-        (maxY, maxX) = np.max(points, 0)
-        return (minY, minX, maxY, maxX)
+    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
+
+    (minZ, minY, minX) = np.min(points, 0)
+    (maxZ, maxY, maxX) = np.max(points, 0)
+    return (minZ, minY, minX, maxZ, maxY, maxX)
 
 
 def FixedBoundingBox(transforms):

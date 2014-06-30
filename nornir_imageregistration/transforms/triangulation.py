@@ -13,6 +13,7 @@ from scipy.interpolate import griddata
 from scipy.spatial import *
 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
+import nornir_imageregistration.spatial as spatial
 import numpy as np
 
 from . import utils
@@ -261,7 +262,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = utils.PointBoundingBox(self.FixedPoints)
+            self._FixedBoundingBox = spatial.BoundsArrayFromPoints(self.FixedPoints)
 
         return self._FixedBoundingBox
 
@@ -271,7 +272,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = utils.PointBoundingBox(self.WarpedPoints)
+            self._MappedBoundingBox = spatial.BoundsArrayFromPoints(self.WarpedPoints)
 
         return self._MappedBoundingBox
 

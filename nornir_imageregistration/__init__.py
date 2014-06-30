@@ -33,6 +33,4 @@ import nornir_imageregistration.files
 from nornir_imageregistration.spatial import *
 import nornir_imageregistration.transforms
 
-
-
 __all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']
