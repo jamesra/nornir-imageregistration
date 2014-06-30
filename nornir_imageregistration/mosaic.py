@@ -91,10 +91,22 @@ class Mosaic(object):
 
         if ImageToTransform is None:
             ImageToTransform = dict()
+        else:
+            Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
 
         self._ImageToTransform = ImageToTransform
         self.ImageScale = 1
 
+    @classmethod
+    def _ConvertTransformStringsToTransforms(cls, image_to_transform):
+        '''If the dictionary contains transforms in string format convert them to transform objects in place'''
+
+        for (image, transform) in image_to_transform.items():
+            if isinstance(transform, str):
+                transform_object = tfactory.LoadTransform(transform)
+                image_to_transform[image] = transform_object
+
+        return
 
     @property
     def FixedBoundingBox(self):
