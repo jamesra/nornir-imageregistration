@@ -40,9 +40,9 @@ class Mosaic(object):
             print("Loading mosaic: " + mosaicfile)
             mosaicfile = MosaicFile.Load(mosaicfile)
             if mosaicfile is None:
-                raise Exception("Expected valid mosaic file path")
+                raise ValueError("Expected valid mosaic file path")
         elif not isinstance(mosaicfile, MosaicFile):
-            raise Exception("Expected valid mosaic file path or object")
+            raise ValueError("Expected valid mosaic file path or object")
 
         ImageToTransform = {}
         keys = list(mosaicfile.ImageToTransformString.keys())
