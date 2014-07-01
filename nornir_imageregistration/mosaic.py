@@ -11,6 +11,7 @@ import nornir_imageregistration.assemble_tiles as at
 from . import spatial
 import numpy as np
 import os
+import copy
 import nornir_pools as pools
 import nornir_imageregistration.arrange_mosaic as arrange
 
@@ -44,12 +45,14 @@ class Mosaic(object):
         elif not isinstance(mosaicfile, MosaicFile):
             raise ValueError("Expected valid mosaic file path or object")
 
-        ImageToTransform = {}
-        keys = list(mosaicfile.ImageToTransformString.keys())
-        keys.sort()
-        for k, v in mosaicfile.ImageToTransformString.items():
+        ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)
+        Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
+
+        # keys = list(mosaicfile.ImageToTransformString.keys())
+        # keys.sort()
+        # for k, v in mosaicfile.ImageToTransformString.items():
             # print("Parsing transform for : " + k)
-            ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
+            # ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
 
