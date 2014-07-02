@@ -269,15 +269,14 @@ def GetImageSize(ImageFullPath):
     :rtype: tuple
     '''
 
-    if not os.path.exists(ImageFullPath):
-        return None
+    # if not os.path.exists(ImageFullPath):
+        # raise ValueError("%s does not exist" % (ImageFullPath))
 
     try:
         im = Image.open(ImageFullPath)
         return (im.size[1], im.size[0])
     except IOError:
-        return None
-
+        raise IOError("Unable to read size from %s" % (ImageFullPath))
 
 def ForceGrayscale(image):
     '''
