@@ -9,6 +9,7 @@ import glob
 import logging
 from nornir_shared.misc import SetupLogging
 import shutil
+import cProfile
 
 
 class TestBase(unittest.TestCase):
@@ -50,6 +51,10 @@ class TestBase(unittest.TestCase):
 
         return None
 
+    @property
+    def TestProfilerOutputPath(self):
+        return os.path.join(self.TestOutputPath, self.classname + '.profile')
+
     def setUp(self):
         self.VolumeDir = self.TestOutputPath
 
@@ -63,8 +68,20 @@ class TestBase(unittest.TestCase):
         except:
             pass
 
-        SetupLogging(self.TestLogPath, Level=logging.INFO)
+        self.profiler = None
+
+        if 'PROFILE' in os.environ:
+            self.profiler = cProfile.Profile()
+            self.profiler.enable()
+
+        SetupLogging(Level=logging.INFO)
         self.Logger = logging.getLogger(self.classname)
+
+    def tearDown(self):
+        if not self.profiler is None:
+            self.profiler.dump_stats(self.TestProfilerOutputPath)
+
+        unittest.TestCase.tearDown(self)
 
 
 class ImageTestBase(TestBase):
