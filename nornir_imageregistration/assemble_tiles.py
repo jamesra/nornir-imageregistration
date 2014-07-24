@@ -92,10 +92,10 @@ def CompositeImage(FullImage, SubImage, offset):
 
 def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offset):
 
-    minX = offset[1]
-    minY = offset[0]
-    maxX = minX + SubImage.shape[1]
-    maxY = minY + SubImage.shape[0]
+    minX = int(offset[1])
+    minY = int(offset[0])
+    maxX = int(minX + SubImage.shape[1])
+    maxY = int(minY + SubImage.shape[0])
 
     tempFullImage = FullImage[minY:maxY, minX:maxX]
     tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]
@@ -172,7 +172,7 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     
     '''
 
-    fullImage = np.zeros((np.ceil(requiredScale * Height), np.ceil(requiredScale * Width)), dtype=np.float16)
+    fullImage = np.zeros((int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width))), dtype=np.float16)
     fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
 
     return (fullImage, fullImageZbuffer)
@@ -385,11 +385,13 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     warpedImage = core.LoadImage(imagefullpath)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
-    transformScale = tiles.__DetermineScale(transform, warpedImage.shape)
+    transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
 
     if not requiredScale is None:
         if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
+        
+        transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
 
     if transformScale != 1.0:
         scaledTransform = copy.deepcopy(transform)

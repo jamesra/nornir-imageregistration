@@ -188,11 +188,12 @@ class Mosaic(object):
         return LayoutToMosaic(layout)
 
 
-    def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False):
+    def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
         '''Create a single large mosaic.
         :param str tilesPath: Directory containing tiles referenced in our transform
         :param array FixedRegion: [MinY MinX MaxY MaxX] boundary of image to assemble
         :param boolean usecluster: Offload work to other threads or nodes if true
+        :param float requiredScale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         '''
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
@@ -206,9 +207,9 @@ class Mosaic(object):
         # Allocate a buffer for the tiles
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
-        if usecluster:
+        if usecluster and len(tilesPathList) > 1:
             cpool = pools.GetGlobalLocalMachinePool()
-            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion)
+            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion)
+            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)
