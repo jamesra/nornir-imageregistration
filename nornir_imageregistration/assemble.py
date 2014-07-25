@@ -52,7 +52,7 @@ def TransformROI(transform, botleft, area):
 
     fixed_coordArray = GetROICoords(botleft, area)
 
-    warped_coordArray = transform.InverseTransform(fixed_coordArray)
+    warped_coordArray = transform.InverseTransform(fixed_coordArray, extrapolate=False)
     (valid_warped_coordArray, InvalidIndiciesList) = InvalidIndicies(warped_coordArray)
 
     del warped_coordArray
@@ -113,7 +113,8 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
 
     if(warped_coords.shape[0] == 0):
         # No points transformed into the requested area, return empty image
-        transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        transformedImage = np.empty((area), dtype=WarpedImage.dtype)
+        transformedImage.fill(cval)
         return transformedImage
 
     subroi_warpedImage = WarpedImage
@@ -132,7 +133,8 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         return warpedImage
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
-        transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
+        transformedImage = np.empty((area), dtype=WarpedImage.dtype)
+        transformedImage.fill(cval)
         fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = warpedImage
         return transformedImage
@@ -228,7 +230,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
     width = int(fixedImageShape[1])
 
     outputImage = np.zeros(fixedImageShape, dtype=np.float32)
-
+    
     # print('\nConverting image to ' + str(self.NumCols) + "x" + str(self.NumRows) + ' grid of OpenGL textures')
 
     tasks = []

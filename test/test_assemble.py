@@ -50,12 +50,12 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.TransformROI(transform, (1, 2), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -1, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 0, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), -2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
     def test_Rotate180(self):
 

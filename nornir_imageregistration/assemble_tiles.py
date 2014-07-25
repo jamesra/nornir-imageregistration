@@ -391,7 +391,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
         if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
         
-        #transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
+        transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
 
     if transformScale != 1.0:
         scaledTransform = copy.deepcopy(transform)
