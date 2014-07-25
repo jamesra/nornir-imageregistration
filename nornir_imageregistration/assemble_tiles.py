@@ -391,7 +391,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
         if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
         
-        transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
+        #transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
 
     if transformScale != 1.0:
         scaledTransform = copy.deepcopy(transform)
@@ -412,6 +412,9 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     else:
         assert(len(FixedRegion) == 4)
         (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1])
+        
+    height = np.ceil(height)
+    width = np.ceil(width)
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage(warpedImage.shape)

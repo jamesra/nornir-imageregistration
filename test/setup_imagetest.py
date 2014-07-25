@@ -100,6 +100,10 @@ class MosaicTestBase(TestBase):
     @property
     def TestName(self):
         raise NotImplementedError("Test should override TestName property")
+    
+    @property
+    def TestOutputPath(self):
+        return os.path.join(super(MosaicTestBase,self).TestOutputPath, self.id())
 
     def GetMosaicFiles(self):
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))

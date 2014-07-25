@@ -22,9 +22,16 @@ import numpy as np
 from . import core
 
 
-def ROI(botleft, area):
-    x_range = list(range(int(botleft[1]), int(botleft[1]) + int(area[1])))
-    y_range = list(range(int(botleft[0]), int(botleft[0]) + int(area[0])))
+def GetROICoords(botleft, area):
+    x_range = np.arange(botleft[1], botleft[1] + area[1])
+    y_range = np.arange(botleft[0], botleft[0] + area[0])
+    
+    #Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
+    if len(x_range) > area[1]:
+        x_range = x_range[:area[1]]
+        
+    if len(y_range) > area[0]:
+        y_range = y_range[:area[0]]
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
@@ -43,7 +50,7 @@ def TransformROI(transform, botleft, area):
     :rtype: tuple(Nx2 array,Nx2 array)
     '''
 
-    fixed_coordArray = ROI(botleft, area)
+    fixed_coordArray = GetROICoords(botleft, area)
 
     warped_coordArray = transform.InverseTransform(fixed_coordArray)
     (valid_warped_coordArray, InvalidIndiciesList) = InvalidIndicies(warped_coordArray)
@@ -73,7 +80,7 @@ def ExtractRegion(image, botleft=None, area=None):
     if area is None:
         area = image.shape
 
-    coords = ROI(botleft, area)
+    coords = GetROICoords(botleft, area)
 
     transformedImage = interpolation.map_coordinates(image, coords.transpose(), order=0, mode='constant')
 
@@ -126,8 +133,8 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
         transformedImage = np.zeros((area), dtype=WarpedImage.dtype)
-        fixed_coords = np.asarray(np.round(fixed_coords), dtype=np.int64)
-        transformedImage[fixed_coords[:, 0], fixed_coords[:, 1]] = warpedImage
+        fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
+        transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = warpedImage
         return transformedImage
 
 
