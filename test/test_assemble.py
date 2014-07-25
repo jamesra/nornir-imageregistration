@@ -76,14 +76,14 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=90.0)
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
-        transform = arecord.ToTransform(canvasShape, canvasShape)
+        transform = arecord.ToTransform(canvasShape, flipCanvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.TransformROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 3, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 2, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 3, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 1, delta=0.01)
 
 class TestAssemble(setup_imagetest.ImageTestBase):
 

@@ -100,6 +100,7 @@ class Triangulation(Base):
         return newTransform
 
     def Transform(self, points, **kwargs):
+        '''Map points from the fixed space to the warped space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -114,6 +115,7 @@ class Triangulation(Base):
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
+        '''Map points from the warped space to the fixed space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
