@@ -154,6 +154,11 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
+def EmptyDistanceBuffer(shape, dtype=np.float16):
+    fullImageZbuffer = np.empty(shape, dtype=dtype)
+    fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+    return fullImageZbuffer
+
 def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     '''Create output images using the passed rectangle
     :param tuple rectangle: (minY, minX, maxY, maxX)
@@ -162,19 +167,16 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
 
     fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
-    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
-
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
     return (fullImage, fullImageZbuffer)
 
 
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     '''Create output images using the passed width and height
-    
     '''
 
     fullImage = np.zeros((int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width))), dtype=np.float16)
-    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
-
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
     return (fullImage, fullImageZbuffer)
 
 
