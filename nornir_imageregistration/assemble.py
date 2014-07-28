@@ -63,7 +63,7 @@ def TransformROI(transform, botleft, area):
     return (valid_fixed_coordArray, valid_warped_coordArray)
 
 
-def ExtractRegion(image, botleft=None, area=None):
+def ExtractRegion(image, botleft=None, area=None, cval=0):
     '''
     Extract a region from an image
     
@@ -82,7 +82,7 @@ def ExtractRegion(image, botleft=None, area=None):
 
     coords = GetROICoords(botleft, area)
 
-    transformedImage = interpolation.map_coordinates(image, coords.transpose(), order=0, mode='constant')
+    transformedImage = interpolation.map_coordinates(image, coords.transpose(), order=0, mode='constant', cval=cval)
 
     transformedImage = transformedImage.reshape(area)
     return transformedImage
@@ -92,6 +92,33 @@ def __ExtractRegion(image, botleft, area):
     print("Deprecated __ExtractRegion call being used")
     return ExtractRegion(image, botleft, area)
 
+
+def __CropImageToFitCoords(input_image, coordinates, cval=0):
+    '''For large images we only need a specific range of coordinates from the image.  However Scipy calls such as map_coordinates will 
+       send the entire image through a spline_filter first.  To avoid this we crop the image with a padding of one and adjust the 
+       coordinates appropriately
+       :param ndarray input_image: image we will be extracting data from at the specfied coordinates
+       :param ndarray coordinates: Nx2 array of points indexing into the image
+       :param float cval: Value to use for regions outside the existing image when padding
+       :return: (cropped_image, translated_coordinates)
+       '''
+    minCoord = np.floor(np.min(coordinates, 0)) - np.array([1, 1])
+    maxCoord = np.ceil(np.max(coordinates, 0)) + np.array([1, 1])
+    
+    if minCoord[0] < 0:
+        minCoord[0] = 0
+    if minCoord[1] < 0:
+        minCoord[1] = 0
+    
+    if maxCoord[0] > input_image.shape[0]:
+        maxCoord[0] = input_image.shape[0]
+    if maxCoord[1] > input_image.shape[1]:
+        maxCoord[1] = input_image.shape[1]
+
+    cropped_image = ExtractRegion(input_image, minCoord, (maxCoord - minCoord), cval=cval)
+    translated_coordinates = coordinates - minCoord
+    
+    return (cropped_image, translated_coordinates)
 
 def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None, cval=0):
     '''Use the passed coordinates to create a warped image
@@ -117,26 +144,28 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         transformedImage.fill(cval)
         return transformedImage
 
-    subroi_warpedImage = WarpedImage
-    if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
-        if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
-            minCoord = np.floor(np.min(warped_coords, 0)) - np.array([1, 1])
-            maxCoord = np.ceil(np.max(warped_coords, 0)) + np.array([1, 1])
-
-            subroi_warpedImage = __ExtractRegion(WarpedImage, minCoord, (maxCoord - minCoord))
-            warped_coords = warped_coords - minCoord
-
-    warpedImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=2, cval=cval)
+    subroi_warpedImage = None
+    #For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
+    #In this case use only a subset of the warpedimage
+    if np.prod(WarpedImage.shape) > warped_coords.shape[0]:
+    #if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
+        #if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
+        (subroi_warpedImage, warped_coords) = __CropImageToFitCoords(WarpedImage, warped_coords, cval=cval)
+        del WarpedImage
+    else:
+        subroi_warpedImage = WarpedImage
+    
+    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
-        warpedImage = warpedImage.reshape(area)
-        return warpedImage
+        outputImage = outputImage.reshape(area)
+        return outputImage
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
-        transformedImage = np.empty((area), dtype=WarpedImage.dtype)
+        transformedImage = np.empty((area), dtype=outputImage.dtype)
         transformedImage.fill(cval)
         fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
-        transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = warpedImage
+        transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
         return transformedImage
 
 

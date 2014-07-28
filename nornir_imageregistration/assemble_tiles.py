@@ -140,7 +140,7 @@ def CreateDistanceImage(shape, dtype=None):
     x_range = x_range * x_range
     y_range = y_range * y_range
 
-    distance = np.zeros(shape, dtype=dtype)
+    distance = np.empty(shape, dtype=dtype)
 
     for i in range(0, shape[0]):
         distance[i, :] = x_range + y_range[i]
