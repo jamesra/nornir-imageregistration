@@ -20,7 +20,7 @@ def CreateTiles(transforms, imagepaths):
     for i, t in enumerate(transforms):
 
         if not os.path.exists(imagepaths[i]):
-            log = logging.getLogger("CreateTiles")
+            log = logging.getLogger(__name__ + ".CreateTiles")
             log.error("Missing tile: " + imagepaths[i])
             continue
 
@@ -90,7 +90,7 @@ class Tile(object):
         for i, t in enumerate(transforms):
 
             if not os.path.exists(imagepaths[i]):
-                log = logging.getLogger("CreateTiles")
+                log = logging.getLogger(__name__ + ".CreateTiles")
                 log.error("Missing tile: " + imagepaths[i])
                 continue
 

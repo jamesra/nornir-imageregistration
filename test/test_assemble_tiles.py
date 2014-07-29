@@ -151,13 +151,13 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         expectedScale = 1.0 / self.DownsampleFromTilePath(TilesDir)
 
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MaxY, MinX + 256))
-        self.assertEqual(result.image.shape, (int(transform.FixedBoundingBoxHeight * expectedScale), int(256 * expectedScale)))
+        self.assertEqual(result.image.shape, (np.ceil(transform.FixedBoundingBoxHeight * expectedScale), np.ceil(256 * expectedScale)))
 
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MinY + 256, MaxX))
-        self.assertEqual(result.image.shape, (int(256 * expectedScale), int(transform.FixedBoundingBoxWidth * expectedScale)))
+        self.assertEqual(result.image.shape, (np.ceil(256 * expectedScale), np.ceil(transform.FixedBoundingBoxWidth * expectedScale)))
 
         result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512))
-        self.assertEqual(result.image.shape, (int(512 * expectedScale), int(512 * expectedScale)))
+        self.assertEqual(result.image.shape, (np.ceil(512 * expectedScale), np.ceil(512 * expectedScale)))
 
 
     def CreateAssembleEachMosaic(self, mosaicFiles, tilesDir):

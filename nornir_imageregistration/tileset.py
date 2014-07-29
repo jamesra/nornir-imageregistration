@@ -27,7 +27,7 @@ class ShadeCorrectionTypes(object):
     DARKFIELD = 1
 
 
-def __DetermineScale(transform, imageSize):
+def __DetermineTransformScale(transform, imageSize):
     '''Returns a scalar that can be applied to the transform to make the transform bounds match the image dimensions'''
 
     width = transform.MappedBoundingBoxWidth
@@ -59,7 +59,7 @@ def MostCommonScalar(transforms, imagepaths):
         if size is None:
             continue
 
-        scales.append(__DetermineScale(transform, size))
+        scales.append(__DetermineTransformScale(transform, size))
 
     if len(scales) == 0:
         raise Exception("No image sizes available to determine scale for assemble")

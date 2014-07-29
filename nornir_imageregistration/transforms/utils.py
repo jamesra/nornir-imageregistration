@@ -28,6 +28,22 @@ if __name__ == '__main__':
     pass
 
 
+def PointBoundingRect(points):
+    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
+
+    (minY, minX) = np.min(points, 0)
+    (maxY, maxX) = np.max(points, 0)
+    return (minY, minX, maxY, maxX)
+
+
+def PointBoundingBox(points):
+    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
+
+    (minZ, minY, minX) = np.min(points, 0)
+    (maxZ, maxY, maxX) = np.max(points, 0)
+    return (minZ, minY, minX, maxZ, maxY, maxX)
+
+
 def FixedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
 
@@ -62,13 +78,19 @@ def MappedBoundingBox(transforms):
 
     return  (float(minY), float(minX), float(maxY), float(maxX))
 
-def TranslateToZeroOrigin(transforms):
-    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates'''
+def IsOriginAtZero(transforms):
+    ''':return: True if transform bounding box has origin at 0,0 otherise false'''
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    return minY == 0 and minX == 0
 
+def TranslateToZeroOrigin(transforms):
+    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
 
     for t in transforms:
         t.TranslateFixed((-minY, -minX))
+
+    return True
 
 
 def FixedBoundingBoxWidth(transforms):

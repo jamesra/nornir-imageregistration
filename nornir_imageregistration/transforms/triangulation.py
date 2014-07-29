@@ -13,6 +13,7 @@ from scipy.interpolate import griddata
 from scipy.spatial import *
 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
+import nornir_imageregistration.spatial as spatial
 import numpy as np
 
 from . import utils
@@ -99,6 +100,7 @@ class Triangulation(Base):
         return newTransform
 
     def Transform(self, points, **kwargs):
+        '''Map points from the fixed space to the warped space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -113,6 +115,7 @@ class Triangulation(Base):
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
+        '''Map points from the warped space to the fixed space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -201,6 +204,8 @@ class Triangulation(Base):
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
+        self._FixedBoundingBox = None
+        self._MappedBoundingBox = None
 
     def NearestFixedPoint(self, points):
         '''Return the fixed points nearest to the query points'''
@@ -258,24 +263,20 @@ class Triangulation(Base):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        cp = self.FixedPoints
+        if self._FixedBoundingBox is None:
+            self._FixedBoundingBox = spatial.BoundsArrayFromPoints(self.FixedPoints)
 
-        (minY, minX) = np.min(cp, 0)
-        (maxY, maxX) = np.max(cp, 0)
-
-        return (minY, minX, maxY, maxX)
+        return self._FixedBoundingBox
 
     @property
     def MappedBoundingBox(self):
         '''
         :return: (minY, minX, maxY, maxX)
         '''
-        cp = self.WarpedPoints
+        if self._MappedBoundingBox is None:
+            self._MappedBoundingBox = spatial.BoundsArrayFromPoints(self.WarpedPoints)
 
-        (minY, minX) = np.min(cp, 0)
-        (maxY, maxX) = np.max(cp, 0)
-
-        return (minY, minX, maxY, maxX)
+        return self._MappedBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):
@@ -358,6 +359,8 @@ class Triangulation(Base):
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
+        self._FixedBoundingBox = None
+        self._MappedBoundingBox = None
 
     @classmethod
     def load(cls, variableParams, fixedParams):

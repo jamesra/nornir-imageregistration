@@ -62,14 +62,22 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
 
     def Transform(self, points, **kwargs):
+        '''
+        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
+        '''
+        
         if len(points) == 0:
             return [];
 
         points = numpy.asarray(points, dtype=numpy.float32);
 
         TransformedPoints = super(MeshWithRBFFallback, self).Transform(points)
+        extrapolate = kwargs.get('extrapolate', True)
+        if not extrapolate:
+            return TransformedPoints
+        
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
-
+        
         if(len(InvalidIndicies) == 0):
             return TransformedPoints;
         else:
@@ -86,6 +94,9 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         return TransformedPoints;
 
     def InverseTransform(self, points, **kwargs):
+        '''
+        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
+        '''
         if len(points) == 0:
             return []
 
@@ -93,7 +104,12 @@ class MeshWithRBFFallback(triangulation.Triangulation):
             points = numpy.asarray(points, dtype=numpy.float32);
 
         TransformedPoints = super(MeshWithRBFFallback, self).InverseTransform(points)
+        extrapolate = kwargs.get('extrapolate', True)
+        if not extrapolate:
+            return TransformedPoints
+        
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+
 
         if(len(InvalidIndicies) == 0):
             return TransformedPoints

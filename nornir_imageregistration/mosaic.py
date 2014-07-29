@@ -11,6 +11,7 @@ import nornir_imageregistration.assemble_tiles as at
 from . import spatial
 import numpy as np
 import os
+import copy
 import nornir_pools as pools
 import nornir_imageregistration.arrange_mosaic as arrange
 
@@ -40,16 +41,18 @@ class Mosaic(object):
             print("Loading mosaic: " + mosaicfile)
             mosaicfile = MosaicFile.Load(mosaicfile)
             if mosaicfile is None:
-                raise Exception("Expected valid mosaic file path")
+                raise ValueError("Expected valid mosaic file path")
         elif not isinstance(mosaicfile, MosaicFile):
-            raise Exception("Expected valid mosaic file path or object")
+            raise ValueError("Expected valid mosaic file path or object")
 
-        ImageToTransform = {}
-        keys = list(mosaicfile.ImageToTransformString.keys())
-        keys.sort()
-        for k, v in mosaicfile.ImageToTransformString.items():
-            print("Parsing transform for : " + k)
-            ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
+        ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)
+        Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
+
+        # keys = list(mosaicfile.ImageToTransformString.keys())
+        # keys.sort()
+        # for k, v in mosaicfile.ImageToTransformString.items():
+            # print("Parsing transform for : " + k)
+            # ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
 
@@ -68,9 +71,17 @@ class Mosaic(object):
 
     @classmethod
     def TranslateMosaicFileToZeroOrigin(cls, path):
+        '''Translate the origin to zero if needed.
+        :return: True if translation was required.  False if the mosaic was already at zero
+        '''
         mosaicObj = Mosaic.LoadFromMosaicFile(path)
+
+        if mosaicObj.IsOriginAtZero():
+            return False
+
         mosaicObj.TranslateToZeroOrigin()
         mosaicObj.SaveToMosaicFile(path)
+        return True
 
     @property
     def ImageToTransform(self):
@@ -83,10 +94,22 @@ class Mosaic(object):
 
         if ImageToTransform is None:
             ImageToTransform = dict()
+        else:
+            Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
 
         self._ImageToTransform = ImageToTransform
         self.ImageScale = 1
 
+    @classmethod
+    def _ConvertTransformStringsToTransforms(cls, image_to_transform):
+        '''If the dictionary contains transforms in string format convert them to transform objects in place'''
+
+        for (image, transform) in image_to_transform.items():
+            if isinstance(transform, str):
+                transform_object = tfactory.LoadTransform(transform)
+                image_to_transform[image] = transform_object
+
+        return
 
     @property
     def FixedBoundingBox(self):
@@ -123,6 +146,14 @@ class Mosaic(object):
         '''Return a list of full paths to the tile for each transform'''
         return [os.path.join(tilesDir, x) for x in list(self.ImageToTransform.keys())]
 
+
+    def IsOriginAtZero(self):
+        '''
+        :return True if the mosaic origin is at (0,0).  Otherwise False
+        :rtype: bool
+        '''
+        return tutils.IsOriginAtZero(self.ImageToTransform.values())
+
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
 
@@ -157,11 +188,12 @@ class Mosaic(object):
         return LayoutToMosaic(layout)
 
 
-    def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False):
+    def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
         '''Create a single large mosaic.
         :param str tilesPath: Directory containing tiles referenced in our transform
         :param array FixedRegion: [MinY MinX MaxY MaxX] boundary of image to assemble
         :param boolean usecluster: Offload work to other threads or nodes if true
+        :param float requiredScale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         '''
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
@@ -175,9 +207,9 @@ class Mosaic(object):
         # Allocate a buffer for the tiles
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
-        if usecluster:
+        if usecluster and len(tilesPathList) > 1:
             cpool = pools.GetGlobalLocalMachinePool()
-            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion)
+            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion)
+            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)

@@ -21,7 +21,7 @@ import scipy.ndimage.interpolation as interpolation
 
 
 # from memory_profiler import profile
-logger = logging.getLogger('IrTools.core')
+logger = logging.getLogger(__name__)
 
 class ImageStats(object):
     '''A container for image statistics'''
@@ -177,6 +177,10 @@ def ExtractROI(image, center, area):
 
     return ROI
 
+def ChangeImageDownsample(image, input_downsample, output_downsample):
+    scale_factor = int(input_downsample) / output_downsample
+    desired_size = scipy.array(image.shape) * scale_factor
+    return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
 
 def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
     '''
@@ -265,15 +269,14 @@ def GetImageSize(ImageFullPath):
     :rtype: tuple
     '''
 
-    if not os.path.exists(ImageFullPath):
-        return None
+    # if not os.path.exists(ImageFullPath):
+        # raise ValueError("%s does not exist" % (ImageFullPath))
 
     try:
         im = Image.open(ImageFullPath)
         return (im.size[1], im.size[0])
     except IOError:
-        return None
-
+        raise IOError("Unable to read size from %s" % (ImageFullPath))
 
 def ForceGrayscale(image):
     '''

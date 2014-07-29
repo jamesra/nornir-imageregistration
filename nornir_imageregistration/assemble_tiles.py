@@ -92,13 +92,16 @@ def CompositeImage(FullImage, SubImage, offset):
 
 def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offset):
 
-    minX = offset[1]
-    minY = offset[0]
-    maxX = minX + SubImage.shape[1]
-    maxY = minY + SubImage.shape[0]
+    minX = int(offset[1])
+    minY = int(offset[0])
+    maxX = int(minX + SubImage.shape[1])
+    maxY = int(minY + SubImage.shape[0])
 
     tempFullImage = FullImage[minY:maxY, minX:maxX]
     tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]
+
+    if(tempZBuffer.shape != SubZBuffer.shape):
+        raise ValueError("Buffers do not have the same dimensions")
 
     iUpdate = tempZBuffer > SubZBuffer
 
@@ -137,7 +140,7 @@ def CreateDistanceImage(shape, dtype=None):
     x_range = x_range * x_range
     y_range = y_range * y_range
 
-    distance = np.zeros(shape, dtype=dtype)
+    distance = np.empty(shape, dtype=dtype)
 
     for i in range(0, shape[0]):
         distance[i, :] = x_range + y_range[i]
@@ -151,6 +154,11 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
+def EmptyDistanceBuffer(shape, dtype=np.float16):
+    fullImageZbuffer = np.empty(shape, dtype=dtype)
+    fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+    return fullImageZbuffer
+
 def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     '''Create output images using the passed rectangle
     :param tuple rectangle: (minY, minX, maxY, maxX)
@@ -159,19 +167,16 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
 
     fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
-    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
-
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
     return (fullImage, fullImageZbuffer)
 
 
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     '''Create output images using the passed width and height
-    
     '''
 
-    fullImage = np.zeros((np.ceil(requiredScale * Height), np.ceil(requiredScale * Width)), dtype=np.float16)
-    fullImageZbuffer = np.ones(fullImage.shape, dtype=fullImage.dtype) * __MaxZBufferValue(fullImage.dtype)
-
+    fullImage = np.zeros((int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width))), dtype=np.float16)
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
     return (fullImage, fullImageZbuffer)
 
 
@@ -197,7 +202,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
     assert(len(transforms) == len(imagepaths))
 
-    logger = logging.getLogger('TilesToImage')
+    logger = logging.getLogger(__name__ + '.TilesToImage')
 
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
@@ -342,7 +347,14 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
         (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
 
     # print "%g %g" % (minX, minY)
-    (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+    try:
+        (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+    except ValueError:
+        # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
+        logger = logging.getLogger('TilesToImageParallel')
+        logger.error('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
+        pass
+
     transformedImageData.Clear()
 
     return (fullImage, fullImageZBuffer)
@@ -375,11 +387,13 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     warpedImage = core.LoadImage(imagefullpath)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
-    transformScale = tiles.__DetermineScale(transform, warpedImage.shape)
+    transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
 
     if not requiredScale is None:
         if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
+        
+        transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
 
     if transformScale != 1.0:
         scaledTransform = copy.deepcopy(transform)
@@ -400,6 +414,9 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     else:
         assert(len(FixedRegion) == 4)
         (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1])
+        
+    height = np.ceil(height)
+    width = np.ceil(width)
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage(warpedImage.shape)
