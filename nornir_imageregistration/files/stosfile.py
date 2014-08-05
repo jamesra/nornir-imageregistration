@@ -419,7 +419,17 @@ class StosFile(object):
     def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath=None,
                                            MappedImageFullPath=None,
                                            ControlMaskFullPath=None,
-                                           MappedMaskFullPath=None):
+                                           MappedMaskFullPath=None,
+                                           create_copy=True):
+        '''
+        :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
+        '''
+        if oldspacing == newspacing:
+            if create_copy:
+                return copy.deepcopy(self)
+            else:
+                return self            
+        
         PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
         scale = float(oldspacing) / float(newspacing)
 

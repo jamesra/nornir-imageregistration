@@ -20,6 +20,26 @@ from . import utils
 from .base import *
 
 
+def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
+    '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
+    :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
+    :return: ndarray of points that can be assigned as control points for a transform'''
+    
+    mappedControlPoints = AToB_mapped_Transform.FixedPoints
+    txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
+    
+    AToC_pointPairs = np.hstack( (txMappedControlPoints, AToB_mapped_Transform.WarpedPoints) )
+    
+    newTransform = None
+    if create_copy:
+        newTransform = copy.deepcopy(AToB_mapped_Transform)
+        newTransform.points = AToC_pointPairs
+        return newTransform
+    else:
+        AToB_mapped_Transform.points = AToC_pointPairs
+        return AToB_mapped_Transform 
+
+
 class Triangulation(Base):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
@@ -28,12 +48,11 @@ class Triangulation(Base):
 
     def __getstate__(self):
         odict = {}
-
         odict['_points'] = self._points
 
         return odict
 
-    def __setstate__(self, dictionary):
+    def __setstate__(self, dictionary):         
         self.__dict__.update(dictionary)
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
@@ -86,13 +105,10 @@ class Triangulation(Base):
             self._warpedtri = Delaunay(self.WarpedPoints)
 
         return self._warpedtri
-
+     
     def AddTransform(self, mappedTransform):
-        '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
-        mappedControlPoints = mappedTransform.FixedPoints
-        txMappedControlPoints = self.Transform(mappedControlPoints)
-
-        pointPairs = np.hstack((txMappedControlPoints, mappedTransform.WarpedPoints))
+        '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
+        pointPairs = Triangulation.AddTransforms(self, mappedTransform)
 
         newTransform = copy.deepcopy(mappedTransform)
         newTransform.points = pointPairs
@@ -360,7 +376,8 @@ class Triangulation(Base):
         self._WarpedKDTree = None
         self._FixedKDTree = None
         self._FixedBoundingBox = None
-        self._MappedBoundingBox = None
+        self._MappedBoundingBox = None 
+        
 
     @classmethod
     def load(cls, variableParams, fixedParams):
