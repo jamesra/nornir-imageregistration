@@ -345,7 +345,7 @@ class StosFile(object):
 
         if len(self.ControlImageDim) == 2:
             [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(self.ControlImageFullPath)
-            self.ControlImageDim = [self.ControlImageDim[0], self.ControlImageDim[1], int(ControlImageWidth), int(ControlImageHeight)]
+            self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
 
         if self.MappedImageDim is None:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
@@ -353,7 +353,7 @@ class StosFile(object):
 
         if len(self.MappedImageDim) == 2:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
-            self.MappedImageDim = [self.MappedImageDim[0], self.MappedImageDim[1], (MappedImageWidth), (MappedImageHeight)]
+            self.MappedImageDim = [1.0, 1.0, (MappedImageWidth), (MappedImageHeight)]
 
         ControlDimStr = StosFile.__GetImageDimString(self.ControlImageDim)
         MappedDimStr = StosFile.__GetImageDimString(self.MappedImageDim)
