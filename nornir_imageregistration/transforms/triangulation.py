@@ -106,14 +106,10 @@ class Triangulation(Base):
 
         return self._warpedtri
      
-    def AddTransform(self, mappedTransform):
+    def AddTransform(self, mappedTransform, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
-        pointPairs = Triangulation.AddTransforms(self, mappedTransform)
+        return AddTransforms(self, mappedTransform, create_copy)
 
-        newTransform = copy.deepcopy(mappedTransform)
-        newTransform.points = pointPairs
-
-        return newTransform
 
     def Transform(self, points, **kwargs):
         '''Map points from the fixed space to the warped space'''

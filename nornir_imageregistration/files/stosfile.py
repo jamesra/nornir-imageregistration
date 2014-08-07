@@ -31,7 +31,7 @@ def AddStosTransforms(A_To_B, B_To_C):
     A_To_B_Transform = factory.LoadTransform(A_To_B_Stos.Transform)
     B_To_C_Transform = factory.LoadTransform(B_To_C_Stos.Transform)
 
-    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform)
+    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, create_copy=False)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
