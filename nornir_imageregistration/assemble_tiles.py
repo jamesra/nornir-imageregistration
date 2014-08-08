@@ -402,6 +402,8 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     #   transform = triangulation.Triangulation(transform.points)
 
     warpedImage = core.LoadImage(imagefullpath)
+    if warpedImage is None:
+        raise IOError("Unable to load image: %s" % (imagefullpath))
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
     transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
