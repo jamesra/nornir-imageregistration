@@ -36,16 +36,22 @@ class Mosaic(object):
     @classmethod
     def LoadFromMosaicFile(cls, mosaicfile):
         '''Return a dictionary mapping tiles to transform objects'''
-
+        
+        ImageToTransform = {}
         if isinstance(mosaicfile, str):
             print("Loading mosaic: " + mosaicfile)
             mosaicfile = MosaicFile.Load(mosaicfile)
             if mosaicfile is None:
                 raise ValueError("Expected valid mosaic file path")
-        elif not isinstance(mosaicfile, MosaicFile):
+            
+            #Don't copy, we throw away the mosaic object
+            ImageToTransform = mosaicfile.ImageToTransformString
+        elif isinstance(mosaicfile, MosaicFile):
+            #Copy the transforms to ensure we don't break anything
+            ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)
+        else:
             raise ValueError("Expected valid mosaic file path or object")
 
-        ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)
         Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
 
         # keys = list(mosaicfile.ImageToTransformString.keys())
