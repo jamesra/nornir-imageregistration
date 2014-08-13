@@ -31,7 +31,7 @@ def AddStosTransforms(A_To_B, B_To_C):
     A_To_B_Transform = factory.LoadTransform(A_To_B_Stos.Transform)
     B_To_C_Transform = factory.LoadTransform(B_To_C_Stos.Transform)
 
-    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform)
+    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, create_copy=False)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
@@ -345,7 +345,7 @@ class StosFile(object):
 
         if len(self.ControlImageDim) == 2:
             [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(self.ControlImageFullPath)
-            self.ControlImageDim = [self.ControlImageDim[0], self.ControlImageDim[1], int(ControlImageWidth), int(ControlImageHeight)]
+            self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
 
         if self.MappedImageDim is None:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
@@ -353,7 +353,7 @@ class StosFile(object):
 
         if len(self.MappedImageDim) == 2:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
-            self.MappedImageDim = [self.MappedImageDim[0], self.MappedImageDim[1], (MappedImageWidth), (MappedImageHeight)]
+            self.MappedImageDim = [1.0, 1.0, (MappedImageWidth), (MappedImageHeight)]
 
         ControlDimStr = StosFile.__GetImageDimString(self.ControlImageDim)
         MappedDimStr = StosFile.__GetImageDimString(self.MappedImageDim)
@@ -419,7 +419,17 @@ class StosFile(object):
     def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath=None,
                                            MappedImageFullPath=None,
                                            ControlMaskFullPath=None,
-                                           MappedMaskFullPath=None):
+                                           MappedMaskFullPath=None,
+                                           create_copy=True):
+        '''
+        :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
+        '''
+        if oldspacing == newspacing:
+            if create_copy:
+                return copy.deepcopy(self)
+            else:
+                return self            
+        
         PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
         scale = float(oldspacing) / float(newspacing)
 

@@ -39,20 +39,21 @@ def GetROICoords(botleft, area):
 
     return coordArray
 
-def TransformROI(transform, botleft, area):
+def TransformROI(transform, botleft, area, extrapolate=False):
     '''
     Apply a transform to a region of interest within an image. Center and area are in fixed space
     
     :param transform transform: The transform used to map points between fixed and mapped space
     :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
     :param 1x2_array area: The (Height, Width) of the region of interest
+    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
     :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
     :rtype: tuple(Nx2 array,Nx2 array)
     '''
 
     fixed_coordArray = GetROICoords(botleft, area)
 
-    warped_coordArray = transform.InverseTransform(fixed_coordArray, extrapolate=False)
+    warped_coordArray = transform.InverseTransform(fixed_coordArray, extrapolate=extrapolate)
     (valid_warped_coordArray, InvalidIndiciesList) = InvalidIndicies(warped_coordArray)
 
     del warped_coordArray
@@ -169,7 +170,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         return transformedImage
 
 
-def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None, cval=None):
+def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None, cval=None, extrapolate=False):
 
     '''Warps every image in the WarpedImageList using the provided transform.
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
@@ -178,6 +179,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
     :Param botleft: Origin of region to map
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
+    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
     '''
 
     if botleft is None:
@@ -192,7 +194,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
     if not isinstance(cval, list):
         cval = [cval] * len(WarpedImage)
 
-    (fixed_coords, warped_coords) = TransformROI(transform, botleft, area)
+    (fixed_coords, warped_coords) = TransformROI(transform, botleft, area, extrapolate=extrapolate)
 
     if isinstance(WarpedImage, list):
         FixedImageList = []

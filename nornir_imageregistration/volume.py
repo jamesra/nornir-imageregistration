@@ -41,6 +41,13 @@ class Volume(object):
         self._SectionToVolumeTransforms = dict()
 
     def AddSection(self, SectionID, transform):
+        '''Adds a transform for a section, raise ValueError if it exists'''
+        if SectionID in self._SectionToVolumeTransforms:
+            raise ValueError("Key %s already in _SectionToVolumeTransforms" % (str(SectionID)))
+        
+        self._SectionToVolumeTransforms[SectionID] = transform
+        
+    def AddOrUpdateSection(self, SectionID, transform):
         '''Adds a transform for a section, replacing it if it already exists'''
         self._SectionToVolumeTransforms[SectionID] = transform
 

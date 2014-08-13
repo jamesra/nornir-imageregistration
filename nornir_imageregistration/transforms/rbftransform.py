@@ -92,7 +92,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
             return (MatrixWeightSumX, MatrixWeightSumY)
 
-    def Transform(self, Points):
+    def Transform(self, Points, **kwargs):
 
         if not isinstance(Points, numpy.ndarray):
             Points = numpy.array(Points)
