@@ -184,6 +184,35 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     return (fullImage, fullImageZbuffer)
 
 
+def __GetOrCreateCachedDistanceImage(imageShape):
+    distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0],imageShape[1]))
+    
+    distanceImage = None
+    if os.path.exists(distance_array_path):
+        #distanceImage = core.LoadImage(distance_image_path)
+        try:
+            distanceImage = np.load(distance_array_path)
+        except:
+            print("Unable to load distance_image %s" % (distance_array_path))
+            try:
+                os.remove(distance_array_path)
+            except:
+                print("Unable to delete invalid distance_image: %s" % (distance_array_path))
+                pass
+            
+            pass
+    
+    if distanceImage is None:
+        distanceImage = CreateDistanceImage(imageShape)
+        try:
+            np.save(distance_array_path, distanceImage)
+        except:
+            print("Unable to save invalid distance_image: %s" % (distance_array_path))
+            pass
+        
+    return distanceImage
+     
+
 def __GetOrCreateDistanceImage(distanceImage, imageShape):
     '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
 
@@ -193,20 +222,7 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
         if np.array_equal(distanceImage.shape, size):
             return distanceImage
                 
-    distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (size[0],size[1]))
-    if os.path.exists(distance_array_path):
-        #distanceImage = core.LoadImage(distance_image_path)
-        distanceImage = np.load(distance_array_path)
-    else:
-        distanceImage = CreateDistanceImage(size)
-        
-        try:
-            distanceImage = np.save(distance_array_path, distanceImage)
-            #core.SaveImage(distance_image_path, distanceImage)
-        except:
-            pass
-    
-    return distanceImage
+    return __GetOrCreateCachedDistanceImage(imageShape)
 
 
 def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
