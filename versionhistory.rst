@@ -1,4 +1,12 @@
 
+1.2.1
+-----
+
+**New**
+
+* Many optimizations to assembling images
+* Tests will be profiled if the PROFILE environment variable is set
+
 1.2.0
 -----
 
