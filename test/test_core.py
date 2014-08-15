@@ -135,7 +135,17 @@ class Test(setup_imagetest.ImageTestBase):
                 testVal = 0
 
             self.assertEqual(cropped[i + 1, i], testVal, "cropped image not correct")
+            
+    
+    def testImageToTiles(self):
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
+        image = imread(self.FixedImagePath)
+        tiles = core.ImageToTiles(image, tile_size=(256,512))
+        
+        core.ShowGrayscale(tiles.values(), "Expecting 512 wide x 256 tall tiles")
+        
 
     def testReplaceImageExtramaWithNoise(self):
 
