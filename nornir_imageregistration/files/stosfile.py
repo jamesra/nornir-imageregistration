@@ -269,6 +269,11 @@ class StosFile(object):
 
         with open(filename, 'r') as fMosaic:
             lines = fMosaic.readlines()
+            
+        if len(lines) < 7:
+            PrettyOutput.LogErr("%s is not a valid stos file" % (filename))
+            raise ValueError("%s is not a valid stos file" % (filename))
+            
 
         obj.ControlImagePath = os.path.dirname(lines[0].strip())
         obj.MappedImagePath = os.path.dirname(lines[1].strip())
