@@ -362,18 +362,21 @@ def NormalizeImage(image):
 
     return miniszeroimage * scalar
 
-
+def TileGridShape(source_image, tile_size):
+    '''Given an image and tile size, return the dimensions of the grid'''
+    
+    if not isinstance(tile_size, np.ndarray):
+        tile_shape = np.asarray(tile_size)
+    
+    return np.ceil(source_image.shape / tile_shape)
+     
 def ImageToTiles(source_image, tile_size):
     '''
     :param ndarray source_image: Image to cut into tiles
     :param array tile_shape: Shape of output tiles, source image will be padded if needed
     :return: Dictionary of images indexed by tuples
     '''
-    
-    if not isinstance(tile_size, np.ndarray):
-        tile_shape = np.asarray(tile_size)
-    
-    grid_shape = np.ceil(source_image.shape / tile_shape)
+    grid_shape = TileGridShape(source_image, tile_size)
     
     (required_shape) = grid_shape * tile_size 
     
@@ -399,6 +402,7 @@ def ImageToTiles(source_image, tile_size):
         EndX += tile_size[1]
     
     return grid     
+
 
 
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
