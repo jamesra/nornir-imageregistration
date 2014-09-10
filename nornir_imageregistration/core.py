@@ -12,12 +12,14 @@ from PIL import Image
 import numpy.fft
 import scipy.ndimage.measurements
 import scipy.stats
+import scipy.misc
 
 import matplotlib.pyplot as plt
 import nornir_imageregistration
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+
 
 import collections
 
@@ -186,6 +188,17 @@ def ChangeImageDownsample(image, input_downsample, output_downsample):
     desired_size = scipy.array(image.shape) * scale_factor
     return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
 
+def ResizeImage(image, scalar):
+    '''Change image size by scalar'''
+    
+    interp = 'bilinear'
+    if scalar < 1.0:
+        interp = 'bicubic'
+
+    new_size = np.array(image.shape, dtype=np.float) * scalar
+    
+    return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
+
 def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
     '''
        Crop the image at the passed bounds and returns the cropped ndarray.
@@ -210,6 +223,9 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
 
     if image is None:
         return None
+    
+    assert(isinstance(Width, int))
+    assert(isinstance(Height, int))
 
     in_startY = Yo
     in_startX = Xo
@@ -380,7 +396,7 @@ def ImageToTiles(source_image, tile_size):
     
     (required_shape) = grid_shape * tile_size 
     
-    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=required_shape[1], Height=required_shape[0], background=None)
+    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), background=None)
     
     #Build the output dictionary
     grid = {}
