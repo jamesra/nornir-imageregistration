@@ -99,21 +99,26 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     minY = int(offset[0])
     maxX = int(minX + SubImage.shape[1])
     maxY = int(minY + SubImage.shape[0])
-
-    tempFullImage = FullImage[minY:maxY, minX:maxX]
-    tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]
-
-    if(tempZBuffer.shape != SubZBuffer.shape):
+    
+    if((np.array([maxY-minY,maxX-minX]) != SubZBuffer.shape).any()):
         raise ValueError("Buffers do not have the same dimensions")
-
-    iUpdate = tempZBuffer > SubZBuffer
-
-    tempFullImage[iUpdate] = SubImage[iUpdate]
-    tempZBuffer[iUpdate] = SubZBuffer[iUpdate]
-
-    # FullImage[minY:maxY, minX:maxX] += SubImage
-    FullImage[minY:maxY, minX:maxX] = tempFullImage
-    FullZBuffer[minY:maxY, minX:maxX] = tempZBuffer
+    
+    iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
+    FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
+    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
+    
+# 
+#     tempFullImage = FullImage[minY:maxY, minX:maxX]
+#     tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]    
+# 
+#     iUpdate = tempZBuffer > SubZBuffer
+# 
+#     tempFullImage[iUpdate] = SubImage[iUpdate]
+#     tempZBuffer[iUpdate] = SubZBuffer[iUpdate]
+# 
+#     # FullImage[minY:maxY, minX:maxX] += SubImage
+#     FullImage[minY:maxY, minX:maxX] = tempFullImage
+#     FullZBuffer[minY:maxY, minX:maxX] = tempZBuffer
 
     return (FullImage, FullZBuffer)
 
