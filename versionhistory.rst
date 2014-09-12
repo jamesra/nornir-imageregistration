@@ -1,4 +1,15 @@
 
+1.2.2
+-----
+
+Minor optimization and function used in the new tile web server
+
+**New**
+
+* Added a function to cut image into tiles
+* Added a resize image function
+
+
 1.2.1
 -----
 
