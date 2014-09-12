@@ -131,7 +131,11 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
         self.assertIsNotNone(wholemask, "Assemble did not produce a mask")
 
-        croppedWholeImage = core.CropImage(wholeimage, ScaledFixedRegion[1], ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1], ScaledFixedRegion[2] - ScaledFixedRegion[0])
+        croppedWholeImage = core.CropImage(wholeimage,
+                                                    int(ScaledFixedRegion[1]),
+                                                    int(ScaledFixedRegion[0]),
+                                                    int(ScaledFixedRegion[3] - ScaledFixedRegion[1]),
+                                                    int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
 
         core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage])
 
