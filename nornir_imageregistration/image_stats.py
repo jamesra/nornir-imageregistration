@@ -227,9 +227,10 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
     FilenameToTask = {};
     FilenameToResult = {};
-    tasks = [];
+    tasks = []
+    local_machine_pool = pools.GetLocalMachinePool()
     for f in listfilenames:
-        task = __HistogramFileImageMagick__(f, ProcPool=pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)
+        task = __HistogramFileImageMagick__(f, ProcPool=local_machine_pool, Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
 
     # maxVal = (1 << Bpp) - 1;
@@ -264,10 +265,10 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
             maxVal = max(maxVal, fmaxVal);
 
     threadTasks = [];
-    TPool = pools.GetGlobalMultithreadingPool();
+     
 
     for f in list(OutputMap.keys()):
-        threadTask = TPool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins);
+        threadTask = local_machine_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins);
         threadTasks.append(threadTask);
 
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
@@ -302,6 +303,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
 
     return HistogramComposite;
+ 
 
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None):
     '''Return the histogram of an image'''

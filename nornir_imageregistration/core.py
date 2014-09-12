@@ -12,12 +12,16 @@ from PIL import Image
 import numpy.fft
 import scipy.ndimage.measurements
 import scipy.stats
+import scipy.misc
 
 import matplotlib.pyplot as plt
 import nornir_imageregistration
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+
+
+import collections
 
 
 # from memory_profiler import profile
@@ -92,20 +96,22 @@ def _GridLayoutDims(imagelist):
 
     return (int(height), int(width))
 
-def ShowGrayscale(imageList):
+def ShowGrayscale(imageList, title=None):
     '''
     :param list imageList: A list or single ndimage to be displayed with imshow
+    :param str title: Informative title for the figure, for example expected test results
     '''
-
-    if isinstance(imageList, list):
+        
+    if isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
-            plt.imshow(imageList[0], cmap=plt.gray())
+            plt.imshow(imageList[0], cmap=plt.gray(), title=title)
         else:
             plot_cnt = 0
 
             height, width = _GridLayoutDims(imageList)
             fig, axeslist = plt.subplots(height, width)
+            fig.suptitle(title)
 
             for i, image in enumerate(imageList):
                 # fig = figure()
@@ -182,6 +188,17 @@ def ChangeImageDownsample(image, input_downsample, output_downsample):
     desired_size = scipy.array(image.shape) * scale_factor
     return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
 
+def ResizeImage(image, scalar):
+    '''Change image size by scalar'''
+    
+    interp = 'bilinear'
+    if scalar < 1.0:
+        interp = 'bicubic'
+
+    new_size = np.array(image.shape, dtype=np.float) * scalar
+    
+    return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
+
 def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
     '''
        Crop the image at the passed bounds and returns the cropped ndarray.
@@ -206,6 +223,9 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
 
     if image is None:
         return None
+    
+    assert(isinstance(Width, int))
+    assert(isinstance(Height, int))
 
     in_startY = Yo
     in_startX = Xo
@@ -357,6 +377,48 @@ def NormalizeImage(image):
         scalar = 1.0
 
     return miniszeroimage * scalar
+
+def TileGridShape(source_image, tile_size):
+    '''Given an image and tile size, return the dimensions of the grid'''
+    
+    if not isinstance(tile_size, np.ndarray):
+        tile_shape = np.asarray(tile_size)
+    
+    return np.ceil(source_image.shape / tile_shape)
+     
+def ImageToTiles(source_image, tile_size):
+    '''
+    :param ndarray source_image: Image to cut into tiles
+    :param array tile_shape: Shape of output tiles, source image will be padded if needed
+    :return: Dictionary of images indexed by tuples
+    '''
+    grid_shape = TileGridShape(source_image, tile_size)
+    
+    (required_shape) = grid_shape * tile_size 
+    
+    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), background=None)
+    
+    #Build the output dictionary
+    grid = {}
+    StartX = 0
+    EndX = tile_size[1]
+    for iCol in range(0, int(grid_shape[1])):
+        StartY = 0 
+        EndY = tile_size[0]
+        
+        for iRow in range(0, int(grid_shape[0])):
+            tile = source_image_padded[StartY:EndY,StartX:EndX]
+            
+            grid[iRow,iCol] = tile
+            
+            StartY += tile_size[0]
+            EndY += tile_size[0]
+        
+        StartX += tile_size[1]
+        EndX += tile_size[1]
+    
+    return grid     
+
 
 
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
