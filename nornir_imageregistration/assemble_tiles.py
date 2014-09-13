@@ -119,8 +119,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 #     # FullImage[minY:maxY, minX:maxX] += SubImage
 #     FullImage[minY:maxY, minX:maxX] = tempFullImage
 #     FullZBuffer[minY:maxY, minX:maxX] = tempZBuffer
-
-    return (FullImage, FullZBuffer)
+ 
 
 
 def distFunc(i, j):
@@ -275,7 +274,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
         if fixedRect is None:
             (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
 
-        (fullImage, fullImageZbuffer) = CompositeImageWithZBuffer(fullImage, fullImageZbuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+        CompositeImageWithZBuffer(fullImage, fullImageZbuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
 
         del transformedImageData
 
@@ -340,7 +339,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         for iTask, t in enumerate(tasks):
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
                 del transformedImageData
                 del tasks[iTask]
 
@@ -355,7 +354,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
             logger.error('Convert task failed: ' + str(t))
             continue
 
-        (fullImage, fullImageZbuffer) = __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+        __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
         del transformedImageData
         del t
 
@@ -386,7 +385,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
 
     # print "%g %g" % (minX, minY)
     try:
-        (fullImage, fullImageZBuffer) = CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
+        CompositeImageWithZBuffer(fullImage, fullImageZBuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
     except ValueError:
         # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
         logger = logging.getLogger('TilesToImageParallel')
@@ -394,8 +393,6 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
         pass
 
     transformedImageData.Clear()
-
-    return (fullImage, fullImageZBuffer)
 
 
 def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None, FixedRegion=None):
