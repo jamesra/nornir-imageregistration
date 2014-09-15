@@ -7,12 +7,12 @@ Created on Aug 30, 2013
 
 
 
-# from ez_setup import use_setuptools
+from ez_setup import use_setuptools
 # from setuptools import setup, find_packages
 import os
 import glob
 
-from ez_setup import use_setuptools
+
 
 if __name__ == '__main__':
     use_setuptools()
@@ -39,6 +39,7 @@ if __name__ == '__main__':
                    'Topic :: Scientific/Engineering']
 
     setup(name='nornir_imageregistration',
+          zip_safe=True,
           classifiers=classifiers,
           version='1.2.2',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
