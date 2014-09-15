@@ -25,7 +25,7 @@ if __name__ == '__main__':
                         "nornir_shared>=1.2.2",
                         "numpy>=1.8",
                         "scipy>=0.13.2",
-                        "matplotlib",
+                        "matplotlib>=1.3.0",
                         "pillow>=2.3",
                         "six"]
 
