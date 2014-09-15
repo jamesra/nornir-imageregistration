@@ -314,7 +314,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     else:
         (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
-    CheckTaskInterval = 10
+    CheckTaskInterval = 16
 
     minY = 0
     minX = 0
@@ -336,17 +336,26 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         if not i % CheckTaskInterval == 0:
             continue
 
-        for iTask, t in enumerate(tasks):
+        iTask = len(tasks) - 1
+        while iTask >= 0:
+            t = tasks[iTask]
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
-                del transformedImageData
+                if transformedImageData is None:
+                    logger = logging.getLogger('TilesToImageParallel')
+                    logger.error('Convert task failed: ' + str(t))
+                else:
+                    __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                    del transformedImageData
+                    
                 del tasks[iTask]
+            
+            iTask -= 1
 
     logger.info('All warps queued, integrating results into final image')
 
     while len(tasks) > 0:
-        t = tasks.pop()
+        t = tasks.pop(0)
         transformedImageData = t.wait_return()
 
         if transformedImageData is None:
