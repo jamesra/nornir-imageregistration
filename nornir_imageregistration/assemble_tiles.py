@@ -300,7 +300,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
     if pool is None:
-        pool = pools.GetGlobalMultithreadingPool()
+        pool = pools.GetGlobalLocalMachinePool()
 
     tasks = []
     fixedRect = None
