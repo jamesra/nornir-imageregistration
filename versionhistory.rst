@@ -8,6 +8,7 @@ Minor optimization and function used in the new tile web server
 
 * Added a function to cut image into tiles
 * Added a resize image function
+* Reduced memory footprint of assemble somewhat.
 
 
 1.2.1
