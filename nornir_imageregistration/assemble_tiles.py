@@ -163,8 +163,7 @@ def __MaxZBufferValue(dtype):
 
 
 def EmptyDistanceBuffer(shape, dtype=np.float16):
-    fullImageZbuffer = np.empty(shape, dtype=dtype)
-    fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+    fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
     return fullImageZbuffer
 
 def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
@@ -341,13 +340,8 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
             t = tasks[iTask]
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                if transformedImageData is None:
-                    logger = logging.getLogger('TilesToImageParallel')
-                    logger.error('Convert task failed: ' + str(t))
-                else:
-                    __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
-                    del transformedImageData
-                    
+                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                del transformedImageData 
                 del tasks[iTask]
             
             iTask -= 1
@@ -356,16 +350,22 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     while len(tasks) > 0:
         t = tasks.pop(0)
-        transformedImageData = t.wait_return()
-
-        if transformedImageData is None:
-            logger = logging.getLogger('TilesToImageParallel')
-            logger.error('Convert task failed: ' + str(t))
-            continue
-
+        transformedImageData = t.wait_return()     
         __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
         del transformedImageData
         del t
+        
+        #Pass through the entire loop and eliminate completed tasks in case any finished out of order
+        iTask = len(tasks) - 1
+        while iTask >= 0:
+            t = tasks[iTask]
+            if t.iscompleted:
+                transformedImageData = t.wait_return()
+                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                del transformedImageData 
+                del tasks[iTask]
+            
+            iTask -= 1
 
     mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
@@ -379,7 +379,12 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
 
 def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZBuffer, FixedRegion=None):
-
+    
+    if transformedImageData is None:
+            logger = logging.getLogger('TilesToImageParallel')
+            logger.error('Convert task failed: ' + str(t))
+            return
+        
     if transformedImageData.image is None:
         logger = logging.getLogger('TilesToImageParallel')
         logger.error('Convert task failed: ' + str(transformedImageData))
@@ -476,7 +481,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     del warpedImage
     del distanceImage
 
-    return TransformedImageData.Create(fixedImage, centerDistanceImage, transform, transformScale)
+    return TransformedImageData.Create(fixedImage.astype(np.float16), centerDistanceImage.astype(np.float16), transform, transformScale)
 
 if __name__ == '__main__':
     pass
