@@ -26,6 +26,8 @@ import nornir_imageregistration.spatial as spatial
 
 DistanceImageCache={}
 
+use_memmap = True
+
 class TransformedImageData(object):
 
     @property
@@ -163,7 +165,18 @@ def __MaxZBufferValue(dtype):
 
 
 def EmptyDistanceBuffer(shape, dtype=np.float16):
-    fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+    fullImageZbuffer = None
+    
+    if use_memmap:
+        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d.npy' % (shape[0],shape[1]))
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
+        fullImageZbuffer[:] =  __MaxZBufferValue(dtype)
+    
+        del fullImageZbuffer
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
+    else:
+        fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+    
     return fullImageZbuffer
 
 def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
@@ -171,9 +184,19 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     :param tuple rectangle: (minY, minX, maxY, maxX)
     :return: (fullImage, ZBuffer)
     '''
+    fullImage = None
     (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
-
-    fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
+    fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
+     
+    if use_memmap:
+        fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d.npy' % (fullImage_shape[0],fullImage_shape[1]))
+        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+        fullImage[:] = 0
+        del fullImage
+        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+    else:
+        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+     
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
     return (fullImage, fullImageZbuffer)
 
@@ -181,8 +204,17 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     '''Create output images using the passed width and height
     '''
-
-    fullImage = np.zeros((int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width))), dtype=np.float16)
+    
+    fullImage = None
+    fullImage_shape = (int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
+     
+    if use_memmap:
+        fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d.npy' % (fullImage_shape[0],fullImage_shape[1]))
+        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+        fullImage[:] = 0
+    else:
+        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+        
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
     return (fullImage, fullImageZbuffer)
 
@@ -190,11 +222,15 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
 def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0],imageShape[1]))
     
-    distanceImage = None
+    distanceImage = None 
+    
     if os.path.exists(distance_array_path):
         #distanceImage = core.LoadImage(distance_image_path)
         try:
-            distanceImage = np.load(distance_array_path)
+            if use_memmap:
+                distanceImage = np.load(distance_array_path, mmap_mode='r')
+            else:
+                distanceImage = np.load(distance_array_path)
         except:
             print("Unable to load distance_image %s" % (distance_array_path))
             try:
@@ -282,6 +318,9 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
     fullImage[fullImage < 0] = 0
     fullImage[fullImage > 1.0] = 1.0
+    
+    if use_memmap:
+        fullImage.flush()
 
     return (fullImage, mask)
 
@@ -374,6 +413,9 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     fullImage[fullImage > 1.0] = 1.0
 
     logger.info('Final image complete')
+    
+    if use_memmap:
+        fullImage.flush()
 
     return (fullImage, mask)
 
