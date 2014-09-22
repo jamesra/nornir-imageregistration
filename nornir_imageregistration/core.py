@@ -291,12 +291,21 @@ def GetImageSize(ImageFullPath):
 
     # if not os.path.exists(ImageFullPath):
         # raise ValueError("%s does not exist" % (ImageFullPath))
-
+        
+    (root, ext) = os.path.splitext(ImageFullPath)
+    
+    image = None
     try:
-        im = Image.open(ImageFullPath)
-        return (im.size[1], im.size[0])
+        if ext == '.npy':
+            image = _LoadImageByExtension(ImageFullPath)
+            return image.shape
+        else:
+            image = Image.open(ImageFullPath)
+            return (image.size[1], image.size[0])
     except IOError:
         raise IOError("Unable to read size from %s" % (ImageFullPath))
+    finally:
+        del image
 
 def ForceGrayscale(image):
     '''
@@ -310,9 +319,36 @@ def ForceGrayscale(image):
 
     return image
 
+def _Image_To_Uint8(image):
+    '''Converts image to uint8.  If input image uses floating point the image is scaled to the range 0-255'''
+    if image.dtype == np.float32 or image.dtype == np.float16:
+        image = image * 255.0
 
-def SaveImage(ImageFullPath, image):
+    if image.dtype == np.bool:
+        image = image.astype(np.uint8) * 255
+    else:
+        image = image.astype(np.uint8)
+        
+    return image
+
+def SaveImage(ImageFullPath, image, **kwargs):
     '''Saves the image as greyscale with no contrast-stretching'''
+
+    (root, ext) = os.path.splitext(ImageFullPath)
+    if ext == '.jp2':
+        SaveImage_JPeg2000(ImageFullPath, image,  **kwargs)
+    elif ext == '.npy':
+        np.save(ImageFullPath, image)
+    else:
+        im = Image.fromarray(_Image_To_Uint8(image))
+        im.save(ImageFullPath)
+    
+
+def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
+    '''Saves the image as greyscale with no contrast-stretching'''
+    
+    if tile_dim is None:
+        tile_dim = (512,512)
 
     if image.dtype == np.float32 or image.dtype == np.float16:
         image = image * 255.0
@@ -323,7 +359,41 @@ def SaveImage(ImageFullPath, image):
         image = image.astype(np.uint8)
 
     im = Image.fromarray(image)
-    im.save(ImageFullPath)
+    im.save(ImageFullPath, tile_size=tile_dim)
+    
+#     
+# def SaveImage_JPeg2000_Tile(ImageFullPath, image, tile_coord, tile_dim=None):
+#     '''Saves the image as greyscale with no contrast-stretching'''
+#     
+#     if tile_dim is None:
+#         tile_dim = (512,512)
+# 
+#     if image.dtype == np.float32 or image.dtype == np.float16:
+#         image = image * 255.0
+# 
+#     if image.dtype == np.bool:
+#         image = image.astype(np.uint8) * 255
+#     else:
+#         image = image.astype(np.uint8)
+# 
+#     im = Image.fromarray(image)
+#     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
+#     
+
+def _LoadImageByExtension(ImageFullPath, bpp=8):
+    (root, ext) = os.path.splitext(ImageFullPath)
+    
+    image = None
+    if ext == '.npy':
+        image = np.load(ImageFullPath, 'c') 
+    else:
+        image = plt.imread(ImageFullPath)
+        if bpp == 1:
+            image = image.astype(np.bool)
+        else:
+            image = ForceGrayscale(image)
+        
+    return image
 
 # @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
@@ -340,9 +410,10 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     if(not os.path.isfile(ImageFullPath)):
         logger.error('File does not exist: ' + ImageFullPath)
         return None
-
-    image = plt.imread(ImageFullPath)
-    image = ForceGrayscale(image)
+    
+    (root, ext) = os.path.splitext(ImageFullPath)
+    
+    image = _LoadImageByExtension(ImageFullPath) 
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)
@@ -355,7 +426,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
         if(not os.path.isfile(ImageMaskFullPath)):
             logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
-            image_mask = plt.imread(ImageMaskFullPath)
+            image_mask = _LoadImageByExtension(ImageMaskFullPath, bpp=1)
             if not MaxDimension is None:
                 scalar = ScalarForMaxDimension(MaxDimension, image_mask.shape)
                 if scalar < 1.0:
@@ -384,14 +455,26 @@ def TileGridShape(source_image, tile_size):
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
     
-    return np.ceil(source_image.shape / tile_shape)
+    return np.ceil(source_image.shape / tile_shape).astype(np.int32)
      
 def ImageToTiles(source_image, tile_size):
     '''
     :param ndarray source_image: Image to cut into tiles
     :param array tile_shape: Shape of output tiles, source image will be padded if needed
     :return: Dictionary of images indexed by tuples
-    '''
+    '''    
+    #Build the output dictionary
+    grid = {}
+    for (iRow, iCol, tile) in ImageToTilesGenerator(source_image, tile_size):
+        grid[iRow,iCol] = tile
+        
+    return grid  
+
+
+def ImageToTilesGenerator(source_image, tile_size):
+    '''An iterator generating all tiles for an image
+    :return: (iCol,iRow, tile_image)
+    ''' 
     grid_shape = TileGridShape(source_image, tile_size)
     
     (required_shape) = grid_shape * tile_size 
@@ -399,26 +482,31 @@ def ImageToTiles(source_image, tile_size):
     source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), background=None)
     
     #Build the output dictionary
-    grid = {}
-    StartX = 0
-    EndX = tile_size[1]
-    for iCol in range(0, int(grid_shape[1])):
-        StartY = 0 
-        EndY = tile_size[0]
-        
-        for iRow in range(0, int(grid_shape[0])):
-            tile = source_image_padded[StartY:EndY,StartX:EndX]
-            
-            grid[iRow,iCol] = tile
-            
-            StartY += tile_size[0]
-            EndY += tile_size[0]
-        
-        StartX += tile_size[1]
-        EndX += tile_size[1]
+    StartY = 0 
+    EndY = tile_size[0]
     
-    return grid     
+    for iRow in range(0, int(grid_shape[0])):
+        
+        StartX = 0
+        EndX = tile_size[1]
+    
+        for iCol in range(0, int(grid_shape[1])):
+            yield (iRow, iCol, source_image_padded[StartY:EndY,StartX:EndX])
+        
+            StartX += tile_size[1]
+            EndX += tile_size[1]    
+        
+        StartY += tile_size[0]
+        EndY += tile_size[0]
+        
 
+def GetImageTile(source_image, iRow, iCol, tile_size):
+    StartY = tile_size[0] * iRow
+    EndY = StartY + tile_size[0]
+    StartX = tile_size[1] * iCol
+    EndX = StartX + tile_size[1]
+    
+    return source_image[StartY:EndY,StartX:EndX]
 
 
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
