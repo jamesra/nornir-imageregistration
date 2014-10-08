@@ -340,7 +340,10 @@ def SaveImage(ImageFullPath, image, **kwargs):
     elif ext == '.npy':
         np.save(ImageFullPath, image)
     else:
-        im = Image.fromarray(_Image_To_Uint8(image))
+        Uint8_image = _Image_To_Uint8(image)
+        del image
+        
+        im = Image.fromarray(Uint8_image)
         im.save(ImageFullPath)
     
 
@@ -349,18 +352,13 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     
     if tile_dim is None:
         tile_dim = (512,512)
-
-    if image.dtype == np.float32 or image.dtype == np.float16:
-        image = image * 255.0
-
-    if image.dtype == np.bool:
-        image = image.astype(np.uint8) * 255
-    else:
-        image = image.astype(np.uint8)
-
-    im = Image.fromarray(image)
+        
+    Uint8_image = _Image_To_Uint8(image)
+    del image
+        
+    im = Image.fromarray(Uint8_image)
     im.save(ImageFullPath, tile_size=tile_dim)
-    
+
 #     
 # def SaveImage_JPeg2000_Tile(ImageFullPath, image, tile_coord, tile_dim=None):
 #     '''Saves the image as greyscale with no contrast-stretching'''
