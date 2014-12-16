@@ -263,7 +263,7 @@ class StosFile(object):
     @classmethod
     def Load(cls, filename):
         if not os.path.exists(filename):
-            PrettyOutput.Log("Mosaic file not found: " + filename)
+            PrettyOutput.Log("Stos file not found: " + filename)
             return
 
         obj = StosFile()
