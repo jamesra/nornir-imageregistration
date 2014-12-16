@@ -1,4 +1,18 @@
 
+1.2.3
+-----
+
+**New**
+
+* Support JPEG2000 and memory mapped numpy arrays as image output formats
+* Use a generator to iterate through tiles pulled from a larger image.
+* Some significant memory footprint reductions for assemble and transformation functions 
+
+**Fixed**
+
+* Do not throw an exception when asking a .stos file for the full path to a mask that it doesn not have.  Return None instead.
+
+
 1.2.2
 -----
 
