@@ -13,6 +13,7 @@ import numpy.fft
 import scipy.ndimage.measurements
 import scipy.stats
 import scipy.misc
+import nornir_shared.images as shared_images
 
 import matplotlib.pyplot as plt
 import nornir_imageregistration
@@ -56,7 +57,9 @@ class ImageStats(object):
         obj.median = np.median(image.flat)
         obj.std = np.std(image.flat)
         return obj
-
+    
+def GetBitsPerPixel(File): 
+    return shared_images.GetImageBpp(File)
 
 def ApproxEqual(A, B, epsilon=None):
 
