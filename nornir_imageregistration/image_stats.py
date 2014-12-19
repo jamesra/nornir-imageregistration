@@ -14,6 +14,7 @@ import numpy
 from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
 import scipy.ndimage.measurements
 import scipy.stats
+import scipy.misc
 
 import nornir_pools as pools
 import nornir_shared.histogram
@@ -138,7 +139,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
         PrettyOutput.LogErr(filename + ' not found when attempting prune');
         return;
 
-    Im = imread(filename);
+    Im = core.LoadImage(filename);
     (Height, Width) = Im.shape;
 
     StdDevList = [];
@@ -305,15 +306,20 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     return HistogramComposite;
  
 
-def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None):
+def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None):
     '''Return the histogram of an image'''
 
 
-    Im = imread(filename);
+    Im = core.LoadImage(filename);
     (Height, Width) = Im.shape;
     NumPixels = Width * Height;
+    
+    if(not Scale is None):
+        if(Scale != 1.0):
+            Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
 
-    ImOneD = reshape(Im, Width * Height, 1);
+    #ImOneD = reshape(Im, Width * Height, 1);
+    ImOneD = Im.flat
 
     if Bpp is None:
         Bpp = images.GetImageBpp(filename);
@@ -336,8 +342,11 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None):
     else:
         assert(isinstance(numBins, int))
 
-    [histogram, low_range, binsize, extrapoints] = scipy.stats.histogram(ImOneD, numbins=numBins, defaultlimits=[0, 1]);
-    return [histogram, low_range, binsize];
+    [histogram_array, low_range, binsize, extrapoints] = scipy.stats.histogram(ImOneD, numbins=numBins, defaultlimits=[0, 1]);
+    
+    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, low_range, binsize)
+    
+    return histogram_obj
 
 def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 

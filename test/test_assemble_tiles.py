@@ -279,6 +279,21 @@ class IDOCTests(TestMosaicAssemble):
 
         self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], tilesDir)
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir)
+        
+    def test_AssembleTilesIDoc_JPeg2000(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '001'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+        
+        ImageFullPath = os.path.join(self.TestOutputPath, 'Image.jp2')
+        
+        (image, mask) = self.AssembleMosaic(mosaicFiles[0], tilesDir, parallel=True)
+        
+        core.SaveImage_JPeg2000(ImageFullPath, image)
+        self.assertTrue(os.path.exists(ImageFullPath), "File should be written to disk for JPeg2000")
 
 
 if __name__ == "__main__":

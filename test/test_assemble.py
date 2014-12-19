@@ -6,6 +6,7 @@ Created on Apr 3, 2013
 import unittest
 from . import setup_imagetest
 import os
+import numpy
 
 import nornir_imageregistration.core as core
 from nornir_imageregistration.alignment_record import AlignmentRecord
@@ -102,7 +103,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Translate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
+        rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
         ShowComparison([fixedImage, rotatedWarped, transformedImage])
 
@@ -125,7 +126,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Rotate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage, angle=angle)
+        rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
         ShowComparison([fixedImage, rotatedWarped, transformedImage])
 

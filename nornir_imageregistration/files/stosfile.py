@@ -97,6 +97,9 @@ class StosFile(object):
 
     @property
     def ControlMaskFullPath(self):
+        if self.ControlMaskPath is None or self.ControlMaskName is None:
+            return None
+        
         return os.path.join(self.ControlMaskPath, self.ControlMaskName)
 
     @ControlMaskFullPath.setter
@@ -109,6 +112,9 @@ class StosFile(object):
 
     @property
     def MappedMaskFullPath(self):
+        if self.MappedMaskPath is None or self.MappedMaskName is None:
+            return None
+        
         return os.path.join(self.MappedMaskPath, self.MappedMaskName)
 
     @MappedMaskFullPath.setter
@@ -257,7 +263,7 @@ class StosFile(object):
     @classmethod
     def Load(cls, filename):
         if not os.path.exists(filename):
-            PrettyOutput.Log("Mosaic file not found: " + filename)
+            PrettyOutput.Log("Stos file not found: " + filename)
             return
 
         obj = StosFile()

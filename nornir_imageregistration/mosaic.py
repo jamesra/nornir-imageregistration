@@ -214,7 +214,7 @@ class Mosaic(object):
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
         if usecluster and len(tilesPathList) > 1:
-            cpool = pools.GetGlobalLocalMachinePool()
+            cpool = pools.GetLocalMachinePool("Assemble")
             return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)

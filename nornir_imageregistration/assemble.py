@@ -23,8 +23,8 @@ from . import core
 
 
 def GetROICoords(botleft, area):
-    x_range = np.arange(botleft[1], botleft[1] + area[1])
-    y_range = np.arange(botleft[0], botleft[0] + area[0])
+    x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.float32)
+    y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.float32)
     
     #Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
@@ -35,7 +35,12 @@ def GetROICoords(botleft, area):
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
-    coordArray = np.vstack((i_y.flat, i_x.flat)).transpose()
+    coordArray = np.vstack((i_y.astype(np.float32).flat, i_x.astype(np.float32).flat)).transpose()
+    
+    del i_y
+    del i_x
+    del x_range
+    del y_range
 
     return coordArray
 
@@ -53,7 +58,7 @@ def TransformROI(transform, botleft, area, extrapolate=False):
 
     fixed_coordArray = GetROICoords(botleft, area)
 
-    warped_coordArray = transform.InverseTransform(fixed_coordArray, extrapolate=extrapolate)
+    warped_coordArray = transform.InverseTransform(fixed_coordArray, extrapolate=extrapolate).astype(np.float32)
     (valid_warped_coordArray, InvalidIndiciesList) = InvalidIndicies(warped_coordArray)
 
     del warped_coordArray
@@ -141,8 +146,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
 
     if(warped_coords.shape[0] == 0):
         # No points transformed into the requested area, return empty image
-        transformedImage = np.empty((area), dtype=WarpedImage.dtype)
-        transformedImage.fill(cval)
+        transformedImage = np.full((area), cval, dtype=WarpedImage.dtype)
         return transformedImage
 
     subroi_warpedImage = None
@@ -163,8 +167,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         return outputImage
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
-        transformedImage = np.empty((area), dtype=outputImage.dtype)
-        transformedImage.fill(cval)
+        transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
         fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
         return transformedImage
@@ -201,6 +204,10 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
         for i, wi in enumerate(WarpedImage):
             fi = __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, wi, area, cval=cval[i])
             FixedImageList.append(fi)
+            
+        del fixed_coords
+        del warped_coords
+        
         return FixedImageList
     else:
         return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area, cval=cval[0])

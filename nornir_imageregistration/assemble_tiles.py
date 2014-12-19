@@ -21,10 +21,24 @@ import nornir_imageregistration.tileset as tiles
 import nornir_pools as pools
 import copy
 import tempfile
+import nornir_shared.prettyoutput as prettyoutput
+import threading
 
 import nornir_imageregistration.spatial as spatial
 
 DistanceImageCache={}
+
+#TODO: Use atexit to delete the temporary files
+#TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
+use_memmap = False
+nextNumpyMemMapFilenameIndex = 0
+
+def GetProcessAndThreadUniqueString():
+    '''We use the index because if the same thread makes a new tile of the same size and the original has not been garbage collected yet we get errors'''
+    global nextNumpyMemMapFilenameIndex
+    nextNumpyMemMapFilenameIndex += 1
+    return "%d_%d_%d" % (os.getpid(), threading.get_ident(), nextNumpyMemMapFilenameIndex)    
+
 
 class TransformedImageData(object):
 
@@ -163,8 +177,18 @@ def __MaxZBufferValue(dtype):
 
 
 def EmptyDistanceBuffer(shape, dtype=np.float16):
-    fullImageZbuffer = np.empty(shape, dtype=dtype)
-    fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+    fullImageZbuffer = None
+    
+    if use_memmap:
+        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d.npy' % (shape[0],shape[1]))
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
+        fullImageZbuffer[:] =  __MaxZBufferValue(dtype)
+    
+        del fullImageZbuffer
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
+    else:
+        fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+    
     return fullImageZbuffer
 
 def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
@@ -172,9 +196,23 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     :param tuple rectangle: (minY, minX, maxY, maxX)
     :return: (fullImage, ZBuffer)
     '''
+    fullImage = None
     (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
-
-    fullImage = np.zeros((np.ceil(requiredScale * maxY), np.ceil(requiredScale * maxX)), dtype=np.float16)
+    fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
+     
+    if use_memmap:
+        try:
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage[:] = 0
+            del fullImage
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+        except: 
+            prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
+            raise 
+    else:
+        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+     
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
     return (fullImage, fullImageZbuffer)
 
@@ -182,8 +220,22 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     '''Create output images using the passed width and height
     '''
-
-    fullImage = np.zeros((int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width))), dtype=np.float16)
+    global use_memmap
+    fullImage = None
+    fullImage_shape = (int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
+     
+    if use_memmap:
+        try:
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
+            #print("Open %s" % (fullimage_array_path))
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage[:] = 0
+        except: 
+            prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
+            raise 
+    else:
+        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+        
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
     return (fullImage, fullImageZbuffer)
 
@@ -191,11 +243,15 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
 def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0],imageShape[1]))
     
-    distanceImage = None
+    distanceImage = None 
+    
     if os.path.exists(distance_array_path):
         #distanceImage = core.LoadImage(distance_image_path)
         try:
-            distanceImage = np.load(distance_array_path)
+            if use_memmap:
+                distanceImage = np.load(distance_array_path, mmap_mode='r')
+            else:
+                distanceImage = np.load(distance_array_path)
         except:
             print("Unable to load distance_image %s" % (distance_array_path))
             try:
@@ -283,6 +339,9 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
     fullImage[fullImage < 0] = 0
     fullImage[fullImage > 1.0] = 1.0
+    
+    if use_memmap:
+        fullImage.flush()
 
     return (fullImage, mask)
 
@@ -300,7 +359,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
     if pool is None:
-        pool = pools.GetGlobalMultithreadingPool()
+        pool = pools.GetGlobalLocalMachinePool()
 
     tasks = []
     fixedRect = None
@@ -341,13 +400,8 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
             t = tasks[iTask]
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                if transformedImageData is None:
-                    logger = logging.getLogger('TilesToImageParallel')
-                    logger.error('Convert task failed: ' + str(t))
-                else:
-                    __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
-                    del transformedImageData
-                    
+                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                del transformedImageData 
                 del tasks[iTask]
             
             iTask -= 1
@@ -356,16 +410,22 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     while len(tasks) > 0:
         t = tasks.pop(0)
-        transformedImageData = t.wait_return()
-
-        if transformedImageData is None:
-            logger = logging.getLogger('TilesToImageParallel')
-            logger.error('Convert task failed: ' + str(t))
-            continue
-
+        transformedImageData = t.wait_return()     
         __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
         del transformedImageData
         del t
+        
+        #Pass through the entire loop and eliminate completed tasks in case any finished out of order
+        iTask = len(tasks) - 1
+        while iTask >= 0:
+            t = tasks[iTask]
+            if t.iscompleted:
+                transformedImageData = t.wait_return()
+                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                del transformedImageData 
+                del tasks[iTask]
+            
+            iTask -= 1
 
     mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
@@ -374,12 +434,20 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     fullImage[fullImage > 1.0] = 1.0
 
     logger.info('Final image complete')
+    
+    if use_memmap:
+        fullImage.flush()
 
     return (fullImage, mask)
 
 
 def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZBuffer, FixedRegion=None):
-
+    
+    if transformedImageData is None:
+            logger = logging.getLogger('TilesToImageParallel')
+            logger.error('Convert task failed: ' + str(t))
+            return
+        
     if transformedImageData.image is None:
         logger = logging.getLogger('TilesToImageParallel')
         logger.error('Convert task failed: ' + str(transformedImageData))
@@ -476,7 +544,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     del warpedImage
     del distanceImage
 
-    return TransformedImageData.Create(fixedImage, centerDistanceImage, transform, transformScale)
+    return TransformedImageData.Create(fixedImage.astype(np.float16), centerDistanceImage.astype(np.float16), transform, transformScale)
 
 if __name__ == '__main__':
     pass
