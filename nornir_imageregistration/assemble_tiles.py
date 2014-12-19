@@ -21,12 +21,24 @@ import nornir_imageregistration.tileset as tiles
 import nornir_pools as pools
 import copy
 import tempfile
+import nornir_shared.prettyoutput as prettyoutput
+import threading
 
 import nornir_imageregistration.spatial as spatial
 
 DistanceImageCache={}
 
-use_memmap = True
+#TODO: Use atexit to delete the temporary files
+#TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
+use_memmap = False
+nextNumpyMemMapFilenameIndex = 0
+
+def GetProcessAndThreadUniqueString():
+    '''We use the index because if the same thread makes a new tile of the same size and the original has not been garbage collected yet we get errors'''
+    global nextNumpyMemMapFilenameIndex
+    nextNumpyMemMapFilenameIndex += 1
+    return "%d_%d_%d" % (os.getpid(), threading.get_ident(), nextNumpyMemMapFilenameIndex)    
+
 
 class TransformedImageData(object):
 
@@ -189,11 +201,15 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
      
     if use_memmap:
-        fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d.npy' % (fullImage_shape[0],fullImage_shape[1]))
-        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
-        fullImage[:] = 0
-        del fullImage
-        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+        try:
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage[:] = 0
+            del fullImage
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+        except: 
+            prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
+            raise 
     else:
         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
      
@@ -204,14 +220,19 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     '''Create output images using the passed width and height
     '''
-    
+    global use_memmap
     fullImage = None
     fullImage_shape = (int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
      
     if use_memmap:
-        fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d.npy' % (fullImage_shape[0],fullImage_shape[1]))
-        fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
-        fullImage[:] = 0
+        try:
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
+            #print("Open %s" % (fullimage_array_path))
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage[:] = 0
+        except: 
+            prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
+            raise 
     else:
         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
         
