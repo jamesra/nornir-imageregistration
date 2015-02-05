@@ -30,8 +30,8 @@ class ShadeCorrectionTypes(object):
 def __DetermineTransformScale(transform, imageSize):
     '''Returns a scalar that can be applied to the transform to make the transform bounds match the image dimensions'''
 
-    width = transform.MappedBoundingBoxWidth
-    height = transform.MappedBoundingBoxHeight
+    width = transform.MappedBoundingBox.Width
+    height = transform.MappedBoundingBox.Height
 
     if core.ApproxEqual(imageSize[0], height) and core.ApproxEqual(imageSize[1], width):
         return 1.0

@@ -50,9 +50,9 @@ def FixedBoundingBox(transforms):
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.FixedBoundingBox])
+            mbb = np.array([t.FixedBoundingBox.ToArray()])
         else:
-            mbb = np.vstack((mbb, t.FixedBoundingBox))
+            mbb = np.vstack((mbb, t.FixedBoundingBox.ToArray()))
 
     minX = np.min(mbb[:, 1])
     minY = np.min(mbb[:, 0])
@@ -67,9 +67,9 @@ def MappedBoundingBox(transforms):
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.MappedBoundingBox])
+            mbb = np.array([t.MappedBoundingBox.ToArray()])
         else:
-            mbb = np.vstack((mbb, t.MappedBoundingBox))
+            mbb = np.vstack((mbb, t.MappedBoundingBox.ToArray()))
 
     minX = np.min(mbb[:, 1])
     minY = np.min(mbb[:, 0])

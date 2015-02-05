@@ -44,10 +44,14 @@ class Tile(object):
     def Image(self):
         if self._image is None:
             img = core.LoadImage(self._imagepath)
-            self._image = core.PadImageForPhaseCorrelation(img)
-            del img
+            return img
+        
+    @property
+    def PaddedImage(self):
+        if self._paddedimage is None:
+            self._paddedimage = core.PadImageForPhaseCorrelation(self._image)            
 
-        return self._image
+        return self._paddedimage
 
     @property
     def ImagePath(self):

@@ -10,6 +10,57 @@ import logging
 from nornir_shared.misc import SetupLogging
 import shutil
 import cProfile
+import pickle
+
+
+class PickleHelper(object):
+         
+    @property
+    def TestCachePath(self):
+        '''Contains cached files from previous test runs, such as database query results.
+           Entries in this cache should have a low probablility of changing and breaking tests'''
+        if 'TESTOUTPUTPATH' in os.environ:
+            TestOutputDir = os.environ["TESTOUTPUTPATH"]
+            return os.path.join(TestOutputDir, "Cache", self.classname)
+        else:
+            self.fail("TESTOUTPUTPATH environment variable should specify test output directory")
+
+        return None
+    
+    
+    def SaveVariable(self, var, path):
+        fullpath = os.path.join(self.TestCachePath, path)
+
+        if not os.path.exists(os.path.dirname(fullpath)):
+            os.makedirs(os.path.dirname(fullpath))
+
+        with open(fullpath, 'wb') as filehandle:
+            print("Saving: " + fullpath)
+            pickle.dump(var, filehandle, protocol=pickle.HIGHEST_PROTOCOL)
+            
+
+    def ReadOrCreateVariable(self, varname, createfunc=None, **kwargs):
+        '''Reads variable from disk, call createfunc if it does not exist'''
+
+        var = None
+        if hasattr(self, varname):
+            var = getattr(self, varname)
+
+        if var is None:
+            path = os.path.join(self.TestCachePath, varname + ".pickle")
+            if os.path.exists(path):
+                with open(path, 'rb') as filehandle:
+                    try:
+                        var = pickle.load(filehandle)
+                    except:
+                        var = None
+                        print("Unable to load graph from pickle file: " + path)
+
+            if var is None and not createfunc is None:
+                var = createfunc(**kwargs)
+                self.SaveVariable(var, path)
+
+        return var
 
 
 class TestBase(unittest.TestCase):
@@ -116,6 +167,9 @@ class MosaicTestBase(TestBase):
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
+        
+        if not os.path.exists(self.TestOutputPath):
+            os.makedirs(self.TestOutputPath, exist_ok=True)
 
         super(MosaicTestBase, self).setUp()
 

@@ -47,6 +47,10 @@ class Rectangle(object):
     @property
     def TopRight(self):
         return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MaxX]])
+    
+    @property
+    def Area(self):
+        return self.Width * self.Height
 
     @property
     def BoundingBox(self):
@@ -76,6 +80,12 @@ class Rectangle(object):
 
     def ToArray(self):
         return np.array(self._bounds)
+    
+    def ToTuple(self):
+        return (self._bounds[iRect.MinY],
+                self._bounds[iRect.MinX],
+                self._bounds[iRect.MaxY],
+                self._bounds[iRect.MaxX])
 
     @classmethod
     def CreateFromPointAndArea(cls, point, area):
@@ -124,6 +134,28 @@ class Rectangle(object):
             return False
 
         return True
+    
+    @classmethod 
+    def overlap(cls, A, B):
+        ''':rtype: float
+           :returns: 0 to 1 indicating area of A overlapped by B
+           '''
+        A = Rectangle.PrimitiveToRectange(A)
+        B = Rectangle.PrimitiveToRectange(B)
+        
+        if not cls.contains(A,B):
+            return 0.0
+        
+        minX = max((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
+        minY = max((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
+        maxX = min((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
+        maxY = min((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
+        
+        overlapping_rect = Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+        
+        return overlapping_rect.Area / A.Area         
+        
+        
 
     def __str__(self):
         return "MinX: %g MinY: %g MaxX: %g MaxY: %g" % (self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])

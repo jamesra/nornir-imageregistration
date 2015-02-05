@@ -114,8 +114,8 @@ class TestIO(test.setup_imagetest.MosaicTestBase):
 
         self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
 
-        self.assertTrue(numpy.allclose(transform.FixedBoundingBox, loadedTransform.FixedBoundingBox), "Fixed bounding box should match after converting transform to string and back")
-        self.assertTrue(numpy.allclose(transform.MappedBoundingBox, loadedTransform.MappedBoundingBox), "Mapped bounding box should match after converting transform to string and back")
+        self.assertTrue(numpy.allclose(transform.FixedBoundingBox.ToArray(), loadedTransform.FixedBoundingBox.ToArray()), "Fixed bounding box should match after converting transform to string and back")
+        self.assertTrue(numpy.allclose(transform.MappedBoundingBox.ToArray(), loadedTransform.MappedBoundingBox.ToArray()), "Mapped bounding box should match after converting transform to string and back")
 
         secondString = factory.TransformToIRToolsString(loadedTransform)
         self.assertTrue(secondString == transformString, "Converting transform to string twice should produce identical string")

@@ -521,10 +521,10 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
 
     if FixedRegion is None:
 
-        width = transform.FixedBoundingBoxWidth
-        height = transform.FixedBoundingBoxHeight
+        width = transform.FixedBoundingBox.Width
+        height = transform.FixedBoundingBox.Height
 
-        (minY, minX, maxY, maxX) = transform.FixedBoundingBox
+        (minY, minX, maxY, maxX) = transform.FixedBoundingBox.ToTuple()
     else:
         assert(len(FixedRegion) == 4)
         (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1])

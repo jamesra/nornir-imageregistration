@@ -66,21 +66,21 @@ class Test(setup_imagetest.ImageTestBase):
         r = core.ROIRange(24, 16, 5)
         self.assertIsNone(r)
         
-    def test_SaveImageJPeg2000(self):
-        
-        image_full_path = self.GetImagePath('0162_ds16.png')
-        image = core.LoadImage(image_full_path)
-        
-        jpeg2000_full_path = os.path.join(self.TestOutputPath, '0162_ds16.jp2')
-
-        tile_dims = core.TileGridShape(image, (512,512))        
-        image_tiles = core.ImageToTiles(image, (512, 512))
-        
-        for iY in range(0,tile_dims[0]):
-            for iX in range(0,tile_dims[1]):
-                core.SaveImage_JPeg2000_Tile(jpeg2000_full_path, image_tiles[iY,iX], tile_coord=(iX,iY), tile_dim=None)
-        
-        self.assertTrue(os.path.exists(jpeg2000_full_path), "Jpeg 2000 file does not exist")
+#    def test_SaveImageJPeg2000(self):
+#        
+#         image_full_path = self.GetImagePath('0162_ds16.png')
+#         image = core.LoadImage(image_full_path)
+#         
+#         jpeg2000_full_path = os.path.join(self.TestOutputPath, '0162_ds16.jp2')
+# 
+#         tile_dims = core.TileGridShape(image, (512,512))        
+#         image_tiles = core.ImageToTiles(image, (512, 512))
+#         
+#         for iY in range(0,tile_dims[0]):
+#             for iX in range(0,tile_dims[1]):
+#                 core.SaveImage_JPeg2000_Tile(jpeg2000_full_path, image_tiles[iY,iX], tile_coord=(iX,iY), tile_dim=None)
+#         
+#         self.assertTrue(os.path.exists(jpeg2000_full_path), "Jpeg 2000 file does not exist")
 
 
     def testCrop(self):

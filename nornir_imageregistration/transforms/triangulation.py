@@ -276,7 +276,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = spatial.BoundsArrayFromPoints(self.FixedPoints)
+            self._FixedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.FixedPoints)
 
         return self._FixedBoundingBox
 
@@ -286,29 +286,29 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = spatial.BoundsArrayFromPoints(self.WarpedPoints)
+            self._MappedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.WarpedPoints)
 
         return self._MappedBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):
-        cx = self.FixedPoints[:, 1]
-        return np.ceil(np.max(cx)) - np.floor(np.min(cx))
+        raise DeprecationWarning("FixedBoundingBoxWidth is deprecated.  Use FixedBoundingBox.Width instead")
+        return self.FixedBoundingBox.Width
 
     @property
     def FixedBoundingBoxHeight(self):
-        cy = self.FixedPoints[:, 0]
-        return np.ceil(np.max(cy)) - np.floor(np.min(cy))
+        raise DeprecationWarning("FixedBoundingBoxHeight is deprecated.  Use FixedBoundingBox.Height instead")
+        return self.FixedBoundingBox.Height
 
     @property
     def MappedBoundingBoxWidth(self):
-        wx = self.WarpedPoints[:, 1]
-        return np.ceil(np.max(wx)) - np.floor(np.min(wx))
+        raise DeprecationWarning("MappedBoundingBoxWidth is deprecated.  Use MappedBoundingBox.Width instead")
+        return self.MappedBoundingBox.Width
 
     @property
     def MappedBoundingBoxHeight(self):
-        wy = self.WarpedPoints[:, 0]
-        return np.ceil(np.max(wy)) - np.floor(np.min(wy))
+        raise DeprecationWarning("MappedBoundingBoxHeight is deprecated.  Use MappedBoundingBox.Height instead")
+        return self.MappedBoundingBox.Height
 
     @property
     def points(self):

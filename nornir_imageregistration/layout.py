@@ -16,7 +16,7 @@ def CreateTiles(transforms, imagepaths):
     :return: List of N tile objects
     '''
 
-    tiles = []
+    tiles = {}
     for i, t in enumerate(transforms):
 
         if not os.path.exists(imagepaths[i]):
@@ -25,8 +25,8 @@ def CreateTiles(transforms, imagepaths):
             continue
 
         tile = Tile(t, imagepaths[i], i)
-        tiles.append(tile)
-
+        tiles[tile.ID] = tile
+        
     return tiles
 
 
@@ -62,11 +62,16 @@ class Tile(object):
     @property
     def Image(self):
         if self._image is None:
-            img = core.LoadImage(self._imagepath)
-            self._image = core.PadImageForPhaseCorrelation(img)
-            del img
+            self._image = core.LoadImage(self._imagepath)
 
         return self._image
+    
+    @property
+    def PaddedImage(self):
+        if self._paddedimage is None:
+            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)            
+
+        return self._paddedimage
 
     @property
     def ImagePath(self):
@@ -75,9 +80,12 @@ class Tile(object):
     @property
     def FFTImage(self):
         if self._fftimage is None:
-            self._fftimage = np.fft.rfft2(self.Image)
+            self._fftimage = np.fft.rfft2(self.PaddedImage)
 
         return self._fftimage
+    
+    def PrecalculateImages(self):
+        temp = self.FFTImage.shape
 
     @property
     def ID(self):
@@ -106,6 +114,7 @@ class Tile(object):
         self._transform = transform
         self._imagepath = imagepath
         self._image = None
+        self._paddedimage = None
         self._fftimage = None
         if ID is None:
             self._ID = Tile.__nextID
@@ -149,7 +158,8 @@ class TileLayout(object):
         if tile.ID in self.TileToTransform:
             return False
 
-        self.TileToTransform[tile.ID] = TranslationTransformForAlignmentRecord(tile, arecord=None)
+        self.TileToTransform[tile.ID] = TranslationTransformForAlignmentRecord((tile.MappedBoundingBox[spatial.iRect.MaxY],
+                                                                               tile.MappedBoundingBox[spatial.iRect.MaxX]), arecord=None)
 
         return True
 
@@ -165,7 +175,8 @@ class TileLayout(object):
         movingTile = self._tiles[arecord.MovingTileID]
         arecord.translate((minY, minX))
 
-        newTransform = TranslationTransformForAlignmentRecord(movingTile, arecord)
+        newTransform = TranslationTransformForAlignmentRecord((movingTile.MappedBoundingBox[spatial.iRect.MaxY],
+                                                              movingTile.MappedBoundingBox[spatial.iRect.MaxX]), arecord)
         self.TileToTransform[arecord.MovingTileID] = newTransform
 
 
