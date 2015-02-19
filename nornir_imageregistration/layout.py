@@ -86,6 +86,13 @@ class Tile(object):
     
     def PrecalculateImages(self):
         temp = self.FFTImage.shape
+        
+    @property
+    def OffsetToTile(self):
+        '''
+        Dictionary of alignment records to other tiles by ID
+        :returns: Dictionary mapping TileID to alignment record''' 
+        return self._OffsetToTile
 
     @property
     def ID(self):
@@ -116,6 +123,7 @@ class Tile(object):
         self._image = None
         self._paddedimage = None
         self._fftimage = None
+        self._OffsetToTile = dict()        
         if ID is None:
             self._ID = Tile.__nextID
             Tile.__nextID += 1
@@ -127,21 +135,26 @@ class Tile(object):
 
 
 class TileLayout(object):
-    '''Arranges tiles in 2D space to form a mosaic'''
+    '''Arranges tiles in 2D space that form a mosaic.'''
 
     @property
     def TileIDs(self):
+        '''List of tile IDs used in the layout'''
         return list(self._TileToTransform.keys())
 
     def Contains(self, ID):
+        ''':rtype: bool
+           :return: True if layout contains the ID
+        '''
         return ID in self.TileToTransform
 
     def GetTileOrigin(self, ID):
+        '''Position of the bottom left corner, (0,0), of the tile in the mosaic
+           :rtype: numpy.Array with point
+           ''' 
         refTransform = self.TileToTransform[ID]
-        (minY, minX, maxY, maxX) = refTransform.FixedBoundingBox
-
-        return (minY, minX)
-
+        return refTransform.FixedBoundingBox.BottomLeft
+        
     @property
     def Tiles(self):
         '''Tiles contained within this layout'''

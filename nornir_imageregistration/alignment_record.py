@@ -38,6 +38,10 @@ class AlignmentRecord:
     def weight(self):
         '''Quantifies the quality of the alignment'''
         return self._weight
+    
+    @weight.setter
+    def weight(self, value):
+        self._weight = value
 
     @property
     def peak(self):

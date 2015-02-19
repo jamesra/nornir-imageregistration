@@ -591,6 +591,8 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
 
     return OutputImage
 
+def NearestPowerOfTwo(val):
+    return math.pow(2, math.ceil(math.log(val, 2)))
 
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     '''

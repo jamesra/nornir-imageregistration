@@ -49,6 +49,17 @@ class Rectangle(object):
         return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MaxX]])
     
     @property
+    def Corners(self):
+        return np.vstack((self.BottomLeft,
+                             self.TopLeft,
+                             self.TopRight, 
+                             self.BottomRight))
+    
+    @property
+    def Center(self):
+        return self.BottomLeft + ((self.TopRight - self.BottomLeft)  / 2.0)
+    
+    @property
     def Area(self):
         return self.Width * self.Height
 

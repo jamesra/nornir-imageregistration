@@ -7,7 +7,9 @@ Created on Jul 10, 2012
 from operator import attrgetter
 import os
 import numpy as np
+import scipy.spatial
 import itertools
+import math
  
 import nornir_imageregistration.spatial as spatial 
 import nornir_imageregistration.core as core
@@ -69,8 +71,7 @@ def _FindTileOffsets(tiles, imageScale=None):
      
     fft_tasks = [] 
     
-    for t in tiles.values():
-        t.OffsetToTile = dict()
+    for t in tiles.values(): 
         task = pool.add_task("Create padded image", t.PrecalculateImages)
         task.tile = t
         fft_tasks.append(task)
@@ -173,12 +174,32 @@ def _ScaleOffsetWeightsForTile(tile_dict, tile):
     Take the known offsets for a tile.  Adjust the weights based on how far the offset is from the expected position
     '''
     
+    distanceList = {}
     for targetTileID, offset in tile.OffsetToTile.items():
         target_tile = tile_dict[targetTileID]
         predicted = __predicted_offset(tile, target_tile)
         discrepancy = __offset_discrepancy(predicted, offset.peak)
-        print("Discrepancy %04d -> %04d : %gx %gy" % (tile.ID, target_tile.ID, discrepancy[1], discrepancy[0]))
+        #print("Discrepancy %04d -> %04d : %gx %gy" % (tile.ID, target_tile.ID, discrepancy[1], discrepancy[0]))
+        distanceList[targetTileID] = np.sqrt((discrepancy[0] * discrepancy[0]) + (discrepancy[1] * discrepancy[1]))
+    
+    totalDistance = sum(list(distanceList.values()))
+    medianDistance = np.median(np.array(list(distanceList.values())))
+    for targetTileID, distance in distanceList.items():
+        weight = medianDistance / distance
+        
+        #We only penalize offsets above the median.  We don't want to place too much emphasis on a potentially flawed stage layout
+        #if weight > 1.0:
+        #    weight = 1.0
+        #weight = distance / totalDistance
+        #inv_weight = 1.0 - weight
          
+        #Adjust the weight of the offset by the calculated weight.
+        
+        offset = tile.OffsetToTile[targetTileID]
+        offset.weight *= weight
+        
+        print("Discrepancy weight %04d -> %04d\tdist: %3g scalar: %3g final: %3g" % (tile.ID, target_tile.ID, distance, weight, offset.weight)) 
+        
     return 
 
 
@@ -186,7 +207,8 @@ def BuildBestTransformFirstMosaic(tiles, image_size_scalar):
     '''
     Constructs a mosaic by sorting all of the match results according to strength. 
     
-    TODO: Adjust for Downsample
+    :param dict tiles: Dictionary of tile objects containing alignment records to other tiles
+    :param float image_size_scalar: Scalar for transforms when downsampled images are used to create alignment records
     '''
 
     placedTiles = dict()

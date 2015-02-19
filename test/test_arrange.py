@@ -125,14 +125,15 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
         self._ShowMosaic(mosaic, usecluster=False)
 
-    def _ShowMosaic(self, mosaic, mosaic_path=None, usecluster=True):
+    def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True):
 
         (assembledImage, mask) = mosaic.AssembleTiles(tilesPath=None, usecluster=usecluster)
         
         if not mosaic_path is None:
             core.SaveImage(mosaic_path, assembledImage)
-
-        core.ShowGrayscale(assembledImage)
+        
+        if openwindow:
+            core.ShowGrayscale(assembledImage)
 
 
     def __CheckNoOffsetsToSelf(self, tiles):
@@ -164,7 +165,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
         return tiles
 
-    def ArrangeMosaicDirect(self, mosaicFilePath, TilesDir=None, parallel=False, downsample=None):
+    def ArrangeMosaicDirect(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None):
 
         if downsample is None:
             downsample = 1
@@ -178,8 +179,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
         
-        if TilesDir is None:
+        TilesDir = None
+        if TilePyramidDir is None:
             TilesDir = os.path.join(self.ImportedDataPath, self.Dataset, 'Leveled', 'TilePyramid', downsamplePath)
+        else:
+            TilesDir = os.path.join(TilePyramidDir, downsamplePath)
 
 #        mosaic.TranslateToZeroOrigin()
 
@@ -220,12 +224,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
 
         translated_mosaic.SaveToMosaicFile(OutputDir)
-        self._ShowMosaic(translated_mosaic, OutputMosaicDir)
-         
-        translated_mosaic.SaveToMosaicFile(OutputDir)  
+        
+        self._ShowMosaic(translated_mosaic, OutputMosaicDir, openwindow=False)
         
 
-    def ArrangeMosaic(self, mosaicFilePath, TilesDir=None, parallel=False, downsample=None):
+    def ArrangeMosaic(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None):
  
         if downsample is None:
             downsample = 1
@@ -237,8 +240,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
-        if TilesDir is None:
+        TilesDir = None
+        if TilePyramidDir is None:
             TilesDir = os.path.join(self.ImportedDataPath, self.Dataset, 'Leveled', 'TilePyramid', downsamplePath)
+        else:
+            TilesDir = os.path.join(TilePyramidDir, downsamplePath)
 
         mosaic.TranslateToZeroOrigin()
 
@@ -268,21 +274,21 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
     def test_RC2Mosaic(self):
         
-        #self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilesDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid\\004", parallel=False, downsample=4)
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4)
 
         print("All done")
 
     def test_ArrangeMosaic(self):
         
         for m in self.MosaicFiles:
-            self.ArrangeMosaic(m, TilesDir=None, parallel=False, downsample=1)
+            self.ArrangeMosaic(m, TilePyramidDir=None, parallel=False, downsample=1)
 
         print("All done")
 
     def test_ArrangeMosaicDirect(self):
 
         for m in self.MosaicFiles:
-            self.ArrangeMosaicDirect(m, TilesDir=None, parallel=False, downsample=1)
+            self.ArrangeMosaicDirect(m, TilePyramidDir=None, parallel=False, downsample=1)
 
         print("All done")
 

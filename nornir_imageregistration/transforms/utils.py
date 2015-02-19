@@ -5,6 +5,7 @@ Created on Apr 4, 2013
 '''
 
 import numpy as np
+import nornir_imageregistration.spatial as spatial
 
 
 def InvalidIndicies(points):
@@ -50,7 +51,7 @@ def FixedBoundingBox(transforms):
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.FixedBoundingBox.ToArray()])
+            mbb = t.FixedBoundingBox.ToArray()
         else:
             mbb = np.vstack((mbb, t.FixedBoundingBox.ToArray()))
 
@@ -67,7 +68,7 @@ def MappedBoundingBox(transforms):
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.MappedBoundingBox.ToArray()])
+            mbb = t.MappedBoundingBox.ToArray()
         else:
             mbb = np.vstack((mbb, t.MappedBoundingBox.ToArray()))
 
