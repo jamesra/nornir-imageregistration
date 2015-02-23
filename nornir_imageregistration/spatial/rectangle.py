@@ -62,6 +62,10 @@ class Rectangle(object):
     @property
     def Area(self):
         return self.Width * self.Height
+    
+    @property
+    def Size(self):
+        return np.array((self.Height, self.Width))
 
     @property
     def BoundingBox(self):

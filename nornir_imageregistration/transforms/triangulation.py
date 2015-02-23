@@ -321,26 +321,42 @@ class Triangulation(Base):
 
     def GetFixedPointsRect(self, bounds):
         '''bounds = [left bottom right top]'''
+        #return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
+    
+    def GetFixedPointsInRect(self, bounds):
+        '''bounds = [left bottom right top]'''
         return self.GetPointPairsInRect(self.FixedPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds):
         '''bounds = [left bottom right top]'''
         return self.GetPointPairsInRect(self.WarpedPoints, bounds)
+    
+    def GetPointsInFixedRect(self, bounds):
+        '''bounds = [left bottom right top]'''
+        return self.GetPointPairsInRect(self.FixedPoints, bounds)
+
+    def GetPointsInWarpedRect(self, bounds):
+        '''bounds = [left bottom right top]'''
+        return self.GetPointPairsInRect(self.WarpedPoints, bounds)
 
     def GetPointPairsInRect(self, points, bounds):
-        FixedPoints = []
-        WarpedPoints = []
-
-        # TODO: Matrix version
-        # points[:, 0] >= bounds[0] and points[:]
-
+        OutputPoints = None
+         
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
-            if(x >= bounds[0] and x <= bounds[2] and y >= bounds[1] and y <= bounds[3]):
-                FixedPoints.append([self.points[iPoint, 0:2]])
-                WarpedPoints.append([self.points[iPoint, 2:4]])
+            if(x >= bounds[spatial.iRect.MinX] and x <= bounds[spatial.iRect.MaxX] and y >= bounds[spatial.iRect.MinY] and y <= bounds[spatial.iRect.MaxY]):
+                PointPair = self.points[iPoint, :] 
+                if(OutputPoints is None):
+                    OutputPoints = PointPair
+                else:
+                    OutputPoints = np.vstack((OutputPoints, PointPair))
 
-        return (FixedPoints, WarpedPoints)
+        if not OutputPoints is None:
+            if OutputPoints.ndim == 1:
+                OutputPoints = np.reshape(OutputPoints,(1, OutputPoints.shape[0]))
+                
+        return OutputPoints
 
     @property
     def FixedTriangles(self):
