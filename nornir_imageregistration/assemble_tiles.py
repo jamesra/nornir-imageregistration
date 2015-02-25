@@ -197,7 +197,7 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     :return: (fullImage, ZBuffer)
     '''
     fullImage = None
-    (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms).ToTuple()
     fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
      
     if use_memmap:
@@ -328,7 +328,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
         transformedImageData = TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale, FixedRegion=FixedRegion)
 
         if fixedRect is None:
-            (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
+            (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox.ToTuple()
 
         CompositeImageWithZBuffer(fullImage, fullImageZbuffer, transformedImageData.image, transformedImageData.centerDistanceImage, (np.floor(minY), np.floor(minX)))
 
@@ -458,7 +458,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
     minY = 0
     minX = 0
     if FixedRegion is None:
-        (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox
+        (minY, minX, maxY, maxX) = transformedImageData.transform.FixedBoundingBox.ToTuple()
 
     # print "%g %g" % (minX, minY)
     try:

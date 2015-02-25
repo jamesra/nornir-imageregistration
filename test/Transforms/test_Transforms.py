@@ -52,6 +52,12 @@ TranslateTransformPoints = np.array([[0, 0, 1, 2],
                               [0, 1, 1, 3],
                               [1, 1, 2, 3]])
 
+#Used to test IsOffsetAtZero
+OffsetTransformPoints = np.array([[1, 1, 0, 0],
+                              [2, 1, 1, 0],
+                              [1, 2, 0, 1],
+                              [2, 2, 1, 1]])
+
 def TransformCheck(test, transform, warpedPoint, fixedPoint):
         '''Ensures that a point can map to its expected transformed position and back again'''
         fp = transform.Transform(warpedPoint)
@@ -135,7 +141,24 @@ class Test(unittest.TestCase):
         TransformCheck(self, T, warpedPoints, -warpedPoints)
 
 
-#
+    def test_OriginAtZero(self):
+        global IdentityTransformPoints
+        global OffsetTransformPoints
+        
+        IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
+        OffsetTransform =  triangulation.Triangulation(OffsetTransformPoints)
+        self.assertTrue(utils.IsOriginAtZero([IdentityTransform]), "Origin of identity transform is at zero")
+        self.assertFalse(utils.IsOriginAtZero([OffsetTransform]), "Origin of Offset Transform is not at zero")
+        
+        self.assertTrue(utils.IsOriginAtZero([IdentityTransform, OffsetTransform]), "Origin of identity transform and offset transform is at zero")
+        
+    def test_bounds(self):
+        
+        global IdentityTransformPoints
+        IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
+        
+        
+
 #        print "Fixed Verts"
 #        print T.FixedTriangles
 #        print "\nWarped Verts"
