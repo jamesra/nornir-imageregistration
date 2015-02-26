@@ -164,7 +164,7 @@ class Triangulation(Base):
         self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([point[0], point[1]])
+        Distance, index = self.NearestFixedPoint(point)
         return index
 
     def UpdateWarpedPoint(self, index, point):
@@ -172,7 +172,7 @@ class Triangulation(Base):
         self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestWarpedPoint([point[0], point[1]])
+        Distance, index = self.NearestWarpedPoint(point)
         return index
 
     def RemovePoint(self, index):
