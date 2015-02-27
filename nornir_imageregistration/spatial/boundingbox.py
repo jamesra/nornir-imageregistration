@@ -10,8 +10,7 @@ import numpy as np
 from .indicies import *
 from .rectangle import Rectangle
 
-import spatial
-
+import nornir_imageregistration.spatial
 
 class BoundingBox(object):
     '''
@@ -86,7 +85,7 @@ class BoundingBox(object):
 
     @classmethod
     def CreateFromPoints(cls, points):
-        boundingArray = spatial.BoundsArrayFromPoints(points)
+        boundingArray = nornir_imageregistration.spatial.BoundsArrayFromPoints(points)
         return BoundingBox(bounds=boundingArray)
 
     @classmethod
