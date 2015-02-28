@@ -41,7 +41,7 @@ if __name__ == '__main__':
     setup(name='nornir_imageregistration',
           zip_safe=True,
           classifiers=classifiers,
-          version='1.2.3',
+          version='1.2.4',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",

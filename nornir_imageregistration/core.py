@@ -105,7 +105,9 @@ def ShowGrayscale(imageList, title=None):
     :param str title: Informative title for the figure, for example expected test results
     '''
         
-    if isinstance(imageList, collections.Iterable):
+    if isinstance(imageList, np.ndarray):
+        plt.imshow(imageList, cmap=plt.gray())
+    elif isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
             plt.imshow(imageList[0], cmap=plt.gray(), title=title)
@@ -130,10 +132,7 @@ def ShowGrayscale(imageList, title=None):
                     else:
                         ax = axeslist[iCol]
 
-                    ax.imshow(image, cmap=plt.gray(), figure=fig)
-
-    elif isinstance(imageList, np.ndarray):
-        plt.imshow(imageList, cmap=plt.gray())
+                    ax.imshow(image, cmap=plt.gray(), figure=fig)  
     else:
         return
 
@@ -592,6 +591,8 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
 
     return OutputImage
 
+def NearestPowerOfTwo(val):
+    return math.pow(2, math.ceil(math.log(val, 2)))
 
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     '''
@@ -721,19 +722,7 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     if(not (FixedImage.shape == MovingImage.shape)):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
         raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
-
-#    FFTMan = FFTWManager.GetFFTManager()
-#
-#    FFTPlan = FFTMan.GetPlan(FixedImage.shape)
-#
-#    #ShowGrayscale(MovingImage)
-#
-#    #It is not possible to multi-thread scipy fft2 calls at this time 7/2012
-# #
-#    FFTFixed = FFTPlan.fft(FixedImage)
-#    FFTMoving  = FFTPlan.fft(MovingImage)
-
-
+ 
     #--------------------------------
     # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
     # code has been obfuscated more than I like
@@ -748,22 +737,55 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
 
     FFTFixed = fftpack.rfft2(FixedImage)
     FFTMoving = fftpack.rfft2(MovingImage)
+    
+    return FFTPhaseCorrelation(FFTFixed, FFTMoving, True) 
+    
+    
+def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
+    '''
+    Returns the phase shift correlation of the FFT's of two images. 
+    
+    Dimensions of Fixed and Moving images must match
+    
+    :param ndarray FixedImage: grayscale image
+    :param ndarray MovingImage: grayscale image
+    :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
+    :rtype: ndimage
+    
+    '''
+
+    if(not (FFTFixed.shape == FFTMoving.shape)):
+        # TODO, we should pad the smaller image in this case to allow the comparison to continue
+        raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
+ 
+
+    #--------------------------------
+    # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
+    # code has been obfuscated more than I like
+    # FFTFixed = fftpack.rfft2(FixedImage)
+    # FFTMoving = fftpack.rfft2(MovingImage)
+    # conjFFTFixed = conj(FFTFixed)
+    # Numerator = conjFFTFixed * FFTMoving
+    # Divisor = abs(conjFFTFixed * FFTMoving)
+    # T = Numerator / Divisor
+    # CorrelationImage = real(fftpack.irfft2(T))
+    #--------------------------------
 
     conjFFTFixed = np.conjugate(FFTFixed)
-    del FFTFixed
+    if delete_input:
+        del FFTFixed
 
     conjFFTFixed *= FFTMoving
-    del FFTMoving
+    
+    if delete_input:
+        del FFTMoving   
 
-    conjFFTFixed /= abs(conjFFTFixed)  # Numerator / Divisor
+    conjFFTFixed /= np.absolute(conjFFTFixed)  # Numerator / Divisor
 
     CorrelationImage = np.real(fftpack.irfft2(conjFFTFixed))
     del conjFFTFixed
 
-    return CorrelationImage
-    # SmallCorrelationImage = CorrelationImage.astype(np.float32)
-    # del CorrelationImage
-    # return SmallCorrelationImage
+    return CorrelationImage 
 
 
 # @profile
@@ -821,14 +843,19 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
     raise NotImplementedError()
 
 
-def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0):
+def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
        moving image must be rotated and translated to align perfectly with the FixedImage'''
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
-
-    CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
+    
+    CorrelationImage = None
+    if FFT_Required:
+        CorrelationImage = ImagePhaseCorrelation(FixedImage, MovingImage)
+    else:
+        CorrelationImage = FFTPhaseCorrelation(FixedImage, MovingImage, delete_input=False)
+        
     CorrelationImage = np.fft.fftshift(CorrelationImage)
 
     # Crop the areas that cannot overlap

@@ -5,6 +5,7 @@ Created on Apr 4, 2013
 '''
 
 import numpy as np
+import nornir_imageregistration.spatial as spatial
 
 
 def InvalidIndicies(points):
@@ -46,46 +47,54 @@ def PointBoundingBox(points):
 
 def FixedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
+    
+    if len(transforms) == 1:
+        #Copy the data instead of passing the transforms object
+        return spatial.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
 
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.FixedBoundingBox])
+            mbb = t.FixedBoundingBox.ToArray()
         else:
-            mbb = np.vstack((mbb, t.FixedBoundingBox))
+            mbb = np.vstack((mbb, t.FixedBoundingBox.ToArray()))
 
     minX = np.min(mbb[:, 1])
     minY = np.min(mbb[:, 0])
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  (float(minY), float(minX), float(maxY), float(maxX))
+    return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
 
 def MappedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
+    
+    if len(transforms) == 1:
+        #Copy the data instead of passing the transforms object
+        return spatial.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
 
     mbb = None
     for t in transforms:
         if mbb is None:
-            mbb = np.array([t.MappedBoundingBox])
+            mbb = t.MappedBoundingBox.ToArray()
         else:
-            mbb = np.vstack((mbb, t.MappedBoundingBox))
+            mbb = np.vstack((mbb, t.MappedBoundingBox.ToArray()))
 
     minX = np.min(mbb[:, 1])
     minY = np.min(mbb[:, 0])
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  (float(minY), float(minX), float(maxY), float(maxX))
-
+    return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
+ 
 def IsOriginAtZero(transforms):
     ''':return: True if transform bounding box has origin at 0,0 otherise false'''
-    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return minY == 0 and minX == 0
 
 def TranslateToZeroOrigin(transforms):
     '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''
-    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
 
     for t in transforms:
         t.TranslateFixed((-minY, -minX))
@@ -94,20 +103,20 @@ def TranslateToZeroOrigin(transforms):
 
 
 def FixedBoundingBoxWidth(transforms):
-    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return np.ceil(maxX) - np.floor(minX)
 
 
 def FixedBoundingBoxHeight(transforms):
-    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)
 
 
 def MappedBoundingBoxWidth(transforms):
-    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxX) - np.floor(minX)
 
 
 def MappedBoundingBoxHeight(transforms):
-    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms)
+    (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)

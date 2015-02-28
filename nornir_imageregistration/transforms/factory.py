@@ -29,7 +29,7 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     # Find the extent of the mapped boundaries
     (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox
+        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
     else:
         (bottom, left, top, right) = bounds
 
@@ -61,7 +61,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     # Find the extent of the mapped boundaries
     (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox
+        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
     else:
         (bottom, left, top, right) = bounds
 

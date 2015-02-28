@@ -164,7 +164,7 @@ class Triangulation(Base):
         self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([point[0], point[1]])
+        Distance, index = self.NearestFixedPoint(point)
         return index
 
     def UpdateWarpedPoint(self, index, point):
@@ -172,7 +172,7 @@ class Triangulation(Base):
         self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestWarpedPoint([point[0], point[1]])
+        Distance, index = self.NearestWarpedPoint(point)
         return index
 
     def RemovePoint(self, index):
@@ -276,7 +276,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = spatial.BoundsArrayFromPoints(self.FixedPoints)
+            self._FixedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.FixedPoints)
 
         return self._FixedBoundingBox
 
@@ -286,29 +286,29 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = spatial.BoundsArrayFromPoints(self.WarpedPoints)
+            self._MappedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.WarpedPoints)
 
         return self._MappedBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):
-        cx = self.FixedPoints[:, 1]
-        return np.ceil(np.max(cx)) - np.floor(np.min(cx))
+        raise DeprecationWarning("FixedBoundingBoxWidth is deprecated.  Use FixedBoundingBox.Width instead")
+        return self.FixedBoundingBox.Width
 
     @property
     def FixedBoundingBoxHeight(self):
-        cy = self.FixedPoints[:, 0]
-        return np.ceil(np.max(cy)) - np.floor(np.min(cy))
+        raise DeprecationWarning("FixedBoundingBoxHeight is deprecated.  Use FixedBoundingBox.Height instead")
+        return self.FixedBoundingBox.Height
 
     @property
     def MappedBoundingBoxWidth(self):
-        wx = self.WarpedPoints[:, 1]
-        return np.ceil(np.max(wx)) - np.floor(np.min(wx))
+        raise DeprecationWarning("MappedBoundingBoxWidth is deprecated.  Use MappedBoundingBox.Width instead")
+        return self.MappedBoundingBox.Width
 
     @property
     def MappedBoundingBoxHeight(self):
-        wy = self.WarpedPoints[:, 0]
-        return np.ceil(np.max(wy)) - np.floor(np.min(wy))
+        raise DeprecationWarning("MappedBoundingBoxHeight is deprecated.  Use MappedBoundingBox.Height instead")
+        return self.MappedBoundingBox.Height
 
     @property
     def points(self):
@@ -321,26 +321,42 @@ class Triangulation(Base):
 
     def GetFixedPointsRect(self, bounds):
         '''bounds = [left bottom right top]'''
+        #return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
+    
+    def GetFixedPointsInRect(self, bounds):
+        '''bounds = [left bottom right top]'''
         return self.GetPointPairsInRect(self.FixedPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds):
         '''bounds = [left bottom right top]'''
         return self.GetPointPairsInRect(self.WarpedPoints, bounds)
+    
+    def GetPointsInFixedRect(self, bounds):
+        '''bounds = [left bottom right top]'''
+        return self.GetPointPairsInRect(self.FixedPoints, bounds)
+
+    def GetPointsInWarpedRect(self, bounds):
+        '''bounds = [left bottom right top]'''
+        return self.GetPointPairsInRect(self.WarpedPoints, bounds)
 
     def GetPointPairsInRect(self, points, bounds):
-        FixedPoints = []
-        WarpedPoints = []
-
-        # TODO: Matrix version
-        # points[:, 0] >= bounds[0] and points[:]
-
+        OutputPoints = None
+         
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
-            if(x >= bounds[0] and x <= bounds[2] and y >= bounds[1] and y <= bounds[3]):
-                FixedPoints.append([self.points[iPoint, 0:2]])
-                WarpedPoints.append([self.points[iPoint, 2:4]])
+            if(x >= bounds[spatial.iRect.MinX] and x <= bounds[spatial.iRect.MaxX] and y >= bounds[spatial.iRect.MinY] and y <= bounds[spatial.iRect.MaxY]):
+                PointPair = self.points[iPoint, :] 
+                if(OutputPoints is None):
+                    OutputPoints = PointPair
+                else:
+                    OutputPoints = np.vstack((OutputPoints, PointPair))
 
-        return (FixedPoints, WarpedPoints)
+        if not OutputPoints is None:
+            if OutputPoints.ndim == 1:
+                OutputPoints = np.reshape(OutputPoints,(1, OutputPoints.shape[0]))
+                
+        return OutputPoints
 
     @property
     def FixedTriangles(self):

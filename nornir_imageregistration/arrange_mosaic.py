@@ -3,20 +3,22 @@ Created on Jul 10, 2012
 
 @author: Jamesan
 '''
-
-import logging
+ 
 from operator import attrgetter
 import os
 import numpy as np
-
-import scipy.sparse
-
+import scipy.spatial
+import itertools
+import math
+ 
+import nornir_imageregistration.spatial as spatial 
 import nornir_imageregistration.core as core
-import nornir_imageregistration.tileset as tileModule
-import nornir_imageregistration.transforms.factory as tfactory
+import nornir_imageregistration.tileset as tileModule 
 import nornir_imageregistration.tileset as tileset
-import nornir_imageregistration.layout as layout
+import nornir_imageregistration.layout
 from nornir_imageregistration.alignment_record import AlignmentRecord
+
+import nornir_pools
 
 
 def __RemoveTilesWithKnownOffset(reference, overlappingtiles):
@@ -33,81 +35,122 @@ def __RemoveTilesWithKnownOffset(reference, overlappingtiles):
         if overlapping.ID in reference.OffsetToTile:
             del overlappingtiles[i]
             continue
+        
 
 def TranslateTiles(transforms, imagepaths, imageScale=None):
     '''
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
     '''
 
-    tiles = layout.CreateTiles(transforms, imagepaths)
+    tiles = nornir_imageregistration.layout.CreateTiles(transforms, imagepaths)
 
     if imageScale is None:
         imageScale = tileModule.MostCommonScalar(transforms, imagepaths)
 
     _FindTileOffsets(tiles, imageScale)
-
-    layout = BuildBestTransformFirstMosaic(tiles)
+    
+    final_layout = BuildBestTransformFirstMosaic(tiles, imageScale)
 
     # Create a mosaic file using the tile paths and transforms
-    return layout
+    return final_layout
 
 
 def _FindTileOffsets(tiles, imageScale=None):
-    '''Populates the OffsetToTile dictionary for tiles'''
+    '''Populates the OffsetToTile dictionary for tiles
+    :param dict tiles: Dictionary mapping TileID to a tile
+    :param dict imageScale: downsample level if known.  None causes it to be calculated.'''
 
     if imageScale is None:
         imageScale = 1.0
 
-    idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
+    #idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
 
     CalculationCount = 0
+ 
+    pool = nornir_pools.GetLocalMachinePool()
+     
+    fft_tasks = [] 
+    
+    for t in tiles.values(): 
+        task = pool.add_task("Create padded image", t.PrecalculateImages)
+        task.tile = t
+        fft_tasks.append(task)
+        
+    print("Calculating FFTs\n")
+    for task in fft_tasks:
+        task.wait()
+             
+    tasks = list()
+       
+    for A,B in __iterateOverlappingTiles(tiles):
+        t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B)
+        t.A = A
+        t.B = B
+        tasks.append(t) 
+        CalculationCount += 1
+        print("Start alignment %d -> %d" % (A.ID, B.ID))
 
-    for t in tiles:
-        intersectingTilesIndex = list(idx.intersection(t.ControlBoundingBox, objects=False))
-        intersectingTiles = [tiles[x] for x in intersectingTilesIndex]
-
-        __RemoveTilesWithKnownOffset(t, intersectingTiles)
-
-        # intersectingTiles = list(idx.intersection(t.ControlBoundingBox, objects=True))
-        offsets = __FindOffsets(t, intersectingTiles)
-        CalculationCount += len(intersectingTiles)
-
-        for i, offset in enumerate(offsets):
-            overlappingTile = intersectingTiles[i]
-            offset.scale(1.0 / imageScale)
-            t.OffsetToTile[overlappingTile.ID] = offset
-            overlappingTile.OffsetToTile[t.ID] = offset.Invert()
-
-        print("Calculated %d offsets for %s" % (len(intersectingTiles), str(t)))
+    for t in tasks:
+        offset = t.wait_return()
+        __assign_offset(t.A, t.B, offset) 
 
     # TODO: Reposition the tiles based on the offsets
     print(("Total offset calculations: " + str(CalculationCount)))
 
     return tiles
 
+def __predicted_offset(A,B):
+    '''The expected offset to align B onto A
+       :rtype: numpy.array
+       :returns: A point''' 
+    return B.ControlBoundingBox.BottomLeft - A.ControlBoundingBox.BottomLeft
 
-def __FindOffsets(reference, overlapping):
-    '''
-    The adjacent transforms are known to overlap the reference transform.  Find the offset from the reference to each overlapping transform
-    '''
+def __offset_discrepancy(offsetA,offsetB):
+    '''The expected offset to align B onto A
+       :rtype: numpy.array
+       :returns: A point''' 
+    return offsetB - offsetA
 
-    fixedImage = reference.Image
+def __assign_offset(A, B, offset):
+    A.OffsetToTile[B.ID] = offset
+    B.OffsetToTile[A.ID] = offset.Invert()
+    print("Align %d -> %d %s" % (A.ID, B.ID, str(offset)))
+    return
 
-    offsets = []
+def __tile_offset(A,B):
+    return  core.FindOffset( A.FFTImage, B.FFTImage, FFT_Required=False)
 
-    for overlappingTile in overlapping:
-        warpedImage = overlappingTile.Image
-        offset = core.FindOffset(fixedImage, MovingImage=warpedImage)
-        offsets.append(offset)
+def __iterateOverlappingTiles(tiles, minOverlap = 0.05):
+    
+    for (A,B) in itertools.combinations(tiles.values(), 2):
+        if spatial.rectangle.Rectangle.overlap(A.ControlBoundingBox, B.ControlBoundingBox) >= minOverlap:
+            yield (A,B)
+        #if spatial.rectangle.Rectangle.contains(A.ControlBoundingBox, B.ControlBoundingBox):
+        #   yield (A,B)
 
-    return offsets
+# 
+# def __FindOffsets(reference, overlapping):
+#     '''
+#     The adjacent transforms are known to overlap the reference transform.  Find the offset from the reference to each overlapping transform
+#     '''
+# 
+#     fixedImage = reference.Image
+# 
+#     offsets = []
+# 
+#     for overlappingTile in overlapping:
+#         warpedImage = overlappingTile.Image
+#         offset = core.FindOffset(fixedImage, MovingImage=warpedImage)
+#         offsets.append(offset)
+# 
+#     return offsets
 
 
 def _BuildAlignmentRecordListWithTileIDs(tiles):
 
     offsets = []
 
-    for t in tiles:
+    for t in tiles.values():
         for targetID, Offset in list(t.OffsetToTile.items()):
             Offset.FixedTileID = t.ID
             Offset.MovingTileID = targetID
@@ -116,32 +159,86 @@ def _BuildAlignmentRecordListWithTileIDs(tiles):
 
     return offsets
 
+def _ScaleOffsetWeights(tile_dict):
+    '''
+    Take the known offsets for a tile.  Adjust the weights based on how far the offset is from the expected position
+    '''
+    
+    for tile in tile_dict.values():
+        _ScaleOffsetWeightsForTile(tile_dict, tile)
+         
+    return 
 
-def BuildBestTransformFirstMosaic(tiles):
+def _ScaleOffsetWeightsForTile(tile_dict, tile):
+    '''
+    Take the known offsets for a tile.  Adjust the weights based on how far the offset is from the expected position
+    '''
+    
+    distanceList = {}
+    for targetTileID, offset in tile.OffsetToTile.items():
+        target_tile = tile_dict[targetTileID]
+        predicted = __predicted_offset(tile, target_tile)
+        discrepancy = __offset_discrepancy(predicted, offset.peak)
+        #print("Discrepancy %04d -> %04d : %gx %gy" % (tile.ID, target_tile.ID, discrepancy[1], discrepancy[0]))
+        distanceList[targetTileID] = np.sqrt((discrepancy[0] * discrepancy[0]) + (discrepancy[1] * discrepancy[1]))
+    
+    totalDistance = sum(list(distanceList.values()))
+    medianDistance = np.median(np.array(list(distanceList.values())))
+    for targetTileID, distance in distanceList.items():
+        weight = medianDistance / distance
+        
+        #We only penalize offsets above the median.  We don't want to place too much emphasis on a potentially flawed stage layout
+        #if weight > 1.0:
+        #    weight = 1.0
+        #weight = distance / totalDistance
+        #inv_weight = 1.0 - weight
+         
+        #Adjust the weight of the offset by the calculated weight.
+        
+        offset = tile.OffsetToTile[targetTileID]
+        offset.weight *= weight
+        
+        print("Discrepancy weight %04d -> %04d\tdist: %3g scalar: %3g final: %3g" % (tile.ID, target_tile.ID, distance, weight, offset.weight)) 
+        
+    return 
+
+
+def BuildBestTransformFirstMosaic(tiles, image_size_scalar):
     '''
     Constructs a mosaic by sorting all of the match results according to strength. 
+    
+    :param dict tiles: Dictionary of tile objects containing alignment records to other tiles
+    :param float image_size_scalar: Scalar for transforms when downsampled images are used to create alignment records
     '''
 
     placedTiles = dict()
+    
+    _ScaleOffsetWeights(tiles)
 
     arecords = _BuildAlignmentRecordListWithTileIDs(tiles)
 
     arecords.sort(key=attrgetter('weight'), reverse=True)
 
     LayoutList = []
+    
+    downsample = 1.0 / image_size_scalar
 
     for record in arecords:
+        
+        record.peak[0] *= downsample
+        record.peak[1] *= downsample
+          
         print(str(record.FixedTileID) + ' -> ' + str(record.MovingTileID) + " " + str(record) + " " + os.path.basename(tiles[record.FixedTileID].ImagePath) + " " + os.path.basename(tiles[record.MovingTileID].ImagePath))
 
         if np.isnan(record.weight):
             print("Skip: Invalid weight, not a number")
             continue
 
-        fixedTileLayout = layout.TileLayout.GetLayoutForID(LayoutList, record.FixedTileID)
-        movingTileLayout = layout.TileLayout.GetLayoutForID(LayoutList, record.MovingTileID)
+        fixedTileLayout = nornir_imageregistration.layout.TileLayout.GetLayoutForID(LayoutList, record.FixedTileID)
+        movingTileLayout = nornir_imageregistration.layout.TileLayout.GetLayoutForID(LayoutList, record.MovingTileID)
 
         if fixedTileLayout is None and movingTileLayout is None:
-            fixedTileLayout = layout.TileLayout(tiles)
+            fixedTileLayout = nornir_imageregistration.layout.TileLayout(tiles)
             fixedTileLayout.AddTileViaAlignment(record)
             LayoutList.append(fixedTileLayout)
             print("New layout")
@@ -153,7 +250,7 @@ def BuildBestTransformFirstMosaic(tiles):
                 # print "Skip: Already mapped"
                 continue
             else:
-                layout.TileLayout.MergeLayoutsWithAlignmentRecord(fixedTileLayout, movingTileLayout, record)
+                nornir_imageregistration.layout.TileLayout.MergeLayoutsWithAlignmentRecord(fixedTileLayout, movingTileLayout, record)
                 print("Merged")
                 LayoutList.remove(movingTileLayout)
         else:

@@ -39,11 +39,11 @@ class TestVolume(unittest.TestCase):
 
         volBounds = vol.VolumeBounds
 
-        self.assertEqual(volBounds, (-10, -10, 10, 10), "Volume bounds are not correct")
+        self.assertEqual(volBounds.ToTuple(), (-10, -10, 10, 10), "Volume bounds are not correct")
         vol.TranslateToZeroOrigin()
 
         zeroedVolBounds = vol.VolumeBounds
-        self.assertEqual(zeroedVolBounds, (0, 0, 20, 20), "Volume bounds are not correct")
+        self.assertEqual(zeroedVolBounds.ToTuple(), (0, 0, 20, 20), "Volume bounds are not correct")
         pass
 
 

@@ -10,21 +10,7 @@ import numpy as np
 from .indicies import *
 from .rectangle import Rectangle
 
-def BoundsArrayFromPoints(points):
-    '''
-    :param ndarray points: (Z?,Y,X) 3xN or 2xN array of points
-    :return: (minZ, minY, minX, maxZ, maxY, maxX) or (minY, minX, maxY, maxX)'''
-
-    min_point = np.min(points, 0)
-    max_point = np.max(points, 0)
-
-    if(points.shape[1] == 2):
-        return np.array((min_point[iPoint.Y], min_point[iPoint.X], max_point[iPoint.Y], max_point[iPoint.X]))
-    elif(points.shape[1] == 3):
-        return  np.array((min_point[iPoint3.Z], min_point[iPoint3.Y], min_point[iPoint3.X], max_point[iPoint3.Z], max_point[iPoint3.Y], max_point[iPoint3.X]))
-    else:
-        raise Exception("PointBoundingBox: Unexpected number of dimensions in point array" + str(points.shape))
-
+import nornir_imageregistration.spatial
 
 class BoundingBox(object):
     '''
@@ -71,6 +57,14 @@ class BoundingBox(object):
 
     def ToArray(self):
         return np.array(self._bounds)
+    
+    def ToTuple(self):
+        return (self._bounds[iBox.MinZ],
+                self._bounds[iBox.MinY],
+                self._bounds[iBox.MinX],
+                self._bounds[iBox.MaxZ],
+                self._bounds[iBox.MaxY],
+                self._bounds[iBox.MaxX])
 
     @property
     def RectangleXY(self):
@@ -91,7 +85,7 @@ class BoundingBox(object):
 
     @classmethod
     def CreateFromPoints(cls, points):
-        boundingArray = BoundsArrayFromPoints(points)
+        boundingArray = nornir_imageregistration.spatial.BoundsArrayFromPoints(points)
         return BoundingBox(bounds=boundingArray)
 
     @classmethod

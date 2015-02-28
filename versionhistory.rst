@@ -1,4 +1,12 @@
 
+1.2.4
+-----
+
+**Fixed**
+
+* Support for translating tiles in a mosaic based on stage position
+* Bug fixes
+
 1.2.3
 -----
 

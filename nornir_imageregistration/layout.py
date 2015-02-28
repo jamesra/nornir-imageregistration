@@ -16,7 +16,7 @@ def CreateTiles(transforms, imagepaths):
     :return: List of N tile objects
     '''
 
-    tiles = []
+    tiles = {}
     for i, t in enumerate(transforms):
 
         if not os.path.exists(imagepaths[i]):
@@ -25,8 +25,8 @@ def CreateTiles(transforms, imagepaths):
             continue
 
         tile = Tile(t, imagepaths[i], i)
-        tiles.append(tile)
-
+        tiles[tile.ID] = tile
+        
     return tiles
 
 
@@ -62,11 +62,16 @@ class Tile(object):
     @property
     def Image(self):
         if self._image is None:
-            img = core.LoadImage(self._imagepath)
-            self._image = core.PadImageForPhaseCorrelation(img)
-            del img
+            self._image = core.LoadImage(self._imagepath)
 
         return self._image
+    
+    @property
+    def PaddedImage(self):
+        if self._paddedimage is None:
+            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)            
+
+        return self._paddedimage
 
     @property
     def ImagePath(self):
@@ -75,9 +80,19 @@ class Tile(object):
     @property
     def FFTImage(self):
         if self._fftimage is None:
-            self._fftimage = np.fft.rfft2(self.Image)
+            self._fftimage = np.fft.rfft2(self.PaddedImage)
 
         return self._fftimage
+    
+    def PrecalculateImages(self):
+        temp = self.FFTImage.shape
+        
+    @property
+    def OffsetToTile(self):
+        '''
+        Dictionary of alignment records to other tiles by ID
+        :returns: Dictionary mapping TileID to alignment record''' 
+        return self._OffsetToTile
 
     @property
     def ID(self):
@@ -106,7 +121,9 @@ class Tile(object):
         self._transform = transform
         self._imagepath = imagepath
         self._image = None
+        self._paddedimage = None
         self._fftimage = None
+        self._OffsetToTile = dict()        
         if ID is None:
             self._ID = Tile.__nextID
             Tile.__nextID += 1
@@ -118,21 +135,26 @@ class Tile(object):
 
 
 class TileLayout(object):
-    '''Arranges tiles in 2D space to form a mosaic'''
+    '''Arranges tiles in 2D space that form a mosaic.'''
 
     @property
     def TileIDs(self):
+        '''List of tile IDs used in the layout'''
         return list(self._TileToTransform.keys())
 
     def Contains(self, ID):
+        ''':rtype: bool
+           :return: True if layout contains the ID
+        '''
         return ID in self.TileToTransform
 
     def GetTileOrigin(self, ID):
+        '''Position of the bottom left corner, (0,0), of the tile in the mosaic
+           :rtype: numpy.Array with point
+           ''' 
         refTransform = self.TileToTransform[ID]
-        (minY, minX, maxY, maxX) = refTransform.FixedBoundingBox
-
-        return (minY, minX)
-
+        return refTransform.FixedBoundingBox.BottomLeft
+        
     @property
     def Tiles(self):
         '''Tiles contained within this layout'''
@@ -149,7 +171,8 @@ class TileLayout(object):
         if tile.ID in self.TileToTransform:
             return False
 
-        self.TileToTransform[tile.ID] = TranslationTransformForAlignmentRecord(tile, arecord=None)
+        self.TileToTransform[tile.ID] = TranslationTransformForAlignmentRecord((tile.MappedBoundingBox[spatial.iRect.MaxY],
+                                                                               tile.MappedBoundingBox[spatial.iRect.MaxX]), arecord=None)
 
         return True
 
@@ -165,7 +188,8 @@ class TileLayout(object):
         movingTile = self._tiles[arecord.MovingTileID]
         arecord.translate((minY, minX))
 
-        newTransform = TranslationTransformForAlignmentRecord(movingTile, arecord)
+        newTransform = TranslationTransformForAlignmentRecord((movingTile.MappedBoundingBox[spatial.iRect.MaxY],
+                                                              movingTile.MappedBoundingBox[spatial.iRect.MaxX]), arecord)
         self.TileToTransform[arecord.MovingTileID] = newTransform
 
 
