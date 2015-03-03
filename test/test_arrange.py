@@ -8,8 +8,7 @@ import unittest
 from . import setup_imagetest
 import glob
 import nornir_imageregistration.assemble_tiles as at
-import nornir_imageregistration.tileset as tileset
-import nornir_imageregistration.tile
+import nornir_imageregistration.tileset as tileset 
 import nornir_imageregistration.core as core
 import nornir_imageregistration.layout as layout
 from nornir_imageregistration.alignment_record import AlignmentRecord

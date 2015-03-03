@@ -2,6 +2,7 @@ import logging
 import os
 
 import nornir_imageregistration.transforms.factory as tfactory
+import nornir_imageregistration.tile
 import numpy as np
 
 from . import alignment_record
@@ -24,114 +25,91 @@ def CreateTiles(transforms, imagepaths):
             log.error("Missing tile: " + imagepaths[i])
             continue
 
-        tile = Tile(t, imagepaths[i], i)
+        tile = nornir_imageregistration.tile.Tile(t, imagepaths[i], i)
         tiles[tile.ID] = tile
         
     return tiles
 
 
-class Tile(object):
+
+class LayoutPosition(object):
+    '''This is an anchor with a number of springs of a certain length attached.  In our use the anchor is a tile and the spring size
+       and strength is determined by the offset to overlap an adjacent tile
+       
+       Offsets is a numpy array of the form [[ID Y X Weight]]
     '''
-    A combination of a transform and a path to an image on disk.  Image will be loaded on demand
-    '''
-
-    __nextID = 0
-
-    @property
-    def MappedBoundingBox(self):
-        return self._transform.MappedBoundingBox
-
-    @property
-    def ControlBoundingBox(self):
-        return self._transform.FixedBoundingBox
-
-    @property
-    def OriginalImageSize(self):
-        dims = self.MappedBoundingBox
-        return (dims[spatial.iRect.MaxY] - dims[spatial.iRect.MinY], dims[spatial.iRect.MaxX] - dims[spatial.iRect.MinY])
-
-    @property
-    def WarpedImageSize(self):
-        dims = self.ControlBoundingBox
-        return (dims[spatial.iRect.MaxY] - dims[spatial.iRect.MinY], dims[spatial.iRect.MaxX] - dims[spatial.iRect.MinY])
-
-    @property
-    def Transform(self):
-        return self._transform
-
-    @property
-    def Image(self):
-        if self._image is None:
-            self._image = core.LoadImage(self._imagepath)
-
-        return self._image
     
-    @property
-    def PaddedImage(self):
-        if self._paddedimage is None:
-            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)            
-
-        return self._paddedimage
-
-    @property
-    def ImagePath(self):
-        return self._imagepath
-
-    @property
-    def FFTImage(self):
-        if self._fftimage is None:
-            self._fftimage = np.fft.rfft2(self.PaddedImage)
-
-        return self._fftimage
+    iOffsetID = 0
+    iOffsetY = 1 
+    iOffsetX = 2 
+    iOffsetWeight = 3
     
-    def PrecalculateImages(self):
-        temp = self.FFTImage.shape
-        
-    @property
-    def OffsetToTile(self):
-        '''
-        Dictionary of alignment records to other tiles by ID
-        :returns: Dictionary mapping TileID to alignment record''' 
-        return self._OffsetToTile
-
+    #offset_dtype = np.dtype([('ID', np.int32), ('Y', np.float32), ('X', np.float32), ('Weight', np.float32)])
+     
     @property
     def ID(self):
         return self._ID
-
-    @classmethod
-    def CreateTiles(cls, transforms, imagepaths):
-
-        tiles = []
-        for i, t in enumerate(transforms):
-
-            if not os.path.exists(imagepaths[i]):
-                log = logging.getLogger(__name__ + ".CreateTiles")
-                log.error("Missing tile: " + imagepaths[i])
-                continue
-
-            tile = Tile(t, imagepaths[i], i)
-            tiles.append(tile)
-
-        return tiles
-
-    def __init__(self, transform, imagepath, ID=None):
-
-        global __nextID
-
-        self._transform = transform
-        self._imagepath = imagepath
-        self._image = None
-        self._paddedimage = None
-        self._fftimage = None
-        self._OffsetToTile = dict()        
-        if ID is None:
-            self._ID = Tile.__nextID
-            Tile.__nextID += 1
+    
+    @property
+    def Position(self):
+        '''Our position in the layout'''
+        return self._position
+    
+    @Position.setter
+    def Position(self, value):
+        '''Our position in the layout'''
+        if not isinstance(value, np.ndarray):
+            self._position = np.array(value)
         else:
-            self._ID = ID
+            self._position = value
+        
+        assert(self._position.ndim == 1)
+        return 
+        
+    @property
+    def KnownOffsetIDs(self):
+        return self._OffsetArray[:,LayoutPosition.iOffsetID]
+    
+    def SetOffset(self, ID, offset, weight):
+        '''Set the offset for the specified Layout position ID.  
+           This means that when we subtract our position from the other ID's position we hope to obtain this offset value. 
+        '''
+        
+        new_row = np.array((ID, offset[0], offset[1], weight))#, dtype=LayoutPosition.offset_dtype, ndmin=2)
+        iKnown = self.KnownOffsetIDs == ID
+        if np.any(iKnown):
+            #Update a row
+            self._OffsetArray[iKnown] = new_row            
+        else:
+            #Insert a new row
+            self._OffsetArray = np.vstack((self._OffsetArray, new_row))
+            if self._OffsetArray.ndim == 1:
+                self._OffsetArray = np.reshape(self._OffsetArray, (1, self._OffsetArray.shape[0]))
+                
+            self._OffsetArray = np.sort(self._OffsetArray, 0)
+            
+        return
+     
+    @property
+    def NetTensionVector(self):
+        '''The direction of the vector this tile wants to move after summing all of the offsets'''
+        
+        #TODO, take weight into account
+        return np.sum(self._OffsetArray[:,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1],0)
+     
+    def __init__(self, ID, position, *args, **kwargs):
+        
+        self._ID = ID 
+        self.Position = position
+        self._OffsetArray = np.empty((0,4)) #dtype=LayoutPosition.offset_dtype)
+        
 
-    def __str__(self):
-        return "%d: %s" % (self._ID, self._imagepath)
+class SpringLayout(object):
+    '''Arranges tiles in 2D space to form a mosaic'''
+    
+    def __init__(self):
+        
+        return 
 
 
 class TileLayout(object):

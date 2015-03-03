@@ -7,6 +7,7 @@ Created on Feb 21, 2014
 import logging
 import os
 
+import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.core as core
 import numpy as np
 
@@ -21,7 +22,7 @@ class Tile(object):
     @property
     def MappedBoundingBox(self):
         return self._transform.MappedBoundingBox
-
+ 
     @property
     def ControlBoundingBox(self):
         return self._transform.FixedBoundingBox
@@ -29,12 +30,12 @@ class Tile(object):
     @property
     def OriginalImageSize(self):
         dims = self.MappedBoundingBox
-        return (dims[3] - dims[1], dims[2] - dims[0])
+        return (dims[spatial.iRect.MaxY] - dims[spatial.iRect.MinY], dims[spatial.iRect.MaxX] - dims[spatial.iRect.MinY])
 
     @property
     def WarpedImageSize(self):
         dims = self.ControlBoundingBox
-        return (dims[3] - dims[1], dims[2] - dims[0])
+        return (dims[spatial.iRect.MaxY] - dims[spatial.iRect.MinY], dims[spatial.iRect.MaxX] - dims[spatial.iRect.MinY])
 
     @property
     def Transform(self):
@@ -43,13 +44,14 @@ class Tile(object):
     @property
     def Image(self):
         if self._image is None:
-            img = core.LoadImage(self._imagepath)
-            return img
+            self._image = core.LoadImage(self._imagepath)
+        
+        return self._image
         
     @property
     def PaddedImage(self):
         if self._paddedimage is None:
-            self._paddedimage = core.PadImageForPhaseCorrelation(self._image)            
+            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)            
 
         return self._paddedimage
 
@@ -60,9 +62,12 @@ class Tile(object):
     @property
     def FFTImage(self):
         if self._fftimage is None:
-            self._fftimage = np.fft.rfft2(self.Image)
+            self._fftimage = np.fft.rfft2(self.PaddedImage)
 
         return self._fftimage
+    
+    def PrecalculateImages(self):
+        temp = self.FFTImage.shape
 
     @property
     def ID(self):
@@ -91,6 +96,7 @@ class Tile(object):
         self._transform = transform
         self._imagepath = imagepath
         self._image = None
+        self._paddedimage = None
         self._fftimage = None
 
         if ID is None:
