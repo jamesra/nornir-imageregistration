@@ -150,27 +150,38 @@ class Rectangle(object):
 
         return True
     
-    @classmethod 
-    def overlap(cls, A, B):
-        ''':rtype: float
-           :returns: 0 to 1 indicating area of A overlapped by B
-           '''
+    @classmethod
+    def overlap_rect(cls, A, B):
+        '''
+        :rtype: Rectangle
+        :returns: The rectangle describing the overlapping regions of rectangles A and B
+        '''
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
         
         if not cls.contains(A,B):
-            return 0.0
+            return None
         
         minX = max((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
         minY = max((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
         maxX = min((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
         maxY = min((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
         
-        overlapping_rect = Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+        return Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+    
+    @classmethod 
+    def overlap(cls, A, B):
+        '''
+        :rtype: float
+        :returns: 0 to 1 indicating area of A overlapped by B
+        '''
+       
+        overlapping_rect = cls.overlap_rect(A, B)
+        if overlapping_rect is None:
+            return 0.0
         
         return overlapping_rect.Area / A.Area         
-        
-        
+         
 
     def __str__(self):
         return "MinX: %g MinY: %g MaxX: %g MaxY: %g" % (self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])
