@@ -201,7 +201,7 @@ def ResizeImage(image, scalar):
     
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
 
-def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
+def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     '''
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -226,8 +226,14 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
     if image is None:
         return None
     
-    assert(isinstance(Width, int))
-    assert(isinstance(Height, int))
+    if not isinstance(Width, int):
+        Width = int(Width)
+    
+    if not isinstance(Height, int):
+        Height = int(Height)
+        
+    #assert(isinstance(Width, int))
+    #assert(isinstance(Height, int))
 
     in_startY = Yo
     in_startX = Xo
@@ -256,10 +262,10 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
         out_endY = out_startY + (in_endY - in_startY)
 
     cropped = None
-    if background is None:
+    if cval is None:
         cropped = np.zeros((Height, Width), dtype=image.dtype)
     else:
-        cropped = np.ones((Height, Width), dtype=image.dtype) * background
+        cropped = np.ones((Height, Width), dtype=image.dtype) * cval
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
@@ -845,7 +851,8 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
-       moving image must be rotated and translated to align perfectly with the FixedImage'''
+       moving image must be rotated and translated to align perfectly with the FixedImage
+       '''
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))

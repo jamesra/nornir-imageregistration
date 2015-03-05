@@ -80,19 +80,21 @@ def ExtractRegion(image, botleft=None, area=None, cval=0):
     :rtype: ndarray
     
     '''
-    if botleft is None:
-        botleft = (0, 0)
-
-    if area is None:
-        area = image.shape
-
-    coords = GetROICoords(botleft, area)
-
-    transformedImage = interpolation.map_coordinates(image, coords.transpose(), order=0, mode='constant', cval=cval)
-
-    transformedImage = transformedImage.reshape(area)
-    return transformedImage
-
+    
+    raise DeprecationWarning("Deprecated __ExtractRegion call being used, use core.CropImage instead")
+#     if botleft is None:
+#         botleft = (0, 0)
+# 
+#     if area is None:
+#         area = image.shape
+# 
+#     coords = GetROICoords(botleft, area)
+# 
+#     transformedImage = interpolation.map_coordinates(image, coords.transpose(), order=0, mode='constant', cval=cval)
+# 
+#     transformedImage = transformedImage.reshape(area)
+#     return transformedImage
+ 
 
 def __ExtractRegion(image, botleft, area):
     print("Deprecated __ExtractRegion call being used")
@@ -121,7 +123,8 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
     if maxCoord[1] > input_image.shape[1]:
         maxCoord[1] = input_image.shape[1]
 
-    cropped_image = ExtractRegion(input_image, minCoord, (maxCoord - minCoord), cval=cval)
+    #cropped_image = ExtractRegion(input_image, minCoord, (maxCoord - minCoord), cval=cval)
+    cropped_image = core.CropImage(input_image, Xo=minCoord[1], Yo=minCoord[0], Width=maxCoord[1] - minCoord[1], Height=maxCoord[0] - minCoord[0], cval=cval)
     translated_coordinates = coordinates - minCoord
     
     return (cropped_image, translated_coordinates)
