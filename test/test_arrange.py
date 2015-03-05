@@ -10,7 +10,7 @@ import glob
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.tileset as tileset 
 import nornir_imageregistration.core as core
-import nornir_imageregistration.layout as layout
+import nornir_imageregistration.layout
 from nornir_imageregistration.alignment_record import AlignmentRecord
 from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
@@ -21,24 +21,23 @@ import numpy as np
 from scipy import stats
 import nornir_imageregistration.arrange_mosaic as arrange
 
+import nornir_pools
 from nornir_shared.tasktimer import TaskTimer
+import nornir_shared.plot
 
 import nornir_imageregistration.mosaic
 from nornir_imageregistration.mosaic import Mosaic
 
 
-def _GetFirstOffsetPair(tiles):
+def _GetFirstOffsetPair(layout_obj):
     '''Return the first offset from the tile list'''
 
-    tileA = tiles[0]
-
-    tileB_ID = list(tileA.OffsetToTile.keys())[0]
-
-    tileB = tiles[tileB_ID]
-
-    offset = tileA.OffsetToTile[tileB_ID]
-
-    return (tileA, tileB, offset)
+    NodeA = layout_obj.nodes[0]
+    NodeB_ID = NodeA.ConnectedIDs[0]
+    NodeB = layout_obj.nodes[NodeB_ID]
+    NodeB_Offset = NodeA.GetOffset(NodeB_ID)
+    
+    return (NodeA, NodeB, NodeB_Offset)
 
 
 class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
@@ -129,16 +128,18 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         (assembledImage, mask) = mosaic.AssembleTiles(tilesPath=None, usecluster=usecluster)
         
         if not mosaic_path is None:
-            core.SaveImage(mosaic_path, assembledImage)
+            pool = nornir_pools.GetGlobalThreadPool()
+            pool.add_task("Save %s" % mosaic_path, core.SaveImage, mosaic_path, assembledImage)
+            #core.SaveImage(mosaic_path, assembledImage)
         
         if openwindow:
-            core.ShowGrayscale(assembledImage)
+            core.ShowGrayscale(assembledImage, title="A mosaic with no tiles out of place")
 
 
-    def __CheckNoOffsetsToSelf(self, tiles):
+    def __CheckNoOffsetsToSelf(self, layout):
 
-        for i, t in enumerate(tiles):
-            self.assertFalse(i in t.OffsetToTile, "Tiles should not be registered to themselves")
+        for i, node in layout.nodes.items():
+            self.assertFalse(i in node.ConnectedIDs, "Tiles should not be registered to themselves")
 
 
     def __RemoveExtraImages(self, mosaic):
@@ -153,18 +154,18 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
     
     def LoadTilesAndCalculateOffsets(self, transforms, imagepaths, imageScale=None):
-        tiles = layout.CreateTiles(transforms, imagepaths)
+        tiles = nornir_imageregistration.layout.CreateTiles(transforms, imagepaths)
 
         if imageScale is None:
             imageScale = tileset.MostCommonScalar(transforms, imagepaths)
     
-        arrange._FindTileOffsets(tiles, imageScale)
+        translate_layout = arrange._FindTileOffsets(tiles, imageScale)
         
-        self.__CheckNoOffsetsToSelf(tiles.values())
+        self.__CheckNoOffsetsToSelf(translate_layout)
         
-        return tiles
+        return (translate_layout, tiles)
 
-    def ArrangeMosaicDirect(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None):
+    def ArrangeMosaicDirect(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None, openwindow=False):
 
         if downsample is None:
             downsample = 1
@@ -206,26 +207,66 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
         self.assertEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
    
-        tiles = self.ReadOrCreateVariable("tiles_%03d" % downsample, self.LoadTilesAndCalculateOffsets, transforms=transforms, imagepaths=tilesPathList)
+        (translated_layout, tiles) = self.ReadOrCreateVariable("tiles_%03d" % downsample, self.LoadTilesAndCalculateOffsets, transforms=transforms, imagepaths=tilesPathList)
   
         # Each tile should contain a dictionary with the known offsets.  Show the overlapping images using the calculated offsets
 
-        (tileA, tileB, offset) = _GetFirstOffsetPair(tiles)
+        (tileA, tileB, offset) = _GetFirstOffsetPair(translated_layout)
 
         # self.ShowTilesWithOffset(tileA, tileB, offset)
-
         # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
-        final_layout = arrange.BuildBestTransformFirstMosaic(tiles, imageScale)
+        final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translated_layout)
         
-        translated_mosaic = nornir_imageregistration.mosaic.LayoutToMosaic(final_layout)
+        self.CreateSaveShowMosaic(mosaicBaseName, final_layout, tiles, openwindow)
         
-        OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
-        OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
-
-        translated_mosaic.SaveToMosaicFile(OutputDir)
+        nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
+        relaxed_layout = self._Relax_Layout(translated_layout)
         
-        self._ShowMosaic(translated_mosaic, OutputMosaicDir, openwindow=False)
+        self.CreateSaveShowMosaic(mosaicBaseName + "_relaxed", relaxed_layout, tiles, openwindow)
+ 
         
+    def CreateSaveShowMosaic(self, name, layout_obj, tiles, openwindow=False):
+        OutputDir = os.path.join(self.TestOutputPath, name + '.mosaic')
+        OutputMosaicDir = os.path.join(self.TestOutputPath, name + '.png')
+        
+        created_mosaic = nornir_imageregistration.mosaic.LayoutToMosaic(layout_obj, tiles)
+        created_mosaic.SaveToMosaicFile(OutputDir)
+        self._ShowMosaic(created_mosaic, OutputMosaicDir, openwindow=False)
+        
+        return
+    
+    def _array_distance(self,array):
+        '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
+        return np.sqrt(np.sum(array ** 2,1))
+    
+    def _Relax_Layout(self, layout_obj):
+        
+        node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
+        node_distance = self._array_distance(node_movement[:,1:3])        
+        max_distance = np.max(node_distance,0)
+        
+        max_iter = 100
+        i = 0
+        
+        pool = nornir_pools.GetGlobalMultithreadingPool()
+        
+        MovieImageDir = os.path.join(self.TestOutputPath, "relax_movie")
+        if not os.path.exists(MovieImageDir):
+            os.makedirs(MovieImageDir)
+            
+        while max_distance > 0.5 and i < max_iter:
+            print("%d %g" % (i, max_distance))
+            node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
+            node_distance = self._array_distance(node_movement[:,1:3])             
+            max_distance = np.max(node_distance,0)
+            i += 1
+            
+            filename = os.path.join(MovieImageDir, "%d.png" % i)
+            
+            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            
+        return layout_obj
 
     def ArrangeMosaic(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None):
  
@@ -271,9 +312,13 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
          
         translated_mosaic.SaveToMosaicFile(OutputDir)
         
+        
+         
+        
+        
     def test_RC2Mosaic(self):
         
-        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4)
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
 
         print("All done")
 
@@ -287,7 +332,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
     def test_ArrangeMosaicDirect(self):
 
         for m in self.MosaicFiles:
-            self.ArrangeMosaicDirect(m, TilePyramidDir=None, parallel=False, downsample=1)
+            self.ArrangeMosaicDirect(m, TilePyramidDir=None, parallel=False, downsample=1, openwindow=True)
 
         print("All done")
 

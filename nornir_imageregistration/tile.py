@@ -15,8 +15,7 @@ import numpy as np
 class Tile(object):
     '''
     A combination of a transform and a path to an image on disk.  Image will be loaded on demand
-    '''
-
+    ''' 
     __nextID = 0
 
     @property
@@ -51,7 +50,7 @@ class Tile(object):
     @property
     def PaddedImage(self):
         if self._paddedimage is None:
-            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)            
+            self._paddedimage = core.PadImageForPhaseCorrelation(self.Image)
 
         return self._paddedimage
 

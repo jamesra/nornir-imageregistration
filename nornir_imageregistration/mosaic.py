@@ -14,15 +14,17 @@ import os
 import copy
 import nornir_pools as pools
 import nornir_imageregistration.arrange_mosaic as arrange
+import nornir_imageregistration
 
 
-def LayoutToMosaic(layout):
+def LayoutToMosaic(layout, tiles):
 
     mosaic = Mosaic()
 
-    for ID, Transform in list(layout.TileToTransform.items()):
-        tile = layout.Tiles[ID]
-        mosaic.ImageToTransform[tile.ImagePath] = Transform
+    for ID, Transform in tiles.items():
+        tile = tiles[ID]
+        transform = nornir_imageregistration.layout.CreateTransform(layout, ID, tile.MappedBoundingBox)
+        mosaic.ImageToTransform[tile.ImagePath] = transform
 
     mosaic.TranslateToZeroOrigin()
 
@@ -189,9 +191,9 @@ class Mosaic(object):
 
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
-        layout = arrange.TranslateTiles(list(self.ImageToTransform.values()), tilesPathList)
+        (layout, tiles) = arrange.TranslateTiles(list(self.ImageToTransform.values()), tilesPathList)
 
-        return LayoutToMosaic(layout)
+        return LayoutToMosaic(layout,tiles)
 
 
     def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
