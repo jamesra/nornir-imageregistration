@@ -494,7 +494,7 @@ def ImageToTilesGenerator(source_image, tile_size):
     
     (required_shape) = grid_shape * tile_size 
     
-    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), background=None)
+    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), cval=0)
     
     #Build the output dictionary
     StartY = 0 

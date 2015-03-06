@@ -187,7 +187,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[256][256] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask)
+        updatedImage = core.RandomNoiseMask(image, mask,Copy=True)
         # core.ShowGrayscale(updatedImage)
 
         self.assertIsNotNone(updatedImage)
@@ -209,7 +209,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[32][32] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask)
+        updatedImage = core.RandomNoiseMask(image, mask,Copy=True)
 
         # core.ShowGrayscale(updatedImage)
         self.assertIsNotNone(updatedImage)

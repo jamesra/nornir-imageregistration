@@ -124,7 +124,7 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
         maxCoord[1] = input_image.shape[1]
 
     #cropped_image = ExtractRegion(input_image, minCoord, (maxCoord - minCoord), cval=cval)
-    cropped_image = core.CropImage(input_image, Xo=minCoord[1], Yo=minCoord[0], Width=maxCoord[1] - minCoord[1], Height=maxCoord[0] - minCoord[0], cval=cval)
+    cropped_image = core.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=int(maxCoord[1] - minCoord[1]), Height=int(maxCoord[0] - minCoord[0]), cval=cval)
     translated_coordinates = coordinates - minCoord
     
     return (cropped_image, translated_coordinates)
