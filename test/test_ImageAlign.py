@@ -72,10 +72,11 @@ class Test(setup_imagetest.ImageTestBase):
 #        self.assertAlmostEqual(record.peak[1], 177, msg = "Expected Y offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
 
 
-class TestBrandeis(setup_imagetest.ImageTestBase):
-    '''Test TEM images captured on a different scope than the Moran Eye Center JEOL'''
+class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
+    
 
-    def testPhaseCorrelationToOffset(self):
+    def test_Brandeis(self):
+        '''Test TEM images captured on a different scope than the Moran Eye Center JEOL'''
         FixedImagePath = os.path.join(self.ImportedDataPath, "B030.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
@@ -100,6 +101,34 @@ class TestBrandeis(setup_imagetest.ImageTestBase):
         self.assertEqual(record.angle, 0.0)
         self.assertAlmostEqual(record.peak[0], 452, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
         self.assertAlmostEqual(record.peak[1], -10, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
+          
+    
+    def test_DifficultRC2RodCellBodies(self):
+        FixedImagePath = os.path.join(self.ImportedDataPath, "RC2", "0197", "563L.png")
+        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "RC2", "0197", "578R.png")
+        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+
+        FixedImage = core.LoadImage(FixedImagePath)
+        
+        self.assertIsNotNone(FixedImage)
+
+        PaddedFixedImage = core.PadImageForPhaseCorrelation(FixedImage)
+        self.assertIsNotNone(PaddedFixedImage)
+
+        WarpedImage = core.LoadImage(WarpedImagePath)
+        self.assertIsNotNone(WarpedImage)
+
+        PaddedWarpedImage = core.PadImageForPhaseCorrelation(WarpedImage)
+        self.assertIsNotNone(PaddedWarpedImage)
+
+        record = core.FindOffset(PaddedFixedImage, PaddedWarpedImage)
+        self.assertIsNotNone(record)
+
+        self.assertEqual(record.angle, 0.0)
+        self.assertAlmostEqual(record.peak[0], 0, msg="Expected offset (0, -897.5): %s" % str(record), delta=1.5)
+        self.assertAlmostEqual(record.peak[1], -897.5, msg="Expected offset (0, -897.5): %s" % str(record), delta=1.5)
 
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']

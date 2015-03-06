@@ -180,7 +180,17 @@ class Rectangle(object):
         if overlapping_rect is None:
             return 0.0
         
-        return overlapping_rect.Area / A.Area         
+        return overlapping_rect.Area / A.Area
+    
+    @classmethod
+    def scale(cls, A, scale):
+        '''
+        Return a rectangle with the same center, but scaled in total area
+        '''
+        
+        new_size = A.Size * scale
+        bottom_left = A.Center - (new_size / 2.0)
+        return cls.CreateFromPointAndArea(bottom_left, new_size)
          
 
     def __str__(self):

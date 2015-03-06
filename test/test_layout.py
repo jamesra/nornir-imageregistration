@@ -138,8 +138,8 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         sprint_layout = Layout()
         
         positions = np.array([[0,0],
-                                [10,0],
-                                [-10,0]])
+                                [10,5],
+                                [-10,5]])
                                
         
         sprint_layout.CreateNode(0, positions[0,:])
@@ -159,6 +159,16 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         #OK, try to relax the layout and see where the nodes land
         displacements = Layout.RelaxNodes(sprint_layout)
         
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
+        
+        displacements = Layout.RelaxNodes(sprint_layout)
+         
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
+        #Nothing should happen on the second pass
+        displacements = Layout.RelaxNodes(sprint_layout)
+        
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
+        
         self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
         self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
         self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
@@ -170,9 +180,47 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         self.assertTrue(np.all(sprint_layout.GetPosition(2) == np.array(positions[2,:])))
         self.assertTrue(np.all(sprint_layout.GetPosition(3) == np.array(positions[3,:])))
         self.assertTrue(np.all(sprint_layout.GetPosition(4) == np.array(positions[4,:])))
+ 
+        print("Node Positions")
+        print(sprint_layout.GetPositions())
         
+    def test_weighted_line(self):
+        '''
+        Three points on a line with inconsistent desired offsets and weights
+        '''
+        sprint_layout = Layout()
+        
+        positions = np.array([[0,0],
+                                [10,5],
+                                [-10,5]])
+                               
+        
+        sprint_layout.CreateNode(0, positions[0,:])
+        sprint_layout.CreateNode(1, positions[1,:])
+        sprint_layout.CreateNode(2, positions[2,:]) 
+        
+        sprint_layout.SetOffset(0, 1, positions[1,:], weight=1)
+        sprint_layout.SetOffset(0, 2, positions[2,:], weight=1)
+        sprint_layout.SetOffset(1, 2, np.array([-15,0]), weight=1)
+         
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([-5,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([5,0])))
+        
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
+        
+        #OK, try to relax the layout and see where the nodes land
+        displacements = Layout.RelaxNodes(sprint_layout)
+        
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
+        
+        displacements = Layout.RelaxNodes(sprint_layout)
+         
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
         #Nothing should happen on the second pass
         displacements = Layout.RelaxNodes(sprint_layout)
+        
+        plot.VectorField(sprint_layout.GetPositions(), sprint_layout.NetTensionVectors())
         
         self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
         self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))

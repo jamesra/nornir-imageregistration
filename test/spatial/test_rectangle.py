@@ -5,6 +5,7 @@ Created on Mar 3, 2014
 '''
 import unittest
 import itertools
+import numpy as np
 
 import nornir_imageregistration.spatial as spatial
 
@@ -43,6 +44,15 @@ class Test(unittest.TestCase):
 
         self.CompareGroups(self.ARects, self.BRects)
         self.CompareCombinations(self.ARects)
+        
+    def testScale(self):
+        
+        rect = self.ARects["A1"]
+        scaled_rect = spatial.Rectangle.scale(rect, 2)
+        
+        self.assertTrue(np.allclose(rect.Center, scaled_rect.Center), "Scaled rectangle should have the same center")
+        self.assertTrue(np.allclose(rect.Area, scaled_rect.Area / 4), "Scaled rectangle should have quadruple the area")
+        self.assertTrue(np.allclose(rect.Size, scaled_rect.Size / 2), "Scaled rectangle should have double the size")
         
     def testOverlaps(self):
         

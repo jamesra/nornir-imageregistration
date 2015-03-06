@@ -203,11 +203,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
         transforms = list(mosaic.ImageToTransform.values())
         
-        imageScale = self.ReadOrCreateVariable("imageScale_%03d" % downsample, tileset.MostCommonScalar, transforms=transforms, imagepaths=tilesPathList)
+        imageScale = self.ReadOrCreateVariable(self.id() + "_imageScale_%03d" % downsample, tileset.MostCommonScalar, transforms=transforms, imagepaths=tilesPathList)
         
         self.assertEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
    
-        (translated_layout, tiles) = self.ReadOrCreateVariable("tiles_%03d" % downsample, self.LoadTilesAndCalculateOffsets, transforms=transforms, imagepaths=tilesPathList)
+        (translated_layout, tiles) = self.ReadOrCreateVariable(self.id() + "tiles_%03d" % downsample, self.LoadTilesAndCalculateOffsets, transforms=transforms, imagepaths=tilesPathList)
   
         # Each tile should contain a dictionary with the known offsets.  Show the overlapping images using the calculated offsets
 
@@ -316,9 +316,15 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
          
         
         
-    def test_RC2Mosaic(self):
+    def test_RC2_0197_Mosaic(self):
         
         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
+
+        print("All done")
+        
+    def test_RC2_0001_Mosaic(self):
+        
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0001\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0001\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
 
         print("All done")
 

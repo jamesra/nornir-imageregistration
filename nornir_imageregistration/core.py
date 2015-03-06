@@ -212,7 +212,8 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
        :param int Yo: Y origin for crop
        :param int Width: New width of image
        :param int Height: New height of image
-       :param int background: default value for regions outside the original image boundaries.  Defaults to 0.
+       :param int cval: default value for regions outside the original image boundaries.  Defaults to 0.  Use 'random' to fill with random noise matching images statistical profile
+       
        :return: Cropped image
        :rtype: ndarray
        '''
@@ -226,14 +227,14 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     if image is None:
         return None
     
-    if not isinstance(Width, int):
-        Width = int(Width)
-    
-    if not isinstance(Height, int):
-        Height = int(Height)
+#     if not isinstance(Width, int):
+#         Width = int(Width)
+#     
+#     if not isinstance(Height, int):
+#         Height = int(Height)
         
-    #assert(isinstance(Width, int))
-    #assert(isinstance(Height, int))
+    assert(isinstance(Width, int))
+    assert(isinstance(Height, int))
 
     in_startY = Yo
     in_startX = Xo
@@ -262,12 +263,20 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         out_endY = out_startY + (in_endY - in_startY)
 
     cropped = None
+    rMask = None
     if cval is None:
         cropped = np.zeros((Height, Width), dtype=image.dtype)
+    elif cval == 'random':
+        rMask = np.zeros((Height, Width), dtype=np.bool)
+        rMask[out_startY:out_endY, out_startX:out_endX] = True
+        cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = np.ones((Height, Width), dtype=image.dtype) * cval
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
+    
+    if not rMask is None:
+        RandomNoiseMask(cropped, rMask, Copy=False)
 
     return cropped
 
@@ -533,7 +542,10 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
     Height = image.shape[0]
     Width = image.shape[1]
 
-    MaskedImage = image.copy()
+    MaskedImage = image
+    if Copy:
+        MaskedImage = image.copy()
+        
     Image1D = MaskedImage.flat
     Mask1D = Mask.flat
 

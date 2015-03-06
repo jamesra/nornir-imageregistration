@@ -86,7 +86,7 @@ def _FindTileOffsets(tiles, imageScale=None):
 
     CalculationCount = 0
     
-    _CalculateImageFFTs(tiles)
+    #_CalculateImageFFTs(tiles)
  
     pool = nornir_pools.GetLocalMachinePool()
     tasks = list()
@@ -96,7 +96,7 @@ def _FindTileOffsets(tiles, imageScale=None):
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
       
     for A,B in __iterateOverlappingTiles(tiles):
-        t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B)
+        t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
         t.A = A
         t.B = B
         tasks.append(t) 
@@ -139,8 +139,44 @@ def __offset_discrepancy(offsetA,offsetB):
 #     print("Align %d -> %d %s" % (A.ID, B.ID, str(offset)))
 #     return
 
-def __tile_offset(A,B):
-    return  core.FindOffset( A.FFTImage, B.FFTImage, FFT_Required=False)
+def __get_overlapping_imagespace_rect_for_tile(tile_obj, overlapping_rect):
+    ''':return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space'''
+    image_space_points = tile_obj.Transform.InverseTransform(overlapping_rect.Corners)    
+    return spatial.BoundingPrimitiveFromPoints(np.round(image_space_points))
+
+def __get_overlapping_image(image, overlapping_rect, excess_scalar=1.5):
+    '''
+    Crop the tile's image so it contains the specified rectangle
+    '''
+    
+    scaled_rect = spatial.Rectangle.CreateFromBounds(np.around(spatial.Rectangle.scale(overlapping_rect, excess_scalar).ToArray()))
+    return core.CropImage(image,Xo=int(scaled_rect.BottomLeft[1]), Yo=int(scaled_rect.BottomLeft[0]), Width=int(scaled_rect.Width), Height=int(scaled_rect.Height), cval='random')
+    
+    #return core.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)
+   
+
+def __tile_offset(A,B, imageScale):
+    '''
+    First crop the images so we only send the half of the images which can overlap
+    '''
+    
+    overlapping_rect = spatial.Rectangle.overlap_rect(A.ControlBoundingBox,B.ControlBoundingBox)
+    
+    overlapping_rect_A = __get_overlapping_imagespace_rect_for_tile(A, overlapping_rect)
+    overlapping_rect_B = __get_overlapping_imagespace_rect_for_tile(B, overlapping_rect)
+    
+    downsampled_overlapping_rect_A = spatial.Rectangle.CreateFromBounds(np.around(overlapping_rect_A.ToArray() * imageScale))
+    downsampled_overlapping_rect_B = spatial.Rectangle.CreateFromBounds(np.around(overlapping_rect_B.ToArray() * imageScale))
+    ImageA = __get_overlapping_image(A.Image, downsampled_overlapping_rect_A)
+    ImageB = __get_overlapping_image(B.Image, downsampled_overlapping_rect_B)
+    
+    #core.ShowGrayscale([ImageA, ImageB])
+    #If the predicted alignment is perfect this is the offset we could have
+    OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
+      
+    record = core.FindOffset( ImageA, ImageB, FFT_Required=True)
+    adjusted_record = AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
+    return adjusted_record
 
 def __iterateOverlappingTiles(tiles, minOverlap = 0.05):
     
