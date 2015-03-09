@@ -82,7 +82,6 @@ class LayoutPosition(object):
         return self._OffsetArray[:,LayoutPosition.iOffsetID]
     
     
-    
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1]
@@ -130,7 +129,11 @@ class LayoutPosition(object):
         position_difference = self.TensionVectors(connected_positions)
  
         #Cannot weight more than 1.0
-        normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight] / np.max(self._OffsetArray[:,LayoutPosition.iOffsetWeight])
+        #normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight] / np.max(self._OffsetArray[:,LayoutPosition.iOffsetWeight])
+        normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight]
+        
+        assert(np.all(normalized_weight >= 0))
+        assert(np.all(normalized_weight <= 1.0))
         weighted_position_difference = position_difference * normalized_weight.reshape((normalized_weight.shape[0], 1))
         
         return np.sum(weighted_position_difference,0)
@@ -281,17 +284,29 @@ class Layout(object):
         self.nodes.update(layoutB.nodes)
     
     @classmethod
-    def RelaxNodes(cls, layout_obj):
-        '''Adjust the position of each node along its tension vector'''
+    def RelaxNodes(cls, layout_obj, vector_scalar=1):
+        '''Adjust the position of each node along its tension vector
+        :param Layout layout_obj: The layout to relax
+        :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
+        '''
+        
+        #TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
         
         node_movement = np.zeros((len(layout_obj.nodes),3))
+        
+        #vectors = {}
+        
         i = 0
+        first = True
         for ID, node in layout_obj.nodes.items():
-            vector = layout_obj.WeightedNetTensionVector(ID)
-            node.Position = node.Position + vector / 2.0
+            
+            vector = layout_obj.WeightedNetTensionVector(ID) * vector_scalar
+            #vectors[ID] = vector
             row = np.array([ID, vector[0], vector[1]])
-            node_movement[0,:] = row
-            #node_movement = np.vstack((node_movement, row))
+            node_movement[i,:] = row
+            i += 1
+            #Skip the first node, the others can move around it
+            node.Position = node.Position + vector
         
         return node_movement
     
@@ -333,6 +348,34 @@ def ScaleOffsetWeightsByPosition(original_layout):
         node.ScaleOffsetWeightsByPosition(linked_node_positions)
         
     return
+
+def ScaleOffsetWeightsByPopulationRank(original_layout):
+    '''
+    Remap offset weights so the highest weight is 1.0 and the lowest is 0
+    '''
+    
+    maxWeight = np.NaN
+    minWeight = np.NaN
+    
+    first = True
+    for node in original_layout.nodes.values():
+        weights = node.OffsetArray[:,LayoutPosition.iOffsetWeight]
+        
+        if first:
+            first = False
+            minWeight = np.min(weights)
+            maxWeight = np.max(weights)
+        else:
+            minWeight = min((minWeight, np.min(weights)))
+            maxWeight = max((maxWeight, np.max(weights)))
+        
+    maxWeight -= minWeight
+    for node in original_layout.nodes.values():
+        node.OffsetArray[:,LayoutPosition.iOffsetWeight] = (node.OffsetArray[:,LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
+        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= 0.0))
+        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= 1.0))
+                
+    return
         
 
 def BuildLayoutWithHighestWeightsFirst(original_layout):
@@ -344,8 +387,6 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
 
     placedTiles = dict()
     
-    #_ScaleOffsetWeights(tiles)
-
     sorted_offsets = _OffsetsSortedByWeight(original_layout) 
 
     LayoutList = [] 

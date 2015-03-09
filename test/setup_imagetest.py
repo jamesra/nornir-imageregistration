@@ -11,6 +11,7 @@ from nornir_shared.misc import SetupLogging
 import shutil
 import cProfile
 import pickle
+import numpy as np
 
 
 class PickleHelper(object):
@@ -172,6 +173,13 @@ class MosaicTestBase(TestBase):
             os.makedirs(self.TestOutputPath, exist_ok=True)
 
         super(MosaicTestBase, self).setUp()
+        
+def array_distance(array):
+    '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
+    if array.ndim == 1:
+        return np.sqrt(np.sum(array ** 2)) 
+    
+    return np.sqrt(np.sum(array ** 2,1))
 
 
 if __name__ == "__main__":

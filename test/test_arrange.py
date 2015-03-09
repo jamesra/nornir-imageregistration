@@ -123,7 +123,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
         self._ShowMosaic(mosaic, usecluster=False)
 
-    def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True):
+    def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True, title=None):
 
         (assembledImage, mask) = mosaic.AssembleTiles(tilesPath=None, usecluster=usecluster)
         
@@ -133,7 +133,9 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
             #core.SaveImage(mosaic_path, assembledImage)
         
         if openwindow:
-            core.ShowGrayscale(assembledImage, title="A mosaic with no tiles out of place")
+            if title is None:
+                title="A mosaic with no tiles out of place"
+            core.ShowGrayscale(assembledImage, title=title)
 
 
     def __CheckNoOffsetsToSelf(self, layout):
@@ -215,11 +217,13 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
         # self.ShowTilesWithOffset(tileA, tileB, offset)
         # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
+        #nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
+        nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translated_layout)
         final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translated_layout)
         
         self.CreateSaveShowMosaic(mosaicBaseName, final_layout, tiles, openwindow)
         
-        nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
+        #nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(final_layout)
         relaxed_layout = self._Relax_Layout(translated_layout)
         
         self.CreateSaveShowMosaic(mosaicBaseName + "_relaxed", relaxed_layout, tiles, openwindow)
@@ -235,17 +239,16 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
         return
     
-    def _array_distance(self,array):
-        '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
-        return np.sqrt(np.sum(array ** 2,1))
+    def _MaxTension(self, layout):
+        
+        net_tension_vectors = layout.WeightedNetTensionVectors()
+        return np.max( setup_imagetest.array_distance(net_tension_vectors) )
+        
     
-    def _Relax_Layout(self, layout_obj):
-        
-        node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
-        node_distance = self._array_distance(node_movement[:,1:3])        
-        max_distance = np.max(node_distance,0)
-        
-        max_iter = 100
+    def _Relax_Layout(self, layout_obj, max_tension_cutoff=0.5, max_iter=100):
+                
+        max_tension = self._MaxTension(layout_obj)
+         
         i = 0
         
         pool = nornir_pools.GetGlobalMultithreadingPool()
@@ -254,16 +257,17 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         if not os.path.exists(MovieImageDir):
             os.makedirs(MovieImageDir)
             
-        while max_distance > 0.5 and i < max_iter:
-            print("%d %g" % (i, max_distance))
+        while max_tension > max_tension_cutoff and i < max_iter:
+            print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
-            node_distance = self._array_distance(node_movement[:,1:3])             
-            max_distance = np.max(node_distance,0)
+            max_tension = self._MaxTension(layout_obj)
+            #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+            #max_distance = np.max(node_distance,0)
             i += 1
             
-            filename = os.path.join(MovieImageDir, "%d.png" % i)
+            filename = os.path.join(MovieImageDir, "%d.tif" % i)
             
-            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
             #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
             
         return layout_obj
