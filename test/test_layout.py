@@ -185,11 +185,11 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         
         sprint_layout.SetOffset(0, 1, positions[1,:], weight=1)
         sprint_layout.SetOffset(0, 2, positions[2,:], weight=1)
-        sprint_layout.SetOffset(1, 2, positions[3,:], weight=1)
+        sprint_layout.SetOffset(1, 2, positions[2,:] - positions[1,:], weight=1)
          
         self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([-5,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([5,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
         
         #OK, try to relax the layout and see where the nodes land
         max_vector_magnitude = 0.05
@@ -198,8 +198,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         for ID in sprint_layout.nodes.keys():
             self.assertTrue(setup_imagetest.array_distance(sprint_layout.NetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
         
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude))
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(0), positions[0,:], atol=max_vector_magnitude))
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude)) 
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))  
  
         print("Node Positions")
         print(sprint_layout.GetPositions())
