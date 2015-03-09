@@ -22,22 +22,6 @@ from nornir_imageregistration.alignment_record import AlignmentRecord
 import nornir_pools
 
 
-def __RemoveTilesWithKnownOffset(reference, overlappingtiles):
-    '''
-    '''
-
-    for i in range(len(overlappingtiles) - 1, -1, -1):
-        overlapping = overlappingtiles[i]
-
-        if reference.ID == overlapping.ID:
-            del overlappingtiles[i]
-            continue
-
-        if overlapping.ID in reference.OffsetToTile:
-            del overlappingtiles[i]
-            continue
-        
-
 def TranslateTiles(transforms, imagepaths, imageScale=None):
     '''
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
@@ -121,24 +105,6 @@ def _FindTileOffsets(tiles, imageScale=None):
 
     return layout
 
-def __predicted_offset(A,B):
-    '''The expected offset to align B onto A
-       :rtype: numpy.array
-       :returns: A point''' 
-    return B.ControlBoundingBox.BottomLeft - A.ControlBoundingBox.BottomLeft
-
-def __offset_discrepancy(offsetA,offsetB):
-    '''The expected offset to align B onto A
-       :rtype: numpy.array
-       :returns: A point''' 
-    return offsetB - offsetA
-# 
-# def __assign_offset(A, B, offset):
-#     A.OffsetToTile[B.ID] = offset
-#     B.OffsetToTile[A.ID] = offset.Invert()
-#     print("Align %d -> %d %s" % (A.ID, B.ID, str(offset)))
-#     return
-
 def __get_overlapping_imagespace_rect_for_tile(tile_obj, overlapping_rect):
     ''':return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space'''
     image_space_points = tile_obj.Transform.InverseTransform(overlapping_rect.Corners)    
@@ -183,83 +149,6 @@ def __iterateOverlappingTiles(tiles, minOverlap = 0.05):
     for (A,B) in itertools.combinations(tiles.values(), 2):
         if spatial.rectangle.Rectangle.overlap(A.ControlBoundingBox, B.ControlBoundingBox) >= minOverlap:
             yield (A,B)
-        #if spatial.rectangle.Rectangle.contains(A.ControlBoundingBox, B.ControlBoundingBox):
-        #   yield (A,B)
-
-# 
-# def __FindOffsets(reference, overlapping):
-#     '''
-#     The adjacent transforms are known to overlap the reference transform.  Find the offset from the reference to each overlapping transform
-#     '''
-# 
-#     fixedImage = reference.Image
-# 
-#     offsets = []
-# 
-#     for overlappingTile in overlapping:
-#         warpedImage = overlappingTile.Image
-#         offset = core.FindOffset(fixedImage, MovingImage=warpedImage)
-#         offsets.append(offset)
-# 
-#     return offsets
-
-
-def _BuildAlignmentRecordListWithTileIDs(tiles):
-
-    offsets = []
-
-    for t in tiles.values():
-        for targetID, Offset in list(t.OffsetToTile.items()):
-            Offset.FixedTileID = t.ID
-            Offset.MovingTileID = targetID
-
-            offsets.append(Offset)
-
-    return offsets
-
-def _ScaleOffsetWeights(tile_dict):
-    '''
-    Take the known offsets for a tile.  Adjust the weights based on how far the offset is from the expected position
-    '''
-    
-    for tile in tile_dict.values():
-        _ScaleOffsetWeightsForTile(tile_dict, tile)
-         
-    return 
-
-def _ScaleOffsetWeightsForTile(tile_dict, tile):
-    '''
-    Take the known offsets for a tile.  Adjust the weights based on how far the offset is from the expected position
-    '''
-    
-    distanceList = {}
-    for targetTileID, offset in tile.OffsetToTile.items():
-        target_tile = tile_dict[targetTileID]
-        predicted = __predicted_offset(tile, target_tile)
-        discrepancy = __offset_discrepancy(predicted, offset.peak)
-        #print("Discrepancy %04d -> %04d : %gx %gy" % (tile.ID, target_tile.ID, discrepancy[1], discrepancy[0]))
-        distanceList[targetTileID] = np.sqrt((discrepancy[0] * discrepancy[0]) + (discrepancy[1] * discrepancy[1]))
-    
-    totalDistance = sum(list(distanceList.values()))
-    medianDistance = np.median(np.array(list(distanceList.values())))
-    for targetTileID, distance in distanceList.items():
-        weight = medianDistance / distance
-        
-        #We only penalize offsets above the median.  We don't want to place too much emphasis on a potentially flawed stage layout
-        #if weight > 1.0:
-        #    weight = 1.0
-        #weight = distance / totalDistance
-        #inv_weight = 1.0 - weight
-         
-        #Adjust the weight of the offset by the calculated weight.
-        
-        offset = tile.OffsetToTile[targetTileID]
-        offset.weight *= weight
-        
-        print("Discrepancy weight %04d -> %04d\tdist: %3g scalar: %3g final: %3g" % (tile.ID, target_tile.ID, distance, weight, offset.weight)) 
-        
-    return 
- 
 
 def TranslateFiles(fileDict):
     '''Translate Images expects a dictionary of images, their position and size in pixel space.  It moves the images to what it believes their optimal position is for alignment 
