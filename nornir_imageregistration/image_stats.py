@@ -230,7 +230,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     FilenameToTask = {}
     FilenameToResult = {}
     tasks = []
-    local_machine_pool = pools.GetLocalMachinePool()
+    local_machine_pool = pools.GetGlobalLocalMachinePool()
     for f in listfilenames:
         task = __HistogramFileImageMagick__(f, ProcPool=local_machine_pool, Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
@@ -272,6 +272,8 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     for f in list(OutputMap.keys()):
         threadTask = local_machine_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
         threadTasks.append(threadTask)
+        
+    local_machine_pool.wait_completion()
 
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for t in threadTasks:
