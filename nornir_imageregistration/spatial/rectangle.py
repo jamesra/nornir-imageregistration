@@ -191,6 +191,18 @@ class Rectangle(object):
         new_size = A.Size * scale
         bottom_left = A.Center - (new_size / 2.0)
         return cls.CreateFromPointAndArea(bottom_left, new_size)
+    
+    @classmethod
+    def SafeRound(cls, A):
+        '''Round the rectangle bounds to the nearest integer, increasing in area and never decreasing. 
+           The bottom left corner is rounded down and the upper right corner is rounded up.
+           This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
+           cause them to have mismatched bounding boxes'''
+        
+        bottomleft = np.floor(A.BottomLeft)
+        topright = np.ceil(A.TopRight)
+        
+        return cls.CreateFromPointAndArea(bottomleft, topright-bottomleft)        
          
 
     def __str__(self):
