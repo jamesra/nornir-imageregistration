@@ -10,6 +10,8 @@ import scipy.spatial.distance
 import os
 import logging
 
+import multiprocessing
+
 import nornir_imageregistration.assemble  as assemble
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
@@ -119,21 +121,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
-    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
-    
-# 
-#     tempFullImage = FullImage[minY:maxY, minX:maxX]
-#     tempZBuffer = FullZBuffer[minY:maxY, minX:maxX]    
-# 
-#     iUpdate = tempZBuffer > SubZBuffer
-# 
-#     tempFullImage[iUpdate] = SubImage[iUpdate]
-#     tempZBuffer[iUpdate] = SubZBuffer[iUpdate]
-# 
-#     # FullImage[minY:maxY, minX:maxX] += SubImage
-#     FullImage[minY:maxY, minX:maxX] = tempFullImage
-#     FullZBuffer[minY:maxY, minX:maxX] = tempZBuffer
- 
+    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate] 
 
 
 def distFunc(i, j):
@@ -394,17 +382,18 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
         if not i % CheckTaskInterval == 0:
             continue
-
-        iTask = len(tasks) - 1
-        while iTask >= 0:
-            t = tasks[iTask]
-            if t.iscompleted:
-                transformedImageData = t.wait_return()
-                __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
-                del transformedImageData 
-                del tasks[iTask]
-            
-            iTask -= 1
+        
+        if len(tasks) > multiprocessing.cpu_count():
+            iTask = len(tasks) - 1
+            while iTask >= 0:
+                t = tasks[iTask]
+                if t.iscompleted:
+                    transformedImageData = t.wait_return()
+                    __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZbuffer, FixedRegion)
+                    del transformedImageData 
+                    del tasks[iTask]
+                
+                iTask -= 1
 
     logger.info('All warps queued, integrating results into final image')
 
