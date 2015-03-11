@@ -20,6 +20,7 @@ import nornir_imageregistration
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+import multiprocessing.sharedctypes
 
 
 import collections
@@ -57,6 +58,13 @@ class ImageStats(object):
         obj.median = np.median(image.flat)
         obj.std = np.std(image.flat)
         return obj
+    
+def array_distance(array):
+    '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
+    if array.ndim == 1:
+        return np.sqrt(np.sum(array ** 2)) 
+    
+    return np.sqrt(np.sum(array ** 2,1))
     
 def GetBitsPerPixel(File): 
     return shared_images.GetImageBpp(File)
