@@ -174,14 +174,33 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
         return transformedImage
+    
 
+def _LoadImageIfNeeded(value):
+    if isinstance(value, str):
+        return core.LoadImage(value)
+    
+    return value 
+    
 
-def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None, area=None, cval=None, extrapolate=False):
+def _ReplaceFilesWithImages(listImages):
+    '''Replace any filepath strings in the passed parameter with loaded images.'''
+    
+    if isinstance(listImages, list):
+        for i, value in enumerate(listImages):
+            listImages[i] = _LoadImageIfNeeded(value)
+    else:
+        listImages = _LoadImageIfNeeded(listImages)
+        
+    return listImages
+        
+
+def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
 
     '''Warps every image in the WarpedImageList using the provided transform.
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :Param FixedImageArea: Size of fixed space region to map pixels into
-    :Param WarpedImage: Image to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.
+    :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
     :Param botleft: Origin of region to map
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
@@ -195,16 +214,18 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
         area = FixedImageArea
 
     if cval is None:
-        cval = [0] * len(WarpedImage)
+        cval = [0] * len(DataToTransform)
 
     if not isinstance(cval, list):
-        cval = [cval] * len(WarpedImage)
+        cval = [cval] * len(DataToTransform)
 
     (fixed_coords, warped_coords) = TransformROI(transform, botleft, area, extrapolate=extrapolate)
+    
+    ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
 
-    if isinstance(WarpedImage, list):
+    if isinstance(ImagesToTransform, list):
         FixedImageList = []
-        for i, wi in enumerate(WarpedImage):
+        for i, wi in enumerate(ImagesToTransform):
             fi = __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, wi, area, cval=cval[i])
             FixedImageList.append(fi)
             
@@ -213,7 +234,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, WarpedImage, botleft=None
         
         return FixedImageList
     else:
-        return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area, cval=cval[0])
+        return __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, ImagesToTransform, area, cval=cval[0])
 
 
 def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):
@@ -277,6 +298,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
     tasks = []
 
     mpool = pools.GetGlobalMultithreadingPool()
+    sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
 
     for iY in range(0, height, int(tilesize[0])):
 
@@ -290,7 +312,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
             if end_iX > width:
                 end_iX = width
 
-            task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+            task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
             task.iY = iY
             task.end_iY = end_iY
             task.iX = iX
@@ -300,6 +322,9 @@ def TransformImage(transform, fixedImageShape, warpedImage):
 
             # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
             # outputImage[iY:end_iY, iX:end_iX] = registeredTile
+            
+    mpool.wait_completion()
+    del sharedWarpedImage
 
     for task in tasks:
         registeredTile = task.wait_return()

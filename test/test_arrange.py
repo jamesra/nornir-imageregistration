@@ -238,16 +238,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         self._ShowMosaic(created_mosaic, OutputMosaicDir, openwindow=False)
         
         return
+          
     
-    def _MaxTension(self, layout):
-        
-        net_tension_vectors = layout.WeightedNetTensionVectors()
-        return np.max( setup_imagetest.array_distance(net_tension_vectors) )
-        
-    
-    def _Relax_Layout(self, layout_obj, max_tension_cutoff=0.5, max_iter=100):
+    def _Relax_Layout(self, layout_obj, max_tension_cutoff=1, max_iter=100):
                 
-        max_tension = self._MaxTension(layout_obj)
+        max_tension = layout_obj.MaxTension
          
         i = 0
         
@@ -260,7 +255,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         while max_tension > max_tension_cutoff and i < max_iter:
             print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
-            max_tension = self._MaxTension(layout_obj)
+            max_tension = layout_obj.MaxTension
             #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
             #max_distance = np.max(node_distance,0)
             i += 1
@@ -314,11 +309,6 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         translated_mosaic.SaveToMosaicFile(OutputDir)
         self._ShowMosaic(translated_mosaic, OutputMosaicDir)
          
-        translated_mosaic.SaveToMosaicFile(OutputDir)
-        
-        
-         
-        
         
     def test_RC2_0197_Mosaic(self):
         

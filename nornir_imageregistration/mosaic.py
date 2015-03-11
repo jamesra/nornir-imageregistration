@@ -186,10 +186,25 @@ class Mosaic(object):
             return [os.path.join(tilesPath, x) for x in list(self.ImageToTransform.keys())]
 
 
+    def _TransformsSortedByKey(self):
+        '''Return a list of transforms sorted according to the sorted key values'''
+        
+        keys = self.ImageToTransform.keys()
+        keys.sort()
+        
+        values = []
+        for k in keys:
+            values.append(self.ImageToTransform[k])
+            
+        return values
+         
 
     def ArrangeTilesWithTranslate(self, tilesPath, usecluster=False):
 
         tilesPathList = self.CreateTilesPathList(tilesPath)
+        
+        
+        
 
         (layout, tiles) = arrange.TranslateTiles(list(self.ImageToTransform.values()), tilesPathList)
 
@@ -216,7 +231,7 @@ class Mosaic(object):
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
         if usecluster and len(tilesPathList) > 1:
-            cpool = pools.GetLocalMachinePool("Assemble")
+            cpool = pools.GetGlobalMultithreadingPool()
             return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)

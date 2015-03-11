@@ -3,6 +3,7 @@ import os
 
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.tile
+import nornir_pools
 import numpy as np
 
 from . import alignment_record
@@ -37,6 +38,8 @@ def _sort_array_on_column(a, iCol, ascending=False):
     if not ascending:
         iSorted = np.flipud(iSorted)
     return a[iSorted,:]
+
+
 
 class LayoutPosition(object):
     '''This is an anchor with a number of springs of a certain length attached.  In our use the anchor is a tile and the spring size
@@ -178,6 +181,16 @@ class Layout(object):
     @property
     def nodes(self):
         return self._nodes
+
+    @property    
+    def MaxWeightedTension(self):
+        net_tension_vectors = self.WeightedNetTensionVectors()
+        return np.max( core.array_distance(net_tension_vectors) )
+    
+    @property    
+    def MaxTension(self):
+        net_tension_vectors = self.NetTensionVectors()
+        return np.max( core.array_distance(net_tension_vectors) )
     
     def Contains(self, ID):
         ''':rtype: bool
@@ -202,12 +215,12 @@ class Layout(object):
         '''Return the position array for a set of nodes, sorted by node ID'''
         
         if IDs is None:
-            IDs = self.nodes.keys()
+            IDs = list(self.nodes.keys())
+            IDs.sort()
             
-        positions = np.empty((0,2))
-        for id in IDs:
-            pos = self.nodes[id].Position
-            positions = np.vstack((positions, pos))
+        positions = np.empty((len(IDs),2))
+        for i, tileID in enumerate(IDs):
+            positions[i,:] = self.nodes[tileID].Position 
                                          
         return positions
     
@@ -240,10 +253,10 @@ class Layout(object):
     def WeightedNetTensionVectors(self):
         '''Return all net tension vectors for our nodes'''
         IDs = list(self.nodes.keys())
+        IDs.sort()
         output = np.zeros((len(IDs), 2))
-        for i in range(0, len(IDs)):
-            ID = IDs[i]
-            output[i,:] = self.WeightedNetTensionVector(ID)
+        for i, TileID in enumerate(IDs):
+            output[i,:] = self.WeightedNetTensionVector(TileID)
             
         return output
     
@@ -284,7 +297,7 @@ class Layout(object):
         self.nodes.update(layoutB.nodes)
     
     @classmethod
-    def RelaxNodes(cls, layout_obj, vector_scalar=1):
+    def RelaxNodes(cls, layout_obj, vector_scalar=0.75):
         '''Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
@@ -375,7 +388,37 @@ def ScaleOffsetWeightsByPopulationRank(original_layout):
         assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= 0.0))
         assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= 1.0))
                 
-    return
+    return 
+
+
+        
+    
+def RelaxLayout(layout_obj, max_tension_cutoff=5, max_iter=50):
+                
+        
+        max_tension = layout_obj.MaxWeightedTension
+                 
+        i = 0
+        
+#         MovieImageDir = os.path.join(self.TestOutputPath, "relax_movie")
+#         if not os.path.exists(MovieImageDir):
+#             os.makedirs(MovieImageDir)
+            
+        print("Relax Layout")
+            
+        while max_tension > max_tension_cutoff and i < max_iter:
+            print("\t%d %g" % (i, max_tension))
+            Layout.RelaxNodes(layout_obj)
+            max_tension = layout_obj.MaxWeightedTension
+            #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+            #max_distance = np.max(node_distance,0)
+            i += 1
+            
+            #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            #pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
+            
+        return layout_obj
+
         
 
 def BuildLayoutWithHighestWeightsFirst(original_layout):

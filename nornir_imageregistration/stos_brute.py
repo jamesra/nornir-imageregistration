@@ -160,6 +160,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     Debug = False
     pool = None
+    
+    #Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
+    Cluster=False
 
     if Debug:
         pool = pools.GetThreadPool(Poolname=None, num_threads=3)
