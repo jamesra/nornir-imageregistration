@@ -65,7 +65,7 @@ class Rectangle(object):
     
     @property
     def Size(self):
-        return np.array((self.Height, self.Width))
+        return self.TopRight - self.BottomLeft
 
     @property
     def BoundingBox(self):
@@ -200,7 +200,7 @@ class Rectangle(object):
            cause them to have mismatched bounding boxes'''
         
         bottomleft = np.floor(A.BottomLeft)
-        topright = np.ceil(A.TopRight)
+        topright = bottomleft + np.ceil(A.Size)
         
         return cls.CreateFromPointAndArea(bottomleft, topright-bottomleft)        
          
