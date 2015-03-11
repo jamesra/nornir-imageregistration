@@ -12,6 +12,26 @@ import nornir_imageregistration.core as core
 import numpy as np
 
 
+def IterateOverlappingTiles(tiles, minOverlap = 0.0):
+    '''
+    :param list tiles: A list of tile objects
+    :param float minOverlap: Tiles must have this percentage of overlap to be returned by the generator
+    :return: A generator returning pairs of tiles which overlap
+    '''
+            
+    for (A,B) in itertools.combinations(tiles.values(), 2):
+        if spatial.rectangle.Rectangle.overlap(A.ControlBoundingBox, B.ControlBoundingBox) >= minOverlap:
+            yield (A,B)
+            
+def BuildSortedTileControlBoundingRects(tiles):
+    rects = np.array((len(tiles), 5))
+    
+    for i, tile in enumerate(tiles):
+        rects[i,:] = np.hstack( tile.ControlBoundingBox.ToArray(), np.array([tile.ID]))
+        
+    return rects 
+             
+
 class Tile(object):
     '''
     A combination of a transform and a path to an image on disk.  Image will be loaded on demand
