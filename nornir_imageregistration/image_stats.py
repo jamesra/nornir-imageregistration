@@ -130,15 +130,15 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
            MaxOverlap = 0 to 1'''
 
     # logger = logging.getLogger('irtools.prune')
-    logger = multiprocessing.log_to_stderr()
+    #logger = multiprocessing.log_to_stderr()
 
     if MaxOverlap > 0.5:
         MaxOverlap = 0.5
 
     if not os.path.exists(filename):
-        logger.error(filename + ' not found when attempting prune')
-        PrettyOutput.LogErr(filename + ' not found when attempting prune')
-        return
+        #logger.error(filename + ' not found when attempting prune')
+        #PrettyOutput.LogErr(filename + ' not found when attempting prune')
+        return None
 
     Im = core.LoadImage(filename)
     (Height, Width) = Im.shape
@@ -371,35 +371,35 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
     return task
 
 
-if __name__ == '__main__':
-
-    Histogram = Histogram('C:\\Buildscript\\IrTools\\RawTile.png')
-
-    import cProfile
-    import pstats
-
-    score = Prune('C:\\Buildscript\\IrTools\\RawTile.png', 0.1)
-    PrettyOutput.Log("Score: " + str(score))
-
-    ProfilePath = 'C:\\Buildscript\\IrTools\\BuildProfile.pr'
-
-    ProfileDir = os.path.dirname(ProfilePath)
-    if not os.path.exists(ProfileDir):
-
-        os.makedirs(ProfileDir)
-
-    try:
-        cProfile.run("__PruneFileSciPy__('C:\\Buildscript\\IrTools\\RawTile.png', 0.1)", ProfilePath)
-    finally:
-        if not os.path.exists(ProfilePath):
-            PrettyOutput.LogErr("No profile file found" + ProfilePath)
-            sys.exit()
-
-        pr = pstats.Stats(ProfilePath)
-        if not pr is None:
-            pr.sort_stats('time')
-            print(str(pr.print_stats(.05)))
-
+#if __name__ == '__main__':
+# 
+#     Histogram = Histogram('C:\\Buildscript\\IrTools\\RawTile.png')
+# 
+#     import cProfile
+#     import pstats
+# 
+#     score = Prune('C:\\Buildscript\\IrTools\\RawTile.png', 0.1)
+#     PrettyOutput.Log("Score: " + str(score))
+# 
+#     ProfilePath = 'C:\\Buildscript\\IrTools\\BuildProfile.pr'
+# 
+#     ProfileDir = os.path.dirname(ProfilePath)
+#     if not os.path.exists(ProfileDir):
+# 
+#         os.makedirs(ProfileDir)
+# 
+#     try:
+#         cProfile.run("__PruneFileSciPy__('C:\\Buildscript\\IrTools\\RawTile.png', 0.1)", ProfilePath)
+#     finally:
+#         if not os.path.exists(ProfilePath):
+#             PrettyOutput.LogErr("No profile file found" + ProfilePath)
+#             sys.exit()
+# 
+#         pr = pstats.Stats(ProfilePath)
+#         if not pr is None:
+#             pr.sort_stats('time')
+#             print(str(pr.print_stats(.05)))
+# 
 
 
 
