@@ -43,13 +43,29 @@ def GetProcessAndThreadUniqueString():
 
 
 class TransformedImageData(object):
+    '''
+    Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
+    '''
 
+    memmap_threshold = 500 * 500
+    
     @property
     def image(self):
+        if self._image is None:
+            if self._image_path is None:
+                return None 
+             
+            self._image = np.memmap(self._image_path, mode='c', shape=self._image_shape, dtype=self._image_dtype)
+            
         return self._image
-
+    
     @property
     def centerDistanceImage(self):
+        if self._centerDistanceImage is None:
+            if self._centerDistanceImage_path is None:
+                return None
+            self._centerDistanceImage = np.memmap(self._centerDistanceImage_path, mode='c', shape=self._centerDistanceImage_shape, dtype=self._centerDistance_dtype)
+            
         return self._centerDistanceImage
 
     @property
@@ -63,16 +79,55 @@ class TransformedImageData(object):
     @property
     def errormsg(self):
         return self._errmsg
+    
+    @property
+    def tempfiledir(self):
+        if self._tempdir is None:
+            self._tempdir = tempfile.mkdtemp("TransformedImageData")
+            
+        return self._tempdir
 
     @classmethod
     def Create(cls, image, centerDistanceImage, transform, scale):
         o = TransformedImageData()
         o._image = image
         o._centerDistanceImage = centerDistanceImage
+        
+        o._image_path = None
+        o._centerDistanceImage_path = None
         o._transformScale = scale
         o._transform = transform
-
+        
+        #o.ConvertToMemmapIfLarge()
+        
         return o
+    
+    def ConvertToMemmapIfLarge(self): 
+        if np.prod(self._image.shape) > TransformedImageData.memmap_threshold:
+            self._image_path = self.CreateMemoryMappedFilesForImage("Image", self._image)
+            self._image_shape = self._image.shape
+            self._image_dtype = self._image.dtype
+            self._image = None
+            
+        if np.prod(self._centerDistanceImage.shape) > TransformedImageData.memmap_threshold:
+            self._centerDistanceImage_path = self.CreateMemoryMappedFilesForImage("Distance", self._centerDistanceImage)
+            self._centerDistanceImage_shape = self._centerDistanceImage.shape
+            self._centerDistance_dtype = self._centerDistanceImage.dtype
+            self._centerDistanceImage = None
+            
+        return
+     
+    def CreateMemoryMappedFilesForImage(self, name, image):
+        if image is None:
+            return None 
+        
+        tempfilename = os.path.join(self.tempfiledir, name + '.dat')
+        memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
+        np.copyto(memmapped_image, image)
+        print("Write %s" % tempfilename)
+        
+        del memmapped_image
+        return tempfilename
 
 
     def Clear(self):
@@ -81,7 +136,16 @@ class TransformedImageData(object):
         self._centerDistanceImage = None
         self._transformScale = None
         self._transform = None
-
+        
+        if not self._centerDistanceImage_path is None:
+            os.remove(self._centerDistanceImage_path)
+            
+        if not self._image_path is None:
+            os.remove(self._image_path)
+            
+        #if not self._tempdir is None:
+        #    os.remove(self._tempdir)
+         
 
     def __init__(self, errorMsg=None):
         self._image = None
@@ -89,6 +153,13 @@ class TransformedImageData(object):
         self._transformScale = None
         self._transform = None
         self._errmsg = errorMsg
+        self._image_path = None
+        self._centerDistanceImage_path = None
+        self._tempdir = None
+        self._image_shape = None
+        self._centerDistanceImage_shape = None
+        self._image_dtype = None
+        self._centerDistance_dtype = None
 
 def CompositeImage(FullImage, SubImage, offset):
 
@@ -119,10 +190,18 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     if((np.array([maxY-minY,maxX-minX]) != SubZBuffer.shape).any()):
         raise ValueError("Buffers do not have the same dimensions")
     
+    #iNewIndex = np.zeros(FullImage.shape, dtype=np.bool)
+
+    #iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
+    #iNewIndex[minY:maxY, minX:maxX] = iUpdate
+    #FullImage[iNewIndex] = SubImage[iUpdate]
+    #FullZBuffer[iNewIndex] = SubZBuffer[iUpdate]
+    
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
     FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate] 
 
+    return
 
 def distFunc(i, j):
     print((str(i) + ", " + str(j)))
@@ -346,8 +425,11 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
+    
     if pool is None:
         pool = pools.GetGlobalMultithreadingPool()
+        
+    #pool = pools.GetGlobalSerialPool()
 
     tasks = []
     fixedRect = None
@@ -415,6 +497,8 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
                 del tasks[iTask]
             
             iTask -= 1
+            
+    logger.info('Final image complete, building mask')
 
     mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
     del fullImageZbuffer
@@ -422,7 +506,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     fullImage[fullImage < 0] = 0
     fullImage[fullImage > 1.0] = 1.0
 
-    logger.info('Final image complete')
+    logger.info('Assemble complete')
     
     if use_memmap:
         fullImage.flush()
@@ -458,6 +542,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
         logger.error('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
         pass
 
+    
     transformedImageData.Clear()
 
 

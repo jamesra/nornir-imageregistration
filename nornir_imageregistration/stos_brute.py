@@ -209,7 +209,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
             continue
 
         # I don't like this, but it lets me delete tasks before filling the queue which may save some memory
-        for iTask in range(len(taskList) - 1, 0, -1):
+        for iTask in range(len(taskList) - 1, -1, -1):
             if taskList[iTask].iscompleted:
                 record = taskList[iTask].wait_return()
                 AngleMatchValues.append(record)

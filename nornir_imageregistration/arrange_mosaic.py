@@ -138,12 +138,16 @@ def __Calculate_Overlapping_Regions(A,B,imageScale):
     
     overlapping_rect_A = __get_overlapping_imagespace_rect_for_tile(A, overlapping_rect)
     overlapping_rect_B = __get_overlapping_imagespace_rect_for_tile(B, overlapping_rect)
-    
+     
     downsampled_overlapping_rect_A = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
     downsampled_overlapping_rect_B = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
     
     #If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
     OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
+    
+    
+    #This should ensure we never an an area mismatch
+    downsampled_overlapping_rect_B = spatial.Rectangle.CreateFromPointAndArea(downsampled_overlapping_rect_B.BottomLeft, downsampled_overlapping_rect_A.Size)
     
     assert(downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)
     assert(downsampled_overlapping_rect_A.Height == downsampled_overlapping_rect_B.Height)

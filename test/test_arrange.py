@@ -242,7 +242,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
     
     def _Relax_Layout(self, layout_obj, max_tension_cutoff=1, max_iter=100):
                 
-        max_tension = layout_obj.MaxTension
+        max_tension = layout_obj.MaxWeightedTension
          
         i = 0
         
@@ -255,7 +255,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         while max_tension > max_tension_cutoff and i < max_iter:
             print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
-            max_tension = layout_obj.MaxTension
+            max_tension = layout_obj.MaxWeightedTension
             #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
             #max_distance = np.max(node_distance,0)
             i += 1

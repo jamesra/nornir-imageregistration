@@ -372,8 +372,7 @@ class Triangulation(Base):
         raise DeprecationWarning("MappedBounds is replaced by MappedBoundingBox")
 
     @property
-    def ControlBounds(self):
-
+    def ControlBounds(self): 
         raise DeprecationWarning("ControlBounds is replaced by FixedBoundingBox")
 
     def __init__(self, pointpairs):
