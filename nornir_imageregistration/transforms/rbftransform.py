@@ -8,10 +8,12 @@ import math
 
 import numpy
 import scipy.interpolate
+import nornir_pools
 
 from nornir_imageregistration.transforms import triangulation
 import scipy.linalg as linalg
 import scipy.spatial as spatial
+import nornir_shared
 
 
 class RBFWithLinearCorrection(triangulation.Triangulation):
@@ -209,8 +211,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         BetaMatrix = RBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
+        thread_pool = nornir_pools.GetGlobalThreadPool()
+        
+        Y_Task = thread_pool.add_task("WeightsY", linalg.solve, BetaMatrix, SolutionMatrix_Y)
         WeightsX = linalg.solve(BetaMatrix, SolutionMatrix_X)
-        WeightsY = linalg.solve(BetaMatrix, SolutionMatrix_Y)
+        WeightsY = Y_Task.wait_return()
 
         return numpy.hstack([WeightsX, WeightsY])
 
