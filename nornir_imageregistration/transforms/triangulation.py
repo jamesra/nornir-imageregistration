@@ -204,6 +204,9 @@ class Triangulation(Base):
         #WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
         self._WarpedKDTree = KDTree(self.WarpedPoints)
+        
+        MPool.wait_completion()
+        
         self._FixedKDTree = FixedKDTask.wait_return()
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()

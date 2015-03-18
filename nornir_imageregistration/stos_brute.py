@@ -237,6 +237,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         # ShowGrayscale(NormCorrelationImage)
 
     # print str(AngleMatchValues)
+    
+    #Delete the pool to ensure extra python threads do not stick around
+    pool.wait_completion()
 
     del PaddedFixed
 
