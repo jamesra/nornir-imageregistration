@@ -22,7 +22,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=True,
                         type=str,
-                        help='Input .stos file path',
+                        help='Input .mosaic file path',
                         dest='inputpath')
 
     parser.add_argument('-output', '-o',

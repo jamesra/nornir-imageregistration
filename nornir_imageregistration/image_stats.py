@@ -103,6 +103,8 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
         task = TPool.add_task('Calc Feature Score: ' + os.path.basename(filename), Function, filename, **kwargs)
         task.filename = filename
         tasklist.append(task)
+        
+    TPool.wait_completion()
 
     numTasks = len(tasklist)
     iTask = 0
@@ -244,6 +246,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
     else:
         assert(isinstance(numBins, int))
 
+    local_machine_pool.wait_completion()
 
     OutputMap = {}
     minVal = None
@@ -268,13 +271,11 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
     threadTasks = []
      
-
+    thread_pool = pools.GetGlobalThreadPool()
     for f in list(OutputMap.keys()):
-        threadTask = local_machine_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
+        threadTask = thread_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
         threadTasks.append(threadTask)
         
-    local_machine_pool.wait_completion()
-
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for t in threadTasks:
         hist = t.wait_return()
@@ -283,6 +284,7 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
         # FilenameToResult[f] = [histogram, None, None]
 
+    del threadTasks
 
     # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=Pools.GetGlobalThreadPool(), ProcPool = Pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
 
@@ -307,6 +309,15 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
 
     return HistogramComposite
+
+
+def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
+    
+    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
+    subprocess.Open
+    raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
+    
+    
  
 
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None):
@@ -351,6 +362,11 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     
     return histogram_obj
 
+def __CreateImageMagickCommandLineForHistogram(filename, Scale):
+    CmdTemplate = "convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
+    return CmdTemplate % {'filename' : filename, 'scale' : Scale * 100}
+    
+
 def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 
     if Scale is None:
@@ -363,9 +379,7 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
     if Scale > 1:
         Scale = 1
 
-    CmdTemplate = "convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
-    Cmd = CmdTemplate % {'filename' : filename, 'scale' : Scale * 100}
-
+    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
     task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True)
 
     return task
