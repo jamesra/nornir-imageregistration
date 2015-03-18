@@ -76,7 +76,7 @@ def _FindTileOffsets(tiles, imageScale=None):
     #_CalculateImageFFTs(tiles)
  
     
-    #pool = nornir_pools.GetSerialPool()
+    #pool = nornir_pools.GetGlobalSerialPool()
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
@@ -88,13 +88,15 @@ def _FindTileOffsets(tiles, imageScale=None):
         #Used for debugging: __tile_offset(A, B, imageScale)
         #t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
         (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A,B, imageScale)
-        t = pool.add_task("Align %d -> %d %s", __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment)
+        t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment)
         
         t.A = A
         t.B = B
         tasks.append(t) 
         CalculationCount += 1
         print("Start alignment %d -> %d" % (A.ID, B.ID))
+        
+    pool.wait_completion()
 
     for t in tasks:
         offset = t.wait_return()
@@ -124,7 +126,7 @@ def __get_overlapping_image(image, overlapping_rect, excess_scalar=1.5):
     Crop the tile's image so it contains the specified rectangle
     '''
     
-    scaled_rect = spatial.Rectangle.CreateFromBounds(np.around(spatial.Rectangle.scale(overlapping_rect, excess_scalar).ToArray()))
+    scaled_rect = spatial.Rectangle.SafeRound(spatial.Rectangle.scale(overlapping_rect, excess_scalar))
     return core.CropImage(image,Xo=int(scaled_rect.BottomLeft[1]), Yo=int(scaled_rect.BottomLeft[0]), Width=int(scaled_rect.Width), Height=int(scaled_rect.Height), cval='random')
     
     #return core.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)
