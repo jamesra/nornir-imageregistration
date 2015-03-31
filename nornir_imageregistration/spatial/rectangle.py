@@ -18,6 +18,108 @@ def IsValidBoundingBox(bounds):
     '''Raise a value error if the bounds have negative dimensions'''
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
 
+class RectangleSet():
+    '''A set of rectangles'''
+    
+    rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'),('MaxY', 'f4'),('MaxX','f4'), ('ID', 'u8')])
+    #active_dtype is used for lists sorting the start and end position of rectangles
+    active_dtype = np.dtype([('Value', 'f4'), ('ID','u8'), ('Active', 'u1')])
+    
+    @classmethod
+    def _create_bounds_array(cls, rects):
+        '''Create a single numpy array for each rectangle, with the index of the rectangle in the original set'''
+        rect_array = np.empty(len(rects), dtype=cls.rect_dtype)        
+        for i, rect in enumerate(rects):
+            input_rect = rects[i].BoundingBox
+            rect_array[i] = (input_rect[0], input_rect[1], input_rect[2],input_rect[3], i)
+            
+        return rect_array
+    
+    @classmethod
+    def _create_sweep_arrays(cls, rect_array):
+        '''
+        Create lists that sort the beginning and end values for rectangles along each axis
+        '''
+        
+        x_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
+        y_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
+        
+        for i, rect in enumerate(rect_array):
+            x_sweep_array[i*2] = (rect['MinX'],rect['ID'],True)
+            x_sweep_array[(i*2)+1] = (rect['MaxX'],rect['ID'],False)
+            y_sweep_array[i*2] = (rect['MinY'],rect['ID'],True)
+            y_sweep_array[(i*2)+1] = (rect['MaxY'],rect['ID'],False)
+            
+        x_sweep_array = np.sort(x_sweep_array, order=('Value','Active'))
+        y_sweep_array = np.sort(y_sweep_array, order=('Value','Active'))
+        
+        return (x_sweep_array, y_sweep_array)
+            
+    
+    def __init__(self, rects_array):    
+        self._rects_array = rects_array#np.sort(rects_array, order=('MinX', 'MinY'))
+        
+        (self.x_sweep_array, self.y_sweep_array) = RectangleSet._create_sweep_arrays(self._rects_array) 
+        #self._minx_sorted = np.sort(self._rects_array, order=('MinX', 'MaxX'))
+        #self._miny_sorted = np.sort(self._rects_array, order=('MinY', 'MaxY'))
+        #self._maxx_sorted = np.sort(self._rects_array, order=('MaxX', 'MinX'))
+        #self._maxy_sorted = np.sort(self._rects_array, order=('MaxY', 'MinY'))
+    
+    @classmethod
+    def Create(cls, rects):
+        
+        rects_array = cls._create_bounds_array(rects)
+        rset = RectangleSet(rects_array)
+        return rset
+    
+    def EnumerateOverlapping(self):
+        '''
+        :return: A set of tuples containing the indicies of overlapping rectangles passed to the Create function
+        '''
+        
+        OverlapSet = {}
+        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.x_sweep_array):
+            OverlapSet[ID] = overlappingIDs
+            
+        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
+            OverlapSet[ID] &= overlappingIDs
+        
+        for (ID,overlappingIDs) in OverlapSet.items():
+            for MatchingID in overlappingIDs:
+                if MatchingID != ID:
+                    yield (ID, MatchingID)
+                        
+    
+    @classmethod
+    def SweepAlongAxis(cls, sweep_array):
+        '''
+        :param ndarray sweep_array: Array of active_dtype 
+        :return: A set of tuples containing the indicies of overlapping rectangles on the axis
+        '''
+        ActiveSet = set()
+        last_value = None
+        IDsToYield = []
+        for i_x in range(0,len(sweep_array)):
+            NextIsDifferent = True
+            
+            ID = sweep_array[i_x]['ID'] 
+            if i_x + 1 < len(sweep_array):
+                NextIsDifferent = sweep_array[i_x + 1]['Value'] != sweep_array[i_x]['Value'] and sweep_array[i_x + 1]['Active'] != sweep_array[i_x]['Active']
+            
+            if sweep_array[i_x]['Active']:
+                ActiveSet.add(ID)
+                IDsToYield.append(ID)
+            else:   
+                ActiveSet.remove(ID)
+                
+            if NextIsDifferent:
+                for YieldID in IDsToYield:
+                    yield (YieldID, ActiveSet.copy())
+                IDsToYield.clear()
+                         
+    def __str__(self):
+        return str(self._rects_array)
+
 
 class Rectangle(object):
     '''
@@ -90,7 +192,7 @@ class Rectangle(object):
         '''
         Constructor, bounds = [left bottom right top]
         '''
-
+ 
         self._bounds = bounds
 
     def ToArray(self):
@@ -141,10 +243,10 @@ class Rectangle(object):
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
 
-        if(A.BoundingBox[iRect.MaxX] < B.BoundingBox[iRect.MinX] or
-           A.BoundingBox[iRect.MinX] > B.BoundingBox[iRect.MaxX] or
-           A.BoundingBox[iRect.MaxY] < B.BoundingBox[iRect.MinY] or
-           A.BoundingBox[iRect.MinY] > B.BoundingBox[iRect.MaxY]):
+        if(A.BoundingBox[iRect.MaxX] <= B.BoundingBox[iRect.MinX] or
+           A.BoundingBox[iRect.MinX] >= B.BoundingBox[iRect.MaxX] or
+           A.BoundingBox[iRect.MaxY] <= B.BoundingBox[iRect.MinY] or
+           A.BoundingBox[iRect.MinY] >= B.BoundingBox[iRect.MaxY]):
 
             return False
 

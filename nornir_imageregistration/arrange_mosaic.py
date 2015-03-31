@@ -74,17 +74,18 @@ def _FindTileOffsets(tiles, imageScale=None):
     CalculationCount = 0
     
     #_CalculateImageFFTs(tiles)
- 
-    
+  
     #pool = nornir_pools.GetGlobalSerialPool()
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
     layout = nornir_imageregistration.layout.Layout()
-    for t in tiles.values():
+    list_tiles = list(tiles.values())
+    
+    for t in list_tiles:
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
-      
-    for A,B in __iterateOverlappingTiles(tiles):
+         
+    for A,B in __iterateOverlappingTiles(list_tiles):
         #Used for debugging: __tile_offset(A, B, imageScale)
         #t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
         (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A,B, imageScale)
@@ -95,8 +96,6 @@ def _FindTileOffsets(tiles, imageScale=None):
         tasks.append(t) 
         CalculationCount += 1
         print("Start alignment %d -> %d" % (A.ID, B.ID))
-        
-    pool.wait_completion()
 
     for t in tasks:
         offset = t.wait_return()
@@ -111,6 +110,8 @@ def _FindTileOffsets(tiles, imageScale=None):
         print("%d -> %d = %g" % (t.A.ID, t.B.ID, distance))
         
         layout.SetOffset(t.A.ID, t.B.ID, ActualOffset, offset.weight) 
+        
+    pool.wait_completion()
     
     print(("Total offset calculations: " + str(CalculationCount)))
 
@@ -198,12 +199,19 @@ def __tile_offset(A,B, imageScale):
     adjusted_record = AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
     return adjusted_record
 
-def __iterateOverlappingTiles(tiles, minOverlap = 0.05):
+def __iterateOverlappingTiles(list_tiles, minOverlap = 0.05):
+    '''Return all tiles which overlap'''
     
-    for (A,B) in itertools.combinations(tiles.values(), 2):
-        if spatial.rectangle.Rectangle.overlap(A.ControlBoundingBox, B.ControlBoundingBox) >= minOverlap:
-            yield (A,B)
-
+    list_rects = []
+    for tile in list_tiles:
+        list_rects.append(tile.ControlBoundingBox)
+        
+    rset = spatial.RectangleSet.Create(list_rects)
+    
+    for (A,B) in rset.EnumerateOverlapping():
+        if spatial.Rectangle.overlap(list_rects[A], list_rects[B]) >= minOverlap:
+            yield (list_tiles[A],list_tiles[B])
+    
 def TranslateFiles(fileDict):
     '''Translate Images expects a dictionary of images, their position and size in pixel space.  It moves the images to what it believes their optimal position is for alignment 
        and returns a dictionary of the same form.  
