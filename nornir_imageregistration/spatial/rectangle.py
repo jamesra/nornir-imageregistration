@@ -115,7 +115,7 @@ class RectangleSet():
             if NextIsDifferent:
                 for YieldID in IDsToYield:
                     yield (YieldID, ActiveSet.copy())
-                IDsToYield.clear()
+                IDsToYield = []
                          
     def __str__(self):
         return str(self._rects_array)
