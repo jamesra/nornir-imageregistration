@@ -186,6 +186,9 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
             TilesDir = os.path.join(self.ImportedDataPath, self.Dataset, 'Leveled', 'TilePyramid', downsamplePath)
         else:
             TilesDir = os.path.join(TilePyramidDir, downsamplePath)
+        
+        original_score = mosaic.QualityScore(TilesDir)    
+        
 
 #        mosaic.TranslateToZeroOrigin()
 
@@ -214,20 +217,30 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         # Each tile should contain a dictionary with the known offsets.  Show the overlapping images using the calculated offsets
 
         (tileA, tileB, offset) = _GetFirstOffsetPair(translated_layout)
-
+                
         # self.ShowTilesWithOffset(tileA, tileB, offset)
         # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
         #nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
         nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translated_layout)
         final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translated_layout)
         
-        self.CreateSaveShowMosaic(mosaicBaseName, final_layout, tiles, openwindow)
+        translated_mosaic = self.CreateSaveShowMosaic(mosaicBaseName, final_layout, tiles, openwindow)
+        translated_score = translated_mosaic.QualityScore(TilesDir)
+        
+        #translated_mosaic.RefineLayout(TilesDir)
         
         #nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(final_layout)
         relaxed_layout = self._Relax_Layout(translated_layout)
         
-        self.CreateSaveShowMosaic(mosaicBaseName + "_relaxed", relaxed_layout, tiles, openwindow)
- 
+        relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_relaxed", relaxed_layout, tiles, openwindow)
+        relaxed_score = relaxed_mosaic.QualityScore(TilesDir)
+        
+        print("Original Quality Score: %g" % (original_score))
+        print("Translated Quality Score: %g" % (translated_score))
+        print("Relaxed Quality Score: %g" % (relaxed_score))
+        
+        #self.assertLess(translated_score, original_score, "Translated worse than original")
+        #self.assertLess(relaxed_score, translated_score, "Translated worse than original")
         
     def CreateSaveShowMosaic(self, name, layout_obj, tiles, openwindow=False):
         OutputDir = os.path.join(self.TestOutputPath, name + '.mosaic')
@@ -237,7 +250,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         created_mosaic.SaveToMosaicFile(OutputDir)
         self._ShowMosaic(created_mosaic, OutputMosaicDir, openwindow=False)
         
-        return
+        return created_mosaic
           
     
     def _Relax_Layout(self, layout_obj, max_tension_cutoff=1, max_iter=100):
@@ -286,6 +299,8 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
             TilesDir = os.path.join(TilePyramidDir, downsamplePath)
 
         mosaic.TranslateToZeroOrigin()
+        
+        original_score = mosaic.QualityScore(TilesDir)
 
         # self.__RemoveExtraImages(mosaic)
 
@@ -302,6 +317,13 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=False)
 
         timer.End("ArrangeTiles " + TilesDir, True)
+        
+        translated_score = translated_mosaic.QualityScore(TilesDir)
+        
+        print("Original Quality Score: %g" % (original_score))
+        print("Translate Quality Score: %g" % (translated_score))
+        
+        #self.assertLess(translated_score, original_score, "Quality score should improve after we run translate")
                 
         OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')

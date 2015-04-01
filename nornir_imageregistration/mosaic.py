@@ -200,8 +200,13 @@ class Mosaic(object):
 
         #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
         (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), sorted(self.CreateTilesPathList(tilesPath)))
-
         return LayoutToMosaic(layout,tiles)
+    
+    
+    def QualityScore(self, tilesPath):
+        
+        score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), sorted(self.CreateTilesPathList(tilesPath)))
+        return score
 
 
     def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
