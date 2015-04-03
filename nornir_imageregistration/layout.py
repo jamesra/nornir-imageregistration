@@ -69,6 +69,11 @@ class LayoutPosition(object):
         '''Read-only use please'''
         return self._OffsetArray
     
+    @property
+    def IsIsolated(self):
+        '''Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no offsets'''
+        return len(self._OffsetArray) == 0
+    
     @Position.setter
     def Position(self, value):
         '''Our position in the layout'''
@@ -207,7 +212,6 @@ class Layout(object):
         
     def GetPosition(self, ID):
         '''Return the position array for a set of nodes, sorted by node ID'''
-        
         return self.nodes[ID].Position
               
         
@@ -342,6 +346,8 @@ def _OffsetsSortedByWeight(layout):
     ''' 
     ret_array = np.empty((0,5))
     for node in layout.nodes.values():
+        if node.IsIsolated:
+            continue
         
         #Prevent duplicates by skipping IDs less than the nodes
         iNewRows = node.OffsetArray[:,0] > node.ID 
@@ -372,6 +378,10 @@ def ScaleOffsetWeightsByPopulationRank(original_layout):
     
     first = True
     for node in original_layout.nodes.values():
+        #Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
+        if node.IsIsolated:
+            continue
+        
         weights = node.OffsetArray[:,LayoutPosition.iOffsetWeight]
         
         if first:
@@ -381,9 +391,22 @@ def ScaleOffsetWeightsByPopulationRank(original_layout):
         else:
             minWeight = min((minWeight, np.min(weights)))
             maxWeight = max((maxWeight, np.max(weights)))
-        
+    
+    #All the weights are equal... odd
+    if maxWeight == minWeight:
+        for node in original_layout.nodes.values():
+            if node.IsIsolated:
+                continue
+            
+            node.OffsetArray[:,LayoutPosition.iOffsetWeight] = 1.0
+        return
+    
     maxWeight -= minWeight
     for node in original_layout.nodes.values():
+        #Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
+        if node.IsIsolated:
+            continue
+        
         node.OffsetArray[:,LayoutPosition.iOffsetWeight] = (node.OffsetArray[:,LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
         assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= 0.0))
         assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= 1.0))
