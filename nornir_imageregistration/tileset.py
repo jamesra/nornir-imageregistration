@@ -33,7 +33,7 @@ def __DetermineTransformScale(transform, imageSize):
     width = transform.MappedBoundingBox.Width
     height = transform.MappedBoundingBox.Height
 
-    if core.ApproxEqual(imageSize[0], height) and core.ApproxEqual(imageSize[1], width):
+    if core.ApproxEqual(imageSize[0], height,epsilon=1.1) and core.ApproxEqual(imageSize[1], width,epsilon=1.1):
         return 1.0
     else:
         heightScale = (imageSize[0] / height)

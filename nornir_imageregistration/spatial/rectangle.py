@@ -291,6 +291,13 @@ class Rectangle(object):
         '''
         
         new_size = A.Size * scale
+        return cls.change_area(A, new_size)
+    
+    @classmethod
+    def change_area(cls, A, new_size):
+        '''
+        Returns a rectangle with the area of new_shape, but the same center
+        '''
         bottom_left = A.Center - (new_size / 2.0)
         return cls.CreateFromPointAndArea(bottom_left, new_size)
     

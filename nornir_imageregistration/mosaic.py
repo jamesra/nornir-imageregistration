@@ -179,11 +179,14 @@ class Mosaic(object):
 
         raise Exception("Not implemented")
 
-    def CreateTilesPathList(self, tilesPath):
+    def CreateTilesPathList(self, tilesPath,keys=None):
+        if keys is None:
+            keys = sorted(self.ImageToTransform.keys())
+            
         if tilesPath is None:
-            return list(self.ImageToTransform.keys())
+            return keys
         else:
-            return [os.path.join(tilesPath, x) for x in list(self.ImageToTransform.keys())]
+            return [os.path.join(tilesPath, x) for x in keys]
 
 
     def _TransformsSortedByKey(self):
@@ -199,13 +202,19 @@ class Mosaic(object):
     def ArrangeTilesWithTranslate(self, tilesPath, usecluster=False):
 
         #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), sorted(self.CreateTilesPathList(tilesPath)))
+        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        return LayoutToMosaic(layout,tiles)
+    
+    def RefineLayout(self, tilesPath, usecluster=False):
+
+        #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
+        (layout, tiles) = arrange.RefineMosaic(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
         return LayoutToMosaic(layout,tiles)
     
     
     def QualityScore(self, tilesPath):
         
-        score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), sorted(self.CreateTilesPathList(tilesPath)))
+        score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
         return score
 
 
@@ -230,7 +239,7 @@ class Mosaic(object):
 
         if usecluster and len(tilesPathList) > 1:
             cpool = pools.GetGlobalMultithreadingPool()
-            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            return at.TilesToImage(self._TransformsSortedByKey(), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)

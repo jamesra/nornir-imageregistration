@@ -25,6 +25,8 @@ import multiprocessing.sharedctypes
 
 import collections
 
+#In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
+np.seterr(all='raise')
 
 # from memory_profiler import profile
 logger = logging.getLogger(__name__)
@@ -472,18 +474,22 @@ def NormalizeImage(image):
 
     return miniszeroimage * scalar
 
-def TileGridShape(source_image, tile_size):
+def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''
     
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
+    else:
+        tile_shape = tile_size
     
-    return np.ceil(source_image.shape / tile_shape).astype(np.int32)
+    return np.ceil(source_image_shape / tile_shape).astype(np.int32)
      
-def ImageToTiles(source_image, tile_size):
+def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     '''
     :param ndarray source_image: Image to cut into tiles
-    :param array tile_shape: Shape of output tiles, source image will be padded if needed
+    :param array tile_size: Shape of each tile
+    :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: Dictionary of images indexed by tuples
     '''    
     #Build the output dictionary
@@ -494,11 +500,14 @@ def ImageToTiles(source_image, tile_size):
     return grid  
 
 
-def ImageToTilesGenerator(source_image, tile_size):
+def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
     '''An iterator generating all tiles for an image
+    :param array tile_size: Shape of each tile
+    :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
     ''' 
-    grid_shape = TileGridShape(source_image, tile_size)
+    grid_shape = TileGridShape(source_image.shape, tile_size)
     
     (required_shape) = grid_shape * tile_size 
     
@@ -557,27 +566,30 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
     Image1D = MaskedImage.flat
     Mask1D = Mask.flat
 
-    iZero1D = Mask1D == 0
+    iMasked = Mask1D == 0
+    iUnmasked = numpy.logical_not(iMasked)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
 
-        MaskedImage1D = np.ma.masked_array(Image1D, iZero1D)
+        #Bit of a backward convention here.
+        #Need to use float64 so that sum does not return an infinite value
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
 
         if(ImageMedian is None):
-            ImageMedian = np.median(MaskedImage1D)
+            ImageMedian = np.median(UnmaskedImage1D)
         if(ImageStdDev is None):
-            ImageStdDev = np.std(MaskedImage1D)
-
-    iNonZero1D = np.transpose(np.nonzero(Mask1D))
-
-    NumMaskedPixels = (Width * Height) - len(iNonZero1D)
+            ImageStdDev = np.std(UnmaskedImage1D)
+            
+        del UnmaskedImage1D
+ 
+    NumMaskedPixels = np.sum(iMasked)
     if(NumMaskedPixels == 0):
         return image
 
     NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
 
-    # iZero1D = transpose(nonzero(iZero1D))
-    Image1D[iZero1D] = NoiseData
+    # iMasked = transpose(nonzero(iMasked))
+    Image1D[iMasked] = NoiseData
 
     # NewImage = reshape(Image1D, (Height, Width), 2)
 
@@ -605,15 +617,12 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     num_pixels = len(maxima_index) + len(minima_index)
 
     OutputImage = np.copy(image)
-
-
+    
     if num_pixels > 0:
         OutputImage1d = OutputImage.flat
         randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev)
         OutputImage1d[maxima_index] = randData[0:len(maxima_index)]
         OutputImage1d[minima_index] = randData[len(maxima_index):]
-
-
 
     return OutputImage
 

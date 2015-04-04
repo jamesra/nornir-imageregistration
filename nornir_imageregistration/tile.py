@@ -36,8 +36,8 @@ class Tile(object):
     '''
     A combination of a transform and a path to an image on disk.  Image will be loaded on demand
     ''' 
-    __nextID = 0
-
+    __nextID = 0 
+    
     @property
     def MappedBoundingBox(self):
         return self._transform.MappedBoundingBox
@@ -123,6 +123,20 @@ class Tile(object):
             Tile.__nextID += 1
         else:
             self._ID = ID
+            
+    def __getstate__(self):
+        odict = {}
+        odict['_transform'] = self._transform
+        odict['_imagepath'] = self._imagepath
+        odict['_ID'] = self._ID
+
+        return odict
+
+    def __setstate__(self, dictionary):         
+        self.__dict__.update(dictionary)
+        self._image = None
+        self._paddedimage = None
+        self._fftimage = None
 
     def __str__(self):
         return "%d: %s" % (self._ID, self._imagepath)

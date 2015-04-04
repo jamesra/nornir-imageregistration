@@ -368,10 +368,13 @@ def ScaleOffsetWeightsByPosition(original_layout):
         
     return
 
-def ScaleOffsetWeightsByPopulationRank(original_layout):
+def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
     '''
     Remap offset weights so the highest weight is 1.0 and the lowest is 0
     '''
+    
+    if min_allowed_weight >= max_allowed_weight:
+        raise ValueError("Min allowed weight must be below the max allowed weight")
     
     maxWeight = np.NaN
     minWeight = np.NaN
@@ -398,18 +401,23 @@ def ScaleOffsetWeightsByPopulationRank(original_layout):
             if node.IsIsolated:
                 continue
             
-            node.OffsetArray[:,LayoutPosition.iOffsetWeight] = 1.0
+            node.OffsetArray[:,LayoutPosition.iOffsetWeight] = max_allowed_weight
         return
     
     maxWeight -= minWeight
+    
+    allowed_weight_range = max_allowed_weight - min_allowed_weight
+    
     for node in original_layout.nodes.values():
         #Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
         if node.IsIsolated:
             continue
         
         node.OffsetArray[:,LayoutPosition.iOffsetWeight] = (node.OffsetArray[:,LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
-        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= 0.0))
-        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= 1.0))
+        node.OffsetArray[:,LayoutPosition.iOffsetWeight] *= allowed_weight_range
+        node.OffsetArray[:,LayoutPosition.iOffsetWeight] += min_allowed_weight
+        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= min_allowed_weight))
+        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= max_allowed_weight))
                 
     return 
 

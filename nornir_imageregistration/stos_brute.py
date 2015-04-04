@@ -90,7 +90,6 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     if warpedStats is None:
         warpedStats = core.ImageStats.CalcStats(imWarped)
 
-    RotatedWarped = None
     OKToDelimWarped = False
     if angle != 0:
         imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
@@ -129,9 +128,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     CorrelationImage = fftshift(CorrelationImage)
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
-
-    # del CorrelationImage
-
+    
     # Timer.Start('Find Peak')
     (peak, weight) = core.FindPeak(CorrelationImage)
 

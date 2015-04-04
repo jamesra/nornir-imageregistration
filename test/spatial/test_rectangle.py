@@ -74,6 +74,9 @@ class Test(unittest.TestCase):
         ABRect_list = A_rect_list + B_rect_list
         self.EnumerateOverlappingRectangles(ABRect_list)
         
+        overlap_rect_list = list(self.OverlapRects.values())
+        self.EnumerateOverlappingRectangles(overlap_rect_list)
+        
     def EnumerateOverlappingRectangles(self, rect_list):
          
         rset = spatial.RectangleSet.Create(rect_list)
@@ -103,6 +106,7 @@ class Test(unittest.TestCase):
             for B in non_overlap_set:
                 if A != B:
                     self.assertFalse(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "%d - %d: Non-overlapping rectangles overlap" % (A,B))
+        
         
         print("Done")
         print("")

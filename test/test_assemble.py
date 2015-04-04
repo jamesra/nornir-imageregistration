@@ -32,7 +32,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
 
         # Transform ROI should return coordinates as
         # ([Y1,X1],
@@ -51,7 +51,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (1, 2), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (1, 2), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -65,7 +65,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -79,7 +79,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, flipCanvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
