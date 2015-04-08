@@ -229,26 +229,26 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         #TODO, maybe just run translate again after relax instead of refine?
          
         translated_transforms = list(relaxed_mosaic._TransformsSortedByKey())
-        translate_refine_layout = nornir_imageregistration.arrange_mosaic.RefineTranslations(translated_transforms, tilesPathList, imageScale)
-        nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translate_refine_layout, min_allowed_weight=0.25, max_allowed_weight=1.0)
+        #(translate_refine_layout, tiles) = nornir_imageregistration.arrange_mosaic.RefineTranslations(translated_transforms, tilesPathList, imageScale)
+        #nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translate_refine_layout, min_allowed_weight=0.25, max_allowed_weight=1.0)
         
-        final_translated_refined_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translate_refine_layout)
-        translated_refined_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_translated_refined", final_translated_refined_layout, tiles, openwindow)
+        #final_translated_refined_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translate_refine_layout)
+        #translated_refined_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_translated_refined", final_translated_refined_layout, tiles, openwindow)
         
-        translated_refined_relaxed_layout = self._Relax_Layout(translate_refine_layout)
-        translated_refined_relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_translated_refined_relaxed", translated_refined_relaxed_layout, tiles, openwindow)
+        #translated_refined_relaxed_layout = self._Relax_Layout(translate_refine_layout)
+        #translated_refined_relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_translated_refined_relaxed", translated_refined_relaxed_layout, tiles, openwindow)
                  
         original_score = mosaic.QualityScore(TilesDir)    
         translated_score = translated_mosaic.QualityScore(TilesDir)        
         relaxed_score = relaxed_mosaic.QualityScore(TilesDir)
-        translated_refined_score = translated_refined_mosaic.QualityScore(TilesDir)
-        translated_refined_relaxed_score = translated_refined_relaxed_mosaic.QualityScore(TilesDir) 
+        #translated_refined_score = translated_refined_mosaic.QualityScore(TilesDir)
+        #translated_refined_relaxed_score = translated_refined_relaxed_mosaic.QualityScore(TilesDir) 
         
         print("Original Quality Score: %g" % (original_score))
         print("Translated Quality Score: %g" % (translated_score))
         print("Relaxed Quality Score: %g" % (relaxed_score))
-        print("Translated refined Quality Score: %g" % (translated_refined_score))
-        print("Translated refined relaxed Quality Score: %g" % (translated_refined_relaxed_score))
+        #print("Translated refined Quality Score: %g" % (translated_refined_score))
+        #print("Translated refined relaxed Quality Score: %g" % (translated_refined_relaxed_score))
         
         #self.assertLess(translated_score, original_score, "Translated worse than original")
         #self.assertLess(relaxed_score, translated_score, "Translated worse than original")

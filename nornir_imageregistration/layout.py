@@ -11,26 +11,6 @@ from . import core
 from . import spatial
 
 
-def CreateTiles(transforms, imagepaths):
-    '''Create tiles from pairs of transforms and image paths
-    :param transform transforms: List of N transforms
-    :param str imagepaths: List of N paths to image files
-    :return: List of N tile objects
-    '''
-
-    tiles = {}
-    for i, t in enumerate(transforms):
-
-        if not os.path.exists(imagepaths[i]):
-            log = logging.getLogger(__name__ + ".CreateTiles")
-            log.error("Missing tile: " + imagepaths[i])
-            continue
-
-        tile = nornir_imageregistration.tile.Tile(t, imagepaths[i], i)
-        tiles[tile.ID] = tile
-        
-    return tiles
-
 def _sort_array_on_column(a, iCol, ascending=False):
     '''Sort the numpy array on the specfied column'''
     

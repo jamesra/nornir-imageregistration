@@ -10,27 +10,43 @@ import os
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.core as core
 import numpy as np
+import itertools
 
 
-def IterateOverlappingTiles(tiles, minOverlap = 0.0):
+def CreateTiles(transforms, imagepaths):
+    '''Create tiles from pairs of transforms and image paths
+    :param transform transforms: List of N transforms
+    :param str imagepaths: List of N paths to image files
+    :return: List of N tile objects
     '''
-    :param list tiles: A list of tile objects
-    :param float minOverlap: Tiles must have this percentage of overlap to be returned by the generator
-    :return: A generator returning pairs of tiles which overlap
-    '''
-            
-    for (A,B) in itertools.combinations(tiles.values(), 2):
-        if spatial.rectangle.Rectangle.overlap(A.ControlBoundingBox, B.ControlBoundingBox) >= minOverlap:
-            yield (A,B)
-            
-def BuildSortedTileControlBoundingRects(tiles):
-    rects = np.array((len(tiles), 5))
-    
-    for i, tile in enumerate(tiles):
-        rects[i,:] = np.hstack( tile.ControlBoundingBox.ToArray(), np.array([tile.ID]))
+
+    tiles = {}
+    for i, t in enumerate(transforms):
+
+        if not os.path.exists(imagepaths[i]):
+            log = logging.getLogger(__name__ + ".CreateTiles")
+            log.error("Missing tile: " + imagepaths[i])
+            continue
+
+        tile = Tile(t, imagepaths[i], i)
+        tiles[tile.ID] = tile
         
-    return rects 
-             
+    return tiles
+
+
+def IterateOverlappingTiles(list_tiles, minOverlap = 0.05):
+    '''Return all tiles which overlap'''
+    
+    list_rects = []
+    for tile in list_tiles:
+        list_rects.append(tile.ControlBoundingBox)
+        
+    rset = spatial.RectangleSet.Create(list_rects)
+    
+    for (A,B) in rset.EnumerateOverlapping():
+        if spatial.Rectangle.overlap(list_rects[A], list_rects[B]) >= minOverlap:
+            yield (list_tiles[A],list_tiles[B])
+            
 
 class Tile(object):
     '''

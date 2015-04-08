@@ -54,6 +54,9 @@ class RectangleSet():
         y_sweep_array = np.sort(y_sweep_array, order=('Value','Active'))
         
         return (x_sweep_array, y_sweep_array)
+    
+    
+    
             
     
     def __init__(self, rects_array):    
@@ -72,6 +75,25 @@ class RectangleSet():
         rset = RectangleSet(rects_array)
         return rset
     
+    def _AddOverlapPairToDict(self, OverlapDict, ID, MatchingID):
+        
+        if ID in OverlapDict:
+            OverlapDict[ID].add(MatchingID)
+        
+        if MatchingID in OverlapDict:
+            OverlapDict[MatchingID].add(ID)
+
+
+    def BuildTileOverlapDict(self):
+        
+        OverlapDict = {}
+        
+        for (ID, MatchingID) in self.EnumerateOverlapping():
+            self._AddOverlapPairToDict(OverlapDict, ID, MatchingID)
+        
+        return OverlapDict
+                
+    
     def EnumerateOverlapping(self):
         '''
         :return: A set of tuples containing the indicies of overlapping rectangles passed to the Create function
@@ -80,7 +102,7 @@ class RectangleSet():
         OverlapSet = {}
         for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.x_sweep_array):
             OverlapSet[ID] = overlappingIDs
-            
+                
         for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
             OverlapSet[ID] &= overlappingIDs
         
