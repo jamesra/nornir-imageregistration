@@ -156,7 +156,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
 
     
     def LoadTilesAndCalculateOffsets(self, transforms, imagepaths, imageScale=None):
-        tiles = nornir_imageregistration.layout.CreateTiles(transforms, imagepaths)
+        tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
 
         if imageScale is None:
             imageScale = tileset.MostCommonScalar(transforms, imagepaths)
@@ -228,7 +228,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
         #TODO, maybe just run translate again after relax instead of refine?
          
-        translated_transforms = list(relaxed_mosaic._TransformsSortedByKey())
+        #translated_transforms = list(relaxed_mosaic._TransformsSortedByKey())
         #(translate_refine_layout, tiles) = nornir_imageregistration.arrange_mosaic.RefineTranslations(translated_transforms, tilesPathList, imageScale)
         #nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translate_refine_layout, min_allowed_weight=0.25, max_allowed_weight=1.0)
         
