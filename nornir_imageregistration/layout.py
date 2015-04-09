@@ -281,7 +281,7 @@ class Layout(object):
         self.nodes.update(layoutB.nodes)
     
     @classmethod
-    def RelaxNodes(cls, layout_obj, vector_scalar=0.75):
+    def RelaxNodes(cls, layout_obj, vector_scalar=0.66):
         '''Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
