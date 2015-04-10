@@ -72,7 +72,11 @@ class LayoutPosition(object):
     
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
-        return self.OffsetArray[iKnown,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1]
+        return self.OffsetArray[iKnown,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1].flatten()
+    
+    def GetWeight(self, ID):
+        iKnown = self.ConnectedIDs == ID
+        return self.OffsetArray[iKnown,LayoutPosition.iOffsetWeight]
     
     
     def SetOffset(self, ID, offset, weight):
@@ -281,7 +285,7 @@ class Layout(object):
         self.nodes.update(layoutB.nodes)
     
     @classmethod
-    def RelaxNodes(cls, layout_obj, vector_scalar=0.66):
+    def RelaxNodes(cls, layout_obj, vector_scalar=0.5):
         '''Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
@@ -319,7 +323,7 @@ class Layout(object):
         return layoutA
     
 
-def _OffsetsSortedByWeight(layout):
+def OffsetsSortedByWeight(layout):
     '''
     Return all of a layouts offsets sorted by weight.  
     :return: An array [[TileA_ID, TileB_ID, OffsetY, OffsetX, Weight]] To prevent duplicates we only report offsets where TileA_ID < TileB_ID
@@ -401,8 +405,6 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
                 
     return 
 
-
-        
     
 def RelaxLayout(layout_obj, max_tension_cutoff=5, max_iter=50):
                 
@@ -441,7 +443,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
 
     placedTiles = dict()
     
-    sorted_offsets = _OffsetsSortedByWeight(original_layout) 
+    sorted_offsets = OffsetsSortedByWeight(original_layout) 
 
     LayoutList = [] 
     for iRow in range(0, sorted_offsets.shape[0]):
@@ -503,7 +505,7 @@ def CreateTransform(layout, ID, bounding_box):
     '''
     Create a transform for the position in the layout
     '''
-    OriginalImageSize = (bounding_box[spatial.iRect.MaxY], bounding_box[spatial.iRect.MaxX])
+    OriginalImageSize = (bounding_box[spatial.iRect.MaxY]-1, bounding_box[spatial.iRect.MaxX]-1)
     
     return tfactory.CreateRigidTransform(OriginalImageSize, OriginalImageSize, 0, layout.GetPosition(ID)) 
     

@@ -107,6 +107,13 @@ class Tile(object):
     @property
     def ID(self):
         return self._ID
+    
+    
+    def Get_Overlapping_Imagespace_Rect(self, overlapping_rect):
+        ''':return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space'''
+        image_space_points = self.Transform.InverseTransform(overlapping_rect.Corners)    
+        return spatial.BoundingPrimitiveFromPoints(image_space_points)
+
 
     @classmethod
     def CreateTiles(cls, transforms, imagepaths):
@@ -123,6 +130,32 @@ class Tile(object):
             tiles.append(tile)
 
         return tiles
+    
+    
+    @classmethod
+    def Calculate_Overlapping_Regions(cls, A, B, imageScale):
+        '''
+        :return: The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
+        '''
+        
+        overlapping_rect = spatial.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
+        
+        overlapping_rect_A = A.Get_Overlapping_Imagespace_Rect(overlapping_rect)
+        overlapping_rect_B = B.Get_Overlapping_Imagespace_Rect(overlapping_rect)
+         
+        downsampled_overlapping_rect_A = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
+        downsampled_overlapping_rect_B = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
+        
+        #If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
+        OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
+        
+        #This should ensure we never an an area mismatch
+        downsampled_overlapping_rect_B = spatial.Rectangle.CreateFromPointAndArea(downsampled_overlapping_rect_B.BottomLeft, downsampled_overlapping_rect_A.Size)
+        
+        assert(downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)
+        assert(downsampled_overlapping_rect_A.Height == downsampled_overlapping_rect_B.Height)
+         
+        return (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment)
 
     def __init__(self, transform, imagepath, ID=None):
 

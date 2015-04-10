@@ -21,8 +21,12 @@ def LayoutToMosaic(layout, tiles):
 
     mosaic = Mosaic()
 
-    for ID, Transform in sorted(tiles.items()):
+    for ID in sorted(tiles.keys()):
+        if not ID in layout.nodes:
+            continue
+        
         tile = tiles[ID]
+        
         transform = nornir_imageregistration.layout.CreateTransform(layout, ID, tile.MappedBoundingBox)
         mosaic.ImageToTransform[tile.ImagePath] = transform
 
@@ -199,10 +203,10 @@ class Mosaic(object):
         return values
          
 
-    def ArrangeTilesWithTranslate(self, tilesPath, usecluster=False):
+    def ArrangeTilesWithTranslate(self, tilesPath, excess_scalar=1.5, usecluster=False):
 
         #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath), excess_scalar)
         return LayoutToMosaic(layout,tiles)
     
     def RefineLayout(self, tilesPath, usecluster=False):
