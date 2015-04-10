@@ -114,16 +114,18 @@ def ShowGrayscale(imageList, title=None):
     :param list imageList: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     '''
+    
+    if not title is None:
+        plt.title(title)
+        plt.tight_layout(pad=1.0)    
         
     if isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
     elif isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
-            plt.imshow(imageList[0], cmap=plt.gray(), title=title)
-        else:
-            plot_cnt = 0
-
+            plt.imshow(imageList[0], cmap=plt.gray())
+        else: 
             height, width = _GridLayoutDims(imageList)
             fig, axeslist = plt.subplots(height, width)
             fig.suptitle(title)
@@ -147,6 +149,7 @@ def ShowGrayscale(imageList, title=None):
         return
 
     plt.show()
+    plt.clf()
 
 
 def ROIRange(start, count, maxVal, minVal=0):
