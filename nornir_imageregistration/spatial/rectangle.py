@@ -214,8 +214,12 @@ class Rectangle(object):
         '''
         Constructor, bounds = [left bottom right top]
         '''
- 
-        self._bounds = bounds
+        if isinstance(bounds, np.ndarray):
+            self._bounds = bounds
+        else:
+            self._bounds = np.array(bounds)
+        
+        return 
 
     def ToArray(self):
         return np.array(self._bounds)
@@ -305,6 +309,20 @@ class Rectangle(object):
             return 0.0
         
         return overlapping_rect.Area / A.Area
+    
+    @classmethod
+    def translate(cls, A, offset):
+        '''
+        :return: A copy of the rectangle translated by the specified amount
+        '''
+        translated_rect = Rectangle(A._bounds.copy())
+        translated_rect[iRect.MinY] += offset[0]
+        translated_rect[iRect.MaxY] += offset[0]
+        translated_rect[iRect.MinX] += offset[1]
+        translated_rect[iRect.MaxX] += offset[1]
+        
+        return translated_rect
+        
     
     @classmethod
     def scale(cls, A, scale):
