@@ -212,17 +212,19 @@ class Rectangle(object):
 
     def __init__(self, bounds):
         '''
-        Constructor, bounds = [left bottom right top]
+        :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
         '''
         if isinstance(bounds, np.ndarray):
             self._bounds = bounds
+        elif isinstance(bounds, Rectangle):
+            self._bounds = bounds.ToArray()
         else:
             self._bounds = np.array(bounds)
         
         return 
 
     def ToArray(self):
-        return np.array(self._bounds)
+        return self._bounds.copy()
     
     def ToTuple(self):
         return (self._bounds[iRect.MinY],
