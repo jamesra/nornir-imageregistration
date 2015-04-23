@@ -27,7 +27,7 @@ import collections
 
 #In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(all='raise')
-
+    
 # from memory_profiler import profile
 logger = logging.getLogger(__name__)
 
@@ -559,25 +559,35 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
 
     assert(image.shape == Mask.shape)
 
-    Height = image.shape[0]
-    Width = image.shape[1]
-
     MaskedImage = image
     if Copy:
         MaskedImage = image.copy()
-        
-    Image1D = MaskedImage.flat
+
     Mask1D = Mask.flat
 
     iMasked = Mask1D == 0
-    iUnmasked = numpy.logical_not(iMasked)
+    
+    NumMaskedPixels = np.sum(iMasked)
+    if(NumMaskedPixels == 0):
+        return MaskedImage
+   
+    Image1D = MaskedImage.flat
+    
+    #iUnmasked = numpy.logical_not(iMasked)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
-
+        
+        numUnmaskedPixels = len(Image1D) - NumMaskedPixels 
+        if numUnmaskedPixels <= 2:
+            if numUnmaskedPixels == 0:
+                raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
+            else:
+                raise ValueError("All but %d pixels are masked, cannot calculate standard deviation" % ())
+         
         #Bit of a backward convention here.
         #Need to use float64 so that sum does not return an infinite value
         UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
-
+         
         if(ImageMedian is None):
             ImageMedian = np.median(UnmaskedImage1D)
         if(ImageStdDev is None):
@@ -585,10 +595,6 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
             
         del UnmaskedImage1D
  
-    NumMaskedPixels = np.sum(iMasked)
-    if(NumMaskedPixels == 0):
-        return image
-
     NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
 
     # iMasked = transpose(nonzero(iMasked))
