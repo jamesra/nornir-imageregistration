@@ -12,6 +12,7 @@ import shutil
 import cProfile
 import pickle
 import numpy as np
+import nornir_pools
 
 
 class PickleHelper(object):
@@ -130,6 +131,9 @@ class TestBase(unittest.TestCase):
         self.Logger = logging.getLogger(self.classname)
 
     def tearDown(self):
+         
+        nornir_pools.ClosePools()
+        
         if not self.profiler is None:
             self.profiler.dump_stats(self.TestProfilerOutputPath)
 
