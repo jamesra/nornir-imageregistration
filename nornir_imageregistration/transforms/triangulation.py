@@ -380,8 +380,8 @@ class Triangulation(Base):
 
     def __init__(self, pointpairs):
         '''
-        Constructor, expects at least three point pairs
-        Point pair is (ControlX, ControlY, MappedX, MappedY)
+        Constructor requires at least three point pairs
+        :param ndarray pointpairs: [ControlX, ControlY, MappedX, MappedY] 
         '''
         super(Triangulation, self).__init__()
 

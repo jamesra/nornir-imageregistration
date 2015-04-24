@@ -169,7 +169,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         area = np.asarray(area, dtype=np.uint64)
 
     if area.dtype != np.uint64:
-        area = area.asarray(dtype=np.uint64)
+        area = np.asarray(area, dtype=np.uint64)
 
     if(warped_coords.shape[0] == 0):
         # No points transformed into the requested area, return empty image
@@ -302,16 +302,16 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     else:
         return __WarpedImageUsingCoords(SrcSpace_coords, DstSpace_coords, FixedImageArea, ImagesToTransform, area, cval=cval[0])
 
-
-def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):
-    '''Assembles an image based on the passed transform.
-       Discreet = True causes points outside the defined transform region to be clipped instead of interpolated'''
-
-    stos = None
+def ParameterToStosTransform(transformData):
+    '''
+    :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
+    :return: A transform
+    '''
+    stostransform = None 
+    
     if isinstance(transformData, str):
         if not os.path.exists(transformData):
-            return None;
-
+            raise ValueError("transformData is not a valid path to a .stos file %s" % transformData)
         stos = StosFile.Load(transformData)
         stostransform = factory.LoadTransform(stos.Transform)
     elif isinstance(transformData, StosFile):
@@ -319,6 +319,21 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
         stostransform = factory.LoadTransform(stos.Transform)
     elif isinstance(transformData, transformbase.Base):
         stostransform = transformData
+        
+    return stostransform
+
+def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):
+    '''Assembles an image based on the passed transform.
+    :param bool fixedImageFilename: Image describing the size we want the warped image to fill
+    :param bool warpedImageFilename: Image we will warp into fixed space
+    :param float scalar: Amount to scale the transform before passing the image through
+    :param bool CropUndefined: If true do exclude areas outside the convex hull of the transform, if it exists
+    :param bool Dicreet: True causes points outside the defined transform region to be clipped instead of interpolated
+    :return: transformed image
+    '''
+
+    stos = None
+    stostransform = ParameterToStosTransform(transformData)
 
     if CropUndefined:
         stostransform = triangulation.Triangulation(pointpairs=stostransform.points)
@@ -356,44 +371,52 @@ def TransformImage(transform, fixedImageShape, warpedImage):
 
     height = int(fixedImageShape[0])
     width = int(fixedImageShape[1])
-
-    outputImage = np.zeros(fixedImageShape, dtype=np.float32)
-    
+ 
     # print('\nConverting image to ' + str(self.NumCols) + "x" + str(self.NumRows) + ' grid of OpenGL textures')
 
     tasks = []
+ 
+    grid_shape = core.TileGridShape(warpedImage.shape, tilesize)
+    
+    if np.all(grid_shape == np.array([1,1])):
+        #Single threaded
+        return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape)
+    else:
+        outputImage = np.zeros(fixedImageShape, dtype=np.float32)
+        sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
+        mpool = pools.GetGlobalMultithreadingPool()
+        
+    
+        for iY in range(0, height, int(tilesize[0])):
+    
+            end_iY = iY + tilesize[0]
+            if end_iY > height:
+                end_iY = height
+    
+            for iX in range(0, width, int(tilesize[1])):
+    
+                end_iX = iX + tilesize[1]
+                if end_iX > width:
+                    end_iX = width
+    
+                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                task.iY = iY
+                task.end_iY = end_iY
+                task.iX = iX
+                task.end_iX = end_iX
+    
+                tasks.append(task)
+    
+                # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                # outputImage[iY:end_iY, iX:end_iX] = registeredTile
+        mpool.wait_completion()
+        
+        for task in tasks:
+            registeredTile = task.wait_return()
+            outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registeredTile
+        
+        
+        del sharedWarpedImage
 
-    mpool = pools.GetGlobalMultithreadingPool()
-    sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
-
-    for iY in range(0, height, int(tilesize[0])):
-
-        end_iY = iY + tilesize[0]
-        if end_iY > height:
-            end_iY = height
-
-        for iX in range(0, width, int(tilesize[1])):
-
-            end_iX = iX + tilesize[1]
-            if end_iX > width:
-                end_iX = width
-
-            task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
-            task.iY = iY
-            task.end_iY = end_iY
-            task.iX = iX
-            task.end_iX = end_iX
-
-            tasks.append(task)
-
-            # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
-            # outputImage[iY:end_iY, iX:end_iX] = registeredTile
-            
-    mpool.wait_completion()
-    del sharedWarpedImage
-
-    for task in tasks:
-        registeredTile = task.wait_return()
-        outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registeredTile
 
     return outputImage
