@@ -5,6 +5,7 @@ Created on Oct 4, 2012
 '''
 import ctypes
 import logging
+import multiprocessing
 import multiprocessing.sharedctypes
 import os
 from time import sleep
@@ -205,12 +206,14 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         if not i % CheckTaskInterval == 0:
             continue
 
-        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory
-        for iTask in range(len(taskList) - 1, -1, -1):
-            if taskList[iTask].iscompleted:
-                record = taskList[iTask].wait_return()
-                AngleMatchValues.append(record)
-                del taskList[iTask]
+        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
+        # No sense checking unless we've already filled the queue though
+        if len(taskList) > multiprocessing.cpu_count() * 1.5:
+            for iTask in range(len(taskList) - 1, -1, -1):
+                if taskList[iTask].iscompleted:
+                    record = taskList[iTask].wait_return()
+                    AngleMatchValues.append(record)
+                    del taskList[iTask]
 
         # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
 
