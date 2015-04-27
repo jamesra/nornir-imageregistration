@@ -18,6 +18,130 @@ def IsValidBoundingBox(bounds):
     '''Raise a value error if the bounds have negative dimensions'''
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
 
+class RectangleSet():
+    '''A set of rectangles'''
+    
+    rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'),('MaxY', 'f4'),('MaxX','f4'), ('ID', 'u8')])
+    #active_dtype is used for lists sorting the start and end position of rectangles
+    active_dtype = np.dtype([('Value', 'f4'), ('ID','u8'), ('Active', 'u1')])
+    
+    @classmethod
+    def _create_bounds_array(cls, rects):
+        '''Create a single numpy array for each rectangle, with the index of the rectangle in the original set'''
+        rect_array = np.empty(len(rects), dtype=cls.rect_dtype)        
+        for i, rect in enumerate(rects):
+            input_rect = rects[i].BoundingBox
+            rect_array[i] = (input_rect[0], input_rect[1], input_rect[2],input_rect[3], i)
+            
+        return rect_array
+    
+    @classmethod
+    def _create_sweep_arrays(cls, rect_array):
+        '''
+        Create lists that sort the beginning and end values for rectangles along each axis
+        '''
+        
+        x_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
+        y_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
+        
+        for i, rect in enumerate(rect_array):
+            x_sweep_array[i*2] = (rect['MinX'],rect['ID'],True)
+            x_sweep_array[(i*2)+1] = (rect['MaxX'],rect['ID'],False)
+            y_sweep_array[i*2] = (rect['MinY'],rect['ID'],True)
+            y_sweep_array[(i*2)+1] = (rect['MaxY'],rect['ID'],False)
+            
+        x_sweep_array = np.sort(x_sweep_array, order=('Value','Active'))
+        y_sweep_array = np.sort(y_sweep_array, order=('Value','Active'))
+        
+        return (x_sweep_array, y_sweep_array)
+    
+    
+    
+            
+    
+    def __init__(self, rects_array):    
+        self._rects_array = rects_array#np.sort(rects_array, order=('MinX', 'MinY'))
+        
+        (self.x_sweep_array, self.y_sweep_array) = RectangleSet._create_sweep_arrays(self._rects_array) 
+        #self._minx_sorted = np.sort(self._rects_array, order=('MinX', 'MaxX'))
+        #self._miny_sorted = np.sort(self._rects_array, order=('MinY', 'MaxY'))
+        #self._maxx_sorted = np.sort(self._rects_array, order=('MaxX', 'MinX'))
+        #self._maxy_sorted = np.sort(self._rects_array, order=('MaxY', 'MinY'))
+    
+    @classmethod
+    def Create(cls, rects):
+        
+        rects_array = cls._create_bounds_array(rects)
+        rset = RectangleSet(rects_array)
+        return rset
+    
+    def _AddOverlapPairToDict(self, OverlapDict, ID, MatchingID):
+        
+        if ID in OverlapDict:
+            OverlapDict[ID].add(MatchingID)
+        
+        if MatchingID in OverlapDict:
+            OverlapDict[MatchingID].add(ID)
+
+
+    def BuildTileOverlapDict(self):
+        
+        OverlapDict = {}
+        
+        for (ID, MatchingID) in self.EnumerateOverlapping():
+            self._AddOverlapPairToDict(OverlapDict, ID, MatchingID)
+        
+        return OverlapDict
+                
+    
+    def EnumerateOverlapping(self):
+        '''
+        :return: A set of tuples containing the indicies of overlapping rectangles passed to the Create function
+        '''
+        
+        OverlapSet = {}
+        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.x_sweep_array):
+            OverlapSet[ID] = overlappingIDs
+                
+        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
+            OverlapSet[ID] &= overlappingIDs
+        
+        for (ID,overlappingIDs) in OverlapSet.items():
+            for MatchingID in overlappingIDs:
+                if MatchingID != ID:
+                    yield (ID, MatchingID)
+                        
+    
+    @classmethod
+    def SweepAlongAxis(cls, sweep_array):
+        '''
+        :param ndarray sweep_array: Array of active_dtype 
+        :return: A set of tuples containing the indicies of overlapping rectangles on the axis
+        '''
+        ActiveSet = set()
+        last_value = None
+        IDsToYield = []
+        for i_x in range(0,len(sweep_array)):
+            NextIsDifferent = True
+            
+            ID = sweep_array[i_x]['ID'] 
+            if i_x + 1 < len(sweep_array):
+                NextIsDifferent = sweep_array[i_x + 1]['Value'] != sweep_array[i_x]['Value'] and sweep_array[i_x + 1]['Active'] != sweep_array[i_x]['Active']
+            
+            if sweep_array[i_x]['Active']:
+                ActiveSet.add(ID)
+                IDsToYield.append(ID)
+            else:   
+                ActiveSet.remove(ID)
+                
+            if NextIsDifferent:
+                for YieldID in IDsToYield:
+                    yield (YieldID, ActiveSet.copy())
+                IDsToYield = []
+                         
+    def __str__(self):
+        return str(self._rects_array)
+
 
 class Rectangle(object):
     '''
@@ -65,7 +189,7 @@ class Rectangle(object):
     
     @property
     def Size(self):
-        return np.array((self.Height, self.Width))
+        return self.TopRight - self.BottomLeft
 
     @property
     def BoundingBox(self):
@@ -88,13 +212,19 @@ class Rectangle(object):
 
     def __init__(self, bounds):
         '''
-        Constructor, bounds = [left bottom right top]
+        :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
         '''
-
-        self._bounds = bounds
+        if isinstance(bounds, np.ndarray):
+            self._bounds = bounds
+        elif isinstance(bounds, Rectangle):
+            self._bounds = bounds.ToArray()
+        else:
+            self._bounds = np.array(bounds)
+        
+        return 
 
     def ToArray(self):
-        return np.array(self._bounds)
+        return self._bounds.copy()
     
     def ToTuple(self):
         return (self._bounds[iRect.MinY],
@@ -141,36 +271,90 @@ class Rectangle(object):
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
 
-        if(A.BoundingBox[iRect.MaxX] < B.BoundingBox[iRect.MinX] or
-           A.BoundingBox[iRect.MinX] > B.BoundingBox[iRect.MaxX] or
-           A.BoundingBox[iRect.MaxY] < B.BoundingBox[iRect.MinY] or
-           A.BoundingBox[iRect.MinY] > B.BoundingBox[iRect.MaxY]):
+        if(A.BoundingBox[iRect.MaxX] <= B.BoundingBox[iRect.MinX] or
+           A.BoundingBox[iRect.MinX] >= B.BoundingBox[iRect.MaxX] or
+           A.BoundingBox[iRect.MaxY] <= B.BoundingBox[iRect.MinY] or
+           A.BoundingBox[iRect.MinY] >= B.BoundingBox[iRect.MaxY]):
 
             return False
 
         return True
     
-    @classmethod 
-    def overlap(cls, A, B):
-        ''':rtype: float
-           :returns: 0 to 1 indicating area of A overlapped by B
-           '''
+    @classmethod
+    def overlap_rect(cls, A, B):
+        '''
+        :rtype: Rectangle
+        :returns: The rectangle describing the overlapping regions of rectangles A and B
+        '''
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
         
         if not cls.contains(A,B):
-            return 0.0
+            return None
         
         minX = max((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
         minY = max((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
         maxX = min((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
         maxY = min((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
         
-        overlapping_rect = Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+        return Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+    
+    @classmethod 
+    def overlap(cls, A, B):
+        '''
+        :rtype: float
+        :returns: 0 to 1 indicating area of A overlapped by B
+        '''
+       
+        overlapping_rect = cls.overlap_rect(A, B)
+        if overlapping_rect is None:
+            return 0.0
         
-        return overlapping_rect.Area / A.Area         
+        return overlapping_rect.Area / A.Area
+    
+    @classmethod
+    def translate(cls, A, offset):
+        '''
+        :return: A copy of the rectangle translated by the specified amount
+        '''
+        translated_rect = Rectangle(A._bounds.copy())
+        translated_rect[iRect.MinY] += offset[0]
+        translated_rect[iRect.MaxY] += offset[0]
+        translated_rect[iRect.MinX] += offset[1]
+        translated_rect[iRect.MaxX] += offset[1]
         
+        return translated_rect
         
+    
+    @classmethod
+    def scale(cls, A, scale):
+        '''
+        Return a rectangle with the same center, but scaled in total area
+        '''
+        
+        new_size = A.Size * scale
+        return cls.change_area(A, new_size)
+    
+    @classmethod
+    def change_area(cls, A, new_size):
+        '''
+        Returns a rectangle with the area of new_shape, but the same center
+        '''
+        bottom_left = A.Center - (new_size / 2.0)
+        return cls.CreateFromPointAndArea(bottom_left, new_size)
+    
+    @classmethod
+    def SafeRound(cls, A):
+        '''Round the rectangle bounds to the nearest integer, increasing in area and never decreasing. 
+           The bottom left corner is rounded down and the upper right corner is rounded up.
+           This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
+           cause them to have mismatched bounding boxes'''
+        
+        bottomleft = np.floor(A.BottomLeft)
+        topright = bottomleft + np.ceil(A.Size)
+        
+        return cls.CreateFromPointAndArea(bottomleft, topright-bottomleft)        
+         
 
     def __str__(self):
         return "MinX: %g MinY: %g MaxX: %g MaxY: %g" % (self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])

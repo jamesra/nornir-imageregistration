@@ -15,9 +15,8 @@ class MosaicFile(object):
 
     @property
     def Checksum(self):
-        # data = self.MosaicStr()
-
-        return checksum.DataChecksum(list(self.ImageToTransformString.values()))
+        #We need to sort the transforms so that the order of insertion does not change the checksum
+        return checksum.DataChecksum(sorted(self.ImageToTransformString.values()))
 
     @property
     def NumberOfImages(self):
@@ -299,21 +298,7 @@ class MosaicFile(object):
             return
 
         fMosaic = open(filename, 'w')
-
-        # Write the header
-        fMosaic.write('format_version_number: 1\n')
-        fMosaic.write('number_of_images: ' + str(len(list(self.ImageToTransformString.keys()))) + '\n')
-        fMosaic.write('pixel_spacing: ' + str(self.pixel_spacing) + '\n')
-        fMosaic.write('use_std_mask: ' + str(self.use_std_mask) + '\n')
-
-        for filename in sorted(self.ImageToTransformString.keys()):
-            fMosaic.write('image:\n')
-            transform = self.ImageToTransformString[filename]
-
-            filename = os.path.basename(filename)
-            fMosaic.write(filename + '\n')
-            fMosaic.write(transform + '\n')
-
+        fMosaic.write(self.MosaicStr())
         fMosaic.close()
 
     def MosaicStr(self):

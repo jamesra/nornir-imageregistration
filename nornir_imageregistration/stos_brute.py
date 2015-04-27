@@ -5,6 +5,7 @@ Created on Oct 4, 2012
 '''
 import ctypes
 import logging
+import multiprocessing
 import multiprocessing.sharedctypes
 import os
 from time import sleep
@@ -90,7 +91,6 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     if warpedStats is None:
         warpedStats = core.ImageStats.CalcStats(imWarped)
 
-    RotatedWarped = None
     OKToDelimWarped = False
     if angle != 0:
         imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
@@ -129,9 +129,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     CorrelationImage = fftshift(CorrelationImage)
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
-
-    # del CorrelationImage
-
+    
     # Timer.Start('Find Peak')
     (peak, weight) = core.FindPeak(CorrelationImage)
 
@@ -160,6 +158,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     Debug = False
     pool = None
+    
+    #Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
+    Cluster=False
 
     if Debug:
         pool = pools.GetThreadPool(Poolname=None, num_threads=3)
@@ -205,12 +206,14 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         if not i % CheckTaskInterval == 0:
             continue
 
-        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory
-        for iTask in range(len(taskList) - 1, 0, -1):
-            if taskList[iTask].iscompleted:
-                record = taskList[iTask].wait_return()
-                AngleMatchValues.append(record)
-                del taskList[iTask]
+        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
+        # No sense checking unless we've already filled the queue though
+        if len(taskList) > multiprocessing.cpu_count() * 1.5:
+            for iTask in range(len(taskList) - 1, -1, -1):
+                if taskList[iTask].iscompleted:
+                    record = taskList[iTask].wait_return()
+                    AngleMatchValues.append(record)
+                    del taskList[iTask]
 
         # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
 
@@ -234,6 +237,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         # ShowGrayscale(NormCorrelationImage)
 
     # print str(AngleMatchValues)
+    
+    #Delete the pool to ensure extra python threads do not stick around
+    pool.wait_completion()
 
     del PaddedFixed
 

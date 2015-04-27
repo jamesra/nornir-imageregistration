@@ -20,11 +20,14 @@ import nornir_imageregistration
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+import multiprocessing.sharedctypes
 
 
 import collections
 
-
+#In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
+np.seterr(all='raise')
+    
 # from memory_profiler import profile
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,13 @@ class ImageStats(object):
         obj.median = np.median(image.flat)
         obj.std = np.std(image.flat)
         return obj
+    
+def array_distance(array):
+    '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
+    if array.ndim == 1:
+        return np.sqrt(np.sum(array ** 2)) 
+    
+    return np.sqrt(np.sum(array ** 2,1))
     
 def GetBitsPerPixel(File): 
     return shared_images.GetImageBpp(File)
@@ -104,16 +114,18 @@ def ShowGrayscale(imageList, title=None):
     :param list imageList: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     '''
+    
+    if not title is None:
+        plt.title(title)
+        plt.tight_layout(pad=1.0)    
         
     if isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
     elif isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
-            plt.imshow(imageList[0], cmap=plt.gray(), title=title)
-        else:
-            plot_cnt = 0
-
+            plt.imshow(imageList[0], cmap=plt.gray())
+        else: 
             height, width = _GridLayoutDims(imageList)
             fig, axeslist = plt.subplots(height, width)
             fig.suptitle(title)
@@ -137,6 +149,7 @@ def ShowGrayscale(imageList, title=None):
         return
 
     plt.show()
+    plt.clf()
 
 
 def ROIRange(start, count, maxVal, minVal=0):
@@ -201,7 +214,7 @@ def ResizeImage(image, scalar):
     
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
 
-def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
+def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     '''
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -212,7 +225,8 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
        :param int Yo: Y origin for crop
        :param int Width: New width of image
        :param int Height: New height of image
-       :param int background: default value for regions outside the original image boundaries.  Defaults to 0.
+       :param int cval: default value for regions outside the original image boundaries.  Defaults to 0.  Use 'random' to fill with random noise matching images statistical profile
+       
        :return: Cropped image
        :rtype: ndarray
        '''
@@ -226,6 +240,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
     if image is None:
         return None
     
+#     if not isinstance(Width, int):
+#         Width = int(Width)
+#     
+#     if not isinstance(Height, int):
+#         Height = int(Height)
+        
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
 
@@ -256,12 +276,20 @@ def CropImage(imageparam, Xo, Yo, Width, Height, background=None):
         out_endY = out_startY + (in_endY - in_startY)
 
     cropped = None
-    if background is None:
+    rMask = None
+    if cval is None:
         cropped = np.zeros((Height, Width), dtype=image.dtype)
+    elif cval == 'random':
+        rMask = np.zeros((Height, Width), dtype=np.bool)
+        rMask[out_startY:out_endY, out_startX:out_endX] = True
+        cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
-        cropped = np.ones((Height, Width), dtype=image.dtype) * background
+        cropped = np.ones((Height, Width), dtype=image.dtype) * cval
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
+    
+    if not rMask is None:
+        RandomNoiseMask(cropped, rMask, Copy=False)
 
     return cropped
 
@@ -449,18 +477,22 @@ def NormalizeImage(image):
 
     return miniszeroimage * scalar
 
-def TileGridShape(source_image, tile_size):
+def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''
     
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
+    else:
+        tile_shape = tile_size
     
-    return np.ceil(source_image.shape / tile_shape).astype(np.int32)
+    return np.ceil(source_image_shape / tile_shape).astype(np.int32)
      
-def ImageToTiles(source_image, tile_size):
+def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     '''
     :param ndarray source_image: Image to cut into tiles
-    :param array tile_shape: Shape of output tiles, source image will be padded if needed
+    :param array tile_size: Shape of each tile
+    :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: Dictionary of images indexed by tuples
     '''    
     #Build the output dictionary
@@ -471,15 +503,18 @@ def ImageToTiles(source_image, tile_size):
     return grid  
 
 
-def ImageToTilesGenerator(source_image, tile_size):
+def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
     '''An iterator generating all tiles for an image
+    :param array tile_size: Shape of each tile
+    :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
     ''' 
-    grid_shape = TileGridShape(source_image, tile_size)
+    grid_shape = TileGridShape(source_image.shape, tile_size)
     
     (required_shape) = grid_shape * tile_size 
     
-    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), background=None)
+    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), cval=0)
     
     #Build the output dictionary
     StartY = 0 
@@ -524,34 +559,46 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
 
     assert(image.shape == Mask.shape)
 
-    Height = image.shape[0]
-    Width = image.shape[1]
+    MaskedImage = image
+    if Copy:
+        MaskedImage = image.copy()
 
-    MaskedImage = image.copy()
-    Image1D = MaskedImage.flat
     Mask1D = Mask.flat
 
-    iZero1D = Mask1D == 0
+    iMasked = Mask1D == 0
+    
+    NumMaskedPixels = np.sum(iMasked)
+    if(NumMaskedPixels == 0):
+        return MaskedImage
+   
+    Image1D = MaskedImage.flat
+    
+    #iUnmasked = numpy.logical_not(iMasked)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
-
-        MaskedImage1D = np.ma.masked_array(Image1D, iZero1D)
-
+        
+        numUnmaskedPixels = len(Image1D) - NumMaskedPixels 
+        if numUnmaskedPixels <= 2:
+            if numUnmaskedPixels == 0:
+                raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
+            else:
+                raise ValueError("All but %d pixels are masked, cannot calculate standard deviation" % ())
+         
+        #Bit of a backward convention here.
+        #Need to use float64 so that sum does not return an infinite value
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
+         
         if(ImageMedian is None):
-            ImageMedian = np.median(MaskedImage1D)
+            ImageMedian = np.median(UnmaskedImage1D)
         if(ImageStdDev is None):
-            ImageStdDev = np.std(MaskedImage1D)
-
-    iNonZero1D = np.transpose(np.nonzero(Mask1D))
-
-    NumMaskedPixels = (Width * Height) - len(iNonZero1D)
-    if(NumMaskedPixels == 0):
-        return image
-
+            ImageStdDev = np.std(UnmaskedImage1D)
+            
+        del UnmaskedImage1D
+ 
     NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
 
-    # iZero1D = transpose(nonzero(iZero1D))
-    Image1D[iZero1D] = NoiseData
+    # iMasked = transpose(nonzero(iMasked))
+    Image1D[iMasked] = NoiseData
 
     # NewImage = reshape(Image1D, (Height, Width), 2)
 
@@ -579,15 +626,12 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     num_pixels = len(maxima_index) + len(minima_index)
 
     OutputImage = np.copy(image)
-
-
+    
     if num_pixels > 0:
         OutputImage1d = OutputImage.flat
         randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev)
         OutputImage1d[maxima_index] = randData[0:len(maxima_index)]
         OutputImage1d[minima_index] = randData[len(maxima_index):]
-
-
 
     return OutputImage
 
@@ -845,7 +889,8 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
-       moving image must be rotated and translated to align perfectly with the FixedImage'''
+       moving image must be rotated and translated to align perfectly with the FixedImage
+       '''
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))

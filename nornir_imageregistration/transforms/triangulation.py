@@ -193,7 +193,7 @@ class Triangulation(Base):
            If it is known that the data structures will be needed this function can be faster
            since computations can be performed in parallel'''
 
-        MPool = pools.GetMultithreadingPool("Transforms")
+        MPool = pools.GetGlobalMultithreadingPool()
         TPool = pools.GetGlobalThreadPool()
         FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
         WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
@@ -201,12 +201,16 @@ class Triangulation(Base):
         # Cannot pickle KDTree, so use Python's thread pool
 
         FixedKDTask = TPool.add_task("Fixed KDTree", KDTree, self.FixedPoints)
-        WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
+        #WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
+        self._WarpedKDTree = KDTree(self.WarpedPoints)
+        
+        MPool.wait_completion()
+        
+        self._FixedKDTree = FixedKDTask.wait_return()
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
-        self._WarpedKDTree = WarpedKDTask.wait_return()
-        self._FixedKDTree = FixedKDTask.wait_return()
+        
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
@@ -371,14 +375,13 @@ class Triangulation(Base):
         raise DeprecationWarning("MappedBounds is replaced by MappedBoundingBox")
 
     @property
-    def ControlBounds(self):
-
+    def ControlBounds(self): 
         raise DeprecationWarning("ControlBounds is replaced by FixedBoundingBox")
 
     def __init__(self, pointpairs):
         '''
-        Constructor, expects at least three point pairs
-        Point pair is (ControlX, ControlY, MappedX, MappedY)
+        Constructor requires at least three point pairs
+        :param ndarray pointpairs: [ControlX, ControlY, MappedX, MappedY] 
         '''
         super(Triangulation, self).__init__()
 

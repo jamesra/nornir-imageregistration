@@ -36,13 +36,16 @@ class Base(object):
         '''Calls every function registered to be notified when the transform changes.'''
 
         # Calls every listener when the transform has changed in a way that a point may be mapped to a new position in the fixed space        
-        Pool = None 
-        tlist = list()
-        for func in self.OnChangeEventListeners:
-            if Pool is None:
-                Pool = pools.GetGlobalThreadPool()
-                
-            tlist.append(Pool.add_task("OnTransformChanged calling " + str(func), func))
-
-        for task in tlist:
-            task.wait()
+        
+        
+        if len(self.OnChangeEventListeners) > 1:
+            Pool = pools.GetGlobalThreadPool() 
+            tlist = list()
+                    
+            for func in self.OnChangeEventListeners:
+                tlist.append(Pool.add_task("OnTransformChanged calling " + str(func), func))
+    
+            Pool.wait_completion()
+        else:
+            for func in self.OnChangeEventListeners:
+                func()

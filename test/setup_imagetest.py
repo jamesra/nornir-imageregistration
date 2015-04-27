@@ -11,6 +11,8 @@ from nornir_shared.misc import SetupLogging
 import shutil
 import cProfile
 import pickle
+import numpy as np
+import nornir_pools
 
 
 class PickleHelper(object):
@@ -129,6 +131,9 @@ class TestBase(unittest.TestCase):
         self.Logger = logging.getLogger(self.classname)
 
     def tearDown(self):
+         
+        nornir_pools.ClosePools()
+        
         if not self.profiler is None:
             self.profiler.dump_stats(self.TestProfilerOutputPath)
 
@@ -172,6 +177,13 @@ class MosaicTestBase(TestBase):
             os.makedirs(self.TestOutputPath, exist_ok=True)
 
         super(MosaicTestBase, self).setUp()
+        
+def array_distance(array):
+    '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
+    if array.ndim == 1:
+        return np.sqrt(np.sum(array ** 2)) 
+    
+    return np.sqrt(np.sum(array ** 2,1))
 
 
 if __name__ == "__main__":

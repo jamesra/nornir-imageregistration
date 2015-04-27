@@ -35,6 +35,7 @@ def AddStosTransforms(A_To_B, B_To_C):
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
+    A_To_C_Stos.ControlMaskFullPath = B_To_C_Stos.ControlMaskFullPath
 
     A_To_C_Stos.Transform = factory.TransformToIRToolsString(A_To_C_Transform)
 
@@ -44,7 +45,7 @@ def AddStosTransforms(A_To_B, B_To_C):
 #         A_To_C_Stos.Transform = factory.TransformToIRToolsString(A_To_C_Transform)
 
     A_To_C_Stos.ControlImageDim = B_To_C_Stos.ControlImageDim
-    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim
+    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim 
 
     return A_To_C_Stos
 
@@ -76,7 +77,7 @@ class StosFile(object):
 
     @ControlImageFullPath.setter
     def ControlImageFullPath(self, val):
-
+        
         d = os.path.dirname(val)
         f = os.path.basename(val)
 
@@ -104,7 +105,11 @@ class StosFile(object):
 
     @ControlMaskFullPath.setter
     def ControlMaskFullPath(self, val):
-
+        if val is None:
+            self.ControlMaskPath = None
+            self.ControlMaskName = None 
+            return 
+        
         d = os.path.dirname(val)
         f = os.path.basename(val)
         self.ControlMaskPath = d.strip()
@@ -119,7 +124,11 @@ class StosFile(object):
 
     @MappedMaskFullPath.setter
     def MappedMaskFullPath(self, val):
-
+        if val is None:
+            self.MappedMaskPath = None
+            self.MappedMaskName = None 
+            return 
+        
         d = os.path.dirname(val)
         f = os.path.basename(val)
 
@@ -133,6 +142,10 @@ class StosFile(object):
 
         compressedString = StosFile.CompressedTransformString(self.Transform)
         return nornir_shared.checksum.DataChecksum(compressedString)
+    
+    @property
+    def HasMasks(self):
+        return not (self.MappedMaskName is None or self.ControlMaskName is None)
 
 #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
@@ -281,11 +294,8 @@ class StosFile(object):
             raise ValueError("%s is not a valid stos file" % (filename))
             
 
-        obj.ControlImagePath = os.path.dirname(lines[0].strip())
-        obj.MappedImagePath = os.path.dirname(lines[1].strip())
-
-        obj.ControlImageName = os.path.basename(lines[0].strip())
-        obj.MappedImageName = os.path.basename(lines[1].strip())
+        obj.ControlImageFullPath = lines[0].strip()
+        obj.MappedImageFullPath = lines[1].strip()
 
         ControlDims = lines[4].split()
         MappedDims = lines[5].split()
@@ -296,8 +306,8 @@ class StosFile(object):
         obj.Transform = lines[6].strip()
 
         if len(lines) > 8:
-            obj.ControlMaskPath = lines[7]
-            obj.MappedMaskPath = lines[8]
+            obj.ControlMaskFullPath = lines[8]
+            obj.MappedMaskFullPath = lines[9]
 
         return obj
 

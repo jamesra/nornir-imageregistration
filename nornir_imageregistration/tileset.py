@@ -33,7 +33,7 @@ def __DetermineTransformScale(transform, imageSize):
     width = transform.MappedBoundingBox.Width
     height = transform.MappedBoundingBox.Height
 
-    if core.ApproxEqual(imageSize[0], height) and core.ApproxEqual(imageSize[1], width):
+    if core.ApproxEqual(imageSize[0], height,epsilon=1.1) and core.ApproxEqual(imageSize[1], width,epsilon=1.1):
         return 1.0
     else:
         heightScale = (imageSize[0] / height)
@@ -54,7 +54,12 @@ def MostCommonScalar(transforms, imagepaths):
     for i, transform in enumerate(transforms):
         imagefullpath = imagepaths[i]
 
-        size = core.GetImageSize(imagefullpath)
+        try:
+            size = core.GetImageSize(imagefullpath)
+        except FileNotFoundError:
+            continue
+        except IOError:
+            continue
 
         if size is None:
             continue

@@ -8,6 +8,7 @@ from . import setup_imagetest
 import os
 import numpy
 
+import nornir_imageregistration
 import nornir_imageregistration.core as core
 from nornir_imageregistration.alignment_record import AlignmentRecord
 import nornir_imageregistration.assemble as assemble
@@ -32,7 +33,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
 
         # Transform ROI should return coordinates as
         # ([Y1,X1],
@@ -51,7 +52,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (1, 2), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (1, 2), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -65,7 +66,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -79,7 +80,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, flipCanvasShape)
 
-        (fixedpoints, points) = assemble.TransformROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
@@ -87,7 +88,31 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 1, delta=0.01)
 
 class TestAssemble(setup_imagetest.ImageTestBase):
+    
+    def test_TransformImageIdentity(self):
+        #Too small to require more than one tile
+        self.CallTransformImage(imageDim=10)
+        
+        #Large enough to require more than one tile
+        self.CallTransformImage(imageDim=4097)
+        
+    def CallTransformImage(self, imageDim):
+        
+        Height = imageDim
+        Width = numpy.round(imageDim / 2)
+        
+        identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(numpy.array([[0,0,0,0],
+                                                                              [Height,0,Height,0],
+                                                                              [0,Width,0,Width],
+                                                                              [Height,Width,Height,Width]]))
+        
+        warpedImage = numpy.ones([Height,Width])
 
+        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height,Width]), warpedImage)
+        self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
+        self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
+        self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
+        
     def test_warpedImageToFixedSpaceTranslate(self):
         WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
@@ -192,6 +217,9 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertEquals(core.GetImageSize(self.FixedImagePath)[0], core.GetImageSize(OutputPath)[0])
         self.assertEquals(core.GetImageSize(self.FixedImagePath)[1], core.GetImageSize(OutputPath)[1])
+        
+    
+        
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
@@ -200,7 +228,7 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
     def test_MeshStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
         self.RunStosAssemble(stosFullPath)
-
+         
 
 
 if __name__ == "__main__":

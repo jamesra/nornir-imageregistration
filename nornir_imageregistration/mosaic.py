@@ -14,15 +14,21 @@ import os
 import copy
 import nornir_pools as pools
 import nornir_imageregistration.arrange_mosaic as arrange
+import nornir_imageregistration
 
 
-def LayoutToMosaic(layout):
+def LayoutToMosaic(layout, tiles):
 
     mosaic = Mosaic()
 
-    for ID, Transform in list(layout.TileToTransform.items()):
-        tile = layout.Tiles[ID]
-        mosaic.ImageToTransform[tile.ImagePath] = Transform
+    for ID in sorted(tiles.keys()):
+        if not ID in layout.nodes:
+            continue
+        
+        tile = tiles[ID]
+        
+        transform = nornir_imageregistration.layout.CreateTransform(layout, ID, tile.MappedBoundingBox)
+        mosaic.ImageToTransform[tile.ImagePath] = transform
 
     mosaic.TranslateToZeroOrigin()
 
@@ -177,21 +183,43 @@ class Mosaic(object):
 
         raise Exception("Not implemented")
 
-    def CreateTilesPathList(self, tilesPath):
+    def CreateTilesPathList(self, tilesPath,keys=None):
+        if keys is None:
+            keys = sorted(self.ImageToTransform.keys())
+            
         if tilesPath is None:
-            return list(self.ImageToTransform.keys())
+            return keys
         else:
-            return [os.path.join(tilesPath, x) for x in list(self.ImageToTransform.keys())]
+            return [os.path.join(tilesPath, x) for x in keys]
 
 
+    def _TransformsSortedByKey(self):
+        '''Return a list of transforms sorted according to the sorted key values'''
+        
+        values = []
+        for k,item in sorted(self.ImageToTransform.items()):
+            values.append(item)
+            
+        return values
+         
 
-    def ArrangeTilesWithTranslate(self, tilesPath, usecluster=False):
+    def ArrangeTilesWithTranslate(self, tilesPath, excess_scalar=1.5, usecluster=False):
 
-        tilesPathList = self.CreateTilesPathList(tilesPath)
+        #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
+        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath), excess_scalar)
+        return LayoutToMosaic(layout,tiles)
+    
+    def RefineLayout(self, tilesPath, usecluster=False):
 
-        layout = arrange.TranslateTiles(list(self.ImageToTransform.values()), tilesPathList)
-
-        return LayoutToMosaic(layout)
+        #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
+        (layout, tiles) = arrange.RefineMosaic(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        return LayoutToMosaic(layout,tiles)
+    
+    
+    def QualityScore(self, tilesPath):
+        
+        score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        return score
 
 
     def AssembleTiles(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
@@ -214,8 +242,8 @@ class Mosaic(object):
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
         if usecluster and len(tilesPathList) > 1:
-            cpool = pools.GetLocalMachinePool("Assemble")
-            return at.TilesToImageParallel(list(self.ImageToTransform.values()), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            cpool = pools.GetGlobalMultithreadingPool()
+            return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(list(self.ImageToTransform.values()), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            return at.TilesToImage(self._TransformsSortedByKey(), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)
