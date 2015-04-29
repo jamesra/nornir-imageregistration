@@ -280,16 +280,16 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         area = FixedImageArea
 
     if cval is None:
-        cval = [0] * len(DataToTransform)
-
-    if not isinstance(cval, list):
-        cval = [cval] * len(DataToTransform)
-
+        cval = 0
+        
     (DstSpace_coords, SrcSpace_coords) = DestinationROI_to_SourceROI(transform, botleft, area, extrapolate=extrapolate)
     
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
 
     if isinstance(ImagesToTransform, list):
+        if not isinstance(cval,list):
+            cval = [cval] * len(DataToTransform)    
+        
         FixedImageList = []
         for i, wi in enumerate(ImagesToTransform):
             fi = __WarpedImageUsingCoords(DstSpace_coords, SrcSpace_coords, FixedImageArea, wi, area, cval=cval[i])
@@ -300,7 +300,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         
         return FixedImageList
     else:
-        return __WarpedImageUsingCoords(SrcSpace_coords, DstSpace_coords, FixedImageArea, ImagesToTransform, area, cval=cval[0])
+        return __WarpedImageUsingCoords(DstSpace_coords, SrcSpace_coords, FixedImageArea, ImagesToTransform, area, cval=cval)
 
 def ParameterToStosTransform(transformData):
     '''
