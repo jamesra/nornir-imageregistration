@@ -317,6 +317,9 @@ class Rectangle(object):
         '''
         :return: A copy of the rectangle translated by the specified amount
         '''
+        if not isinstance(offset, np.ndarray):
+            offset = np.array(offset)
+            
         translated_rect = Rectangle(A._bounds.copy())
         translated_rect[iRect.MinY] += offset[0]
         translated_rect[iRect.MaxY] += offset[0]
@@ -340,6 +343,8 @@ class Rectangle(object):
         '''
         Returns a rectangle with the area of new_shape, but the same center
         '''
+        if not isinstance(new_size, np.ndarray):
+            new_size = np.array(new_size)
         bottom_left = A.Center - (new_size / 2.0)
         return cls.CreateFromPointAndArea(bottom_left, new_size)
     
