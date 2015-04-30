@@ -102,8 +102,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         NumCtrlPts = len(self.FixedPoints)
 
         (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints)
-       # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
-       # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
+        # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
+        # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
         Xb = Points[:, 0] * self.Weights[NumCtrlPts + 1]
