@@ -30,7 +30,7 @@ class Test(setup_imagetest.ImageTestBase):
 
     def __CheckRangeForPowerOfTwo(self, overlap):
 
-         for v in range(2, 129):
+        for v in range(2, 129):
             newDim = core.NearestPowerOfTwoWithOverlap(v, overlap=overlap)
 
             logOriginalDim = math.log(v, 2)

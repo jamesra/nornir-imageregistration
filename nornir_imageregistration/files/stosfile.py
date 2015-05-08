@@ -51,6 +51,11 @@ def AddStosTransforms(A_To_B, B_To_C):
 
 class StosFile(object):
     """description of class"""
+    
+    @classmethod
+    def FileHasMasks(cls, path):
+        stosObj = StosFile.Load(path)
+        return stosObj.HasMasks
 
     @classmethod
     def LoadChecksum(cls, path):
@@ -78,11 +83,15 @@ class StosFile(object):
     @ControlImageFullPath.setter
     def ControlImageFullPath(self, val):
         
-        d = os.path.dirname(val)
-        f = os.path.basename(val)
-
-        self.ControlImagePath = d.strip()
-        self.ControlImageName = f.strip()
+        if val is None:
+            self.ControlImagePath = None
+            self.ControlImageName = None
+        else:        
+            d = os.path.dirname(val)
+            f = os.path.basename(val)
+    
+            self.ControlImagePath = d.strip()
+            self.ControlImageName = f.strip()
 
     @property
     def MappedImageFullPath(self):
@@ -90,11 +99,15 @@ class StosFile(object):
 
     @MappedImageFullPath.setter
     def MappedImageFullPath(self, val):
-
-        d = os.path.dirname(val)
-        f = os.path.basename(val)
-        self.MappedImagePath = d.strip()
-        self.MappedImageName = f.strip()
+        
+        if val is None:
+            self.MappedImagePath = None
+            self.MappedImageName = None
+        else:        
+            d = os.path.dirname(val)
+            f = os.path.basename(val)
+            self.MappedImagePath = d.strip()
+            self.MappedImageName = f.strip()
 
     @property
     def ControlMaskFullPath(self):
@@ -146,6 +159,12 @@ class StosFile(object):
     @property
     def HasMasks(self):
         return not (self.MappedMaskName is None or self.ControlMaskName is None)
+    
+    def ClearMasks(self):
+        '''Remove masks from the file'''
+        self.MappedMaskFullPath = None
+        self.ControlMaskFullPath = None
+        return 
 
 #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
@@ -441,10 +460,10 @@ class StosFile(object):
         return DimStr
 
 
-    def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath=None,
-                                           MappedImageFullPath=None,
-                                           ControlMaskFullPath=None,
-                                           MappedMaskFullPath=None,
+    def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath,
+                                           MappedImageFullPath,
+                                           ControlMaskFullPath,
+                                           MappedMaskFullPath,
                                            create_copy=True):
         '''
         :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
@@ -470,31 +489,19 @@ class StosFile(object):
         NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim)
         NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * scale
         NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * scale
+        
+        NewStosFile.ControlImageFullPath = ControlImageFullPath
+        NewStosFile.MappedImageFullPath = MappedImageFullPath
+        NewStosFile.ControlMaskFullPath = ControlMaskFullPath
+        NewStosFile.MappedMaskFullPath = MappedMaskFullPath
+        
+        if os.path.exists(ControlImageFullPath):
+            NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
 
-        if not ControlImageFullPath is None:
-            NewStosFile.ControlImagePath = os.path.dirname(ControlImageFullPath)
-            NewStosFile.ControlImageName = os.path.basename(ControlImageFullPath)
+        if os.path.exists(MappedImageFullPath):
+            NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
 
-            if os.path.exists(ControlImageFullPath):
-                NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
-
-        if not MappedImageFullPath is None:
-            NewStosFile.MappedImagePath = os.path.dirname(MappedImageFullPath)
-            NewStosFile.MappedImageName = os.path.basename(MappedImageFullPath)
-
-            if os.path.exists(MappedImageFullPath):
-                NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
-
-        if(not ControlMaskFullPath is None):
-            NewStosFile.ControlMaskPath = os.path.dirname(ControlMaskFullPath)
-            NewStosFile.ControlMaskName = os.path.basename(ControlMaskFullPath)
-
-        if(not MappedMaskFullPath is None):
-            NewStosFile.MappedMaskPath = os.path.dirname(MappedMaskFullPath)
-            NewStosFile.MappedMaskName = os.path.basename(MappedMaskFullPath)
-
-        # Adjust the grid points
-
+        # Adjust the transform points
         if scale == 1.0:
             NewStosFile.Transform = self.Transform
         else:
