@@ -51,6 +51,11 @@ def AddStosTransforms(A_To_B, B_To_C):
 
 class StosFile(object):
     """description of class"""
+    
+    @classmethod
+    def FileHasMasks(cls, path):
+        stosObj = StosFile.Load(path)
+        return stosObj.HasMasks
 
     @classmethod
     def LoadChecksum(cls, path):
@@ -154,6 +159,12 @@ class StosFile(object):
     @property
     def HasMasks(self):
         return not (self.MappedMaskName is None or self.ControlMaskName is None)
+    
+    def ClearMasks(self):
+        '''Remove masks from the file'''
+        self.MappedMaskFullPath = None
+        self.ControlMaskFullPath = None
+        return 
 
 #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
