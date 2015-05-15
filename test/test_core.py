@@ -66,6 +66,21 @@ class Test(setup_imagetest.ImageTestBase):
         r = core.ROIRange(24, 16, 5)
         self.assertIsNone(r)
         
+    def testShowGrayscale(self):
+        
+        imageA = np.random.rand(64,64)
+        imageB = np.random.rand(64,64)
+        
+        core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title")
+        core.ShowGrayscale(imageA, title=None)
+        
+        core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title")
+        core.ShowGrayscale([imageA], title=None)
+        
+        core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title")
+        core.ShowGrayscale([imageA, imageB], title=None)
+        
+        
 #    def test_SaveImageJPeg2000(self):
 #        
 #         image_full_path = self.GetImagePath('0162_ds16.png')

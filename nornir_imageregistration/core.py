@@ -115,20 +115,30 @@ def ShowGrayscale(imageList, title=None):
     :param str title: Informative title for the figure, for example expected test results
     '''
     
-    if not title is None:
-        plt.title(title)
-        plt.tight_layout(pad=1.0)    
-        
+    def set_title_for_single_image(title):
+        if not title is None:
+            plt.title(title)
+        return 
+    
+    def set_title_for_multi_image(fig, title):
+        if not title is None:
+            fig.suptitle(title)
+        return
+            
+    fig = None
+    
     if isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
+        set_title_for_single_image(title)
     elif isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
             plt.imshow(imageList[0], cmap=plt.gray())
+            set_title_for_single_image(title)
         else: 
             height, width = _GridLayoutDims(imageList)
             fig, axeslist = plt.subplots(height, width)
-            fig.suptitle(title)
+            set_title_for_multi_image(fig, title)
 
             for i, image in enumerate(imageList):
                 # fig = figure()
@@ -147,10 +157,12 @@ def ShowGrayscale(imageList, title=None):
                     ax.imshow(image, cmap=plt.gray(), figure=fig)  
     else:
         return
-
+    
+    plt.tight_layout(pad=1.0)  
     plt.show()
-    plt.clf()
-
+    #Do not call clf or we get two windows on the next call 
+    #plt.clf()
+    
 
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
