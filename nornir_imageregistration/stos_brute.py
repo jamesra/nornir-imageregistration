@@ -17,6 +17,7 @@ import nornir_imageregistration.core as core
 import nornir_pools as pools
 import numpy as np
 import scipy.ndimage.interpolation as interpolation
+import nornir_imageregistration
 
 
 # from memory_profiler import profile
@@ -54,7 +55,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         imFixed = core.ReduceImage(imFixed, scalar)
         imWarped = core.ReduceImage(imWarped, scalar)
 
-    # Replace extrama with noise
+    # Replace extrema with noise
     imFixed = core.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
     imWarped = core.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
 
@@ -73,7 +74,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     if scalar > 1.0:
         AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
-        BestRefinedMatch = AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle)
+        BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle)
 
    # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
 

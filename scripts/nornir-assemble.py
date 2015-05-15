@@ -41,7 +41,7 @@ def __CreateArgParser(ExecArgs=None):
                         dest='scalar'
                         )
 
-    parser.add_argument('-tilepath', '-s',
+    parser.add_argument('-tilepath', '-p',
                         action='store',
                         required=False,
                         type=float,

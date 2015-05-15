@@ -5,8 +5,6 @@ Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
 import numpy as np
-from scipy import stats
-import scipy.spatial.distance
 import os
 import logging
 
@@ -361,7 +359,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
     assert(len(transforms) == len(imagepaths))
 
-    logger = logging.getLogger(__name__ + '.TilesToImage')
+    #logger = logging.getLogger(__name__ + '.TilesToImage')
 
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
@@ -369,7 +367,6 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     distanceImage = None
     fixedRect = None
     fullImage = None
-    fullImageZBuffer = None
 
     if not FixedRegion is None:
         fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
@@ -420,8 +417,6 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     logger = logging.getLogger('TilesToImageParallel')
 
-    distanceImage = None
-
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
 
@@ -434,8 +429,6 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     tasks = []
     fixedRect = None
     fullImage = None
-    fullImageZBuffer = None
-     
 
     if not FixedRegion is None:
         fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
@@ -518,7 +511,7 @@ def __AddTransformedTileToComposite(transformedImageData, fullImage, fullImageZB
     
     if transformedImageData is None:
             logger = logging.getLogger('TilesToImageParallel')
-            logger.error('Convert task failed: ' + str(t))
+            logger.error('Convert task failed: ' + str(transformedImageData))
             return
         
     if transformedImageData.image is None:
@@ -567,7 +560,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
 
 
     # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
-       # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
+    # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
     #   transform = triangulation.Triangulation(transform.points)
 
     warpedImage = core.LoadImage(imagefullpath)

@@ -293,7 +293,6 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
 
     return cropped
 
-
 def npArrayToReadOnlySharedArray(npArray):
     '''Returns a shared memory array for a numpy array.  Used to reduce memory footprint when passing parameters to multiprocess pools'''
     SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
@@ -882,7 +881,7 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
     MaxWidth = FixedImageSize[1] + MovingImageSize[1]
     MaxHeight = FixedImageSize[0] + MovingImageSize[0]
 
-    mask = np.ones([MaxHeight, MaxWidth], dtype=np.Bool)
+    mask = np.ones([MaxHeight, MaxWidth], dtype=np.bool)
 
     raise NotImplementedError()
 
