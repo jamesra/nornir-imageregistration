@@ -107,12 +107,14 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
         mosaic.TranslateToZeroOrigin()
 
-        (imageKey, transform) = list(mosaic.ImageToTransform.items())[0]
+        (imageKey, transform) = sorted(list(mosaic.ImageToTransform.items()))[0]
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
-
+        print("Scaled fixed region %s"  % str(transform.FixedBoundingBox))
+        
         FixedRegion = np.array([MinY + 512, MinX + 1024, MinY + 1024, MinX + 2048])
         ScaledFixedRegion = FixedRegion / self.DownsampleFromTilePath(tilesDir)
+        
 
         (tileImage, tileMask) = mosaic.AssembleTiles(tilesDir, usecluster=False, FixedRegion=FixedRegion)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
@@ -137,7 +139,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
                                                     int(ScaledFixedRegion[3] - ScaledFixedRegion[1]),
                                                     int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
 
-        core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage])
+        core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage], title="image: %s\n%s" % (imageKey, str(transform.FixedBoundingBox)))
 
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir):
