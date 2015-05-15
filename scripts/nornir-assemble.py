@@ -6,6 +6,7 @@ Created on May 21, 2013
 
 import argparse
 import os
+import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_shared.misc
 import logging
@@ -44,7 +45,7 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-tilepath', '-p',
                         action='store',
                         required=False,
-                        type=float,
+                        type=str,
                         default=1.0,
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath'
@@ -87,17 +88,17 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    mosaic = Mosaic.LoadFromMosaicFile(m)
-    mosaicBaseName = os.path.basename(m)
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
+    mosaicBaseName = os.path.basename(Args.inputpath)
 
     mosaic.TranslateToZeroOrigin()
 
-    mosaicImage = mosaic.AssembleTiles(Args.tilepath)
+    (mosaicImage, mosaicMask) = mosaic.AssembleTiles(Args.tilepath)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'
 
-    imsave(Args.outputpath, mosaicImage)
+    nornir_imageregistration.core.SaveImage(Args.outputpath, mosaicImage)
 
     self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
