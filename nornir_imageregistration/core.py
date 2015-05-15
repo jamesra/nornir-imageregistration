@@ -6,6 +6,7 @@ import ctypes
 import logging
 import math
 import multiprocessing
+import tempfile
 import os
 
 from PIL import Image
@@ -30,6 +31,44 @@ np.seterr(all='raise')
     
 # from memory_profiler import profile
 logger = logging.getLogger(__name__)
+
+class memmap_metadata(object):
+    '''meta-data for a memmap array'''
+    @property
+    def path(self):
+        return self._path
+    
+    @property
+    def shape(self):
+        return self._shape
+    
+    @property
+    def dtype(self):
+        return self._dtype
+    
+    @property
+    def mode(self):
+        return self._mode
+        
+    @mode.setter
+    def mode(self, value):
+        #Default to copy-on-write
+        if value is None:
+            self._mode = 'c'
+            return
+        
+        if not isinstance(value, str):
+            raise ValueError("Mode must be a string and one of the allowed memmap mode strings, 'r','r+','w+','c'")
+        
+        self._mode = value
+    
+    def __init__(self, path, shape, dtype, mode=None):
+        self._path = path
+        self._shape = shape
+        self._dtype = dtype
+        self._mode = None
+        self.mode = mode
+    
 
 class ImageStats(object):
     '''A container for image statistics'''
@@ -77,6 +116,20 @@ def ApproxEqual(A, B, epsilon=None):
         epsilon = 0.01
 
     return np.abs(A - B) < epsilon
+
+def ImageParamToImageArray(imageparam):
+    image = None
+    if isinstance(imageparam, np.ndarray):
+        image = imageparam
+    elif isinstance(imageparam, str):
+        image = LoadImage(imageparam)
+    elif isinstance(imageparam, memmap_metadata):
+        image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
+    
+    if image is None:
+        raise ValueError("Image param %s is not a numpy array or image file" % (str(imageparam)))
+    
+    return image
 
 def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
@@ -243,11 +296,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
        :rtype: ndarray
        '''
 
-    image = None
-    if isinstance(imageparam, str):
-        image = LoadImage(imageparam)
-    else:
-        image = imageparam
+    image = ImageParamToImageArray(imageparam)
 
     if image is None:
         return None
@@ -312,6 +361,18 @@ def npArrayToReadOnlySharedArray(npArray):
     SharedArray = SharedArray.reshape(npArray.shape)
     np.copyto(SharedArray, npArray)
     return SharedArray
+
+def CreateTemporaryReadonlyMemmapFile(npArray):
+    with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
+        TempFullpath = hFile.name
+        hFile.close() 
+    memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
+    memImage[:] = npArray[:]
+    memImage.flush()
+    del memImage
+    #np.save(TempFullpath, npArray)
+    return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
+
 
 def GenRandomData(height, width, mean, standardDev):
     '''
