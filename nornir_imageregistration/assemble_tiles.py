@@ -245,12 +245,12 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
     fullImageZbuffer = None
     
     if use_memmap:
-        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d.npy' % (shape[0],shape[1]))
+        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (shape[0],shape[1], GetProcessAndThreadUniqueString()))
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
         fullImageZbuffer[:] =  __MaxZBufferValue(dtype)
-    
+        fullImageZbuffer.flush()
         del fullImageZbuffer
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
     else:
         fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
     
@@ -270,8 +270,9 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
             fullImage[:] = 0
+            fullImage.flush()
             del fullImage
-            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='r+', shape=fullImage_shape)
         except: 
             prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
             raise 
@@ -437,9 +438,6 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
     CheckTaskInterval = 16
-
-    minY = 0
-    minX = 0
 
     for i, transform in enumerate(transforms):
 
