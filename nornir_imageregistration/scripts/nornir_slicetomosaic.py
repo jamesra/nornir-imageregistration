@@ -98,7 +98,9 @@ def ValidateArgs(Args):
         OnUseError("Input stos file not found: " + Args.inputpath)
 
 def Execute(ExecArgs=None):
-
+    if ExecArgs is None:
+        ExecArgs = sys.argv[1:]
+        
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)

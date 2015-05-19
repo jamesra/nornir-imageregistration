@@ -6,6 +6,7 @@ Created on May 21, 2013
 
 import argparse
 import os
+import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_shared.misc
 import logging
@@ -29,13 +30,22 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=True,
                         type=str,
-                        help='Output mosaic file path',
+                        help='Output image file path',
                         dest='outputpath')
 
-    parser.add_argument('-tilepath', '-s',
+    parser.add_argument('-scale', '-s',
                         action='store',
                         required=False,
                         type=float,
+                        default=1.0,
+                        help='The input images are a different size than the transform, scale the transform by the specified factor',
+                        dest='scalar'
+                        )
+
+    parser.add_argument('-tilepath', '-p',
+                        action='store',
+                        required=False,
+                        type=str,
                         default=1.0,
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath'
@@ -64,10 +74,6 @@ def OnUseError(message):
 def ValidateArgs(Args):
     if not os.path.exists(Args.inputpath):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
-        
-    if Args.tilepath is None:
-        Args.tilepath = os.path.dirname(Args.inputpath)
-        
 
     if not os.path.exists(os.path.dirname(Args.outputpath)):
         os.makedirs(os.path.dirname(Args.outputpath))
@@ -75,33 +81,39 @@ def ValidateArgs(Args):
     if not Args.tilepath is None:
         if not os.path.exists(Args.tilepath):
             OnUseError("Tile path not found: " + Args.tilepath)
-            
-    if not '.' in Args.outputpath:
-        Args.outputpath = Args.outputpath + '.mosaic'
 
 def Execute(ExecArgs=None):
+    
+    if ExecArgs is None:
+        ExecArgs = sys.argv[1:]
 
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)
- 
-    mosaic = Mosaic.LoadFromMosaicFile(Args.inputpath) 
 
- 
-    timer = TaskTimer()
-    timer.Start("ArrangeTiles " + TilesDir)
-    translated_mosaic = mosaic.ArrangeTilesWithTranslate(Args.tilepath, usecluster=False)
-    timer.End("ArrangeTiles " + TilesDir, True)
-    translated_mosaic.SaveToMosaicFile(OutputDir)
-   
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
+    mosaicBaseName = os.path.basename(Args.inputpath)
+
+    mosaic.TranslateToZeroOrigin()
+
+    (mosaicImage, mosaicMask) = mosaic.AssembleTiles(Args.tilepath)
+
+    if not Args.outputpath.endswith('.png'):
+        Args.outputpath = Args.outputpath + '.png'
+
+    nornir_imageregistration.core.SaveImage(Args.outputpath, mosaicImage)
+
+    self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
     else:
         print("Outputfile is missing, unknown error: " + Args.outputpath)
-     
-         
+
 
 if __name__ == '__main__':
+
+    (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
