@@ -29,10 +29,26 @@ if __name__ == '__main__':
                         "pillow>=2.3",
                         "six"]
 
-    dependency_links = ["git+http://github.com/nornir/nornir-pools#egg=nornir_pools-1.3.0",
-                        "git+http://github.com/nornir/nornir-shared#egg=nornir_shared-1.3.0"]
+    dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.3.0",
+                        "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.3.0"]
 
-    scripts = glob.glob(os.path.join('scripts', '*.py'))
+    scripts = ['nornir-addtransforms = nornir_imageregistration.scripts.nornir_addtransforms:Execute',
+               'nornir-assemble-tiles = nornir_imageregistration.scripts.nornir_assemble_tiles:Execute',
+               'nornir-assemble = nornir_imageregistration.scripts.nornir_assemble:Execute',
+               'nornir-rotate-transalate = nornir_imageregistration.scripts.nornir_rotate_translate:Execute',
+               'nornir-slice-to-mosaic = nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
+               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute',]
+               
+    
+    #named_scripts = []
+    
+    #script_template = '%s = %s'
+    #for script_path in scripts:
+        #renamed = get_script_name(script_path)
+        #entry = script_template % (renamed, script_path)
+        #named_scripts.append(entry)
+        
+    entry_points = {'console_scripts' : scripts}
 
     classifiers = ['Programming Language :: Python :: 3.4',
                    'Programming Language :: Python :: 2.7',
@@ -47,7 +63,7 @@ if __name__ == '__main__':
           author_email="James.R.Anderson@utah.edu",
           url="https://github.com/nornir/nornir-imageregistration",
           packages=packages,
-          scripts=scripts,
+          entry_points=entry_points,
           test_suite='test',
           install_requires=install_requires,
           dependency_links=dependency_links)

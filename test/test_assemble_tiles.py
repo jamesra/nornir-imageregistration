@@ -282,6 +282,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], tilesDir)
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir)
         
+        
     def test_AssembleTilesIDoc_JPeg2000(self):
         '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
 
