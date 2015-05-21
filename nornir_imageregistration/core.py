@@ -25,6 +25,7 @@ import multiprocessing.sharedctypes
 
 
 import collections
+from nornir_imageregistration.spatial.rectangle import Rectangle
 
 #In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(all='raise')
@@ -309,7 +310,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
-
+    
+    image_rectangle = Rectangle([0,0,image.shape[0], image.shape[1]])
+    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo,Xo], [Height, Width])
+    
+    overlap_rectangle = Rectangle.overlap_rect(image_rectangle, crop_rectangle)
+    
     in_startY = Yo
     in_startX = Xo
     in_endX = Xo + Width
@@ -319,30 +325,35 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     out_startX = 0
     out_endX = Width
     out_endY = Height
-
-    if in_startY < 0:
-        out_startY = -in_startY
-        in_startY = 0
-
-    if in_startX < 0:
-        out_startX = -in_startX
-        in_startX = 0
-
-    if in_endX > image.shape[1]:
-        in_endX = image.shape[1]
-        out_endX = out_startX + (in_endX - in_startX)
-
-    if in_endY > image.shape[0]:
-        in_endY = image.shape[0]
-        out_endY = out_startY + (in_endY - in_startY)
-
-    cropped = None
+    
+    if overlap_rectangle is None:
+        out_startY = 0
+        out_startX = 0
+        out_endX = 0
+        out_endY = 0
+        
+        in_startY = Yo
+        in_startX = Xo
+        in_endX = Xo
+        in_endY = Yo
+    else:
+        (in_startY, in_startX) = overlap_rectangle.BottomLeft
+        (in_endY, in_endX) = overlap_rectangle.TopRight
+        
+        (out_startY, out_startX) = overlap_rectangle.BottomLeft - crop_rectangle.BottomLeft 
+        (out_endY, out_endX) = np.array([out_startY, out_startX]) + overlap_rectangle.Size
+        
+    #Create mask
     rMask = None
-    if cval is None:
-        cropped = np.zeros((Height, Width), dtype=image.dtype)
-    elif cval == 'random':
+    if cval == 'random':
         rMask = np.zeros((Height, Width), dtype=np.bool)
         rMask[out_startY:out_endY, out_startX:out_endX] = True
+        
+    #Create output image
+    cropped = None
+    if cval is None:
+        cropped = np.zeros((Height, Width), dtype=image.dtype)
+    elif cval == 'random':    
         cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = np.ones((Height, Width), dtype=image.dtype) * cval
@@ -661,9 +672,9 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
         UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
          
         if(ImageMedian is None):
-            ImageMedian = np.median(UnmaskedImage1D)
+            ImageMedian = np.median(UnmaskedImage1D.compressed())
         if(ImageStdDev is None):
-            ImageStdDev = np.std(UnmaskedImage1D)
+            ImageStdDev = np.std(UnmaskedImage1D.compressed())
             
         del UnmaskedImage1D
  

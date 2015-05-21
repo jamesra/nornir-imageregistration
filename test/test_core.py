@@ -100,10 +100,12 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testCrop(self):
 
-        image = np.zeros((16, 16))
+        image_dim = (16,16)
+        image = np.zeros(image_dim)
 
-        for i in range(0, 16):
-            image[i, i] = i + 1
+        row_fill = np.array((range(1,image_dim[1]+1)))
+        for iy in range(0, 16):
+            image[iy, :] = row_fill
 
         cropsize = 4
         cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
@@ -166,6 +168,18 @@ class Test(setup_imagetest.ImageTestBase):
                 testVal = 0
 
             self.assertEqual(cropped[i + 1, i], testVal, "cropped image not correct")
+            
+        cropsize = image_dim[0]
+        constant_value = 3
+        cropped = core.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize,cval=constant_value)
+        for i in range(0, cropsize):
+            self.assertEqual(cropped[i, i], constant_value, "Cropped region outside original image should use cval")
+            
+        cropped = core.CropImage(image, -(cropsize/2.0), -(cropsize/2.0), cropsize, cropsize,cval='random')
+        for i in range(0, cropsize):
+            self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
+        
+        core.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.")
             
     
     def testImageToTiles(self):
