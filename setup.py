@@ -55,7 +55,7 @@ if __name__ == '__main__':
                    'Topic :: Scientific/Engineering']
 
     setup(name='nornir_imageregistration',
-          zip_safe=True,
+          zip_safe=False,
           classifiers=classifiers,
           version='1.3.0',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
