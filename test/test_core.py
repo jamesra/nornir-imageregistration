@@ -66,6 +66,21 @@ class Test(setup_imagetest.ImageTestBase):
         r = core.ROIRange(24, 16, 5)
         self.assertIsNone(r)
         
+    def testShowGrayscale(self):
+        
+        imageA = np.random.rand(64,64)
+        imageB = np.random.rand(64,64)
+        
+        core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title")
+        core.ShowGrayscale(imageA, title=None)
+        
+        core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title")
+        core.ShowGrayscale([imageA], title=None)
+        
+        core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title")
+        core.ShowGrayscale([imageA, imageB], title=None)
+        
+        
 #    def test_SaveImageJPeg2000(self):
 #        
 #         image_full_path = self.GetImagePath('0162_ds16.png')
@@ -85,10 +100,12 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testCrop(self):
 
-        image = np.zeros((16, 16))
+        image_dim = (16,16)
+        image = np.zeros(image_dim)
 
-        for i in range(0, 16):
-            image[i, i] = i + 1
+        row_fill = np.array((range(1,image_dim[1]+1)))
+        for iy in range(0, 16):
+            image[iy, :] = row_fill
 
         cropsize = 4
         cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
@@ -151,6 +168,18 @@ class Test(setup_imagetest.ImageTestBase):
                 testVal = 0
 
             self.assertEqual(cropped[i + 1, i], testVal, "cropped image not correct")
+            
+        cropsize = image_dim[0]
+        constant_value = 3
+        cropped = core.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize,cval=constant_value)
+        for i in range(0, cropsize):
+            self.assertEqual(cropped[i, i], constant_value, "Cropped region outside original image should use cval")
+            
+        cropped = core.CropImage(image, -(cropsize/2.0), -(cropsize/2.0), cropsize, cropsize,cval='random')
+        for i in range(0, cropsize):
+            self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
+        
+        core.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.")
             
     
     def testImageToTiles(self):

@@ -8,6 +8,7 @@ import argparse
 import os
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
+import nornir_imageregistration
 import logging
 import sys
 
@@ -37,7 +38,7 @@ def __CreateArgParser(ExecArgs=None):
                         required=False,
                         type=float,
                         default=1.0,
-                        help='The input images are a different size than the transform, scale the transform by the specified factor',
+                        help='The input images are a different size than the desired transform, scale the transform by the specified factor',
                         dest='scalar'
                         )
 
@@ -114,7 +115,7 @@ class StosBruteArgs(object):
 
     @property
     def WarpedImage(self):
-        return self.stos.WarpedImageFullPath
+        return self.stos.MappedImageFullPath
 
     @property
     def ControlMask(self):
@@ -126,7 +127,7 @@ class StosBruteArgs(object):
 
 
     def __init__(self, Args):
-        self.stosPath = Args.inputPath
+        self.stosPath = Args.inputpath
         self.stosOutput = Args.outputpath
 
         self.fixedImage = Args.fixedimagepath
@@ -139,25 +140,25 @@ class StosBruteArgs(object):
 
     def MergeStosAndArgs(self, Args):
 
-        stos = StosFile()
-        if not Args.inputPath is None:
-            if os.path.exists(Args.inputPath):
-                stos = StosFile.Load(Args.inputpath)
+        stos = nornir_imageregistration.files.StosFile()
+        if not Args.inputpath is None:
+            if os.path.exists(Args.inputpath):
+                stos = nornir_imageregistration.files.StosFile.Load(Args.inputpath)
 
                 if Args.scalar != 1.0:
                     stos.scale(Args.scalar)
 
-        if not Args.fixedImage is None:
-            stos.ControlImageFullPath = Args.fixedImage
+        if not Args.fixedimagepath is None:
+            stos.ControlImageFullPath = self.fixedImage
 
         if not self.warpedImage is None:
-            stos.MappedImageFullPath = Args.warpedImage
+            stos.MappedImageFullPath = self.warpedImage
 
-        if not self.fixedmaskpath is None:
-            stos.ControlMaskFullPath = self.fixedmaskpath
+        if not self.fixedMask is None:
+            stos.ControlMaskFullPath = self.fixedMask
 
-        if not self.warpedmaskpath is None:
-            self.MappedMaskFullPath = stos.warpedmaskpath
+        if not self.warpedMask is None:
+            self.MappedMaskFullPath = self.warpedMask
 
         if not os.path.exists(os.path.dirname(Args.outputpath)):
             os.makedirs(os.path.dirname(Args.outputpath))
@@ -166,29 +167,30 @@ class StosBruteArgs(object):
 
 
 def Execute(ExecArgs=None):
-
+    
+    if ExecArgs is None:
+        ExecArgs = sys.argv[1:]
+        
     (Args, extra) = ParseArgs(ExecArgs)
 
     stosArgs = StosBruteArgs(Args)
 
-
-
-    alignRecord = sb.SliceToSliceBruteForce(stosArgs.ControlImage, stosArgs.WarpedImage, stosArgs.ControlMask, stosArgs.WarpedMask, MinOverlap=stosArgs.minoverlap)
+    alignRecord = sb.SliceToSliceBruteForce(stosArgs.ControlImage, stosArgs.WarpedImage, stosArgs.ControlMask, stosArgs.WarpedMask, MinOverlap=Args.minoverlap)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
-        stos = alignment.ToStos(stosArgs.ControlImage,
-                                 stosArgs.WarpedImage,
-                                 stosArgs.ControlMask,
-                                 stosArgs.WarpedMask,
-                                 PixelSpacing=1)
+        stos = alignRecord.ToStos(stosArgs.ControlImage,
+                                stosArgs.WarpedImage,
+                                stosArgs.ControlMask,
+                                stosArgs.WarpedMask,
+                                PixelSpacing=1)
 
-        stos.Save(stosNode.FullPath)
+        stos.Save(Args.outputpath)
     else:
-        stos = alignment.ToStos(ControlImageNode.FullPath,
-                             MappedImageNode.FullPath,
-                             PixelSpacing=1)
+        stos = alignRecord.ToStos(ImagePath=stosArgs.ControlImage,
+                                WarpedImagePath=stosArgs.WarpedImage,
+                                PixelSpacing=1)
 
-        stos.Save(stosArgs.stosOutput, AddMasks=False)
+        stos.Save(Args.outputpath, AddMasks=False)
 
     # self.assertTrue(os.path.exists(stosArgs.stosOutput), "No output stos file created")
 

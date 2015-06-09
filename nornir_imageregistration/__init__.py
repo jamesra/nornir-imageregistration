@@ -31,7 +31,7 @@ from nornir_imageregistration.mosaic import Mosaic
 import nornir_imageregistration.transforms as transforms
 
 import nornir_imageregistration.tileset as tileset
-import nornir_imageregistration.files
+import nornir_imageregistration.files as files
 from nornir_imageregistration.spatial import *
 
 

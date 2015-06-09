@@ -6,6 +6,7 @@ import ctypes
 import logging
 import math
 import multiprocessing
+import tempfile
 import os
 
 from PIL import Image
@@ -24,12 +25,51 @@ import multiprocessing.sharedctypes
 
 
 import collections
+from nornir_imageregistration.spatial.rectangle import Rectangle
 
 #In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(all='raise')
     
 # from memory_profiler import profile
 logger = logging.getLogger(__name__)
+
+class memmap_metadata(object):
+    '''meta-data for a memmap array'''
+    @property
+    def path(self):
+        return self._path
+    
+    @property
+    def shape(self):
+        return self._shape
+    
+    @property
+    def dtype(self):
+        return self._dtype
+    
+    @property
+    def mode(self):
+        return self._mode
+        
+    @mode.setter
+    def mode(self, value):
+        #Default to copy-on-write
+        if value is None:
+            self._mode = 'c'
+            return
+        
+        if not isinstance(value, str):
+            raise ValueError("Mode must be a string and one of the allowed memmap mode strings, 'r','r+','w+','c'")
+        
+        self._mode = value
+    
+    def __init__(self, path, shape, dtype, mode=None):
+        self._path = path
+        self._shape = shape
+        self._dtype = dtype
+        self._mode = None
+        self.mode = mode
+    
 
 class ImageStats(object):
     '''A container for image statistics'''
@@ -78,6 +118,20 @@ def ApproxEqual(A, B, epsilon=None):
 
     return np.abs(A - B) < epsilon
 
+def ImageParamToImageArray(imageparam):
+    image = None
+    if isinstance(imageparam, np.ndarray):
+        image = imageparam
+    elif isinstance(imageparam, str):
+        image = LoadImage(imageparam)
+    elif isinstance(imageparam, memmap_metadata):
+        image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
+    
+    if image is None:
+        raise ValueError("Image param %s is not a numpy array or image file" % (str(imageparam)))
+    
+    return image
+
 def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
     shapearray = None
@@ -115,20 +169,30 @@ def ShowGrayscale(imageList, title=None):
     :param str title: Informative title for the figure, for example expected test results
     '''
     
-    if not title is None:
-        plt.title(title)
-        plt.tight_layout(pad=1.0)    
-        
+    def set_title_for_single_image(title):
+        if not title is None:
+            plt.title(title)
+        return 
+    
+    def set_title_for_multi_image(fig, title):
+        if not title is None:
+            fig.suptitle(title)
+        return
+            
+    fig = None
+    
     if isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
+        set_title_for_single_image(title)
     elif isinstance(imageList, collections.Iterable):
 
         if len(imageList) == 1:
             plt.imshow(imageList[0], cmap=plt.gray())
+            set_title_for_single_image(title)
         else: 
             height, width = _GridLayoutDims(imageList)
             fig, axeslist = plt.subplots(height, width)
-            fig.suptitle(title)
+            set_title_for_multi_image(fig, title)
 
             for i, image in enumerate(imageList):
                 # fig = figure()
@@ -147,10 +211,12 @@ def ShowGrayscale(imageList, title=None):
                     ax.imshow(image, cmap=plt.gray(), figure=fig)  
     else:
         return
-
+    
+    plt.tight_layout(pad=1.0)  
     plt.show()
-    plt.clf()
-
+    #Do not call clf or we get two windows on the next call 
+    #plt.clf()
+    
 
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
@@ -231,11 +297,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
        :rtype: ndarray
        '''
 
-    image = None
-    if isinstance(imageparam, str):
-        image = LoadImage(imageparam)
-    else:
-        image = imageparam
+    image = ImageParamToImageArray(imageparam)
 
     if image is None:
         return None
@@ -248,7 +310,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
-
+    
+    image_rectangle = Rectangle([0,0,image.shape[0], image.shape[1]])
+    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo,Xo], [Height, Width])
+    
+    overlap_rectangle = Rectangle.overlap_rect(image_rectangle, crop_rectangle)
+    
     in_startY = Yo
     in_startX = Xo
     in_endX = Xo + Width
@@ -258,30 +325,35 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     out_startX = 0
     out_endX = Width
     out_endY = Height
-
-    if in_startY < 0:
-        out_startY = -in_startY
-        in_startY = 0
-
-    if in_startX < 0:
-        out_startX = -in_startX
-        in_startX = 0
-
-    if in_endX > image.shape[1]:
-        in_endX = image.shape[1]
-        out_endX = out_startX + (in_endX - in_startX)
-
-    if in_endY > image.shape[0]:
-        in_endY = image.shape[0]
-        out_endY = out_startY + (in_endY - in_startY)
-
-    cropped = None
+    
+    if overlap_rectangle is None:
+        out_startY = 0
+        out_startX = 0
+        out_endX = 0
+        out_endY = 0
+        
+        in_startY = Yo
+        in_startX = Xo
+        in_endX = Xo
+        in_endY = Yo
+    else:
+        (in_startY, in_startX) = overlap_rectangle.BottomLeft
+        (in_endY, in_endX) = overlap_rectangle.TopRight
+        
+        (out_startY, out_startX) = overlap_rectangle.BottomLeft - crop_rectangle.BottomLeft 
+        (out_endY, out_endX) = np.array([out_startY, out_startX]) + overlap_rectangle.Size
+        
+    #Create mask
     rMask = None
-    if cval is None:
-        cropped = np.zeros((Height, Width), dtype=image.dtype)
-    elif cval == 'random':
+    if cval == 'random':
         rMask = np.zeros((Height, Width), dtype=np.bool)
         rMask[out_startY:out_endY, out_startX:out_endX] = True
+        
+    #Create output image
+    cropped = None
+    if cval is None:
+        cropped = np.zeros((Height, Width), dtype=image.dtype)
+    elif cval == 'random':    
         cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = np.ones((Height, Width), dtype=image.dtype) * cval
@@ -293,7 +365,6 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
 
     return cropped
 
-
 def npArrayToReadOnlySharedArray(npArray):
     '''Returns a shared memory array for a numpy array.  Used to reduce memory footprint when passing parameters to multiprocess pools'''
     SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
@@ -301,6 +372,18 @@ def npArrayToReadOnlySharedArray(npArray):
     SharedArray = SharedArray.reshape(npArray.shape)
     np.copyto(SharedArray, npArray)
     return SharedArray
+
+def CreateTemporaryReadonlyMemmapFile(npArray):
+    with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
+        TempFullpath = hFile.name
+        hFile.close() 
+    memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
+    memImage[:] = npArray[:]
+    memImage.flush()
+    del memImage
+    #np.save(TempFullpath, npArray)
+    return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
+
 
 def GenRandomData(height, width, mean, standardDev):
     '''
@@ -589,9 +672,9 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
         UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
          
         if(ImageMedian is None):
-            ImageMedian = np.median(UnmaskedImage1D)
+            ImageMedian = np.median(UnmaskedImage1D.compressed())
         if(ImageStdDev is None):
-            ImageStdDev = np.std(UnmaskedImage1D)
+            ImageStdDev = np.std(UnmaskedImage1D.compressed())
             
         del UnmaskedImage1D
  
@@ -882,7 +965,7 @@ def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverla
     MaxWidth = FixedImageSize[1] + MovingImageSize[1]
     MaxHeight = FixedImageSize[0] + MovingImageSize[0]
 
-    mask = np.ones([MaxHeight, MaxWidth], dtype=np.Bool)
+    mask = np.ones([MaxHeight, MaxWidth], dtype=np.bool)
 
     raise NotImplementedError()
 
