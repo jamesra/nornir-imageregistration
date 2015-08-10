@@ -50,7 +50,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None):
     if imageScale is None:
         imageScale = tileset.MostCommonScalar(transforms, imagepaths)
 
-    offsets_collection = _FindTileOffsets(tiles, excess_scalar, imageScale)
+    offsets_collection = _FindTileOffsets(tiles, excess_scalar, imageScale=imageScale)
     
     nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(offsets_collection, min_allowed_weight=0.25, max_allowed_weight=1.0)
     nornir_imageregistration.layout.RelaxLayout(offsets_collection, max_tension_cutoff=1.0, max_iter=150)
