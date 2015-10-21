@@ -56,11 +56,9 @@ def MostCommonScalar(transforms, imagepaths):
 
         try:
             size = core.GetImageSize(imagefullpath)
-        except FileNotFoundError:
-            continue
         except IOError:
-            continue
-
+            continue 
+        
         if size is None:
             continue
 
