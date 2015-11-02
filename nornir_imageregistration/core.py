@@ -434,7 +434,7 @@ def ForceGrayscale(image):
 
 def _Image_To_Uint8(image):
     '''Converts image to uint8.  If input image uses floating point the image is scaled to the range 0-255'''
-    if image.dtype == np.float32 or image.dtype == np.float16:
+    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
         image = image * 255.0
 
     if image.dtype == np.bool:
@@ -557,8 +557,9 @@ def NormalizeImage(image):
 
     if np.isinf(scalar).all():
         scalar = 1.0
-
-    return miniszeroimage * scalar
+        
+    typecode = 'f%d' % (image.dtype.itemsize)
+    return (miniszeroimage * scalar).astype(typecode)
 
 def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''

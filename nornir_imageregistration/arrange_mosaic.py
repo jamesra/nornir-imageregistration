@@ -221,8 +221,10 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     This function exists to minimize the inter-process communication
     '''
     
-    A = core.LoadImage(A_Filename)
-    B = core.LoadImage(B_Filename)
+    A = core.LoadImage(A_Filename).astype(dtype=np.float16)
+    B = core.LoadImage(B_Filename).astype(dtype=np.float16)
+    
+    
     
     #I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     #For TEM the stage position can be less reliable and the 1.5 scalar produces better results
