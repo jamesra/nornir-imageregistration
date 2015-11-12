@@ -21,6 +21,7 @@ import nornir_imageregistration.tile
 import nornir_imageregistration.layout
 
 import nornir_pools
+from numpy.numarray.util import UnderflowError
 
 
 def _CalculateImageFFTs(tiles):
@@ -170,8 +171,10 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         
         #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
-        t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
-        
+        try:
+            t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
+        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
         
         t.A = A
         t.B = B
@@ -180,7 +183,11 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         #print("Start alignment %d -> %d" % (A.ID, B.ID))
 
     for t in tasks:
-        offset = t.wait_return()
+        try:
+            offset = t.wait_return()
+        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
+            continue 
         
         #Figure out what offset we found vs. what offset we expected
         PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
@@ -223,8 +230,6 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     
     A = core.LoadImage(A_Filename).astype(dtype=np.float16)
     B = core.LoadImage(B_Filename).astype(dtype=np.float16)
-    
-    
     
     #I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     #For TEM the stage position can be less reliable and the 1.5 scalar produces better results
