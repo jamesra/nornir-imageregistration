@@ -230,6 +230,11 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     
     A = core.LoadImage(A_Filename).astype(dtype=np.float16)
     B = core.LoadImage(B_Filename).astype(dtype=np.float16)
+
+#I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
+#    A = core.LoadImage(A_Filename) #.astype(dtype=np.float16)
+#    B = core.LoadImage(B_Filename) #.astype(dtype=np.float16)
+
     
     #I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     #For TEM the stage position can be less reliable and the 1.5 scalar produces better results
