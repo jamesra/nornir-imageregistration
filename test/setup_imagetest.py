@@ -13,6 +13,7 @@ import cProfile
 import pickle
 import numpy as np
 import nornir_pools
+import six
 
 
 class PickleHelper(object):
@@ -174,7 +175,11 @@ class MosaicTestBase(TestBase):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
         
         if not os.path.exists(self.TestOutputPath):
-            os.makedirs(self.TestOutputPath, exist_ok=True)
+            if six.PY3:
+                os.makedirs(self.TestOutputPath, exist_ok=True)
+            else:
+                if not os.path.exists(self.TestOutputPath):
+                    os.makedirs(self.TestOutputPath)
 
         super(MosaicTestBase, self).setUp()
         

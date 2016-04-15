@@ -1,4 +1,17 @@
 
+1.3.1
+-----
+
+**Fixed**
+
+* Fixed issue where image scale factor in translation alignment was being used as minimum image overlap instead
+* Removed crash from FileNotFoundError exception.  It does not exist in Python 2.7.
+* Support for histogram numpy images
+* Fixed very rare error where a subregion in translation alignment was a single pixel which broke statistics.  These regions are now ignored
+* Force rectangle to use float64 numpy arrays.  Fixed issue where integer arrays were passed and then used without conversion.
+* Fixed a bug where a non-existent center section was requested to be the center in the registration tree.
+
+
 1.3.0
 -----
 

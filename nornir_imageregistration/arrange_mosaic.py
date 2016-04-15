@@ -21,6 +21,7 @@ import nornir_imageregistration.tile
 import nornir_imageregistration.layout
 
 import nornir_pools
+from numpy.numarray.util import UnderflowError
 
 
 def _CalculateImageFFTs(tiles):
@@ -50,7 +51,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None):
     if imageScale is None:
         imageScale = tileset.MostCommonScalar(transforms, imagepaths)
 
-    offsets_collection = _FindTileOffsets(tiles, excess_scalar, imageScale)
+    offsets_collection = _FindTileOffsets(tiles, excess_scalar, imageScale=imageScale)
     
     nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(offsets_collection, min_allowed_weight=0.25, max_allowed_weight=1.0)
     nornir_imageregistration.layout.RelaxLayout(offsets_collection, max_tension_cutoff=1.0, max_iter=150)
@@ -170,8 +171,10 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         
         #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
-        t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
-        
+        try:
+            t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
+        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
         
         t.A = A
         t.B = B
@@ -180,7 +183,11 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         #print("Start alignment %d -> %d" % (A.ID, B.ID))
 
     for t in tasks:
-        offset = t.wait_return()
+        try:
+            offset = t.wait_return()
+        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
+            continue 
         
         #Figure out what offset we found vs. what offset we expected
         PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
@@ -221,8 +228,13 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     This function exists to minimize the inter-process communication
     '''
     
-    A = core.LoadImage(A_Filename)
-    B = core.LoadImage(B_Filename)
+    A = core.LoadImage(A_Filename).astype(dtype=np.float16)
+    B = core.LoadImage(B_Filename).astype(dtype=np.float16)
+
+#I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
+#    A = core.LoadImage(A_Filename) #.astype(dtype=np.float16)
+#    B = core.LoadImage(B_Filename) #.astype(dtype=np.float16)
+
     
     #I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     #For TEM the stage position can be less reliable and the 1.5 scalar produces better results

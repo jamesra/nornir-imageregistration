@@ -403,7 +403,9 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
-    fullImage[fullImage > 1.0] = 1.0
+    #Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+    #I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+    #fullImage[fullImage > 1.0] = 1.0
     
     if use_memmap:
         fullImage.flush()
@@ -495,7 +497,9 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
-    fullImage[fullImage > 1.0] = 1.0
+    #Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+    #I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+    #fullImage[fullImage > 1.0] = 1.0
 
     logger.info('Assemble complete')
     

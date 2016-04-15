@@ -219,7 +219,7 @@ class Rectangle(object):
         elif isinstance(bounds, Rectangle):
             self._bounds = bounds.ToArray()
         else:
-            self._bounds = np.array(bounds)
+            self._bounds = np.array(bounds, dtype=np.float64)
         
         return 
 

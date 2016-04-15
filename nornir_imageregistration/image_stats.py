@@ -193,7 +193,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     # core.ShowGrayscale(Im)
     return (filename, sum(StdDevList))
 
-def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None):
+def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     '''Returns a single histogram built by combining histograms of all images
        If scale is not none the images are scaled before the histogram is collected'''
 
@@ -208,33 +208,19 @@ def Histogram(filenames, Bpp=None, MinSampleCount=None, Scale=None, numBins=None
 
     if Bpp is None:
         Bpp = images.GetImageBpp(listfilenames[0])
-
-    (Height, Width) = images.GetImageSize(listfilenames[0])
-    TileTotalPixels = Height * Width
-
-    # Figure out how many pixels belong in our sample
-    numPixelsInList = TileTotalPixels * numTiles
-
-    if MinSampleCount is None:
-        MinSampleCount = sqrt(numPixelsInList) * numTiles
-
-    numSamples = numPixelsInList
-    if numSamples > MinSampleCount:
-        numSamples = sqrt(numPixelsInList)
-
-        if numSamples < MinSampleCount:
-            numSamples = MinSampleCount
-
-    SamplesPerImage = numSamples / numTiles
+        
+    
 
     assert isinstance(listfilenames, list)
 
-    FilenameToTask = {}
-    FilenameToResult = {}
-    tasks = []
+    FilenameToTask = {} 
     local_machine_pool = pools.GetGlobalLocalMachinePool()
     for f in listfilenames:
-        task = __HistogramFileImageMagick__(f, ProcPool=local_machine_pool, Bpp=Bpp, Scale=Scale)
+        (root, ext) = os.path.splitext(f)
+        if ext == '.npy':
+            task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
+        else:
+            task = __HistogramFileImageMagick__(f, ProcPool=local_machine_pool, Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
 
     # maxVal = (1 << Bpp) - 1
@@ -323,8 +309,12 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None):
     '''Return the histogram of an image'''
 
-
-    Im = core.LoadImage(filename)
+    Im = None
+    if isinstance(filename, str):
+        Im = core.LoadImage(filename)
+    else:
+        Im = filename
+        
     (Height, Width) = Im.shape
     NumPixels = Width * Height
     
