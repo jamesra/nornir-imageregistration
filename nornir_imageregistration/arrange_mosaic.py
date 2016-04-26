@@ -21,7 +21,6 @@ import nornir_imageregistration.tile
 import nornir_imageregistration.layout
 
 import nornir_pools
-from numpy.numarray.util import UnderflowError
 
 
 def _CalculateImageFFTs(tiles):
