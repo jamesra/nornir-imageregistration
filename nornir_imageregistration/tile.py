@@ -10,7 +10,6 @@ import os
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.core as core
 import numpy as np
-import itertools
 
 
 def CreateTiles(transforms, imagepaths):
