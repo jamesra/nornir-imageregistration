@@ -280,6 +280,9 @@ def ResizeImage(image, scalar):
     
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
 
+def CropImageRect(imageparam, bounding_rect, cval=None):
+    return CropImage(imageparam, Xo=int(bounding_rect[1]), Yo=int(bounding_rect[0]), Width=int(bounding_rect.Width), Height=int(bounding_rect.Height), cval=cval)
+
 def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     '''
        Crop the image at the passed bounds and returns the cropped ndarray.

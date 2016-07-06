@@ -233,8 +233,24 @@ class Rectangle(object):
                 self._bounds[iRect.MaxX])
 
     @classmethod
+    def CreateFromCenterPointAndArea(cls, point, area):
+        '''
+        Create a rectangle whose center is point and the requested area
+        :param tuple point: (Y,X)
+        :param tuple area: (Height, Area)
+        :rtype: Rectangle
+        '''
+        if not isinstance(area, np.ndarray):
+            area = np.asarray(area)
+            
+        half_area = area / 2.0
+            
+        return Rectangle(bounds=(point[iPoint.Y] - half_area[iArea.Height], point[iPoint.X] - half_area[iArea.Width], point[iPoint.Y] + half_area[iArea.Height], point[iPoint.X] + half_area[iArea.Width]))
+    
+    @classmethod
     def CreateFromPointAndArea(cls, point, area):
         '''
+        Create a rectangle whose bottom left origin is at point with the requested area
         :param tuple point: (Y,X)
         :param tuple area: (Height, Area)
         :rtype: Rectangle

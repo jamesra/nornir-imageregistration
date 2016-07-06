@@ -34,6 +34,15 @@ class Test(unittest.TestCase):
                   "TopRightQuarterOverlapA1" : spatial.Rectangle.CreateFromPointAndArea((5, 2.5), (10, 5)),
                   "BottomLeftQuarterOverlapA1" : spatial.Rectangle.CreateFromPointAndArea((-5, -2.5), (10, 5)),
                   }
+        
+    def testConstructors(self):
+        r = spatial.Rectangle.CreateFromPointAndArea((1,2), (10,5))
+        self.assertTrue((r.BottomLeft == np.asarray((1,2))).all())
+        self.assertTrue((r.TopRight == np.asarray((11,7))).all())
+        
+        r = spatial.Rectangle.CreateFromCenterPointAndArea((1,2), (10,20))
+        self.assertTrue((r.BottomLeft == np.asarray((-4,-8))).all())
+        self.assertTrue((r.TopRight == np.asarray((6,12))).all())
 
     def testRectangle(self):
         '''Test convention is that all rectangles with the same first letter overlap but do not overlap with other letters'''      
