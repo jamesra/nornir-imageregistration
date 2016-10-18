@@ -24,10 +24,7 @@ def IsValidRectangleInputArray(bounds):
         return bounds.size == 4
     elif bounds.ndim > 1:
         return bounds.shape[1] == 4
-    
-def IsValidRectangleSequence(bounds):
-    return len(bounds) == 4
-
+     
 class RectangleSet():
     '''A set of rectangles'''
     
@@ -225,15 +222,17 @@ class Rectangle(object):
         :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
         '''
         if isinstance(bounds, np.ndarray):
-            assert(IsValidRectangleInputArray(bounds))
+            if not IsValidRectangleInputArray(bounds):
+                raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(bounds))
+            
             self._bounds = bounds
-        elif isinstance(bounds, collections.Sequence):
-            assert(IsValidRectangleSequence(bounds))
-            self._bounds = bounds 
         elif isinstance(bounds, Rectangle):
             self._bounds = bounds.ToArray()
         else:
             self._bounds = np.array(bounds, dtype=np.float64)
+            
+        if not Rectangle._AreBoundsValid(self._bounds):
+            raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(self._bounds))
         
         return 
 
@@ -245,6 +244,12 @@ class Rectangle(object):
                 self._bounds[iRect.MinX],
                 self._bounds[iRect.MaxY],
                 self._bounds[iRect.MaxX])
+    
+    @classmethod
+    def _AreBoundsValid(cls, bounds):
+        return isinstance(bounds, np.ndarray) and \
+               bounds.size == 4 and \
+               np.issubdtype(bounds.dtype, np.floating) 
 
     @classmethod
     def CreateFromCenterPointAndArea(cls, point, area):
