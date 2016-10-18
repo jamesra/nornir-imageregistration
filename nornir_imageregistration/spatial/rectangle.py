@@ -6,6 +6,7 @@ Points are represented as (Y,X)
 '''
 
 import numpy as np
+import collections
 
 from .indicies import *
 
@@ -17,6 +18,15 @@ def RaiseValueErrorOnInvalidBounds(bounds):
 def IsValidBoundingBox(bounds):
     '''Raise a value error if the bounds have negative dimensions'''
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
+
+def IsValidRectangleInputArray(bounds):
+    if bounds.ndim == 1:
+        return bounds.size == 4
+    elif bounds.ndim > 1:
+        return bounds.shape[1] == 4
+    
+def IsValidRectangleSequence(bounds):
+    return len(bounds) == 4
 
 class RectangleSet():
     '''A set of rectangles'''
@@ -215,7 +225,11 @@ class Rectangle(object):
         :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
         '''
         if isinstance(bounds, np.ndarray):
+            assert(IsValidRectangleInputArray(bounds))
             self._bounds = bounds
+        elif isinstance(bounds, collections.Sequence):
+            assert(IsValidRectangleSequence(bounds))
+            self._bounds = bounds 
         elif isinstance(bounds, Rectangle):
             self._bounds = bounds.ToArray()
         else:
