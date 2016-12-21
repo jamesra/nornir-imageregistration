@@ -37,8 +37,7 @@ def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=T
         return newTransform
     else:
         AToB_mapped_Transform.points = AToC_pointPairs
-        return AToB_mapped_Transform 
-
+        return AToB_mapped_Transform  
 
 class Triangulation(Base):
     '''
@@ -258,6 +257,16 @@ class Triangulation(Base):
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
         self.points = self.points * scalar
+        self.OnTransformChanged()
+        
+    def ScaleWarped(self, scalar):
+        '''Scale both warped and control space by scalar'''
+        self.points[:, 2:4] = self.points[:, 2:4] * scalar
+        self.OnTransformChanged()
+        
+    def ScaleFixed(self, scalar):
+        '''Scale both warped and control space by scalar'''
+        self.points[:, 0:2] = self.points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     @property

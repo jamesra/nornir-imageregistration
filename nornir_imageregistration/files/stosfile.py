@@ -30,7 +30,10 @@ def AddStosTransforms(A_To_B, B_To_C):
     # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
     A_To_B_Transform = factory.LoadTransform(A_To_B_Stos.Transform)
     B_To_C_Transform = factory.LoadTransform(B_To_C_Stos.Transform)
-
+    
+    #OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
+    
+    
     A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, create_copy=False)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
@@ -517,6 +520,66 @@ class StosFile(object):
                 NewStosFile.Transform = factory.TransformToIRToolsString(transformObj, bounds=bounds)
             else:
                 NewStosFile.Transform = factory.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
+
+        return NewStosFile
+    
+    def EqualizeStosGridPixelSpacing(self, control_spacing, mapped_spacing,
+                                           MappedImageFullPath, MappedMaskFullPath,
+                                           create_copy=True):
+        '''
+        Used to correct a mismatch between pixel spacings of the mapped and control images in a stos file.
+        This was originally occuring when aligning light microscopy images to TEM images. 
+        Nornir expects the spacings for Stos files to be equal.
+        
+        This function is implemented to keep the control spacing the same and adjust the mapped spacing to match.
+        Stos files have no way to encode the spacing in the file itself unfortunately.
+        '''
+        
+        if control_spacing == mapped_spacing:
+            if create_copy:
+                return copy.deepcopy(self)
+            else:
+                return self
+            
+        PrettyOutput.Log("ChangeStosGridPixelSpacing from {0:d} to {1:d}".format(mapped_spacing, control_spacing))
+            
+        control_spacing = float(control_spacing)
+        mapped_spacing = float(mapped_spacing)
+        
+        mapped_space_scalar =  mapped_spacing / control_spacing
+        
+        
+        NewStosFile = StosFile()
+        
+        NewStosFile.ControlImageDim = copy.copy(self.ControlImageDim)
+        # NewStosFile.MappedImageDim = [x * scale for x in self.MappedImageDim]
+
+        # Update the filenames which are the first two lines of the file
+        NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim)
+        NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * mapped_space_scalar
+        NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * mapped_space_scalar
+        
+        NewStosFile.ControlImageFullPath = self.ControlImageFullPath
+        NewStosFile.ControlMaskFullPath = self.ControlMaskFullPath
+        NewStosFile.MappedImageFullPath = MappedImageFullPath
+        NewStosFile.MappedMaskFullPath = MappedMaskFullPath
+        
+        if os.path.exists(MappedImageFullPath):
+            NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
+
+        # Adjust the transform points 
+        transformObj = factory.LoadTransform(self.Transform, pixelSpacing=1.0)
+        assert(not transformObj is None)
+        transformObj.ScaleWarped(scalar=mapped_space_scalar)
+
+        NewStosFile._Downsample = control_spacing
+
+        if hasattr(transformObj, 'gridWidth'):
+            # Save as a stos grid if we can
+            bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3], NewStosFile.MappedImageDim[2])
+            NewStosFile.Transform = factory.TransformToIRToolsString(transformObj, bounds=bounds)
+        else:
+            NewStosFile.Transform = factory.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
 
         return NewStosFile
 
