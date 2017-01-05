@@ -191,14 +191,14 @@ def ParseGridTransform(parts, pixelSpacing=None):
 def ParseMeshTransform(parts, pixelSpacing=None):
 
     if pixelSpacing is None:
-        pixelSpacing = 1
+        pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
     Left = float(FixedParameters[3]) * pixelSpacing
     Bottom = float(FixedParameters[4]) * pixelSpacing
-    ImageWidth = int(FixedParameters[5]) * pixelSpacing
-    ImageHeight = int(FixedParameters[6]) * pixelSpacing
+    ImageWidth = float(FixedParameters[5]) * pixelSpacing
+    ImageHeight = float(FixedParameters[6]) * pixelSpacing
 
     PointPairs = []
 
