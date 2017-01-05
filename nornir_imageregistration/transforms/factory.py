@@ -158,15 +158,15 @@ def LoadTransform(Transform, pixelSpacing=None):
 def ParseGridTransform(parts, pixelSpacing=None):
 
     if pixelSpacing is None:
-        pixelSpacing = 1
+        pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
     gridWidth = int(FixedParameters[2]) + 1
     gridHeight = int(FixedParameters[1]) + 1
 
-    ImageWidth = int(FixedParameters[5]) * pixelSpacing
-    ImageHeight = int(FixedParameters[6]) * pixelSpacing
+    ImageWidth = float(FixedParameters[5]) * pixelSpacing
+    ImageHeight = float(FixedParameters[6]) * pixelSpacing
 
     PointPairs = []
 
@@ -220,7 +220,7 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     # Example: LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 10770 -10770 2040 2040
 
     if pixelSpacing is None:
-        pixelSpacing = 1
+        pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -229,8 +229,8 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
 
     Left = 0 * pixelSpacing
     Bottom = 0 * pixelSpacing
-    ImageWidth = int(FixedParameters[2]) * pixelSpacing * 2.0
-    ImageHeight = int(FixedParameters[3]) * pixelSpacing * 2.0
+    ImageWidth = float(FixedParameters[2]) * pixelSpacing * 2.0
+    ImageHeight = float(FixedParameters[3]) * pixelSpacing * 2.0
 
     array = np.array([[Left, Bottom],
                   [Left, Bottom + ImageHeight],
@@ -253,7 +253,7 @@ def ParseRigid2DTransform(parts, pixelSpacing=None):
     raise Exception("Not implemented")
 
     if pixelSpacing is None:
-        pixelSpacing = 1
+        pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -262,8 +262,8 @@ def ParseRigid2DTransform(parts, pixelSpacing=None):
 
     Left = float(FixedParameters[3]) * pixelSpacing
     Bottom = float(FixedParameters[4]) * pixelSpacing
-    ImageWidth = int(FixedParameters[5]) * pixelSpacing
-    ImageHeight = int(FixedParameters[6]) * pixelSpacing
+    ImageWidth = float(FixedParameters[5]) * pixelSpacing
+    ImageHeight = float(FixedParameters[6]) * pixelSpacing
 
     PointPairs = []
 
