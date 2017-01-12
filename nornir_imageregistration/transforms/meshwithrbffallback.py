@@ -59,25 +59,26 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        
 
 
     def Transform(self, points, **kwargs):
         '''
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
-        
-        if len(points) == 0:
-            return [];
 
-        points = numpy.asarray(points, dtype=numpy.float32);
+        points = self.EnsurePointsAre2DNumpyArray(points)
+
+        if points.shape[0] == 0:
+            return [];
 
         TransformedPoints = super(MeshWithRBFFallback, self).Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
             return TransformedPoints
-        
+
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
-        
+
         if(len(InvalidIndicies) == 0):
             return TransformedPoints;
         else:
@@ -96,28 +97,27 @@ class MeshWithRBFFallback(triangulation.Triangulation):
     def InverseTransform(self, points, **kwargs):
         '''
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
-        '''
-        if len(points) == 0:
-            return []
+        ''' 
 
-        if not isinstance(points, numpy.ndarray):
-            points = numpy.asarray(points, dtype=numpy.float32);
+        points = self.EnsurePointsAre2DNumpyArray(points)
+
+        if points.shape[0] == 0:
+            return [];
 
         TransformedPoints = super(MeshWithRBFFallback, self).InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
             return TransformedPoints
-        
+
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
-
-
+ 
         if(len(InvalidIndicies) == 0):
             return TransformedPoints
         else:
-            if len(points) > 1:
+            if points.ndim > 1:
                 BadPoints = points[InvalidIndicies]
             else:
-                BadPoints = points
+                BadPoints = points #This is likely no longer needed since this function always returns a 2D array now
 
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)

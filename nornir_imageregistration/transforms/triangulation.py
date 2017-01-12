@@ -14,22 +14,54 @@ from scipy.spatial import *
 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.transforms
 import numpy as np
+import scipy
+import scipy.spatial
 
 from . import utils
 from .base import *
 
 
+def distance(A,B):
+    '''Distance between two arrays of points with equal numbers'''
+    Delta = A - B
+    Delta_Square = np.square(Delta)
+    Delta_Sum = np.sum(Delta_Square, 1)
+    Distances = np.sqrt(Delta_Sum)
+    return Distances
+
+
+def CentroidToVertexDistance(Centroids, TriangleVerts):
+    '''
+    :param ndarray Centroids: An Nx2 array of centroid points
+    :param ndarray TriangleVerts: An Nx3x2 array of verticies of triangles  
+    '''
+    numCentroids = Centroids.shape[0]
+    distance = np.zeros((numCentroids))
+    for i in range(0, Centroids.shape[0]):
+        distances = scipy.spatial.distance.cdist([Centroids[i]], TriangleVerts[i])
+        distance[i] = np.min(distances)
+
+    return distance
+
 def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
     :return: ndarray of points that can be assigned as control points for a transform'''
-    
+
+    if AToB_mapped_Transform.points.shape[0] < 250:
+        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy) 
+    else:
+        return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
+
+
+def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
     mappedControlPoints = AToB_mapped_Transform.FixedPoints
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
-    
+
     AToC_pointPairs = np.hstack( (txMappedControlPoints, AToB_mapped_Transform.WarpedPoints) )
-    
+
     newTransform = None
     if create_copy:
         newTransform = copy.deepcopy(AToB_mapped_Transform)
@@ -37,7 +69,59 @@ def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=T
         return newTransform
     else:
         AToB_mapped_Transform.points = AToC_pointPairs
-        return AToB_mapped_Transform  
+        return AToB_mapped_Transform
+
+
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=50.0):
+
+    A_To_B_Transform = AToB_mapped_Transform
+    B_To_C_Transform = BToC_Unaltered_Transform
+
+    PointsAdded = True
+    while PointsAdded:
+
+        A_To_C_Transform = _AddMeshTransforms(BToC_Unaltered_Transform, A_To_B_Transform, create_copy=True)
+
+        A_Centroids = A_To_B_Transform.GetWarpedCentroids()
+
+     #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
+        B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
+
+        OC_Centroids = B_To_C_Transform.Transform(B_Centroids)
+
+        AC_Centroids = A_To_C_Transform.Transform(A_Centroids)
+
+        Distances = distance(OC_Centroids, AC_Centroids)
+
+        CentroidMisplaced = Distances > epsilon
+
+        A_CentroidTriangles = A_To_B_Transform.WarpedPoints[A_To_B_Transform.WarpedTriangles]
+
+        CentroidVertexDistances = CentroidToVertexDistance(A_Centroids, A_CentroidTriangles)
+
+        CentroidFarEnough = CentroidVertexDistances > epsilon
+
+        AddCentroid = np.logical_and(CentroidMisplaced, CentroidFarEnough)
+
+        PointsAdded = np.any(AddCentroid)
+
+        if PointsAdded:
+            New_ControlPoints = np.hstack((B_Centroids[AddCentroid], A_Centroids[AddCentroid]))
+
+            A_To_B_Transform.AddPoints(New_ControlPoints)
+
+            print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
+            print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
+            print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
+
+    if create_copy:
+        output_transform = copy.deepcopy(AToB_mapped_Transform)
+        output_transform.points = A_To_C_Transform.points
+        return output_transform
+    else:
+        AToB_mapped_Transform.points = A_To_C_Transform.points
+        return AToB_mapped_Transform
+
 
 class Triangulation(Base):
     '''
@@ -104,7 +188,16 @@ class Triangulation(Base):
             self._warpedtri = Delaunay(self.WarpedPoints)
 
         return self._warpedtri
-     
+
+    def EnsurePointsAre2DNumpyArray(self, points):
+        if not isinstance(points, np.ndarray):
+            points = np.asarray(points, dtype=np.float32)
+
+        if points.ndim == 1:
+            points = np.resize( points, (1,2) )
+
+        return points
+
     def AddTransform(self, mappedTransform, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
         return AddTransforms(self, mappedTransform, create_copy)
@@ -116,7 +209,10 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
+        points = self.EnsurePointsAre2DNumpyArray(points)
+
         try:
+
             transPoints = griddata(self.WarpedPoints, self.FixedPoints, points, method=method)
         except:
             log = logging.getLogger(str(self.__class__))
@@ -131,6 +227,8 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
+        points = self.EnsurePointsAre2DNumpyArray(points)
+        
         try:
             transPoints = griddata(self.FixedPoints, self.WarpedPoints, points, method=method)
         except:
@@ -139,6 +237,13 @@ class Triangulation(Base):
             transPoints = None
 
         return transPoints
+    
+    def AddPoints(self, new_points):
+        '''Add the point and return the index'''
+        self.points = np.append(self.points, new_points, 0)
+        self.points = Triangulation.RemoveDuplicates(self.points)
+        self.OnTransformChanged()
+        return
 
     def AddPoint(self, pointpair):
         '''Add the point and return the index'''
@@ -203,13 +308,13 @@ class Triangulation(Base):
         #WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
         self._WarpedKDTree = KDTree(self.WarpedPoints)
-        
+
         MPool.wait_completion()
-        
+
         self._FixedKDTree = FixedKDTask.wait_return()
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
-        
+
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
@@ -355,7 +460,7 @@ class Triangulation(Base):
 
     def GetPointPairsInRect(self, points, bounds):
         OutputPoints = None
-         
+
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
             if(x >= bounds[spatial.iRect.MinX] and x <= bounds[spatial.iRect.MaxX] and y >= bounds[spatial.iRect.MinY] and y <= bounds[spatial.iRect.MaxY]):
@@ -368,7 +473,7 @@ class Triangulation(Base):
         if not OutputPoints is None:
             if OutputPoints.ndim == 1:
                 OutputPoints = np.reshape(OutputPoints,(1, OutputPoints.shape[0]))
-                
+
         return OutputPoints
 
     @property
@@ -378,6 +483,27 @@ class Triangulation(Base):
     @property
     def WarpedTriangles(self):
         return self.warpedtri.vertices
+
+    def GetFixedCentroids(self, triangles=None):
+        '''Centroids of fixed triangles'''
+        if triangles is None:
+            triangles = self.FixedTriangles
+
+        fixedTriangleVerticies = self.FixedPoints[triangles]
+        swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
+        Centroids = np.mean(swappedTriangleVerticies, 1 )
+        return np.swapaxes(Centroids, 0,1)
+
+    
+    def GetWarpedCentroids(self, triangles=None):
+        '''Centroids of warped triangles'''
+        if triangles is None:
+            triangles = self.WarpedTriangles
+
+        warpedTriangleVerticies = self.WarpedPoints[triangles]
+        swappedTriangleVerticies = np.swapaxes(warpedTriangleVerticies, 0, 2)
+        Centroids = np.mean(swappedTriangleVerticies, 1 )
+        return np.swapaxes(Centroids, 0, 1)
 
     @property
     def MappedBounds(self):

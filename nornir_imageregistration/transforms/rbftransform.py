@@ -96,8 +96,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
     def Transform(self, Points, **kwargs):
 
-        if not isinstance(Points, numpy.ndarray):
-            Points = numpy.array(Points)
+        Points = self.EnsurePointsAre2DNumpyArray(Points)
 
         NumCtrlPts = len(self.FixedPoints)
 

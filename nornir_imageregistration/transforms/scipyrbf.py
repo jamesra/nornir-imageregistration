@@ -45,44 +45,43 @@ class ScipyRbf(triangulation.Triangulation):
     def ReverseRbfiX(self):
         if self._ReverseRbfiX is None:
             self._ReverseRbfiX = scipy.interpolate.Rbf(self.WarpedPoints[:,iPoint.Y], self.WarpedPoints[:,iPoint.X], self.FixedPoints[:,iPoint.X])
-             
+
         return self._ReverseRbfiX 
-    
+
     @property
     def ReverseRbfiY(self):
         if self._ReverseRbfiY is None:
             self._ReverseRbfiY = scipy.interpolate.Rbf(self.WarpedPoints[:,iPoint.Y], self.WarpedPoints[:,iPoint.X], self.FixedPoints[:,iPoint.Y])
-             
+
         return self._ReverseRbfiY  
 
     def __init__(self, WarpedPoints, FixedPoints, BasisFunction=None):
 
         points = numpy.hstack((FixedPoints, WarpedPoints))
         super(ScipyRbf, self).__init__(points)
-        
+
         self._ForwardRbfiX = None
         self._ForwardRbfiY = None
         self._ReverseRbfiX = None
         self._ReverseRbfiY = None
-  
+
 
     def Transform(self, Points,  MaxChunkSize=65536):
 
-        if not isinstance(Points, numpy.ndarray):
-            Points = numpy.array(Points)
-             
+        Points = self.EnsurePointsAre2DNumpyArray(Points)
+
         NumPts = Points.shape[0]
 
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
         if NumPts <= MaxChunkSize:
             transformedX = self.ForwardRbfiX(Points[:,iPoint.Y], Points[:, iPoint.X])
             transformedY = self.ForwardRbfiY(Points[:,iPoint.Y], Points[:, iPoint.X]) 
-     
+
             return numpy.vstack((transformedY, transformedX)).transpose()
         else:
             iStart = 0
             transformedData = numpy.zeros((NumPts,2))
-            
+
             while iStart < NumPts:
                 iEnd = iStart + MaxChunkSize
                 if iEnd > Points.shape[0]:
@@ -95,23 +94,22 @@ class ScipyRbf(triangulation.Triangulation):
                 assert(transformedData[iStart,1] == 0)
 
                 transformedData[iStart:iEnd,:] = transformedChunk
-                
+
                 del transformedChunk
 
                 iStart = iEnd
-                
+
             return transformedData
-    
+
     def InverseTransform(self, Points):
 
-        if not isinstance(Points, numpy.ndarray):
-            Points = numpy.array(Points)
-            
+        Points = self.EnsurePointsAre2DNumpyArray(Points)
+
         transformedX = self.ReverseRbfiX(Points[:,iPoint.Y], Points[:, iPoint.X])
         transformedY = self.ReverseRbfiY(Points[:,iPoint.Y], Points[:, iPoint.X]) 
- 
+
         return numpy.vstack((transformedY, transformedX)).transpose()
- 
+
 
 #
 # class RBFTransform(triangulation.Triangulation):
