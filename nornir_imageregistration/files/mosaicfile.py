@@ -4,6 +4,7 @@ import sys
 from nornir_shared import checksum, prettyoutput
 import nornir_shared.images as images
 
+
 class MosaicFile(object):
     """description of class"""
 
@@ -15,7 +16,7 @@ class MosaicFile(object):
 
     @property
     def Checksum(self):
-        #We need to sort the transforms so that the order of insertion does not change the checksum
+        # We need to sort the transforms so that the order of insertion does not change the checksum
         return checksum.DataChecksum(sorted(self.ImageToTransformString.values()))
 
     @property

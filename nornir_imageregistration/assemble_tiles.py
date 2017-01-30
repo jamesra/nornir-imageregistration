@@ -4,32 +4,31 @@ Created on Oct 28, 2013
 Deals with assembling images composed of mosaics or dividing images into tiles
 '''
 
-import numpy as np
-import os
-import logging
-
-import multiprocessing
-
-import nornir_imageregistration.assemble  as assemble
-# from nornir_imageregistration.files.mosaicfile import MosaicFile
-# from nornir_imageregistration.mosaic import Mosaic
-import nornir_imageregistration.core as core
-import nornir_imageregistration.transforms.utils as tutils
-import nornir_imageregistration.tileset as tiles
-# import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
-# import nornir_imageregistration.transforms.triangulation as triangulation
-import nornir_pools as pools
 import copy
+import logging
+import multiprocessing
+import os
 import tempfile
-import nornir_shared.prettyoutput as prettyoutput
 import threading
 
+import nornir_imageregistration.assemble  as assemble
+import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.tileset as tiles
+import nornir_imageregistration.transforms.utils as tutils
+import nornir_pools as pools
+import nornir_shared.prettyoutput as prettyoutput
+import numpy as np
 
-DistanceImageCache={}
 
-#TODO: Use atexit to delete the temporary files
-#TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
+# from nornir_imageregistration.files.mosaicfile import MosaicFile
+# from nornir_imageregistration.mosaic import Mosaic
+# import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+# import nornir_imageregistration.transforms.triangulation as triangulation
+DistanceImageCache = {}
+
+# TODO: Use atexit to delete the temporary files
+# TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
 use_memmap = False
 nextNumpyMemMapFilenameIndex = 0
 
@@ -96,7 +95,7 @@ class TransformedImageData(object):
         o._transformScale = scale
         o._transform = transform
         
-        #o.ConvertToMemmapIfLarge()
+        # o.ConvertToMemmapIfLarge()
         
         return o
     
@@ -141,7 +140,7 @@ class TransformedImageData(object):
         if not self._image_path is None:
             os.remove(self._image_path)
             
-        #if not self._tempdir is None:
+        # if not self._tempdir is None:
         #    os.remove(self._tempdir)
          
 
@@ -185,15 +184,15 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     maxX = int(minX + SubImage.shape[1])
     maxY = int(minY + SubImage.shape[0])
     
-    if((np.array([maxY-minY,maxX-minX]) != SubZBuffer.shape).any()):
+    if((np.array([maxY - minY, maxX - minX]) != SubZBuffer.shape).any()):
         raise ValueError("Buffers do not have the same dimensions")
     
-    #iNewIndex = np.zeros(FullImage.shape, dtype=np.bool)
+    # iNewIndex = np.zeros(FullImage.shape, dtype=np.bool)
 
-    #iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
-    #iNewIndex[minY:maxY, minX:maxX] = iUpdate
-    #FullImage[iNewIndex] = SubImage[iUpdate]
-    #FullZBuffer[iNewIndex] = SubZBuffer[iUpdate]
+    # iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
+    # iNewIndex[minY:maxY, minX:maxX] = iUpdate
+    # FullImage[iNewIndex] = SubImage[iUpdate]
+    # FullZBuffer[iNewIndex] = SubZBuffer[iUpdate]
     
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
@@ -245,9 +244,9 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
     fullImageZbuffer = None
     
     if use_memmap:
-        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (shape[0],shape[1], GetProcessAndThreadUniqueString()))
+        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (shape[0], shape[1], GetProcessAndThreadUniqueString()))
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
-        fullImageZbuffer[:] =  __MaxZBufferValue(dtype)
+        fullImageZbuffer[:] = __MaxZBufferValue(dtype)
         fullImageZbuffer.flush()
         del fullImageZbuffer
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
@@ -267,7 +266,7 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
      
     if use_memmap:
         try:
-            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
             fullImage[:] = 0
             fullImage.flush()
@@ -292,8 +291,8 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
      
     if use_memmap:
         try:
-            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0],fullImage_shape[1],GetProcessAndThreadUniqueString()))
-            #print("Open %s" % (fullimage_array_path))
+            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
+            # print("Open %s" % (fullimage_array_path))
             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
             fullImage[:] = 0
         except: 
@@ -307,12 +306,12 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
 
 
 def __GetOrCreateCachedDistanceImage(imageShape):
-    distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0],imageShape[1]))
+    distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
     
     distanceImage = None 
     
     if os.path.exists(distance_array_path):
-        #distanceImage = core.LoadImage(distance_image_path)
+        # distanceImage = core.LoadImage(distance_image_path)
         try:
             if use_memmap:
                 distanceImage = np.load(distance_array_path, mmap_mode='r')
@@ -342,7 +341,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
 def __GetOrCreateDistanceImage(distanceImage, imageShape):
     '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
 
-    assert(len(imageShape)==2)
+    assert(len(imageShape) == 2)
     size = imageShape
     if not distanceImage is None:
         if np.array_equal(distanceImage.shape, size):
@@ -360,7 +359,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
 
     assert(len(transforms) == len(imagepaths))
 
-    #logger = logging.getLogger(__name__ + '.TilesToImage')
+    # logger = logging.getLogger(__name__ + '.TilesToImage')
 
     if requiredScale is None:
         requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
@@ -403,9 +402,9 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
-    #Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
-    #I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
-    #fullImage[fullImage > 1.0] = 1.0
+    # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+    # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+    # fullImage[fullImage > 1.0] = 1.0
     
     if use_memmap:
         fullImage.flush()
@@ -427,7 +426,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     if pool is None:
         pool = pools.GetGlobalMultithreadingPool()
         
-    #pool = pools.GetGlobalSerialPool()
+    # pool = pools.GetGlobalSerialPool()
 
     tasks = []
     fixedRect = None
@@ -479,7 +478,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         del transformedImageData
         del t
         
-        #Pass through the entire loop and eliminate completed tasks in case any finished out of order
+        # Pass through the entire loop and eliminate completed tasks in case any finished out of order
         iTask = len(tasks) - 1
         while iTask >= 0:
             t = tasks[iTask]
@@ -497,9 +496,9 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     del fullImageZbuffer
 
     fullImage[fullImage < 0] = 0
-    #Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
-    #I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
-    #fullImage[fullImage > 1.0] = 1.0
+    # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+    # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+    # fullImage[fullImage > 1.0] = 1.0
 
     logger.info('Assemble complete')
     
@@ -576,7 +575,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
         if not core.ApproxEqual(transformScale, requiredScale):
             return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
         
-        transformScale = requiredScale #This is needed because we aren't specifying the size of the output tile like we should be
+        transformScale = requiredScale  # This is needed because we aren't specifying the size of the output tile like we should be
 
     if transformScale != 1.0:
         scaledTransform = copy.deepcopy(transform)

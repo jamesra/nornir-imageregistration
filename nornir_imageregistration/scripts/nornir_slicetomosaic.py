@@ -5,11 +5,14 @@ Created on May 21, 2013
 '''
 
 import argparse
-import os
-import nornir_imageregistration.assemble
-import nornir_shared.misc
 import logging
+import os
 import sys
+
+import nornir_imageregistration.assemble
+
+import nornir_shared.misc
+
 
 def __CreateArgParser(ExecArgs=None):
 

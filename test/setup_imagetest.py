@@ -3,17 +3,19 @@ Created on Mar 21, 2013
 
 @author: u0490822
 '''
-import unittest
-import os
+import cProfile
 import glob
 import logging
-from nornir_shared.misc import SetupLogging
-import shutil
-import cProfile
+import os
 import pickle
-import numpy as np
-import nornir_pools
+import shutil
+import unittest
+
 import six
+
+import nornir_pools
+from nornir_shared.misc import SetupLogging
+import numpy as np
 
 
 class PickleHelper(object):
@@ -160,7 +162,7 @@ class MosaicTestBase(TestBase):
     
     @property
     def TestOutputPath(self):
-        return os.path.join(super(MosaicTestBase,self).TestOutputPath, self.id())
+        return os.path.join(super(MosaicTestBase, self).TestOutputPath, self.id())
 
     def GetMosaicFiles(self):
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
@@ -188,7 +190,7 @@ def array_distance(array):
     if array.ndim == 1:
         return np.sqrt(np.sum(array ** 2)) 
     
-    return np.sqrt(np.sum(array ** 2,1))
+    return np.sqrt(np.sum(array ** 2, 1))
 
 
 if __name__ == "__main__":

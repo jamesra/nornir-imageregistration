@@ -5,14 +5,17 @@ Created on May 21, 2016
 '''
 
 import argparse
+import logging
 import os
-import nornir_imageregistration.files.stosfile as stosfile
+import sys
+
+import numpy
+
 import nornir_imageregistration.core as core
+import nornir_imageregistration.files.stosfile as stosfile
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.misc
-import logging
-import numpy
-import sys
+
 
 def __CreateArgParser(ExecArgs=None):
 
@@ -93,21 +96,21 @@ def Execute(ExecArgs=None):
     fixed_image = core.LoadImage(Args.fixedpath)
     warped_image = core.LoadImage(Args.warpedpath)
     
-    #align_record = core.FindOffset(fixed_image, warped_image)
+    # align_record = core.FindOffset(fixed_image, warped_image)
     
-    #print("Overall alignment: %s" % str(align_record))
+    # print("Overall alignment: %s" % str(align_record))
     
-    control_point_coord = numpy.asarray((777,765))
-    fixed_image_area = numpy.asarray((128,128))
+    control_point_coord = numpy.asarray((777, 765))
+    fixed_image_area = numpy.asarray((128, 128))
     fixed_control_points_bbox = spatial.Rectangle.CreateFromCenterPointAndArea(control_point_coord, fixed_image_area)
     
     warped_control_points_bbox = spatial.Rectangle.CreateFromCenterPointAndArea(control_point_coord, fixed_image_area)
     
-    #Pull a subtile from the images.
+    # Pull a subtile from the images.
     cropped_fixed_image = core.CropImageRect(fixed_image, fixed_control_points_bbox, cval=0)
     cropped_warped_image = core.CropImageRect(warped_image, warped_control_points_bbox, cval=0)
     
-    #cropped_fixed_padded_image = core.PadImageForPhaseCorrelation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
+    # cropped_fixed_padded_image = core.PadImageForPhaseCorrelation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
     
     control_point_align_record = core.FindOffset(cropped_fixed_image, cropped_warped_image, MinOverlap=0.5)
     

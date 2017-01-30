@@ -9,21 +9,21 @@ import logging
 import math
 import operator
 
+import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms.utils import InvalidIndicies
+import scipy
 from scipy.interpolate import griddata
 from scipy.spatial import *
-
-from nornir_imageregistration.transforms.utils import InvalidIndicies
-import nornir_imageregistration.spatial as spatial
-import nornir_imageregistration.transforms
-import numpy as np
-import scipy
 import scipy.spatial
+
+import nornir_imageregistration.spatial as spatial
+import numpy as np
 
 from . import utils
 from .base import *
 
 
-def distance(A,B):
+def distance(A, B):
     '''Distance between two arrays of points with equal numbers'''
     Delta = A - B
     Delta_Square = np.square(Delta)
@@ -60,7 +60,7 @@ def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_c
     mappedControlPoints = AToB_mapped_Transform.FixedPoints
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
 
-    AToC_pointPairs = np.hstack( (txMappedControlPoints, AToB_mapped_Transform.WarpedPoints) )
+    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.WarpedPoints))
 
     newTransform = None
     if create_copy:
@@ -194,7 +194,7 @@ class Triangulation(Base):
             points = np.asarray(points, dtype=np.float32)
 
         if points.ndim == 1:
-            points = np.resize( points, (1,2) )
+            points = np.resize(points, (1, 2))
 
         return points
 
@@ -305,7 +305,7 @@ class Triangulation(Base):
         # Cannot pickle KDTree, so use Python's thread pool
 
         FixedKDTask = TPool.add_task("Fixed KDTree", KDTree, self.FixedPoints)
-        #WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
+        # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
         self._WarpedKDTree = KDTree(self.WarpedPoints)
 
@@ -439,7 +439,7 @@ class Triangulation(Base):
 
     def GetFixedPointsRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        #return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        # return self.GetPointPairsInRect(self.FixedPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
     
     def GetFixedPointsInRect(self, bounds):
@@ -472,7 +472,7 @@ class Triangulation(Base):
 
         if not OutputPoints is None:
             if OutputPoints.ndim == 1:
-                OutputPoints = np.reshape(OutputPoints,(1, OutputPoints.shape[0]))
+                OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
 
         return OutputPoints
 
@@ -491,8 +491,8 @@ class Triangulation(Base):
 
         fixedTriangleVerticies = self.FixedPoints[triangles]
         swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
-        Centroids = np.mean(swappedTriangleVerticies, 1 )
-        return np.swapaxes(Centroids, 0,1)
+        Centroids = np.mean(swappedTriangleVerticies, 1)
+        return np.swapaxes(Centroids, 0, 1)
 
     
     def GetWarpedCentroids(self, triangles=None):
@@ -502,7 +502,7 @@ class Triangulation(Base):
 
         warpedTriangleVerticies = self.WarpedPoints[triangles]
         swappedTriangleVerticies = np.swapaxes(warpedTriangleVerticies, 0, 2)
-        Centroids = np.mean(swappedTriangleVerticies, 1 )
+        Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
     @property

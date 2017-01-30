@@ -8,12 +8,12 @@ Created on Apr 22, 2013
 import os
 
 from matplotlib.pyplot import imsave
-from scipy.ndimage import interpolation
-
 from nornir_imageregistration.files.stosfile import StosFile
 from   nornir_imageregistration.transforms import factory, triangulation
-import nornir_imageregistration.transforms.base as transformbase
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
+from scipy.ndimage import interpolation
+
+import nornir_imageregistration.transforms.base as transformbase
 import nornir_pools as pools
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
@@ -26,7 +26,7 @@ def GetROICoords(botleft, area):
     x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.float32)
     y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.float32)
     
-    #Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
+    # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
         x_range = x_range[:area[1]]
         
@@ -177,11 +177,11 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         return transformedImage
 
     subroi_warpedImage = None
-    #For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
-    #In this case use only a subset of the warpedimage
+    # For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
+    # In this case use only a subset of the warpedimage
     if np.prod(WarpedImage.shape) > warped_coords.shape[0]:
-    #if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
-        #if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
+    # if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
+        # if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
         (subroi_warpedImage, warped_coords) = __CropImageToFitCoords(WarpedImage, warped_coords, cval=cval)
         del WarpedImage
     else:
@@ -287,7 +287,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
 
     if isinstance(ImagesToTransform, list):
-        if not isinstance(cval,list):
+        if not isinstance(cval, list):
             cval = [cval] * len(DataToTransform)    
         
         FixedImageList = []
@@ -378,8 +378,8 @@ def TransformImage(transform, fixedImageShape, warpedImage):
  
     grid_shape = core.TileGridShape(warpedImage.shape, tilesize)
     
-    if np.all(grid_shape == np.array([1,1])):
-        #Single threaded
+    if np.all(grid_shape == np.array([1, 1])):
+        # Single threaded
         return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)

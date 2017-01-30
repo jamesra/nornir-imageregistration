@@ -3,8 +3,8 @@ Created on Mar 3, 2014
 
 @author: u0490822
 '''
-import unittest
 import itertools
+import unittest
 
 import nornir_imageregistration.spatial as spatial
 

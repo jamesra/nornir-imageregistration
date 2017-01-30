@@ -5,12 +5,15 @@ Created on May 21, 2013
 '''
 
 import argparse
+import logging
 import os
+import sys
+
+import nornir_imageregistration
+
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
-import nornir_imageregistration
-import logging
-import sys
+
 
 def __CreateArgParser(ExecArgs=None):
 

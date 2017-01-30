@@ -1,8 +1,9 @@
 import logging
 import os
 
-import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.tile
+
+import nornir_imageregistration.transforms.factory as tfactory
 import nornir_pools
 import numpy as np
 
@@ -14,10 +15,10 @@ from . import spatial
 def _sort_array_on_column(a, iCol, ascending=False):
     '''Sort the numpy array on the specfied column'''
     
-    iSorted = np.argsort(a[:,iCol], 0)
+    iSorted = np.argsort(a[:, iCol], 0)
     if not ascending:
         iSorted = np.flipud(iSorted)
-    return a[iSorted,:]
+    return a[iSorted, :]
 
 
 
@@ -33,7 +34,7 @@ class LayoutPosition(object):
     iOffsetX = 2 
     iOffsetWeight = 3
     
-    #offset_dtype = np.dtype([('ID', np.int32), ('Y', np.float32), ('X', np.float32), ('Weight', np.float32)])
+    # offset_dtype = np.dtype([('ID', np.int32), ('Y', np.float32), ('X', np.float32), ('Weight', np.float32)])
      
     @property
     def ID(self):
@@ -67,16 +68,16 @@ class LayoutPosition(object):
         
     @property
     def ConnectedIDs(self):
-        return self._OffsetArray[:,LayoutPosition.iOffsetID]
+        return self._OffsetArray[:, LayoutPosition.iOffsetID]
     
     
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
-        return self.OffsetArray[iKnown,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1].flatten()
+        return self.OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
     
     def GetWeight(self, ID):
         iKnown = self.ConnectedIDs == ID
-        return self.OffsetArray[iKnown,LayoutPosition.iOffsetWeight]
+        return self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight]
     
     
     def SetOffset(self, ID, offset, weight):
@@ -87,13 +88,13 @@ class LayoutPosition(object):
         if np.isnan(weight):
             raise ValueError("weight is not a number")
         
-        new_row = np.array((ID, offset[0], offset[1], weight))#, dtype=LayoutPosition.offset_dtype, ndmin=2)
+        new_row = np.array((ID, offset[0], offset[1], weight))  # , dtype=LayoutPosition.offset_dtype, ndmin=2)
         iKnown = self.ConnectedIDs == ID
         if np.any(iKnown):
-            #Update a row
+            # Update a row
             self._OffsetArray[iKnown] = new_row            
         else:
-            #Insert a new row
+            # Insert a new row
             
             self._OffsetArray = np.vstack((self._OffsetArray, new_row))
             if self._OffsetArray.ndim == 1:
@@ -108,11 +109,11 @@ class LayoutPosition(object):
         :param ndarray connected_positions: Position of the connected nodes'''
         
         relative_connected_positions = connected_positions - self.Position
-        return relative_connected_positions - self._OffsetArray[:,LayoutPosition.iOffsetY:LayoutPosition.iOffsetX+1]
+        return relative_connected_positions - self._OffsetArray[:, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1]
     
     def NetTensionVector(self, connected_positions):
         position_difference = self.TensionVectors(connected_positions)
-        return np.sum(position_difference,0)
+        return np.sum(position_difference, 0)
       
     def WeightedNetTensionVector(self, connected_positions):
         '''The direction of the vector this tile wants to move after summing all of the offsets
@@ -120,15 +121,15 @@ class LayoutPosition(object):
         
         position_difference = self.TensionVectors(connected_positions)
  
-        #Cannot weight more than 1.0
-        #normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight] / np.max(self._OffsetArray[:,LayoutPosition.iOffsetWeight])
-        normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight]
+        # Cannot weight more than 1.0
+        # normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight] / np.max(self._OffsetArray[:,LayoutPosition.iOffsetWeight])
+        normalized_weight = self._OffsetArray[:, LayoutPosition.iOffsetWeight]
         
         assert(np.all(normalized_weight >= 0))
         assert(np.all(normalized_weight <= 1.0))
         weighted_position_difference = position_difference * normalized_weight.reshape((normalized_weight.shape[0], 1))
         
-        return np.sum(weighted_position_difference,0)
+        return np.sum(weighted_position_difference, 0)
          
     
     def ScaleOffsetWeightsByPosition(self, connected_positions):
@@ -139,12 +140,12 @@ class LayoutPosition(object):
         '''
 
         position_difference = self.TensionVectors(connected_positions)
-        distance = np.sqrt(np.sum(position_difference ** 2,1))
+        distance = np.sqrt(np.sum(position_difference ** 2, 1))
         medianDistance = np.median(distance)
         
-        new_weight = distance  / medianDistance
+        new_weight = distance / medianDistance
         
-        self._OffsetArray[:,LayoutPosition.iOffsetWeight] = new_weight
+        self._OffsetArray[:, LayoutPosition.iOffsetWeight] = new_weight
             
         return 
      
@@ -152,7 +153,7 @@ class LayoutPosition(object):
         
         self._ID = ID 
         self.Position = position
-        self._OffsetArray = np.empty((0,4)) #dtype=LayoutPosition.offset_dtype)
+        self._OffsetArray = np.empty((0, 4))  # dtype=LayoutPosition.offset_dtype)
         
     def __str__(self):
         return "%d y:%g x:%g" % (self._ID, self.Position[0], self.Position[1]) 
@@ -162,7 +163,7 @@ class Layout(object):
     '''Arranges tiles in 2D space to form a mosaic.
        IDs of nodes should be incremental and match the row index of the array'''
     
-    #Offsets into node position array
+    # Offsets into node position array
     iNodeID = 0
     iNodeY = 1 
     iNodeX = 2 
@@ -174,12 +175,12 @@ class Layout(object):
     @property    
     def MaxWeightedTension(self):
         net_tension_vectors = self.WeightedNetTensionVectors()
-        return np.max( core.array_distance(net_tension_vectors) )
+        return np.max(core.array_distance(net_tension_vectors))
     
     @property    
     def MaxTension(self):
         net_tension_vectors = self.NetTensionVectors()
-        return np.max( core.array_distance(net_tension_vectors) )
+        return np.max(core.array_distance(net_tension_vectors))
     
     def Contains(self, ID):
         ''':rtype: bool
@@ -206,13 +207,13 @@ class Layout(object):
             IDs = list(self.nodes.keys())
             IDs.sort()
             
-        positions = np.empty((len(IDs),2))
+        positions = np.empty((len(IDs), 2))
         for i, tileID in enumerate(IDs):
-            positions[i,:] = self.nodes[tileID].Position 
+            positions[i, :] = self.nodes[tileID].Position 
                                          
         return positions
     
-    def NetTensionVector(self,ID):
+    def NetTensionVector(self, ID):
         '''Return the net tension vector of the specified ID'''
         
         node = self.nodes[ID]
@@ -226,11 +227,11 @@ class Layout(object):
         output = np.zeros((len(IDs), 2))
         for i in range(0, len(IDs)):
             ID = IDs[i]
-            output[i,:] = self.NetTensionVector(ID)
+            output[i, :] = self.NetTensionVector(ID)
             
         return output
     
-    def WeightedNetTensionVector(self,ID):
+    def WeightedNetTensionVector(self, ID):
         '''Return the net tension vector of the specified ID'''
         
         node = self.nodes[ID]
@@ -244,7 +245,7 @@ class Layout(object):
         IDs.sort()
         output = np.zeros((len(IDs), 2))
         for i, TileID in enumerate(IDs):
-            output[i,:] = self.WeightedNetTensionVector(TileID)
+            output[i, :] = self.WeightedNetTensionVector(TileID)
             
         return output
     
@@ -291,22 +292,22 @@ class Layout(object):
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
         '''
         
-        #TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
+        # TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
         
-        node_movement = np.zeros((len(layout_obj.nodes),3))
+        node_movement = np.zeros((len(layout_obj.nodes), 3))
         
-        #vectors = {}
+        # vectors = {}
         
         i = 0
         first = True
         for ID, node in layout_obj.nodes.items():
             
             vector = layout_obj.WeightedNetTensionVector(ID) * vector_scalar
-            #vectors[ID] = vector
+            # vectors[ID] = vector
             row = np.array([ID, vector[0], vector[1]])
-            node_movement[i,:] = row
+            node_movement[i, :] = row
             i += 1
-            #Skip the first node, the others can move around it
+            # Skip the first node, the others can move around it
             node.Position = node.Position + vector
         
         return node_movement
@@ -328,18 +329,18 @@ def OffsetsSortedByWeight(layout):
     Return all of a layouts offsets sorted by weight.  
     :return: An array [[TileA_ID, TileB_ID, OffsetY, OffsetX, Weight]] To prevent duplicates we only report offsets where TileA_ID < TileB_ID
     ''' 
-    ret_array = np.empty((0,5))
+    ret_array = np.empty((0, 5))
     for node in layout.nodes.values():
         if node.IsIsolated:
             continue
         
-        #Prevent duplicates by skipping IDs less than the nodes
-        iNewRows = node.OffsetArray[:,0] > node.ID 
+        # Prevent duplicates by skipping IDs less than the nodes
+        iNewRows = node.OffsetArray[:, 0] > node.ID 
         if not np.any(iNewRows):
             continue 
         
-        new_column = np.ones((np.sum(iNewRows),1)) * node.ID
-        new_rows = np.hstack((new_column, node.OffsetArray[iNewRows,:]))
+        new_column = np.ones((np.sum(iNewRows), 1)) * node.ID
+        new_rows = np.hstack((new_column, node.OffsetArray[iNewRows, :]))
         ret_array = np.vstack((ret_array, new_rows))
         
     return _sort_array_on_column(ret_array, 4)  
@@ -365,11 +366,11 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
     
     first = True
     for node in original_layout.nodes.values():
-        #Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
+        # Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
         if node.IsIsolated:
             continue
         
-        weights = node.OffsetArray[:,LayoutPosition.iOffsetWeight]
+        weights = node.OffsetArray[:, LayoutPosition.iOffsetWeight]
         
         if first:
             first = False
@@ -379,13 +380,13 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
             minWeight = min((minWeight, np.min(weights)))
             maxWeight = max((maxWeight, np.max(weights)))
     
-    #All the weights are equal... odd
+    # All the weights are equal... odd
     if maxWeight == minWeight:
         for node in original_layout.nodes.values():
             if node.IsIsolated:
                 continue
             
-            node.OffsetArray[:,LayoutPosition.iOffsetWeight] = max_allowed_weight
+            node.OffsetArray[:, LayoutPosition.iOffsetWeight] = max_allowed_weight
         return
     
     maxWeight -= minWeight
@@ -393,15 +394,15 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
     allowed_weight_range = max_allowed_weight - min_allowed_weight
     
     for node in original_layout.nodes.values():
-        #Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
+        # Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no scores
         if node.IsIsolated:
             continue
         
-        node.OffsetArray[:,LayoutPosition.iOffsetWeight] = (node.OffsetArray[:,LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
-        node.OffsetArray[:,LayoutPosition.iOffsetWeight] *= allowed_weight_range
-        node.OffsetArray[:,LayoutPosition.iOffsetWeight] += min_allowed_weight
-        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] >= min_allowed_weight))
-        assert(np.alltrue(node.OffsetArray[:,LayoutPosition.iOffsetWeight] <= max_allowed_weight))
+        node.OffsetArray[:, LayoutPosition.iOffsetWeight] = (node.OffsetArray[:, LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
+        node.OffsetArray[:, LayoutPosition.iOffsetWeight] *= allowed_weight_range
+        node.OffsetArray[:, LayoutPosition.iOffsetWeight] += min_allowed_weight
+        assert(np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= min_allowed_weight))
+        assert(np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= max_allowed_weight))
                 
     return 
 
@@ -423,12 +424,12 @@ def RelaxLayout(layout_obj, max_tension_cutoff=5, max_iter=50):
             print("\t%d %g" % (i, max_tension))
             Layout.RelaxNodes(layout_obj)
             max_tension = layout_obj.MaxWeightedTension
-            #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
-            #max_distance = np.max(node_distance,0)
+            # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+            # max_distance = np.max(node_distance,0)
             i += 1
             
-            #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
-            #pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
+            # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
             
         return layout_obj
 
@@ -447,7 +448,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
 
     LayoutList = [] 
     for iRow in range(0, sorted_offsets.shape[0]):
-        row = sorted_offsets[iRow,:]      
+        row = sorted_offsets[iRow, :]      
         A_ID = row[0]
         B_ID = row[1]
         YOffset = row[2]
@@ -489,8 +490,8 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             if ALayout is None and not BLayout is  None:
                 BLayout.CreateOffsetNode(B_ID, A_ID, -offset, Weight)
                 # We'll pick it up on the next pass
-                #print("Skip: Getting it next time")
-                #continue
+                # print("Skip: Getting it next time")
+                # continue
                 
             else:
                 ALayout.CreateOffsetNode(A_ID, B_ID, offset, Weight)
@@ -505,7 +506,7 @@ def CreateTransform(layout, ID, bounding_box):
     '''
     Create a transform for the position in the layout
     '''
-    OriginalImageSize = (bounding_box[spatial.iRect.MaxY]-1, bounding_box[spatial.iRect.MaxX]-1)
+    OriginalImageSize = (bounding_box[spatial.iRect.MaxY] - 1, bounding_box[spatial.iRect.MaxX] - 1)
     
     return tfactory.CreateRigidTransform(OriginalImageSize, OriginalImageSize, 0, layout.GetPosition(ID)) 
     

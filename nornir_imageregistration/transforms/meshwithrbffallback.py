@@ -6,12 +6,12 @@ Created on Oct 18, 2012
 
 import math
 
-import numpy
-import scipy.interpolate
-
 from nornir_imageregistration.transforms import base, triangulation
 from nornir_imageregistration.transforms.rbftransform import \
     RBFWithLinearCorrection
+import numpy
+import scipy.interpolate
+
 import nornir_pools as pools
 import scipy.linalg as linalg
 import scipy.spatial as spatial
@@ -117,7 +117,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
             if points.ndim > 1:
                 BadPoints = points[InvalidIndicies]
             else:
-                BadPoints = points #This is likely no longer needed since this function always returns a 2D array now
+                BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)

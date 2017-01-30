@@ -3,19 +3,21 @@ Created on Apr 3, 2013
 
 @author: u0490822
 '''
-import unittest
-from . import setup_imagetest
 import os
-import numpy
+import unittest
 
 import nornir_imageregistration
-import nornir_imageregistration.core as core
 from nornir_imageregistration.alignment_record import AlignmentRecord
-import nornir_imageregistration.assemble as assemble
-import nornir_shared.images as images
-from scipy.ndimage import interpolation
+import numpy
 from scipy.misc import imsave
+from scipy.ndimage import interpolation
+
+import nornir_imageregistration.assemble as assemble
+import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
+import nornir_shared.images as images
+
+from . import setup_imagetest
 
 
 def ShowComparison(*args):
@@ -90,10 +92,10 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 class TestAssemble(setup_imagetest.ImageTestBase):
     
     def test_TransformImageIdentity(self):
-        #Too small to require more than one tile
+        # Too small to require more than one tile
         self.CallTransformImage(imageDim=10)
         
-        #Large enough to require more than one tile
+        # Large enough to require more than one tile
         self.CallTransformImage(imageDim=4097)
         
     def CallTransformImage(self, imageDim):
@@ -101,14 +103,14 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         Height = imageDim
         Width = numpy.round(imageDim / 2)
         
-        identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(numpy.array([[0,0,0,0],
-                                                                              [Height,0,Height,0],
-                                                                              [0,Width,0,Width],
-                                                                              [Height,Width,Height,Width]]))
+        identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(numpy.array([[0, 0, 0, 0],
+                                                                              [Height, 0, Height, 0],
+                                                                              [0, Width, 0, Width],
+                                                                              [Height, Width, Height, Width]]))
         
-        warpedImage = numpy.ones([Height,Width])
+        warpedImage = numpy.ones([Height, Width])
 
-        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height,Width]), warpedImage)
+        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage)
         self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")

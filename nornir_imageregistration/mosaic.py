@@ -4,17 +4,20 @@ Created on Mar 29, 2013
 @author: u0490822
 '''
 
+import copy
+import os
+
+import nornir_imageregistration
 from nornir_imageregistration.files.mosaicfile import MosaicFile
+
+import nornir_imageregistration.arrange_mosaic as arrange
+import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_imageregistration.assemble_tiles as at
-from . import spatial
-import numpy as np
-import os
-import copy
 import nornir_pools as pools
-import nornir_imageregistration.arrange_mosaic as arrange
-import nornir_imageregistration
+import numpy as np
+
+from . import spatial
 
 
 def LayoutToMosaic(layout, tiles):
@@ -50,10 +53,10 @@ class Mosaic(object):
             if mosaicfile is None:
                 raise ValueError("Expected valid mosaic file path")
             
-            #Don't copy, we throw away the mosaic object
+            # Don't copy, we throw away the mosaic object
             ImageToTransform = mosaicfile.ImageToTransformString
         elif isinstance(mosaicfile, MosaicFile):
-            #Copy the transforms to ensure we don't break anything
+            # Copy the transforms to ensure we don't break anything
             ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)
         else:
             raise ValueError("Expected valid mosaic file path or object")
@@ -183,7 +186,7 @@ class Mosaic(object):
 
         raise Exception("Not implemented")
 
-    def CreateTilesPathList(self, tilesPath,keys=None):
+    def CreateTilesPathList(self, tilesPath, keys=None):
         if keys is None:
             keys = sorted(self.ImageToTransform.keys())
             
@@ -197,7 +200,7 @@ class Mosaic(object):
         '''Return a list of transforms sorted according to the sorted key values'''
         
         values = []
-        for k,item in sorted(self.ImageToTransform.items()):
+        for k, item in sorted(self.ImageToTransform.items()):
             values.append(item)
             
         return values
@@ -205,15 +208,15 @@ class Mosaic(object):
 
     def ArrangeTilesWithTranslate(self, tilesPath, excess_scalar=1.5, usecluster=False):
 
-        #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
+        # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
         (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath), excess_scalar)
-        return LayoutToMosaic(layout,tiles)
+        return LayoutToMosaic(layout, tiles)
     
     def RefineLayout(self, tilesPath, usecluster=False):
 
-        #We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
+        # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
         (layout, tiles) = arrange.RefineMosaic(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
-        return LayoutToMosaic(layout,tiles)
+        return LayoutToMosaic(layout, tiles)
     
     
     def QualityScore(self, tilesPath):

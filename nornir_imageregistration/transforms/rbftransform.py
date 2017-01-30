@@ -6,14 +6,14 @@ Created on Oct 18, 2012
 
 import math
 
+from nornir_imageregistration.transforms import triangulation
 import numpy
 import scipy.interpolate
-import nornir_pools
 
-from nornir_imageregistration.transforms import triangulation
+import nornir_pools
+import nornir_shared
 import scipy.linalg as linalg
 import scipy.spatial as spatial
-import nornir_shared
 
 
 class RBFWithLinearCorrection(triangulation.Triangulation):

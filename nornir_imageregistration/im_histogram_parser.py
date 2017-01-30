@@ -60,7 +60,7 @@ def ParseHistogramLine(line):
     return (intensityVal, count)
 
 
-def Parse(lines, minVal = None, maxVal = None, numBins = None):
+def Parse(lines, minVal=None, maxVal=None, numBins=None):
     # Each line of the convert  -define histogram:unique-colors=true -format %c histogram:info:- command should have this form:
     #    1: ( 33, 33, 33) #212121 gray(33,33,33)
     #    2: ( 35, 35, 35) #232323 gray(35,35,35)

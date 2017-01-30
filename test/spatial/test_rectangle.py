@@ -3,11 +3,11 @@ Created on Mar 3, 2014
 
 @author: u0490822
 '''
-import unittest
 import itertools
-import numpy as np
+import unittest
 
 import nornir_imageregistration.spatial as spatial
+import numpy as np
 
 
 class Test(unittest.TestCase):
@@ -36,13 +36,13 @@ class Test(unittest.TestCase):
                   }
         
     def testConstructors(self):
-        r = spatial.Rectangle.CreateFromPointAndArea((1,2), (10,5))
-        self.assertTrue((r.BottomLeft == np.asarray((1,2))).all())
-        self.assertTrue((r.TopRight == np.asarray((11,7))).all())
+        r = spatial.Rectangle.CreateFromPointAndArea((1, 2), (10, 5))
+        self.assertTrue((r.BottomLeft == np.asarray((1, 2))).all())
+        self.assertTrue((r.TopRight == np.asarray((11, 7))).all())
         
-        r = spatial.Rectangle.CreateFromCenterPointAndArea((1,2), (10,20))
-        self.assertTrue((r.BottomLeft == np.asarray((-4,-8))).all())
-        self.assertTrue((r.TopRight == np.asarray((6,12))).all())
+        r = spatial.Rectangle.CreateFromCenterPointAndArea((1, 2), (10, 20))
+        self.assertTrue((r.BottomLeft == np.asarray((-4, -8))).all())
+        self.assertTrue((r.TopRight == np.asarray((6, 12))).all())
 
     def testRectangle(self):
         '''Test convention is that all rectangles with the same first letter overlap but do not overlap with other letters'''      
@@ -92,14 +92,14 @@ class Test(unittest.TestCase):
         
         print("Rectangle List:")
         for i in range(0, len(rect_list)):
-            print("%d: %s" % (i,str(rect_list[i])))
+            print("%d: %s" % (i, str(rect_list[i])))
         
         OverlapSets = {}
-        for i in range(0,len(rect_list)):
+        for i in range(0, len(rect_list)):
             OverlapSets[i] = set()
             
         print("Validate overlapping rectangles")
-        for (A,B) in rset.EnumerateOverlapping():
+        for (A, B) in rset.EnumerateOverlapping():
             OverlapSets[A].add(B)
             OverlapSets[B].add(A)
             self.assertTrue(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "Overlapping rectangles do not overlap")
@@ -110,11 +110,11 @@ class Test(unittest.TestCase):
         print("Validate non-overlapping rectangles")
         for (A, overlap_set) in OverlapSets.items():
             non_overlap_set = overlap_set.copy()
-            non_overlap_set ^= set(range(0,len(rect_list)))
+            non_overlap_set ^= set(range(0, len(rect_list)))
             print("%d: %s" % (A, non_overlap_set))
             for B in non_overlap_set:
                 if A != B:
-                    self.assertFalse(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "%d - %d: Non-overlapping rectangles overlap" % (A,B))
+                    self.assertFalse(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "%d - %d: Non-overlapping rectangles overlap" % (A, B))
         
         
         print("Done")

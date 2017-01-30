@@ -4,23 +4,23 @@ Created on Jul 10, 2012
 @author: Jamesan
 '''
  
-from operator import attrgetter
-import os
-import numpy as np
-import scipy.spatial
 import itertools
 import math
+from operator import attrgetter
+import os
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble 
 import nornir_imageregistration.assemble_tiles
-import nornir_imageregistration.spatial as spatial 
-import nornir_imageregistration.core as core
-import nornir_imageregistration.tileset as tileset
-import nornir_imageregistration.tile
 import nornir_imageregistration.layout
+import nornir_imageregistration.tile
+import scipy.spatial
 
+import nornir_imageregistration.core as core
+import nornir_imageregistration.spatial as spatial 
+import nornir_imageregistration.tileset as tileset
 import nornir_pools
+import numpy as np
 
 
 def _CalculateImageFFTs(tiles):
@@ -55,7 +55,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None):
     nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(offsets_collection, min_allowed_weight=0.25, max_allowed_weight=1.0)
     nornir_imageregistration.layout.RelaxLayout(offsets_collection, max_tension_cutoff=1.0, max_iter=150)
     
-    #final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
+    # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 
     # Create a mosaic file using the tile paths and transforms
     return (offsets_collection, tiles)
@@ -70,7 +70,7 @@ def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=
         imageScale = 1.0
         
     if subregion_shape is None:
-        subregion_shape = np.array([128,128])
+        subregion_shape = np.array([128, 128])
         
     downsample = 1.0 / imageScale
     
@@ -86,9 +86,9 @@ def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=
     for t in list_tiles:
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
         
-    for A,B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles, minOverlap=0.03):
-        #OK... add some small neighborhoods and register those...
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A,B, imageScale)
+    for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles, minOverlap=0.03):
+        # OK... add some small neighborhoods and register those...
+        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A, B, imageScale)
 #         
           
         task = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __RefineTileAlignmentRemote, A, B, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, imageScale, subregion_shape)
@@ -105,7 +105,7 @@ def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=
 #           
 #         layout.SetOffset(A.ID, B.ID, offset, weight)
          
-        #print(str(net_offset))
+        # print(str(net_offset))
         
     for t in tasks:
         try:
@@ -119,7 +119,7 @@ def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=
         weight = net_offset[2]
         layout.SetOffset(t.A.ID, t.B.ID, offset, weight) 
         
-        #Figure out what offset we found vs. what offset we expected
+        # Figure out what offset we found vs. what offset we expected
         PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
         
         diff = offset - PredictedOffset
@@ -129,7 +129,7 @@ def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=
         
     pool.wait_completion()
     
-    return (layout,tiles)
+    return (layout, tiles)
             
         
     
@@ -146,13 +146,13 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         
     downsample = 1.0 / imageScale
 
-    #idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
+    # idx = tileset.CreateSpatialMap([t.ControlBoundingBox for t in tiles], tiles)
 
     CalculationCount = 0
     
-    #_CalculateImageFFTs(tiles)
+    # _CalculateImageFFTs(tiles)
   
-    #pool = nornir_pools.GetGlobalSerialPool()
+    # pool = nornir_pools.GetGlobalSerialPool()
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
@@ -163,32 +163,32 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
         
     print("Starting tile alignment") 
-    for A,B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles, min_overlap):
-        #Used for debugging: __tile_offset(A, B, imageScale)
-        #t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A,B, imageScale)
+    for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles, min_overlap):
+        # Used for debugging: __tile_offset(A, B, imageScale)
+        # t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
+        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         
-        #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
+        # __tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
         try:
             t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
-        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+        except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
             print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
         
         t.A = A
         t.B = B
         tasks.append(t) 
         CalculationCount += 1
-        #print("Start alignment %d -> %d" % (A.ID, B.ID))
+        # print("Start alignment %d -> %d" % (A.ID, B.ID))
 
     for t in tasks:
         try:
             offset = t.wait_return()
-        except FloatingPointError as e: #Very rarely the overlapping region is entirely one color and this error is thrown.
+        except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
             print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
             continue 
         
-        #Figure out what offset we found vs. what offset we expected
+        # Figure out what offset we found vs. what offset we expected
         PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
         ActualOffset = offset.peak * downsample
         
@@ -213,9 +213,9 @@ def __get_overlapping_image(image, overlapping_rect, excess_scalar):
     '''
     
     scaled_rect = spatial.Rectangle.SafeRound(spatial.Rectangle.scale(overlapping_rect, excess_scalar))
-    return core.CropImage(image,Xo=int(scaled_rect.BottomLeft[1]), Yo=int(scaled_rect.BottomLeft[0]), Width=int(scaled_rect.Width), Height=int(scaled_rect.Height), cval='random')
+    return core.CropImage(image, Xo=int(scaled_rect.BottomLeft[1]), Yo=int(scaled_rect.BottomLeft[0]), Width=int(scaled_rect.Width), Height=int(scaled_rect.Height), cval='random')
     
-    #return core.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)
+    # return core.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)
 
     
  
@@ -230,15 +230,15 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     A = core.LoadImage(A_Filename).astype(dtype=np.float16)
     B = core.LoadImage(B_Filename).astype(dtype=np.float16)
 
-#I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
+# I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
 #    A = core.LoadImage(A_Filename) #.astype(dtype=np.float16)
 #    B = core.LoadImage(B_Filename) #.astype(dtype=np.float16)
 
     
-    #I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
-    #For TEM the stage position can be less reliable and the 1.5 scalar produces better results
-    OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A,excess_scalar=excess_scalar)
-    OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B,excess_scalar=excess_scalar)
+    # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
+    # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
+    OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A, excess_scalar=excess_scalar)
+    OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B, excess_scalar=excess_scalar)
     
     OverlappingRegionA -= OverlappingRegionA.min()
     OverlappingRegionA /= OverlappingRegionA.max()
@@ -246,20 +246,20 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     OverlappingRegionB -= OverlappingRegionB.min()
     OverlappingRegionB /= OverlappingRegionB.max()
     
-    #core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB])
+    # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB])
     
-    record = core.FindOffset( OverlappingRegionA, OverlappingRegionB, FFT_Required=True)
+    record = core.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)
     
-    #overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.translate(overlapping_rect_B, -record.peak) 
-    #overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, overlapping_rect_A.Size)
-    #median_diff = __AlignmentScoreRemote(A, B, overlapping_rect_A, overlapping_rect_B_AdjustedToPeak)
-    #diff_weight = 1.0 - median_diff
+    # overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.translate(overlapping_rect_B, -record.peak) 
+    # overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, overlapping_rect_A.Size)
+    # median_diff = __AlignmentScoreRemote(A, B, overlapping_rect_A, overlapping_rect_B_AdjustedToPeak)
+    # diff_weight = 1.0 - median_diff
     
     adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
     return adjusted_record
 
 
-def __tile_offset(A,B, imageScale):
+def __tile_offset(A, B, imageScale):
     '''
     First crop the images so we only send the half of the images which can overlap
     '''
@@ -273,19 +273,19 @@ def __tile_offset(A,B, imageScale):
 #    downsampled_overlapping_rect_A = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
 #    downsampled_overlapping_rect_B = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
 
-    (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A,B,imageScale)
+    (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = __Calculate_Overlapping_Regions(A, B, imageScale)
     
     ImageA = __get_overlapping_image(A.Image, downsampled_overlapping_rect_A)
     ImageB = __get_overlapping_image(B.Image, downsampled_overlapping_rect_B)
     
-    #core.ShowGrayscale([ImageA, ImageB])
+    # core.ShowGrayscale([ImageA, ImageB])
     
-    record = core.FindOffset( ImageA, ImageB, FFT_Required=True)
+    record = core.FindOffset(ImageA, ImageB, FFT_Required=True)
     adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
     return adjusted_record
 
 
-def BuildOverlappingTileDict(list_tiles, minOverlap = 0.05):
+def BuildOverlappingTileDict(list_tiles, minOverlap=0.05):
     ''':return: A map of tile ID to all overlappign tile IDs'''
     
     list_rects = []
@@ -313,8 +313,8 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
-    for A,B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles):
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A,B, imageScale)
+    for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles):
+        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         
         t = pool.add_task("Score %d -> %d" % (A.ID, B.ID), __AlignmentScoreRemote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
         tasks.append(t)
@@ -329,12 +329,12 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
     pool.wait_completion()
 
     for t in tasks:
-        #(score, num_pixels) = t.wait_return()
+        # (score, num_pixels) = t.wait_return()
         score = t.wait_return()
         total_score += score
-        #total_pixels += np.prod(num_pixels)
+        # total_pixels += np.prod(num_pixels)
         
-    #return total_score / total_pixels
+    # return total_score / total_pixels
     return total_score / len(tasks)
 
 def __AlignmentScoreRemote(A_Filename, B_Filename, overlapping_rect_A, overlapping_rect_B):
@@ -358,10 +358,10 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, overlapping_rect_A, overlappi
     OverlappingRegionA -= OverlappingRegionB
     absoluteDiff = np.fabs(OverlappingRegionA)
         
-    #core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB, absoluteDiff])
+    # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB, absoluteDiff])
     return np.mean(absoluteDiff[validIndicies])
     
-    #return (np.sum(absoluteDiff[validIndicies].flat), np.sum(validIndicies))
+    # return (np.sum(absoluteDiff[validIndicies].flat), np.sum(validIndicies))
 
 def TranslateFiles(fileDict):
     '''Translate Images expects a dictionary of images, their position and size in pixel space.  It moves the images to what it believes their optimal position is for alignment 

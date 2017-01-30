@@ -7,13 +7,13 @@ Created on Aug 30, 2013
 
 
 
-from ez_setup import use_setuptools
-# from setuptools import setup, find_packages
-import os
 import glob
+import os
+
+from ez_setup import use_setuptools
 
 
-
+# from setuptools import setup, find_packages
 if __name__ == '__main__':
     use_setuptools()
 
@@ -37,16 +37,16 @@ if __name__ == '__main__':
                'nornir-assemble = nornir_imageregistration.scripts.nornir_assemble:Execute',
                'nornir-rotate-transalate = nornir_imageregistration.scripts.nornir_rotate_translate:Execute',
                'nornir-slice-to-mosaic = nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
-               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute',]
+               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute', ]
                
     
-    #named_scripts = []
+    # named_scripts = []
     
-    #script_template = '%s = %s'
-    #for script_path in scripts:
-        #renamed = get_script_name(script_path)
-        #entry = script_template % (renamed, script_path)
-        #named_scripts.append(entry)
+    # script_template = '%s = %s'
+    # for script_path in scripts:
+        # renamed = get_script_name(script_path)
+        # entry = script_template % (renamed, script_path)
+        # named_scripts.append(entry)
         
     entry_points = {'console_scripts' : scripts}
 

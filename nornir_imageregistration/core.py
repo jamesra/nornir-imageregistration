@@ -2,32 +2,31 @@
 scipy image arrays are indexed [y,x]
 '''
 
+import collections
 import ctypes
 import logging
 import math
 import multiprocessing
-import tempfile
+import multiprocessing.sharedctypes
 import os
+import tempfile
 
 from PIL import Image
+import nornir_imageregistration
+from nornir_imageregistration.spatial.rectangle import Rectangle
 import numpy.fft
+import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
-import scipy.misc
-import nornir_shared.images as shared_images
 
 import matplotlib.pyplot as plt
-import nornir_imageregistration
+import nornir_shared.images as shared_images
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
-import multiprocessing.sharedctypes
 
 
-import collections
-from nornir_imageregistration.spatial.rectangle import Rectangle
-
-#In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
+# In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(all='raise')
     
 # from memory_profiler import profile
@@ -53,7 +52,7 @@ class memmap_metadata(object):
         
     @mode.setter
     def mode(self, value):
-        #Default to copy-on-write
+        # Default to copy-on-write
         if value is None:
             self._mode = 'c'
             return
@@ -106,7 +105,7 @@ def array_distance(array):
     if array.ndim == 1:
         return np.sqrt(np.sum(array ** 2)) 
     
-    return np.sqrt(np.sum(array ** 2,1))
+    return np.sqrt(np.sum(array ** 2, 1))
     
 def GetBitsPerPixel(File): 
     return shared_images.GetImageBpp(File)
@@ -214,8 +213,8 @@ def ShowGrayscale(imageList, title=None):
     
     plt.tight_layout(pad=1.0)  
     plt.show()
-    #Do not call clf or we get two windows on the next call 
-    #plt.clf()
+    # Do not call clf or we get two windows on the next call 
+    # plt.clf()
     
 
 def ROIRange(start, count, maxVal, minVal=0):
@@ -314,8 +313,8 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
     
-    image_rectangle = Rectangle([0,0,image.shape[0], image.shape[1]])
-    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo,Xo], [Height, Width])
+    image_rectangle = Rectangle([0, 0, image.shape[0], image.shape[1]])
+    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
     
     overlap_rectangle = Rectangle.overlap_rect(image_rectangle, crop_rectangle)
     
@@ -346,13 +345,13 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         (out_startY, out_startX) = overlap_rectangle.BottomLeft - crop_rectangle.BottomLeft 
         (out_endY, out_endX) = np.array([out_startY, out_startX]) + overlap_rectangle.Size
         
-    #Create mask
+    # Create mask
     rMask = None
     if cval == 'random':
         rMask = np.zeros((Height, Width), dtype=np.bool)
         rMask[out_startY:out_endY, out_startX:out_endX] = True
         
-    #Create output image
+    # Create output image
     cropped = None
     if cval is None:
         cropped = np.zeros((Height, Width), dtype=image.dtype)
@@ -384,7 +383,7 @@ def CreateTemporaryReadonlyMemmapFile(npArray):
     memImage[:] = npArray[:]
     memImage.flush()
     del memImage
-    #np.save(TempFullpath, npArray)
+    # np.save(TempFullpath, npArray)
     return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
 
 
@@ -452,7 +451,7 @@ def SaveImage(ImageFullPath, image, **kwargs):
 
     (root, ext) = os.path.splitext(ImageFullPath)
     if ext == '.jp2':
-        SaveImage_JPeg2000(ImageFullPath, image,  **kwargs)
+        SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
     elif ext == '.npy':
         np.save(ImageFullPath, image)
     else:
@@ -467,7 +466,7 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     '''Saves the image as greyscale with no contrast-stretching'''
     
     if tile_dim is None:
-        tile_dim = (512,512)
+        tile_dim = (512, 512)
         
     Uint8_image = _Image_To_Uint8(image)
     del image
@@ -582,10 +581,10 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: Dictionary of images indexed by tuples
     '''    
-    #Build the output dictionary
+    # Build the output dictionary
     grid = {}
     for (iRow, iCol, tile) in ImageToTilesGenerator(source_image, tile_size):
-        grid[iRow,iCol] = tile
+        grid[iRow, iCol] = tile
         
     return grid  
 
@@ -603,7 +602,7 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
     
     source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), cval=0)
     
-    #Build the output dictionary
+    # Build the output dictionary
     StartY = 0 
     EndY = tile_size[0]
     
@@ -613,7 +612,7 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
         EndX = tile_size[1]
     
         for iCol in range(0, int(grid_shape[1])):
-            yield (iRow, iCol, source_image_padded[StartY:EndY,StartX:EndX])
+            yield (iRow, iCol, source_image_padded[StartY:EndY, StartX:EndX])
         
             StartX += tile_size[1]
             EndX += tile_size[1]    
@@ -628,7 +627,7 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
     StartX = tile_size[1] * iCol
     EndX = StartX + tile_size[1]
     
-    return source_image[StartY:EndY,StartX:EndX]
+    return source_image[StartY:EndY, StartX:EndX]
 
 
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
@@ -660,7 +659,7 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
    
     Image1D = MaskedImage.flat
     
-    #iUnmasked = numpy.logical_not(iMasked)
+    # iUnmasked = numpy.logical_not(iMasked)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
         
@@ -671,8 +670,8 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
             else:
                 raise ValueError("All but %d pixels are masked, cannot calculate standard deviation" % ())
          
-        #Bit of a backward convention here.
-        #Need to use float64 so that sum does not return an infinite value
+        # Bit of a backward convention here.
+        # Need to use float64 so that sum does not return an infinite value
         UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
          
         if(ImageMedian is None):

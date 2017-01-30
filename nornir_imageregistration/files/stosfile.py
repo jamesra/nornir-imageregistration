@@ -4,11 +4,12 @@ import os
 import sys
 
 import nornir_imageregistration
-
 from nornir_imageregistration.transforms import factory
+
 import nornir_shared.checksum
 import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
+
 
 def __argumentToStos(Argument):
 
@@ -31,7 +32,7 @@ def AddStosTransforms(A_To_B, B_To_C):
     A_To_B_Transform = factory.LoadTransform(A_To_B_Stos.Transform)
     B_To_C_Transform = factory.LoadTransform(B_To_C_Stos.Transform)
     
-    #OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
+    # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
     
     
     A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, create_copy=False)
@@ -546,7 +547,7 @@ class StosFile(object):
         control_spacing = float(control_spacing)
         mapped_spacing = float(mapped_spacing)
         
-        mapped_space_scalar =  mapped_spacing / control_spacing
+        mapped_space_scalar = mapped_spacing / control_spacing
         
         
         NewStosFile = StosFile()

@@ -49,7 +49,7 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     boundsStr = " ".join(map(str, [left, bottom, right - left, top - bottom]))
     
     output.append(" fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr)
-    #output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
+    # output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
     transform_string = ''.join(output)
     
     return transform_string
@@ -84,7 +84,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     output.append(' ' + str(numPoints))
     
     # boundsStr = " ".join(map(str, [0, 0, width, height]))
-    #transform_string = #output + " fp 8 0 16 16 " + boundsStr + ' ' + str(numPoints)
+    # transform_string = #output + " fp 8 0 16 16 " + boundsStr + ' ' + str(numPoints)
     transform_string = ''.join(output)
 
     return transform_string

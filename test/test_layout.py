@@ -4,13 +4,15 @@ Created on Mar 2, 2015
 @author: u0490822
 '''
 import unittest
-import numpy as np
-import nornir_shared.plot as plot
-from . import setup_imagetest
+
 from nornir_imageregistration.layout import *
 
 import nornir_pools
 import nornir_shared.plot
+import nornir_shared.plot as plot
+import numpy as np
+
+from . import setup_imagetest
 from . import test_arrange
 
 
@@ -27,16 +29,16 @@ class TestLayoutPosition(setup_imagetest.TestBase):
 
     def test_Basics(self):
         
-        p_position = (0,0)
+        p_position = (0, 0)
         p = LayoutPosition(1, p_position)
         self._CheckLayoutPositionCreate(p, 1, p_position)
         
         
-        p2_position = (10,10)
+        p2_position = (10, 10)
         p2 = LayoutPosition(2, p2_position)
         self._CheckLayoutPositionCreate(p2, 2, p2_position) 
         
-        offset = np.array((5,5))
+        offset = np.array((5, 5))
         weight = 1.0
         self.SetOffset(p, p2, offset, weight)
          
@@ -50,28 +52,28 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         
         sprint_layout = Layout()
         
-        positions = np.array([[0,0],
-                                [10,0],
-                                [-10,0],
-                                [0,10],
-                                [0,-10]])
+        positions = np.array([[0, 0],
+                                [10, 0],
+                                [-10, 0],
+                                [0, 10],
+                                [0, -10]])
         
-        sprint_layout.CreateNode(0, positions[0,:])
-        sprint_layout.CreateNode(1, positions[1,:])
-        sprint_layout.CreateNode(2, positions[2,:])
-        sprint_layout.CreateNode(3, positions[3,:])
-        sprint_layout.CreateNode(4, positions[4,:])
+        sprint_layout.CreateNode(0, positions[0, :])
+        sprint_layout.CreateNode(1, positions[1, :])
+        sprint_layout.CreateNode(2, positions[2, :])
+        sprint_layout.CreateNode(3, positions[3, :])
+        sprint_layout.CreateNode(4, positions[4, :])
         
-        sprint_layout.SetOffset(0, 1, positions[1,:])
-        sprint_layout.SetOffset(0, 2, positions[2,:])
-        sprint_layout.SetOffset(0, 3, positions[3,:])
-        sprint_layout.SetOffset(0, 4, positions[4,:])
+        sprint_layout.SetOffset(0, 1, positions[1, :])
+        sprint_layout.SetOffset(0, 2, positions[2, :])
+        sprint_layout.SetOffset(0, 3, positions[3, :])
+        sprint_layout.SetOffset(0, 4, positions[4, :])
          
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0, 0])))
     
     def test_singularity(self):
         '''
@@ -79,58 +81,58 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         '''
         sprint_layout = Layout()
         
-        positions = np.array([[0,0],
-                                [10,0],
-                                [-10,0],
-                                [0,10],
-                                [0,-10]])
+        positions = np.array([[0, 0],
+                                [10, 0],
+                                [-10, 0],
+                                [0, 10],
+                                [0, -10]])
         
-        sprint_layout.CreateNode(0, positions[0,:])
-        sprint_layout.CreateNode(1, positions[0,:])
-        sprint_layout.CreateNode(2, positions[0,:])
-        sprint_layout.CreateNode(3, positions[0,:])
-        sprint_layout.CreateNode(4, positions[0,:])
+        sprint_layout.CreateNode(0, positions[0, :])
+        sprint_layout.CreateNode(1, positions[0, :])
+        sprint_layout.CreateNode(2, positions[0, :])
+        sprint_layout.CreateNode(3, positions[0, :])
+        sprint_layout.CreateNode(4, positions[0, :])
         
-        sprint_layout.SetOffset(0, 1, positions[1,:])
-        sprint_layout.SetOffset(0, 2, positions[2,:])
-        sprint_layout.SetOffset(0, 3, positions[3,:])
-        sprint_layout.SetOffset(0, 4, positions[4,:])
+        sprint_layout.SetOffset(0, 1, positions[1, :])
+        sprint_layout.SetOffset(0, 2, positions[2, :])
+        sprint_layout.SetOffset(0, 3, positions[3, :])
+        sprint_layout.SetOffset(0, 4, positions[4, :])
          
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array(positions[1,:])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array(positions[2,:])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array(positions[3,:])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array(positions[4,:])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array(positions[1, :])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array(positions[2, :])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array(positions[3, :])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array(positions[4, :])))
         
-        #OK, try to relax the layout and see where the nodes land
+        # OK, try to relax the layout and see where the nodes land
         displacements = Layout.RelaxNodes(sprint_layout)
         
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0, 0])))
         
-        self.assertTrue(np.all(sprint_layout.GetPosition(0) == np.array(positions[0,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(1) == np.array(positions[1,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(2) == np.array(positions[2,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(3) == np.array(positions[3,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(4) == np.array(positions[4,:])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(0) == np.array(positions[0, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(1) == np.array(positions[1, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(2) == np.array(positions[2, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(3) == np.array(positions[3, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(4) == np.array(positions[4, :])))
         
-        #Nothing should happen on the second pass
+        # Nothing should happen on the second pass
         displacements = Layout.RelaxNodes(sprint_layout)
         
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(3) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array([0, 0])))
         
-        self.assertTrue(np.all(sprint_layout.GetPosition(0) == np.array(positions[0,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(1) == np.array(positions[1,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(2) == np.array(positions[2,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(3) == np.array(positions[3,:])))
-        self.assertTrue(np.all(sprint_layout.GetPosition(4) == np.array(positions[4,:])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(0) == np.array(positions[0, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(1) == np.array(positions[1, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(2) == np.array(positions[2, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(3) == np.array(positions[3, :])))
+        self.assertTrue(np.all(sprint_layout.GetPosition(4) == np.array(positions[4, :])))
  
         print("Node Positions")
         print(sprint_layout.GetPositions())
@@ -138,7 +140,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
     def _MaxTension(self, layout):
         
         net_tension_vectors = layout.WeightedNetTensionVectors()
-        return np.max( setup_imagetest.array_distance(net_tension_vectors) )
+        return np.max(setup_imagetest.array_distance(net_tension_vectors))
         
     
     def _Relax_Layout(self, layout_obj, max_tension_cutoff=0.5, max_iter=100):
@@ -157,14 +159,14 @@ class TestLayoutPosition(setup_imagetest.TestBase):
             print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
             max_tension = self._MaxTension(layout_obj)
-            #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
-            #max_distance = np.max(node_distance,0)
+            # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+            # max_distance = np.max(node_distance,0)
             i += 1
             
             filename = os.path.join(MovieImageDir, "%d.png" % i)
             
-            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
-            #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField, layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
             
         return layout_obj
     
@@ -174,33 +176,33 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         '''
         sprint_layout = Layout()
         
-        positions = np.array([[0,0],
-                                [10,5],
-                                [-10,5]])
+        positions = np.array([[0, 0],
+                                [10, 5],
+                                [-10, 5]])
                                
         
-        sprint_layout.CreateNode(0, positions[0,:])
-        sprint_layout.CreateNode(1, positions[1,:])
-        sprint_layout.CreateNode(2, positions[2,:]) 
+        sprint_layout.CreateNode(0, positions[0, :])
+        sprint_layout.CreateNode(1, positions[1, :])
+        sprint_layout.CreateNode(2, positions[2, :]) 
         
-        sprint_layout.SetOffset(0, 1, positions[1,:], weight=1)
-        sprint_layout.SetOffset(0, 2, positions[2,:], weight=1)
-        sprint_layout.SetOffset(1, 2, positions[2,:] - positions[1,:], weight=1)
+        sprint_layout.SetOffset(0, 1, positions[1, :], weight=1)
+        sprint_layout.SetOffset(0, 2, positions[2, :], weight=1)
+        sprint_layout.SetOffset(1, 2, positions[2, :] - positions[1, :], weight=1)
          
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0,0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([0, 0])))
         
-        #OK, try to relax the layout and see where the nodes land
+        # OK, try to relax the layout and see where the nodes land
         max_vector_magnitude = 0.05
         self._Relax_Layout(sprint_layout, max_tension_cutoff=max_vector_magnitude, max_iter=100) 
         
         for ID in sprint_layout.nodes.keys():
             self.assertTrue(setup_imagetest.array_distance(sprint_layout.NetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
         
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(0), positions[0,:], atol=max_vector_magnitude))
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude)) 
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))  
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(0), positions[0, :], atol=max_vector_magnitude))
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(1), positions[1, :], atol=max_vector_magnitude)) 
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(2), positions[2, :], atol=max_vector_magnitude))  
  
         print("Node Positions")
         print(sprint_layout.GetPositions())
@@ -211,38 +213,37 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         Three points on a line with inconsistent desired offsets and weights
         '''
         sprint_layout = Layout()
-        
-        positions = np.array([[0,0],
-                                [10,5],
-                                [-10,5]])
-                               
-        
-        sprint_layout.CreateNode(0, positions[0,:])
-        sprint_layout.CreateNode(1, positions[1,:])
-        sprint_layout.CreateNode(2, positions[2,:]) 
-        
-        sprint_layout.SetOffset(0, 1, positions[1,:], weight=1)
-        sprint_layout.SetOffset(0, 2, positions[2,:], weight=1)
-        sprint_layout.SetOffset(1, 2, np.array([-15,0]), weight=1)
-         
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([-5,0])))
-        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([5,0])))
-        
-        #OK, try to relax the layout and see where the nodes land
+
+        positions = np.array([[0, 0],
+                                [10, 5],
+                                [-10, 5]])
+
+
+        sprint_layout.CreateNode(0, positions[0, :])
+        sprint_layout.CreateNode(1, positions[1, :])
+        sprint_layout.CreateNode(2, positions[2, :]) 
+
+        sprint_layout.SetOffset(0, 1, positions[1, :], weight=1)
+        sprint_layout.SetOffset(0, 2, positions[2, :], weight=1)
+        sprint_layout.SetOffset(1, 2, np.array([-15, 0]), weight=1)
+
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([-5, 0])))
+        self.assertTrue(np.all(sprint_layout.NetTensionVector(2) == np.array([5, 0])))
+
+        # OK, try to relax the layout and see where the nodes land
         max_vector_magnitude = 0.05
         self._Relax_Layout(sprint_layout, max_tension_cutoff=max_vector_magnitude, max_iter=100) 
-        
+
         for ID in sprint_layout.nodes.keys():
             self.assertTrue(setup_imagetest.array_distance(sprint_layout.NetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
-        
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude))
-        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))
- 
+
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(1), positions[1, :], atol=max_vector_magnitude))
+        self.assertTrue(np.allclose(sprint_layout.GetPosition(0) - sprint_layout.GetPosition(2), positions[2, :], atol=max_vector_magnitude))
+
         print("Node Positions")
         print(sprint_layout.GetPositions())
-        
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
+    # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

@@ -5,12 +5,13 @@ Points are represented as (Y,X)
 
 '''
 
+import nornir_imageregistration.spatial
+
 import numpy as np
 
 from .indicies import *
 from .rectangle import Rectangle
 
-import nornir_imageregistration.spatial
 
 class BoundingBox(object):
     '''

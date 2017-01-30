@@ -5,11 +5,13 @@ Created on May 21, 2013
 '''
 
 import argparse
+import logging
 import os
+import sys
+
 import nornir_imageregistration.files.stosfile as stosfile
 import nornir_shared.misc
-import logging
-import sys
+
 
 def __CreateArgParser(ExecArgs=None):
 
