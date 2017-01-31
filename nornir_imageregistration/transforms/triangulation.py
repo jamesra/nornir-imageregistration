@@ -107,8 +107,13 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, cre
 
         if PointsAdded:
             New_ControlPoints = np.hstack((B_Centroids[AddCentroid], A_Centroids[AddCentroid]))
-
+            starting_num_points = A_To_B_Transform.points.shape[0]
             A_To_B_Transform.AddPoints(New_ControlPoints)
+            ending_num_points = A_To_B_Transform.points.shape[0]
+            
+            #If we have the same number of points after adding we must have had some duplicates in either fixed or warped space.  Continue onward
+            if starting_num_points == ending_num_points:
+                break 
 
             print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
             print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
