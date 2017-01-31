@@ -105,7 +105,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         self.assertTrue(np.all(sprint_layout.NetTensionVector(4) == np.array(positions[4, :])))
         
         # OK, try to relax the layout and see where the nodes land
-        displacements = Layout.RelaxNodes(sprint_layout)
+        displacements = Layout.RelaxNodes(sprint_layout, vector_scalar=1.0)
         
         self.assertTrue(np.all(sprint_layout.NetTensionVector(0) == np.array([0, 0])))
         self.assertTrue(np.all(sprint_layout.NetTensionVector(1) == np.array([0, 0])))
