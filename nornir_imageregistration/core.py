@@ -806,8 +806,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     PaddedImage = np.zeros((NewHeight, NewWidth), dtype=np.float16)
 
-    PaddedImageXOffset = np.floor((NewWidth - Width) / 2.0)
-    PaddedImageYOffset = np.floor((NewHeight - Height) / 2.0)
+    PaddedImageXOffset = int(np.floor((NewWidth - Width) / 2.0))
+    PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))
 
     # Copy image into padded image
     PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
