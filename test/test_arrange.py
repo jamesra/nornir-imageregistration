@@ -4,45 +4,45 @@ Created on Dec 13, 2013
 @author: James Anderson
 '''
 
-import unittest
-from . import setup_imagetest
 import glob
-import nornir_imageregistration.assemble_tiles as at
-import nornir_imageregistration.tileset as tileset 
-import nornir_imageregistration.core as core
-import nornir_imageregistration.layout
-from nornir_imageregistration.alignment_record import AlignmentRecord
-from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
-import nornir_imageregistration.transforms.factory as tfactory
-# from pylab import *
-from scipy.misc import imsave
-import numpy as np
-from scipy import stats
-import nornir_imageregistration.arrange_mosaic as arrange
-
-import nornir_pools
-from nornir_shared.tasktimer import TaskTimer
-import nornir_shared.plot
-
-import nornir_imageregistration.mosaic
-from nornir_imageregistration.mosaic import Mosaic
+import unittest
 
 import matplotlib.pyplot
+from nornir_imageregistration.alignment_record import AlignmentRecord
+from nornir_imageregistration.files.mosaicfile import MosaicFile
+import nornir_imageregistration.layout
+from nornir_imageregistration.mosaic import Mosaic
+import nornir_imageregistration.mosaic
+from scipy import stats
+from scipy.misc import imsave
+
+import nornir_imageregistration.arrange_mosaic as arrange
+import nornir_imageregistration.assemble_tiles as at
+import nornir_imageregistration.core as core
+import nornir_imageregistration.tileset as tileset 
+import nornir_imageregistration.transforms.factory as tfactory
+import nornir_pools
+import nornir_shared.plot
+from nornir_shared.tasktimer import TaskTimer
+import numpy as np
+
+from . import setup_imagetest
 
 
+# from pylab import *
 def _GetWorstOffsetPair(layout_obj):
     
     offsets = nornir_imageregistration.layout.OffsetsSortedByWeight(layout_obj)
-    TileA_ID = offsets[-1,0]
-    TileB_ID = offsets[-1,1]
+    TileA_ID = offsets[-1, 0]
+    TileB_ID = offsets[-1, 1]
     return (TileA_ID, TileB_ID)
 
 def _GetBestOffsetPair(layout_obj):
     
     offsets = nornir_imageregistration.layout.OffsetsSortedByWeight(layout_obj)
-    TileA_ID = offsets[0,0]
-    TileB_ID = offsets[0,1]
+    TileA_ID = offsets[0, 0]
+    TileB_ID = offsets[0, 1]
     return (TileA_ID, TileB_ID)
 
 
@@ -132,16 +132,16 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         mosaic = Mosaic(ImageToTransform)
         mosaic.TranslateToZeroOrigin()
         
-        info_str = "%d -> %d\noffset: (%gx, %gy)\nweight: %g"  % (TileA_ID, TileB_ID, NodeB_Offset[1], NodeB_Offset[0], NodeA.GetWeight(TileB_ID))
+        info_str = "%d -> %d\noffset: (%gx, %gy)\nweight: %g" % (TileA_ID, TileB_ID, NodeB_Offset[1], NodeB_Offset[0], NodeA.GetWeight(TileB_ID))
 
-        self._ShowMosaic(mosaic, usecluster=False, title=info_str, mosaic_path=os.path.join(self.TestOutputPath,filename+"%dto%d.png" % (TileA_ID, TileB_ID)), openwindow=openwindow)
+        self._ShowMosaic(mosaic, usecluster=False, title=info_str, mosaic_path=os.path.join(self.TestOutputPath, filename + "%dto%d.png" % (TileA_ID, TileB_ID)), openwindow=openwindow)
         
     
     def PlotLayoutWeightHistogram(self, layout, ImageFilename=None, title=None, openwindow=True):
         
         
         offsets = nornir_imageregistration.layout.OffsetsSortedByWeight(layout)
-        weight_scores = offsets[:,4]
+        weight_scores = offsets[:, 4]
         
         numBins = len(weight_scores) / 4
         if numBins < 10:
@@ -153,7 +153,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         matplotlib.pyplot.hist(weight_scores, numBins)
         
         if(ImageFilename is not None):
-            #plt.show()
+            # plt.show()
             OutputImageFullPath = os.path.join(self.TestOutputPath, ImageFilename + '.png')
             matplotlib.pyplot.savefig(OutputImageFullPath)
         
@@ -169,11 +169,11 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         if not mosaic_path is None:
             pool = nornir_pools.GetGlobalThreadPool()
             pool.add_task("Save %s" % mosaic_path, core.SaveImage, mosaic_path, assembledImage)
-            #core.SaveImage(mosaic_path, assembledImage)
+            # core.SaveImage(mosaic_path, assembledImage)
         
         if openwindow:
             if title is None:
-                title="A mosaic with no tiles out of place"
+                title = "A mosaic with no tiles out of place"
             core.ShowGrayscale(assembledImage, title=title)
 
 
@@ -265,7 +265,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         self.ShowTilesWithOffset(translated_layout, tiles, tileA_ID, tileB_ID, "Best1stPass", openwindow=openwindow)
         
         # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
-        #nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
+        # nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
         nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translated_layout, min_allowed_weight=minWeight, max_allowed_weight=maxWeight)
         self.PlotLayoutWeightHistogram(translated_layout, mosaicBaseName + "_weight_histogram", openwindow=False)
         translated_final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translated_layout)
@@ -274,13 +274,13 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         relaxed_layout = self._Relax_Layout(translated_layout)
         relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_relaxed", relaxed_layout, tiles, openwindow)
         
-        #TODO, maybe just run translate again after relax instead of refine?
+        # TODO, maybe just run translate again after relax instead of refine?
 
         translated_transforms = list(relaxed_mosaic._TransformsSortedByKey())
         second_pass_excess_scalar = 1.0
-        (translate_refine_layout, tiles) = self.ReadOrCreateVariable(self.id() + "second_pass_tiles_%03d_%03g" % (downsample,  second_pass_excess_scalar), self.LoadTilesAndCalculateOffsets, transforms=translated_transforms,  excess_scalar=second_pass_excess_scalar, min_overlap=0.005, imagepaths=tilesPathList)
-        #(translate_refine_layout, tiles) = self.LoadTilesAndCalculateOffsets(translated_transforms, tilesPathList, imageScale)
-        #(translate_refine_layout, tiles) = nornir_imageregistration.arrange_mosaic._FindTileOffsets(tiles, imageScale)(translated_transforms, tilesPathList, imageScale)
+        (translate_refine_layout, tiles) = self.ReadOrCreateVariable(self.id() + "second_pass_tiles_%03d_%03g" % (downsample, second_pass_excess_scalar), self.LoadTilesAndCalculateOffsets, transforms=translated_transforms, excess_scalar=second_pass_excess_scalar, min_overlap=0.005, imagepaths=tilesPathList)
+        # (translate_refine_layout, tiles) = self.LoadTilesAndCalculateOffsets(translated_transforms, tilesPathList, imageScale)
+        # (translate_refine_layout, tiles) = nornir_imageregistration.arrange_mosaic._FindTileOffsets(tiles, imageScale)(translated_transforms, tilesPathList, imageScale)
         
         (tileA_ID, tileB_ID) = _GetWorstOffsetPair(translate_refine_layout)
         self.ShowTilesWithOffset(translate_refine_layout, tiles, tileA_ID, tileB_ID, "Worst2ndPass", openwindow=openwindow)
@@ -309,12 +309,12 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         print("Translated refined Quality Score: %g" % (translated_refined_score))
         print("Translated refined relaxed Quality Score: %g" % (translated_refined_relaxed_score))
         
-        #self.assertLess(translated_score, original_score, "Translated worse than original")
-        #self.assertLess(relaxed_score, translated_score, "Translated worse than original")
+        # self.assertLess(translated_score, original_score, "Translated worse than original")
+        # self.assertLess(relaxed_score, translated_score, "Translated worse than original")
         
-    def CreateMosaic(self, name, layout_obj, tiles, *args,  **kwargs):
+    def CreateMosaic(self, name, layout_obj, tiles, *args, **kwargs):
         OutputDir = os.path.join(self.TestOutputPath, name + '.mosaic')
-        #OutputMosaicDir = os.path.join(self.TestOutputPath, name + '.png')
+        # OutputMosaicDir = os.path.join(self.TestOutputPath, name + '.png')
         
         created_mosaic = nornir_imageregistration.mosaic.LayoutToMosaic(layout_obj, tiles)
         created_mosaic.SaveToMosaicFile(OutputDir)
@@ -350,14 +350,14 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
             print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)
             max_tension = layout_obj.MaxWeightedTension
-            #node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
-            #max_distance = np.max(node_distance,0)
+            # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+            # max_distance = np.max(node_distance,0)
             i += 1
             
             filename = os.path.join(MovieImageDir, "%d.tif" % i)
             
-            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
-            #nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField, layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
+            # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
             
         return layout_obj
 
@@ -404,7 +404,7 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         print("Original Quality Score: %g" % (original_score))
         print("Translate Quality Score: %g" % (translated_score))
         
-        #self.assertLess(translated_score, original_score, "Quality score should improve after we run translate")
+        # self.assertLess(translated_score, original_score, "Quality score should improve after we run translate")
                 
         OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
@@ -415,13 +415,13 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         
     def test_RC2_0197_Mosaic(self):
         
-        #self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
+        # self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
 
         print("All done")
         
     def test_RC2_0001_Mosaic(self):
         
-        #self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0001\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0001\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
+        # self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0001\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0001\\TEM\\Leveled\\TilePyramid", parallel=False, downsample=4, openwindow=False)
 
         print("All done")
         

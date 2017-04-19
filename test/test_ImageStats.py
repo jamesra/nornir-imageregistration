@@ -3,18 +3,22 @@ Created on Mar 12, 2013
 
 @author: u0490822
 '''
-import unittest
-import nornir_imageregistration
-import nornir_imageregistration.core as core
+import logging
 import os
 import shutil
-import logging
-from . import setup_imagetest
-import nornir_pools as pools
-import nornir_shared.plot as plot
-import nornir_shared.histogram as histogram
+import unittest
+
 from nornir_imageregistration import im_histogram_parser
 from nornir_imageregistration import image_stats
+import nornir_imageregistration
+
+import nornir_imageregistration.core as core
+import nornir_pools as pools
+import nornir_shared.histogram as histogram
+import nornir_shared.plot as plot
+
+from . import setup_imagetest
+
 
 class ImageStatsBase(setup_imagetest.ImageTestBase):
 

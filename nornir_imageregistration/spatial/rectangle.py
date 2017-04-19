@@ -5,6 +5,8 @@ Points are represented as (Y,X)
 
 '''
 
+import collections
+
 import numpy as np
 
 from .indicies import *
@@ -18,12 +20,18 @@ def IsValidBoundingBox(bounds):
     '''Raise a value error if the bounds have negative dimensions'''
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
 
+def IsValidRectangleInputArray(bounds):
+    if bounds.ndim == 1:
+        return bounds.size == 4
+    elif bounds.ndim > 1:
+        return bounds.shape[1] == 4
+     
 class RectangleSet():
     '''A set of rectangles'''
     
-    rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'),('MaxY', 'f4'),('MaxX','f4'), ('ID', 'u8')])
-    #active_dtype is used for lists sorting the start and end position of rectangles
-    active_dtype = np.dtype([('Value', 'f4'), ('ID','u8'), ('Active', 'u1')])
+    rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'), ('MaxY', 'f4'), ('MaxX', 'f4'), ('ID', 'u8')])
+    # active_dtype is used for lists sorting the start and end position of rectangles
+    active_dtype = np.dtype([('Value', 'f4'), ('ID', 'u8'), ('Active', 'u1')])
     
     @classmethod
     def _create_bounds_array(cls, rects):
@@ -31,7 +39,7 @@ class RectangleSet():
         rect_array = np.empty(len(rects), dtype=cls.rect_dtype)        
         for i, rect in enumerate(rects):
             input_rect = rects[i].BoundingBox
-            rect_array[i] = (input_rect[0], input_rect[1], input_rect[2],input_rect[3], i)
+            rect_array[i] = (input_rect[0], input_rect[1], input_rect[2], input_rect[3], i)
             
         return rect_array
     
@@ -45,13 +53,13 @@ class RectangleSet():
         y_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
         
         for i, rect in enumerate(rect_array):
-            x_sweep_array[i*2] = (rect['MinX'],rect['ID'],True)
-            x_sweep_array[(i*2)+1] = (rect['MaxX'],rect['ID'],False)
-            y_sweep_array[i*2] = (rect['MinY'],rect['ID'],True)
-            y_sweep_array[(i*2)+1] = (rect['MaxY'],rect['ID'],False)
+            x_sweep_array[i * 2] = (rect['MinX'], rect['ID'], True)
+            x_sweep_array[(i * 2) + 1] = (rect['MaxX'], rect['ID'], False)
+            y_sweep_array[i * 2] = (rect['MinY'], rect['ID'], True)
+            y_sweep_array[(i * 2) + 1] = (rect['MaxY'], rect['ID'], False)
             
-        x_sweep_array = np.sort(x_sweep_array, order=('Value','Active'))
-        y_sweep_array = np.sort(y_sweep_array, order=('Value','Active'))
+        x_sweep_array = np.sort(x_sweep_array, order=('Value', 'Active'))
+        y_sweep_array = np.sort(y_sweep_array, order=('Value', 'Active'))
         
         return (x_sweep_array, y_sweep_array)
     
@@ -60,13 +68,13 @@ class RectangleSet():
             
     
     def __init__(self, rects_array):    
-        self._rects_array = rects_array#np.sort(rects_array, order=('MinX', 'MinY'))
+        self._rects_array = rects_array  # np.sort(rects_array, order=('MinX', 'MinY'))
         
         (self.x_sweep_array, self.y_sweep_array) = RectangleSet._create_sweep_arrays(self._rects_array) 
-        #self._minx_sorted = np.sort(self._rects_array, order=('MinX', 'MaxX'))
-        #self._miny_sorted = np.sort(self._rects_array, order=('MinY', 'MaxY'))
-        #self._maxx_sorted = np.sort(self._rects_array, order=('MaxX', 'MinX'))
-        #self._maxy_sorted = np.sort(self._rects_array, order=('MaxY', 'MinY'))
+        # self._minx_sorted = np.sort(self._rects_array, order=('MinX', 'MaxX'))
+        # self._miny_sorted = np.sort(self._rects_array, order=('MinY', 'MaxY'))
+        # self._maxx_sorted = np.sort(self._rects_array, order=('MaxX', 'MinX'))
+        # self._maxy_sorted = np.sort(self._rects_array, order=('MaxY', 'MinY'))
     
     @classmethod
     def Create(cls, rects):
@@ -100,13 +108,13 @@ class RectangleSet():
         '''
         
         OverlapSet = {}
-        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.x_sweep_array):
+        for (ID, overlappingIDs) in RectangleSet.SweepAlongAxis(self.x_sweep_array):
             OverlapSet[ID] = overlappingIDs
                 
-        for (ID,overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
+        for (ID, overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
             OverlapSet[ID] &= overlappingIDs
         
-        for (ID,overlappingIDs) in OverlapSet.items():
+        for (ID, overlappingIDs) in OverlapSet.items():
             for MatchingID in overlappingIDs:
                 if MatchingID != ID:
                     yield (ID, MatchingID)
@@ -121,7 +129,7 @@ class RectangleSet():
         ActiveSet = set()
         last_value = None
         IDsToYield = []
-        for i_x in range(0,len(sweep_array)):
+        for i_x in range(0, len(sweep_array)):
             NextIsDifferent = True
             
             ID = sweep_array[i_x]['ID'] 
@@ -176,12 +184,12 @@ class Rectangle(object):
     def Corners(self):
         return np.vstack((self.BottomLeft,
                              self.TopLeft,
-                             self.TopRight, 
+                             self.TopRight,
                              self.BottomRight))
     
     @property
     def Center(self):
-        return self.BottomLeft + ((self.TopRight - self.BottomLeft)  / 2.0)
+        return self.BottomLeft + ((self.TopRight - self.BottomLeft) / 2.0)
     
     @property
     def Area(self):
@@ -215,11 +223,17 @@ class Rectangle(object):
         :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
         '''
         if isinstance(bounds, np.ndarray):
+            if not IsValidRectangleInputArray(bounds):
+                raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(bounds))
+            
             self._bounds = bounds
         elif isinstance(bounds, Rectangle):
             self._bounds = bounds.ToArray()
         else:
             self._bounds = np.array(bounds, dtype=np.float64)
+            
+        if not Rectangle._AreBoundsValid(self._bounds):
+            raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(self._bounds))
         
         return 
 
@@ -231,10 +245,32 @@ class Rectangle(object):
                 self._bounds[iRect.MinX],
                 self._bounds[iRect.MaxY],
                 self._bounds[iRect.MaxX])
+    
+    @classmethod
+    def _AreBoundsValid(cls, bounds):
+        return isinstance(bounds, np.ndarray) and \
+               bounds.size == 4 and \
+               np.issubdtype(bounds.dtype, np.floating) 
 
+    @classmethod
+    def CreateFromCenterPointAndArea(cls, point, area):
+        '''
+        Create a rectangle whose center is point and the requested area
+        :param tuple point: (Y,X)
+        :param tuple area: (Height, Area)
+        :rtype: Rectangle
+        '''
+        if not isinstance(area, np.ndarray):
+            area = np.asarray(area)
+            
+        half_area = area / 2.0
+            
+        return Rectangle(bounds=(point[iPoint.Y] - half_area[iArea.Height], point[iPoint.X] - half_area[iArea.Width], point[iPoint.Y] + half_area[iArea.Height], point[iPoint.X] + half_area[iArea.Width]))
+    
     @classmethod
     def CreateFromPointAndArea(cls, point, area):
         '''
+        Create a rectangle whose bottom left origin is at point with the requested area
         :param tuple point: (Y,X)
         :param tuple area: (Height, Area)
         :rtype: Rectangle
@@ -289,7 +325,7 @@ class Rectangle(object):
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
         
-        if not cls.contains(A,B):
+        if not cls.contains(A, B):
             return None
         
         minX = max((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
@@ -297,7 +333,7 @@ class Rectangle(object):
         maxX = min((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
         maxY = min((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
         
-        return Rectangle.CreateFromBounds((minY,minX,maxY,maxX))
+        return Rectangle.CreateFromBounds((minY, minX, maxY, maxX))
     
     @classmethod 
     def overlap(cls, A, B):
@@ -358,7 +394,7 @@ class Rectangle(object):
         bottomleft = np.floor(A.BottomLeft)
         topright = bottomleft + np.ceil(A.Size)
         
-        return cls.CreateFromPointAndArea(bottomleft, topright-bottomleft)        
+        return cls.CreateFromPointAndArea(bottomleft, topright - bottomleft)        
          
 
     def __str__(self):

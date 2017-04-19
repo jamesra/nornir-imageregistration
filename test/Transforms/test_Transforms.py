@@ -3,11 +3,13 @@ Created on Mar 18, 2013
 
 @author: u0490822
 '''
+import os
 import unittest
 
 from nornir_imageregistration.transforms import *
-import os
+
 import numpy as np
+
 
 ### MirrorTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###
@@ -33,8 +35,6 @@ import numpy as np
 # . . . . . . . . . . . . . . . . . . . . .      . . . . . . . . . . . . . . . . . . . . .
 # . . . . . . . . . . . . . . . . . . . . .      . . . . . . . . . . . . . . . . . . . . .
 # . . . . . . . . . . . . . . . . . . . . .      3 . . . . . . . . . 2 . . . . . . . . . .
-
-
 # Coordinates are CY, CX, MY, MX
 MirrorTransformPoints = np.array([[0, 0, 0, 0],
                               [0, 10, 0, -10],
@@ -52,7 +52,7 @@ TranslateTransformPoints = np.array([[0, 0, 1, 2],
                               [0, 1, 1, 3],
                               [1, 1, 2, 3]])
 
-#Used to test IsOffsetAtZero
+# Used to test IsOffsetAtZero
 OffsetTransformPoints = np.array([[1, 1, 0, 0],
                               [2, 1, 1, 0],
                               [1, 2, 0, 1],
@@ -146,7 +146,7 @@ class Test(unittest.TestCase):
         global OffsetTransformPoints
         
         IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
-        OffsetTransform =  triangulation.Triangulation(OffsetTransformPoints)
+        OffsetTransform = triangulation.Triangulation(OffsetTransformPoints)
         self.assertTrue(utils.IsOriginAtZero([IdentityTransform]), "Origin of identity transform is at zero")
         self.assertFalse(utils.IsOriginAtZero([OffsetTransform]), "Origin of Offset Transform is not at zero")
         

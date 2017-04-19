@@ -3,19 +3,18 @@ Created on Apr 1, 2013
 
 @author: u0490822
 '''
-import unittest
 import math
 import os
+import unittest
 
-import numpy as np
 import numpy.testing
-
-import nornir_imageregistration.transforms.factory as factory
-import nornir_imageregistration.spatial as spatial
-import nornir_imageregistration.mosaic as mosaic
-import nornir_imageregistration.core as core
-
 import test.setup_imagetest
+
+import nornir_imageregistration.core as core
+import nornir_imageregistration.mosaic as mosaic
+import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.transforms.factory as factory
+import numpy as np
 
 
 tau = math.pi * 2.0

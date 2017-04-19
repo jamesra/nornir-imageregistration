@@ -4,8 +4,9 @@ Created on Jan 27, 2014
 @author: u0490822
 '''
 
-import numpy as np
 import nornir_imageregistration.transforms.utils as tutils
+import numpy as np
+
 
 def _SortArrayByColumn(arr, SortColumn=None):
     '''Sort an array using the column order, either an integer or a list, and return the array'''

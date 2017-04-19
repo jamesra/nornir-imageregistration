@@ -4,10 +4,10 @@
 
 import os
 
-from scipy import pi
-
 import nornir_imageregistration
 import nornir_imageregistration.files.stosfile
+from scipy import pi
+
 import numpy as np
 
 

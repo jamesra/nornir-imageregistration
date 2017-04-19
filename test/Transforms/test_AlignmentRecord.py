@@ -25,19 +25,21 @@ Rotated 90 Degrees::
 
 '''
 import unittest
+
 from  nornir_imageregistration.alignment_record import *
+from nornir_imageregistration.files.stosfile import StosFile
+from scipy import pi
 import test.setup_imagetest
 
 import nornir_imageregistration.core as core
-from nornir_imageregistration.files.stosfile import StosFile
 import nornir_imageregistration.transforms.factory as factory
+
 from .test_Transforms import TransformCheck
-from scipy import pi
+
 
 # ##An alignment record records how a warped image should be translated and rotated to be
 # ##positioned over a fixed image.  For this reason if we map 0,0 from the warped image it
 # ##should return the -peak in the alignment record
-
 class TestAlignmentRecord(unittest.TestCase):
 
     def testIdentity(self):

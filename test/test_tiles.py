@@ -6,10 +6,10 @@ Created on Feb 11, 2014
 import os
 import unittest
 
-from . import setup_imagetest
 import nornir_imageregistration as nir
 import nornir_imageregistration.tileset as tiles
 
+from . import setup_imagetest
 
 
 class TestTiles(setup_imagetest.ImageTestBase):

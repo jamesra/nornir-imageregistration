@@ -4,12 +4,11 @@ Created on Jan 27, 2014
 @author: u0490822
 '''
 import unittest
-import numpy as np
+
 from nornir_imageregistration.transforms import *
 
+import numpy as np
 import volume
-
-
 
 
 IdentityTransformPoints = np.array([[0, 0, 0, 0],

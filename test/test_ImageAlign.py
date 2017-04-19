@@ -3,13 +3,16 @@ Created on Mar 25, 2013
 
 @author: u0490822
 '''
-import unittest
-import os
-from pylab import *
-import nornir_imageregistration.core as core
 import logging
-from . import setup_imagetest
+import os
+import unittest
+
+from pylab import *
+
+import nornir_imageregistration.core as core
 import nornir_imageregistration.stos_brute as stos_brute
+
+from . import setup_imagetest
 
 
 class Test(setup_imagetest.ImageTestBase):

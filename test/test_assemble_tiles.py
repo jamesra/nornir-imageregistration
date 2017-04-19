@@ -3,26 +3,26 @@ Created on Oct 28, 2013
 
 @author: u0490822
 '''
-import unittest
-from . import setup_imagetest
 import glob
-import nornir_imageregistration.assemble_tiles as at
-import nornir_imageregistration.tileset as tiles
-from nornir_imageregistration.files.mosaicfile import MosaicFile
 import os
+import unittest
+
+from nornir_imageregistration.files.mosaicfile import MosaicFile
+from nornir_imageregistration.mosaic  import Mosaic
+from scipy import stats
+from scipy.misc import imsave
+
+import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.core as core
+import nornir_imageregistration.tileset as tiles
 import nornir_imageregistration.transforms.factory as tfactory
+from nornir_shared.tasktimer import TaskTimer
+import numpy as np
+
+from . import setup_imagetest
+
 
 # from pylab import *
-from scipy.misc import imsave
-import numpy as np
-from scipy import stats
-
-from nornir_shared.tasktimer import TaskTimer
-
-from nornir_imageregistration.mosaic  import Mosaic
-
-
 class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
 
     def DownsampleFromTilePath(self, tilePath):
@@ -110,7 +110,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
         (imageKey, transform) = sorted(list(mosaic.ImageToTransform.items()))[0]
 
         (MinY, MinX, MaxY, MaxZ) = transform.FixedBoundingBox
-        print("Scaled fixed region %s"  % str(transform.FixedBoundingBox))
+        print("Scaled fixed region %s" % str(transform.FixedBoundingBox))
         
         FixedRegion = np.array([MinY + 512, MinX + 1024, MinY + 1024, MinX + 2048])
         ScaledFixedRegion = FixedRegion / self.DownsampleFromTilePath(tilesDir)

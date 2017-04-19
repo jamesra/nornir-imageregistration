@@ -3,13 +3,17 @@ Created on Mar 25, 2013
 
 @author: u0490822
 '''
-import unittest
-import os
-from pylab import *
-import nornir_imageregistration.core as core
 import logging
-from . import setup_imagetest
+import os
+import unittest
+
+from pylab import *
+
+import nornir_imageregistration.core as core
 import nornir_imageregistration.stos_brute as stos_brute
+
+from . import setup_imagetest
+
 
 class Test(setup_imagetest.ImageTestBase):
 
@@ -68,8 +72,8 @@ class Test(setup_imagetest.ImageTestBase):
         
     def testShowGrayscale(self):
         
-        imageA = np.random.rand(64,64)
-        imageB = np.random.rand(64,64)
+        imageA = np.random.rand(64, 64)
+        imageB = np.random.rand(64, 64)
         
         core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title")
         core.ShowGrayscale(imageA, title=None)
@@ -100,10 +104,10 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testCrop(self):
 
-        image_dim = (16,16)
+        image_dim = (16, 16)
         image = np.zeros(image_dim)
 
-        row_fill = np.array((range(1,image_dim[1]+1)))
+        row_fill = np.array((range(1, image_dim[1] + 1)))
         for iy in range(0, 16):
             image[iy, :] = row_fill
 
@@ -171,11 +175,11 @@ class Test(setup_imagetest.ImageTestBase):
             
         cropsize = image_dim[0]
         constant_value = 3
-        cropped = core.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize,cval=constant_value)
+        cropped = core.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize, cval=constant_value)
         for i in range(0, cropsize):
             self.assertEqual(cropped[i, i], constant_value, "Cropped region outside original image should use cval")
             
-        cropped = core.CropImage(image, -(cropsize/2.0), -(cropsize/2.0), cropsize, cropsize,cval='random')
+        cropped = core.CropImage(image, -(cropsize / 2.0), -(cropsize / 2.0), cropsize, cropsize, cval='random')
         for i in range(0, cropsize):
             self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
         
@@ -187,7 +191,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
-        tiles = core.ImageToTiles(image, tile_size=(256,512))
+        tiles = core.ImageToTiles(image, tile_size=(256, 512))
         
         core.ShowGrayscale(tiles.values(), "Expecting 512 wide x 256 tall tiles")
         
@@ -216,7 +220,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[256][256] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask,Copy=True)
+        updatedImage = core.RandomNoiseMask(image, mask, Copy=True)
         # core.ShowGrayscale(updatedImage)
 
         self.assertIsNotNone(updatedImage)
@@ -238,7 +242,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[32][32] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask,Copy=True)
+        updatedImage = core.RandomNoiseMask(image, mask, Copy=True)
 
         # core.ShowGrayscale(updatedImage)
         self.assertIsNotNone(updatedImage)

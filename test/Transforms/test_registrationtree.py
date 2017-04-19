@@ -4,7 +4,9 @@ Created on Apr 25, 2013
 @author: u0490822
 '''
 import unittest
+
 from nornir_imageregistration.transforms import registrationtree
+
 
 def _NodesToNumberList(Nodes):
     nums = []

@@ -7,7 +7,6 @@ Created on Jul 12, 2012
 import threading
 
 import numpy
-
 import pyfftw
 
 

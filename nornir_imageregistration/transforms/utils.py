@@ -4,8 +4,8 @@ Created on Apr 4, 2013
 @author: u0490822
 '''
 
-import numpy as np
 import nornir_imageregistration.spatial as spatial
+import numpy as np
 
 
 def InvalidIndicies(points):
@@ -49,7 +49,7 @@ def FixedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
     
     if len(transforms) == 1:
-        #Copy the data instead of passing the transforms object
+        # Copy the data instead of passing the transforms object
         return spatial.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
 
     mbb = None
@@ -70,7 +70,7 @@ def MappedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
     
     if len(transforms) == 1:
-        #Copy the data instead of passing the transforms object
+        # Copy the data instead of passing the transforms object
         return spatial.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
 
     mbb = None

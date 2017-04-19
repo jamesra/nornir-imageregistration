@@ -1,10 +1,12 @@
 
 # from . import index
+import numpy as np
+
+from .boundingbox import BoundingBox 
 from .indicies import *
 from .point import *
 from .rectangle import Rectangle, RectangleSet, RaiseValueErrorOnInvalidBounds, IsValidBoundingBox
-from .boundingbox import BoundingBox 
-import numpy as np
+
 
 def BoundsArrayFromPoints(points):
     '''

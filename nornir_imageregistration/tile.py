@@ -7,10 +7,9 @@ Created on Feb 21, 2014
 import logging
 import os
 
-import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.core as core
+import nornir_imageregistration.spatial as spatial
 import numpy as np
-import itertools
 
 
 def CreateTiles(transforms, imagepaths):
@@ -34,7 +33,7 @@ def CreateTiles(transforms, imagepaths):
     return tiles
 
 
-def IterateOverlappingTiles(list_tiles, minOverlap = 0.05):
+def IterateOverlappingTiles(list_tiles, minOverlap=0.05):
     '''Return all tiles which overlap'''
     
     list_rects = []
@@ -43,9 +42,9 @@ def IterateOverlappingTiles(list_tiles, minOverlap = 0.05):
         
     rset = spatial.RectangleSet.Create(list_rects)
     
-    for (A,B) in rset.EnumerateOverlapping():
+    for (A, B) in rset.EnumerateOverlapping():
         if spatial.Rectangle.overlap(list_rects[A], list_rects[B]) >= minOverlap:
-            yield (list_tiles[A],list_tiles[B])
+            yield (list_tiles[A], list_tiles[B])
             
 
 class Tile(object):
@@ -146,10 +145,10 @@ class Tile(object):
         downsampled_overlapping_rect_A = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
         downsampled_overlapping_rect_B = spatial.Rectangle.SafeRound(spatial.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
         
-        #If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
+        # If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
         OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
         
-        #This should ensure we never an an area mismatch
+        # This should ensure we never an an area mismatch
         downsampled_overlapping_rect_B = spatial.Rectangle.CreateFromPointAndArea(downsampled_overlapping_rect_B.BottomLeft, downsampled_overlapping_rect_A.Size)
         
         assert(downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)

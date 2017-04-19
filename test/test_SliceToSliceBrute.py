@@ -3,18 +3,22 @@ Created on Mar 21, 2013
 
 @author: u0490822
 '''
-import unittest
-import os
-import nornir_imageregistration.core as core
 import logging
-from . import setup_imagetest
-import nornir_shared.images as images
-import nornir_imageregistration.stos_brute as stos_brute
+import os
+import unittest
+
 from nornir_imageregistration import alignment_record
 import nornir_imageregistration
 import nornir_imageregistration.files
 import nornir_imageregistration.transforms
+
+import nornir_imageregistration.core as core
 import nornir_imageregistration.scripts.nornir_rotate_translate
+import nornir_imageregistration.stos_brute as stos_brute
+import nornir_shared.images as images
+
+from . import setup_imagetest
+
 
 def CheckAlignmentRecord(test, arecord, angle, X, Y, adelta=None, sdelta=None):
         '''Verifies that an alignment record is more or less equal to expected values'''
@@ -95,7 +99,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
-        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath,PixelSpacing=1)
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
 
         FixedSize = core.GetImageSize(FixedImagePath)
@@ -173,9 +177,9 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
         
 
-        nornir_imageregistration.scripts.nornir_rotate_translate.Execute(ExecArgs=['-f', FixedImagePath, 
+        nornir_imageregistration.scripts.nornir_rotate_translate.Execute(ExecArgs=['-f', FixedImagePath,
                                                                              '-w', WarpedImagePath,
-                                                                             '-fm', FixedImageMaskPath, 
+                                                                             '-fm', FixedImageMaskPath,
                                                                              '-wm', WarpedImageMaskPath,
                                                                              '-o', stosfilepath])
         

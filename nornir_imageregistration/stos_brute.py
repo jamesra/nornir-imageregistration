@@ -10,14 +10,14 @@ import multiprocessing.sharedctypes
 import os
 from time import sleep
 
+import nornir_imageregistration
+import nornir_imageregistration
 from numpy.fft import fftshift
 
-import nornir_imageregistration
 import nornir_imageregistration.core as core
 import nornir_pools as pools
 import numpy as np
 import scipy.ndimage.interpolation as interpolation
-import nornir_imageregistration
 
 
 # from memory_profiler import profile
@@ -166,8 +166,8 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     Debug = False
     pool = None
     
-    #Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
-    Cluster=False
+    # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
+    Cluster = False
 
     if Debug:
         pool = pools.GetThreadPool(Poolname=None, num_threads=3)
@@ -195,9 +195,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     if not Cluster:
         temp_padded_fixed_memmap = core.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
         temp_shared_warp_memmap = core.CreateTemporaryReadonlyMemmapFile(imWarped)
-        #SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
-        #SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
-        #SharedPaddedFixed = np.save(PaddedFixed, )
+        # SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
+        # SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+        # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
         SharedPaddedFixed = PaddedFixed
         SharedWarped = imWarped
@@ -248,7 +248,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     # print str(AngleMatchValues)
     
-    #Delete the pool to ensure extra python threads do not stick around
+    # Delete the pool to ensure extra python threads do not stick around
     pool.wait_completion()
 
     del PaddedFixed
@@ -256,8 +256,8 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     if not Cluster:
         os.remove(temp_padded_fixed_memmap.path)
         os.remove(temp_shared_warp_memmap.path)
-        #del SharedPaddedFixed
-        #del SharedWarped
+        # del SharedPaddedFixed
+        # del SharedWarped
 
     BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
     return BestMatch

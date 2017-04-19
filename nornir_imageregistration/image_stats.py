@@ -4,18 +4,18 @@ Created on Jun 26, 2012
 @author: James Anderson
 '''
 
-import sys
 from collections import deque
 import logging
 import multiprocessing
 import os
 import subprocess
+import sys
 
 import numpy
 from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
+import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
-import scipy.misc
 
 import nornir_pools as pools
 import nornir_shared.histogram
@@ -132,14 +132,14 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
            MaxOverlap = 0 to 1'''
 
     # logger = logging.getLogger('irtools.prune')
-    #logger = multiprocessing.log_to_stderr()
+    # logger = multiprocessing.log_to_stderr()
 
     if MaxOverlap > 0.5:
         MaxOverlap = 0.5
 
     if not os.path.exists(filename):
-        #logger.error(filename + ' not found when attempting prune')
-        #PrettyOutput.LogErr(filename + ' not found when attempting prune')
+        # logger.error(filename + ' not found when attempting prune')
+        # PrettyOutput.LogErr(filename + ' not found when attempting prune')
         return None
 
     Im = core.LoadImage(filename)
@@ -322,7 +322,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
         if(Scale != 1.0):
             Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
 
-    #ImOneD = reshape(Im, Width * Height, 1)
+    # ImOneD = reshape(Im, Width * Height, 1)
     ImOneD = Im.flat
 
     if Bpp is None:
@@ -375,7 +375,7 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
     return task
 
 
-#if __name__ == '__main__':
+# if __name__ == '__main__':
 # 
 #     Histogram = Histogram('C:\\Buildscript\\IrTools\\RawTile.png')
 # 

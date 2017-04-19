@@ -5,11 +5,14 @@ Created on May 21, 2013
 '''
 
 import argparse
-import os
-import nornir_imageregistration.assemble
-import nornir_shared.misc
 import logging
+import os
 import sys
+
+import nornir_imageregistration.assemble
+
+import nornir_shared.misc
+
 
 def __CreateArgParser(ExecArgs=None):
 
@@ -43,9 +46,9 @@ def __CreateArgParser(ExecArgs=None):
     
     parser.add_argument('-tilesize', '-t',
                         action='store',
-                        required=False, 
+                        required=False,
                         type=tuple,
-                        default=(256,256),
+                        default=(256, 256),
                         help="Tile size to generate, Width x Height",
                         dest="TileSize")
 
