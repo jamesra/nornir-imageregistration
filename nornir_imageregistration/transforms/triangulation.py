@@ -50,7 +50,7 @@ def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=T
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
     :return: ndarray of points that can be assigned as control points for a transform'''
 
-    if AToB_mapped_Transform.points.shape[0] < 250:
+    if AToB_mapped_Transform.points.shape[0] < 50:
         return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy) 
     else:
         return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
