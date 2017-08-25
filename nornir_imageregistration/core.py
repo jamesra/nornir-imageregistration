@@ -391,7 +391,7 @@ def GenRandomData(height, width, mean, standardDev):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
-    image = (np.random.randn(height, width).astype(np.float32) * standardDev) + mean
+    image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
         image = abs(image)
