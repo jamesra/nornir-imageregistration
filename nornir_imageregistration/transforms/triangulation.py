@@ -73,6 +73,10 @@ def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_c
 
 
 def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=50.0):
+    '''
+    Recursively add additional control points at the centroids of triangles where the transformed centroid 
+    does not match the centroid of the 
+    '''
 
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
@@ -85,24 +89,26 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, cre
         A_Centroids = A_To_B_Transform.GetWarpedCentroids()
 
      #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
+        #Get the centroids from B using A-B transform that correspond to A_Centroids
         B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
 
+        #Warp the same centroids using both A->C and A->B transforms
         OC_Centroids = B_To_C_Transform.Transform(B_Centroids)
-
         AC_Centroids = A_To_C_Transform.Transform(A_Centroids)
 
+        #Measure the discrepancy in the the results and create a bool array indicating which centroids failed
         Distances = distance(OC_Centroids, AC_Centroids)
-
         CentroidMisplaced = Distances > epsilon
 
+
+        #In extreme distortion we don't want to add new control points forever or converge on existing control points. 
+        #So ignore centroids falling too close to an existing vertex        
         A_CentroidTriangles = A_To_B_Transform.WarpedPoints[A_To_B_Transform.WarpedTriangles]
-
         CentroidVertexDistances = CentroidToVertexDistance(A_Centroids, A_CentroidTriangles)
-
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
+        #Add new verticies for the qualifying centroids
         AddCentroid = np.logical_and(CentroidMisplaced, CentroidFarEnough)
-
         PointsAdded = np.any(AddCentroid)
 
         if PointsAdded:
@@ -118,6 +124,8 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, cre
             print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
             print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
             print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
+            
+            #TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
 
     if create_copy:
         output_transform = copy.deepcopy(AToB_mapped_Transform)
