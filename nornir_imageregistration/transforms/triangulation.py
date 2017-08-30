@@ -50,7 +50,7 @@ def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=T
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
     :return: ndarray of points that can be assigned as control points for a transform'''
 
-    if AToB_mapped_Transform.points.shape[0] < 50:
+    if AToB_mapped_Transform.points.shape[0] < 250:
         return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy) 
     else:
         return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
@@ -72,7 +72,7 @@ def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_c
         return AToB_mapped_Transform
 
 
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=50.0):
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=2.0):
     '''
     Recursively add additional control points at the centroids of triangles where the transformed centroid 
     does not match the centroid of the 
@@ -80,6 +80,8 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, cre
 
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
+    
+    print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
 
     PointsAdded = True
     while PointsAdded:
@@ -126,6 +128,8 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, cre
             print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
             
             #TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
+            
+    print("End enrichment") 
 
     if create_copy:
         output_transform = copy.deepcopy(AToB_mapped_Transform)
@@ -170,7 +174,6 @@ class Triangulation(Base):
                 if lastP[1] == testP[1]:
                     DuplicateRemoved = True
                     sortedpoints = np.delete(sortedpoints, i, 0)
-                    i = i + 1
 
         return np.asarray(sortedpoints)
 
