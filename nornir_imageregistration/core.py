@@ -391,7 +391,7 @@ def GenRandomData(height, width, mean, standardDev):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
-    image = (np.random.randn(height, width).astype(np.float32) * standardDev) + mean
+    image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
 
     if mean - (standardDev * 2) < 0:
         image = abs(image)
@@ -503,11 +503,6 @@ def _LoadImageByExtension(ImageFullPath, bpp=8):
         image = plt.imread(ImageFullPath)
         if bpp == 1:
             image = image.astype(np.bool)
-            
-            #If the image has more than 8 bits per pixel pillow returns a 3D matrix instead of 2D.  If this happens we need to flatten the matrix to MxN
-            if image.ndim > 2:
-                image = np.any(image, axis=2)
-            
         else:
             image = ForceGrayscale(image)
         

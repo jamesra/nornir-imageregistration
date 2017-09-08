@@ -50,7 +50,6 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         self._ReverseRBFInstance = ReverseTask.wait_return()
 
 
-
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
            Clear out our data structures so we do not use bad data'''
@@ -59,8 +58,6 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
-        
-
 
     def Transform(self, points, **kwargs):
         '''

@@ -36,7 +36,7 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
     
-    template = " %(cx)g %(cy)g"
+    template = " %(cx)f %(cy)f"
 
     NumAdded = int(0)
     for CY, CX, MY, MX in Transform.points:
@@ -68,7 +68,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
-    template = " %(mx)g %(my)g %(cx)g %(cy)g"
+    template = " %(mx)f %(my)f %(cx)f %(cy)f"
 
     width = right - left
     height = top - bottom

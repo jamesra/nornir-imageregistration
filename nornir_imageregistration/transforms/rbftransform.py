@@ -49,6 +49,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         self._Weights = self.CalculateRBFWeights(WarpedPoints, FixedPoints, self.BasisFunction)
 
+    def OnPointsAddedToTransform(self, new_points):
+        '''Update our data structures to account for added control points'''
+        super(RBFWithLinearCorrection, self).OnPointsAddedToTransform(new_points)
+        self._Weights = self.CalculateRBFWeights(self.WarpedPoints, self.FixedPoints, self.BasisFunction)
+
     def _GetMatrixWeightSums(self, Points, FixedPoints, WarpedPoints, MaxChunkSize=65536):
         NumCtrlPts = len(FixedPoints)
         NumPts = Points.shape[0]
@@ -59,7 +64,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
             # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
             # FuncValues = VectorBasisFunc(Distances)
-            FuncValues = numpy.multiply(numpy.power(Distances, 2), numpy.log(Distances))
+
+            #We have to check for zeros so we don't crash if the transformed point exactly matches our control point
+            nonzero = Distances != 0
+            FuncValues = numpy.zeros(Distances.shape)
+            FuncValues[nonzero] = numpy.multiply(numpy.power(Distances[nonzero], 2.0), numpy.log(Distances[nonzero]))
 
             del Distances
 

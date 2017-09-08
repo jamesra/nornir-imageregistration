@@ -72,11 +72,7 @@ def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_c
         return AToB_mapped_Transform
 
 
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=2.0):
-    '''
-    Recursively add additional control points at the centroids of triangles where the transformed centroid 
-    does not match the centroid of the 
-    '''
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=4.0):
 
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
@@ -156,6 +152,49 @@ class Triangulation(Base):
         self.__dict__.update(dictionary)
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
+        
+    @classmethod
+    def FindDuplicates(cls, points, new_points):
+        '''Returns a bool array indicating which new_points already exist in points'''
+
+        #(new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
+
+        DuplicateRemoved = False
+        round_points = np.around(points, 3)
+        round_new_points = np.around(new_points, 3)
+
+        sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
+        sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1)) 
+
+        numPoints = sortedpoints.shape[0]
+        numNew = new_points.shape[0]
+
+        iPnt = 0
+        iNew = 0
+
+        invalid_indicies = np.zeros((1, numNew), dtype=bool)
+
+        while iNew < numNew:
+            testNew = sorted_new_points[iNew]
+
+            while iPnt < numPoints:
+                testPoint = sortedpoints[iPnt]
+
+                if testPoint[0] == testNew[0]:
+                    if testPoint[1] == testNew[1]:
+                        invalid_indicies[iNew] = True
+                        break
+                    elif testPoint[1] > testNew[1]:
+                        break
+
+                if testPoint[0] > testNew[0]:
+                    break
+
+                iPnt = iPnt + 1
+
+            iNew = iNew + 1
+
+        return invalid_indicies
 
     @classmethod
     def RemoveDuplicates(cls, points):
@@ -180,14 +219,14 @@ class Triangulation(Base):
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = KDTree(self.WarpedPoints)
+            self._WarpedKDTree = cKDTree(self.WarpedPoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = KDTree(self.FixedPoints)
+            self._FixedKDTree = cKDTree(self.FixedPoints)
 
         return self._FixedKDTree
 
@@ -204,6 +243,13 @@ class Triangulation(Base):
             self._warpedtri = Delaunay(self.WarpedPoints)
 
         return self._warpedtri
+    
+    @property
+    def NumControlPoints(self):
+        if self._points is None:
+            return 0
+        
+        return self.points.shape[0]
 
     def EnsurePointsAre2DNumpyArray(self, points):
         if not isinstance(points, np.ndarray):
@@ -211,6 +257,18 @@ class Triangulation(Base):
 
         if points.ndim == 1:
             points = np.resize(points, (1, 2))
+
+        return points
+    
+    def EnsurePointsAre4xN_NumpyArray(self, points):
+        if not isinstance(points, np.ndarray):
+            points = np.asarray(points, dtype=np.float32)
+
+        if points.ndim == 1:
+            points = np.resize(points, (1, 4))
+
+        if points.shape[1] != 4:
+            raise ValueError("There are not 4 columns in the corrected array")
 
         return points
 
@@ -244,7 +302,7 @@ class Triangulation(Base):
         method = kwargs.get('method', 'linear')
 
         points = self.EnsurePointsAre2DNumpyArray(points)
-        
+
         try:
             transPoints = griddata(self.FixedPoints, self.WarpedPoints, points, method=method)
         except:
@@ -253,19 +311,39 @@ class Triangulation(Base):
             transPoints = None
 
         return transPoints
-    
+
+    def FindDuplicateFixedPoints(self, new_points, epsilon = 0):
+        '''Using our control point KDTree, ensure the new points are not duplicates
+        :return: An index array of duplicates
+        '''
+        distance, index = self.FixedKDTree.query(new_points)
+        same = distance <= 0
+        return same
+
     def AddPoints(self, new_points):
         '''Add the point and return the index'''
+        numPts = self.NumControlPoints
+        new_points = self.EnsurePointsAre4xN_NumpyArray(new_points)
+
+        duplicates = self.FindDuplicateFixedPoints(new_points[:,0:2])
+        new_points = new_points[~duplicates, :]
+
+        if(new_points.shape[0] == 0):
+            return
+
         self.points = np.append(self.points, new_points, 0)
         self.points = Triangulation.RemoveDuplicates(self.points)
-        self.OnTransformChanged()
+
+        #We won't see a change in the number of points if the new point was a duplicate
+        if self.NumControlPoints != numPts:
+            self.OnPointsAddedToTransform(new_points)
+
         return
 
     def AddPoint(self, pointpair):
         '''Add the point and return the index'''
-        self.points = np.append(self.points, [pointpair], 0)
-        self.points = Triangulation.RemoveDuplicates(self.points)
-        self.OnTransformChanged()
+        new_points = self.EnsurePointsAre4xN_NumpyArray(pointpair)
+        self.AddPoints(new_points)
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
@@ -303,10 +381,6 @@ class Triangulation(Base):
         self.points = Triangulation.RemoveDuplicates(self.points)
         self.OnTransformChanged()
 
-    def OnTransformChanged(self):
-        self.ClearDataStructures()
-        super(Triangulation, self).OnTransformChanged()
-
     def UpdateDataStructures(self):
         '''This optional method performs all computationally intense data structure creation
            If not run these data structures should be initialized in a lazy fashion by the class
@@ -314,23 +388,46 @@ class Triangulation(Base):
            since computations can be performed in parallel'''
 
         MPool = pools.GetGlobalMultithreadingPool()
-        TPool = pools.GetGlobalThreadPool()
+        #TPool = pools.GetGlobalThreadPool()
         FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
         WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
 
         # Cannot pickle KDTree, so use Python's thread pool
 
-        FixedKDTask = TPool.add_task("Fixed KDTree", KDTree, self.FixedPoints)
+        #FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.FixedPoints)
         # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
-        self._WarpedKDTree = KDTree(self.WarpedPoints)
+        self._WarpedKDTree = cKDTree(self.WarpedPoints)
 
         MPool.wait_completion()
 
-        self._FixedKDTree = FixedKDTask.wait_return()
+        #self._FixedKDTree = FixedKDTask.wait_return()
+
+        self._FixedKDTree = cKDTree(self.FixedPoints)
+
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
 
+    def OnPointsAddedToTransform(self, new_points):
+        '''Similiar to OnTransformChanged, but optimized to handle the case of points being added'''
+
+        if(self._fixedtri is None or 
+           self._warpedtri is None):
+            self.OnTransformChanged()
+            return
+
+        self._WarpedKDTree = None
+        self._FixedKDTree = None
+        self._FixedBoundingBox = None
+        self._MappedBoundingBox = None
+
+        self._fixedtri.add_points(new_points[:,0:2])
+        self._warpedtri.add_points(new_points[:,2:4])
+        super(Triangulation, self).OnTransformChanged()
+
+    def OnTransformChanged(self):
+        self.ClearDataStructures()
+        super(Triangulation, self).OnTransformChanged()
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
@@ -344,11 +441,14 @@ class Triangulation(Base):
         self._MappedBoundingBox = None
 
     def NearestFixedPoint(self, points):
-        '''Return the fixed points nearest to the query points'''
+        '''Return the fixed points nearest to the query points
+        :return: Distance, Index
+        '''
         return self.FixedKDTree.query(points)
 
     def NearestWarpedPoint(self, points):
-        '''Return the warped points nearest to the query points'''
+        '''Return the warped points nearest to the query points
+        :return: Distance, Index'''
         return self.WarpedKDTree.query(points)
 
     def TranslateFixed(self, offset):
