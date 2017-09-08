@@ -345,6 +345,17 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         (out_startY, out_startX) = overlap_rectangle.BottomLeft - crop_rectangle.BottomLeft 
         (out_endY, out_endX) = np.array([out_startY, out_startX]) + overlap_rectangle.Size
         
+    #To correct a numpy warning, convert values to int
+    in_startX = int(in_startX)
+    in_startY = int(in_startY)
+    in_endX = int(in_endX)
+    in_endY = int(in_endY)
+    
+    out_startX = int(out_startX)
+    out_startY = int(out_startY)
+    out_endX = int(out_endX)
+    out_endY = int(out_endY)
+    
     # Create mask
     rMask = None
     if cval == 'random':
