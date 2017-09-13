@@ -447,6 +447,9 @@ def ForceGrayscale(image):
 
 def _Image_To_Uint8(image):
     '''Converts image to uint8.  If input image uses floating point the image is scaled to the range 0-255'''
+    if image.dtype == np.uint8:
+        return image
+    
     if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
         image = image * 255.0
 
@@ -454,7 +457,7 @@ def _Image_To_Uint8(image):
         image = image.astype(np.uint8) * 255
     else:
         image = image.astype(np.uint8)
-        
+
     return image
 
 def SaveImage(ImageFullPath, image, **kwargs):
@@ -468,10 +471,13 @@ def SaveImage(ImageFullPath, image, **kwargs):
     else:
         Uint8_image = _Image_To_Uint8(image)
         del image
-        
+
         im = Image.fromarray(Uint8_image)
-        im.save(ImageFullPath)
-    
+        
+        if ext == '.png':
+            im.save(ImageFullPath, compress_level=0)
+        else:
+            im.save(ImageFullPath)
 
 def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     '''Saves the image as greyscale with no contrast-stretching'''
@@ -815,7 +821,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         if(ImageStdDev is None):
             ImageStdDev = np.std(Image1D)
 
-    PaddedImage = np.zeros((NewHeight, NewWidth), dtype=np.float16)
+    PaddedImage = np.zeros((int(NewHeight), int(NewWidth)), dtype=np.float16)
 
     PaddedImageXOffset = int(np.floor((NewWidth - Width) / 2.0))
     PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))

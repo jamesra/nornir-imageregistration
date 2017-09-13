@@ -4,6 +4,7 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
+import sys
 import copy
 import logging
 import math
@@ -12,7 +13,7 @@ import operator
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
-from scipy.interpolate import griddata
+from scipy.interpolate import griddata, LinearNDInterpolator
 from scipy.spatial import *
 import scipy.spatial
 
@@ -248,8 +249,23 @@ class Triangulation(Base):
     def NumControlPoints(self):
         if self._points is None:
             return 0
-        
+
         return self.points.shape[0]
+
+    @property
+    def ForwardInterpolator(self):
+        if self._ForwardInterpolator is None:
+            self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.FixedPoints)
+
+        return self._ForwardInterpolator
+
+    @property
+    def InverseInterpolator(self):
+        if self._InverseInterpolator is None:
+            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.WarpedPoints)
+
+        return self._InverseInterpolator
+
 
     def EnsurePointsAre2DNumpyArray(self, points):
         if not isinstance(points, np.ndarray):
@@ -287,10 +303,10 @@ class Triangulation(Base):
 
         try:
 
-            transPoints = griddata(self.WarpedPoints, self.FixedPoints, points, method=method)
+            transPoints = self.ForwardInterpolator(points)
         except:
             log = logging.getLogger(str(self.__class__))
-            log.warning("Could not transform points: " + str(points))
+            log.warning("Could not transform points: " + str(points) + str(e))
             transPoints = None
 
         return transPoints
@@ -304,7 +320,7 @@ class Triangulation(Base):
         points = self.EnsurePointsAre2DNumpyArray(points)
 
         try:
-            transPoints = griddata(self.FixedPoints, self.WarpedPoints, points, method=method)
+            transPoints = self.InverseInterpolator(points)
         except:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
@@ -420,6 +436,8 @@ class Triangulation(Base):
         self._FixedKDTree = None
         self._FixedBoundingBox = None
         self._MappedBoundingBox = None
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
 
         self._fixedtri.add_points(new_points[:,0:2])
         self._warpedtri.add_points(new_points[:,2:4])
@@ -439,6 +457,8 @@ class Triangulation(Base):
         self._FixedKDTree = None
         self._FixedBoundingBox = None
         self._MappedBoundingBox = None
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
 
     def NearestFixedPoint(self, points):
         '''Return the fixed points nearest to the query points
@@ -637,13 +657,14 @@ class Triangulation(Base):
         super(Triangulation, self).__init__()
 
         self._points = np.asarray(pointpairs, dtype=np.float32)
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
         self._fixedtri = None
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
         self._FixedBoundingBox = None
         self._MappedBoundingBox = None 
-        
 
     @classmethod
     def load(cls, variableParams, fixedParams):

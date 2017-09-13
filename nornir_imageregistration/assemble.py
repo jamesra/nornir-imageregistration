@@ -28,10 +28,10 @@ def GetROICoords(botleft, area):
     
     # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
-        x_range = x_range[:area[1]]
+        x_range = x_range[:int(area[1])]
         
     if len(y_range) > area[0]:
-        y_range = y_range[:area[0]]
+        y_range = y_range[:int(area[0])]
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
