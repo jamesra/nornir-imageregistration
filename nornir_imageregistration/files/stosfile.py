@@ -472,7 +472,11 @@ class StosFile(object):
         '''
         :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
         '''
-        if oldspacing == newspacing:
+        if oldspacing == newspacing and \
+           ControlImageFullPath == self.ControlImageFullPath and \
+           MappedImageFullPath == self.MappedImageFullPath and \
+           ControlMaskFullPath == self.ControlMaskFullPath and \
+           MappedMaskFullPath == self.MappedMaskFullPath:
             if create_copy:
                 return copy.deepcopy(self)
             else:
