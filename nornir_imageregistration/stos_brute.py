@@ -81,12 +81,9 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-        
-
-
 def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
-    
+
     imFixed = core.ImageParamToImageArray(imFixed)
     imWarped = core.ImageParamToImageArray(imWarped)
 
@@ -101,7 +98,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     if angle != 0:
         imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
         OKToDelimWarped = True
-        
+
 
     RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 

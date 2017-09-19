@@ -46,13 +46,13 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
 
     return distance
 
-def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
+def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance = None, create_copy=True):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
     :return: ndarray of points that can be assigned as control points for a transform'''
 
-    if AToB_mapped_Transform.points.shape[0] < 250:
-        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy) 
+    if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
+        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance, create_copy=create_copy) 
     else:
         return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
 
@@ -73,7 +73,7 @@ def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_c
         return AToB_mapped_Transform
 
 
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True, epsilon=4.0):
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=None, create_copy=True):
 
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
@@ -288,9 +288,9 @@ class Triangulation(Base):
 
         return points
 
-    def AddTransform(self, mappedTransform, create_copy=True):
+    def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
-        return AddTransforms(self, mappedTransform, create_copy)
+        return AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
 
 
     def Transform(self, points, **kwargs):

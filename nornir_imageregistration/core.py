@@ -30,7 +30,6 @@ import scipy.ndimage.interpolation as interpolation
 np.seterr(all='raise')
     
 # from memory_profiler import profile
-logger = logging.getLogger(__name__)
 
 class memmap_metadata(object):
     '''meta-data for a memmap array'''
@@ -538,6 +537,8 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     :rtype: ndimage
     '''
     if(not os.path.isfile(ImageFullPath)):
+        
+        logger = logging.getLogger(__name__)
         logger.error('File does not exist: ' + ImageFullPath)
         return None
     
@@ -554,6 +555,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
 
     if(not ImageMaskFullPath is None):
         if(not os.path.isfile(ImageMaskFullPath)):
+            logger = logging.getLogger(__name__)
             logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
             image_mask = _LoadImageByExtension(ImageMaskFullPath, bpp=1)

@@ -236,6 +236,14 @@ class Rectangle(object):
             raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(self._bounds))
         
         return 
+    
+    def __getstate__(self):
+        dict = {}
+        dict['_bounds'] = self._bounds 
+        return dict
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def ToArray(self):
         return self._bounds.copy()

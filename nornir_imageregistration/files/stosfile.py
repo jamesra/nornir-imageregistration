@@ -23,7 +23,7 @@ def __argumentToStos(Argument):
 
     return stosObj
 
-def AddStosTransforms(A_To_B, B_To_C):
+def AddStosTransforms(A_To_B, B_To_C, EnrichTolerance):
 
     A_To_B_Stos = __argumentToStos(A_To_B)
     B_To_C_Stos = __argumentToStos(B_To_C)
@@ -35,7 +35,7 @@ def AddStosTransforms(A_To_B, B_To_C):
     # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
     
     
-    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, create_copy=False)
+    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath

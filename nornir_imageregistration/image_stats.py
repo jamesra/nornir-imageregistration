@@ -45,6 +45,16 @@ class ImageStats():
         self._mean = None
         self._stddev = None
 
+    def __getstate__(self):
+        dict = {}
+        dict['_median'] = self._median 
+        dict['_mean'] = self._mean
+        dict['_stddev'] = self._stddev
+        return dict
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     @classmethod
     def Create(cls, Image):
         '''Returns an object with the mean,median,std.dev of an image,
@@ -103,7 +113,7 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
         task = TPool.add_task('Calc Feature Score: ' + os.path.basename(filename), Function, filename, **kwargs)
         task.filename = filename
         tasklist.append(task)
-        
+
     TPool.wait_completion()
 
     numTasks = len(tasklist)
