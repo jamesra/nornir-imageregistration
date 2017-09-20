@@ -149,18 +149,17 @@ class Triangulation(Base):
 
         return odict
 
-    def __setstate__(self, dictionary):         
+    def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
-        
+
     @classmethod
     def FindDuplicates(cls, points, new_points):
         '''Returns a bool array indicating which new_points already exist in points'''
 
         #(new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
 
-        DuplicateRemoved = False
         round_points = np.around(points, 3)
         round_new_points = np.around(new_points, 3)
 
@@ -234,14 +233,20 @@ class Triangulation(Base):
     @property
     def fixedtri(self):
         if self._fixedtri is None:
-            self._fixedtri = Delaunay(self.FixedPoints)
+            #try:
+            #self._fixedtri = Delaunay(self.FixedPoints, incremental =True)
+            #except:
+            self._fixedtri = Delaunay(self.FixedPoints, incremental =False)
 
         return self._fixedtri
 
     @property
     def warpedtri(self):
         if self._warpedtri is None:
-            self._warpedtri = Delaunay(self.WarpedPoints)
+            #try:
+            #self._warpedtri = Delaunay(self.WarpedPoints, incremental =True)
+            #except:
+            self._warpedtri = Delaunay(self.WarpedPoints, incremental =False)
 
         return self._warpedtri
     
@@ -250,7 +255,7 @@ class Triangulation(Base):
         if self._points is None:
             return 0
 
-        return self.points.shape[0]
+        return self._points.shape[0]
 
     @property
     def ForwardInterpolator(self):
@@ -266,8 +271,8 @@ class Triangulation(Base):
 
         return self._InverseInterpolator
 
-
-    def EnsurePointsAre2DNumpyArray(self, points):
+    @classmethod
+    def EnsurePointsAre2DNumpyArray(cls, points):
         if not isinstance(points, np.ndarray):
             points = np.asarray(points, dtype=np.float32)
 
@@ -275,8 +280,9 @@ class Triangulation(Base):
             points = np.resize(points, (1, 2))
 
         return points
-    
-    def EnsurePointsAre4xN_NumpyArray(self, points):
+
+    @classmethod
+    def EnsurePointsAre4xN_NumpyArray(cls, points):
         if not isinstance(points, np.ndarray):
             points = np.asarray(points, dtype=np.float32)
 
@@ -301,13 +307,13 @@ class Triangulation(Base):
 
         points = self.EnsurePointsAre2DNumpyArray(points)
 
-        try:
-
+        try: 
             transPoints = self.ForwardInterpolator(points)
         except:
             log = logging.getLogger(str(self.__class__))
-            log.warning("Could not transform points: " + str(points) + str(e))
+            log.warning("Could not transform points: " + str(points))
             transPoints = None
+            self._ForwardInterpolator = None
 
         return transPoints
 
@@ -325,6 +331,7 @@ class Triangulation(Base):
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
+            self._InverseInterpolator = None
 
         return transPoints
 
@@ -347,8 +354,8 @@ class Triangulation(Base):
         if(new_points.shape[0] == 0):
             return
 
-        self.points = np.append(self.points, new_points, 0)
-        self.points = Triangulation.RemoveDuplicates(self.points)
+        self._points = np.append(self.points, new_points, 0)
+        self._points = Triangulation.RemoveDuplicates(self._points)
 
         #We won't see a change in the number of points if the new point was a duplicate
         if self.NumControlPoints != numPts:
@@ -365,36 +372,36 @@ class Triangulation(Base):
         return index
 
     def UpdatePointPair(self, index, pointpair):
-        self.points[index, :] = pointpair
-        self.points = Triangulation.RemoveDuplicates(self.points)
+        self._points[index, :] = pointpair
+        self._points = Triangulation.RemoveDuplicates(self.points)
+        self.OnTransformChanged()
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
-
-        self.OnTransformChanged()
+ 
 
     def UpdateFixedPoint(self, index, point):
-        self.points[index, 0:2] = point
-        self.points = Triangulation.RemoveDuplicates(self.points)
-        self.OnTransformChanged()
+        self._points[index, 0:2] = point
+        self._points = Triangulation.RemoveDuplicates(self._points)
+        self.OnFixedPointChanged()
 
         Distance, index = self.NearestFixedPoint(point)
         return index
 
     def UpdateWarpedPoint(self, index, point):
-        self.points[index, 2:4] = point
-        self.points = Triangulation.RemoveDuplicates(self.points)
-        self.OnTransformChanged()
+        self._points[index, 2:4] = point
+        self._points = Triangulation.RemoveDuplicates(self._points)
+        self.OnWarpedPointChanged()
 
         Distance, index = self.NearestWarpedPoint(point)
         return index
 
     def RemovePoint(self, index):
-        if(self.points.shape[0] <= 3):
+        if(self._points.shape[0] <= 3):
             return  # Cannot have fewer than three points
 
-        self.points = np.delete(self.points, index, 0)
-        self.points = Triangulation.RemoveDuplicates(self.points)
+        self._points = np.delete(self._points, index, 0)
+        self._points = Triangulation.RemoveDuplicates(self._points)
         self.OnTransformChanged()
 
     def UpdateDataStructures(self):
@@ -403,23 +410,23 @@ class Triangulation(Base):
            If it is known that the data structures will be needed this function can be faster
            since computations can be performed in parallel'''
 
-        MPool = pools.GetGlobalMultithreadingPool()
-        #TPool = pools.GetGlobalThreadPool()
+        MPool = nornir_pools.GetGlobalMultithreadingPool()
+        TPool = pools.GetGlobalThreadPool()
         FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
         WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
 
         # Cannot pickle KDTree, so use Python's thread pool
 
-        #FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.FixedPoints)
+        FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.FixedPoints)
         # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
 
         self._WarpedKDTree = cKDTree(self.WarpedPoints)
 
         MPool.wait_completion()
 
-        #self._FixedKDTree = FixedKDTask.wait_return()
+        self._FixedKDTree = FixedKDTask.wait_return()
 
-        self._FixedKDTree = cKDTree(self.FixedPoints)
+        #self._FixedKDTree = cKDTree(self.FixedPoints)
 
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
@@ -427,20 +434,42 @@ class Triangulation(Base):
     def OnPointsAddedToTransform(self, new_points):
         '''Similiar to OnTransformChanged, but optimized to handle the case of points being added'''
 
-        if(self._fixedtri is None or 
-           self._warpedtri is None):
-            self.OnTransformChanged()
-            return
+        self.OnTransformChanged()
+        return
 
-        self._WarpedKDTree = None
+# 
+#         if(self._fixedtri is None or 
+#            self._warpedtri is None):
+#             self.OnTransformChanged()
+#             return
+# 
+#         self._WarpedKDTree = None
+#         self._FixedKDTree = None
+#         self._FixedBoundingBox = None
+#         self._MappedBoundingBox = None
+#         self._ForwardInterpolator = None
+#         self._InverseInterpolator = None
+# 
+#         self._fixedtri.add_points(new_points[:,0:2])
+#         self._warpedtri.add_points(new_points[:,2:4])
+#         super(Triangulation, self).OnTransformChanged()
+
+    def OnFixedPointChanged(self):
         self._FixedKDTree = None
+        self._fixedtri = None
         self._FixedBoundingBox = None
-        self._MappedBoundingBox = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
 
-        self._fixedtri.add_points(new_points[:,0:2])
-        self._warpedtri.add_points(new_points[:,2:4])
+        super(Triangulation, self).OnTransformChanged()
+
+    def OnWarpedPointChanged(self):
+        self._WarpedKDTree = None
+        self._MappedBoundingBox = None
+        self._warpedtri = None
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+
         super(Triangulation, self).OnTransformChanged()
 
     def OnTransformChanged(self):
@@ -474,13 +503,13 @@ class Triangulation(Base):
     def TranslateFixed(self, offset):
         '''Translate all fixed points by the specified amount'''
 
-        self.points[:, 0:2] = self.points[:, 0:2] + offset
-        self.OnTransformChanged()
+        self._points[:, 0:2] = self._points[:, 0:2] + offset
+        self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
-        self.points[:, 2:4] = self.points[:, 2:4] + offset
-        self.OnTransformChanged()
+        self._points[:, 2:4] = self._points[:, 2:4] + offset
+        self.OnWarpedPointChanged()
 
     def RotateWarped(self, rangle, rotationCenter):
         '''Rotate all warped points about a center by a given angle'''
@@ -497,17 +526,17 @@ class Triangulation(Base):
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self.points = self.points * scalar
+        self._points = self.points * scalar
         self.OnTransformChanged()
         
     def ScaleWarped(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self.points[:, 2:4] = self.points[:, 2:4] * scalar
+        self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
         
     def ScaleFixed(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self.points[:, 0:2] = self.points[:, 0:2] * scalar
+        self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     @property
@@ -515,14 +544,14 @@ class Triangulation(Base):
         ''' [[Y1, X1],
              [Y2, X2],
              [Yn, Xn]]'''
-        return self.points[:, 0:2]
+        return self._points[:, 0:2]
 
     @property
     def WarpedPoints(self):
         ''' [[Y1, X1],
              [Y2, X2],
              [Yn, Xn]]'''
-        return self.points[:, 2:4]
+        return self._points[:, 2:4]
 
     @property
     def FixedBoundingBox(self):
@@ -600,7 +629,7 @@ class Triangulation(Base):
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
             if(x >= bounds[spatial.iRect.MinX] and x <= bounds[spatial.iRect.MaxX] and y >= bounds[spatial.iRect.MinY] and y <= bounds[spatial.iRect.MaxY]):
-                PointPair = self.points[iPoint, :] 
+                PointPair = self._points[iPoint, :] 
                 if(OutputPoints is None):
                     OutputPoints = PointPair
                 else:
