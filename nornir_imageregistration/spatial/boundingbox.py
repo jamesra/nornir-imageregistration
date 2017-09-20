@@ -15,7 +15,7 @@ from .rectangle import Rectangle
 
 class BoundingBox(object):
     '''
-    
+    Defines a 3D box
     '''
 
     @property

@@ -4,7 +4,7 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-import nornir_pools as pools
+import nornir_pools
 
 
 class Base(object):
@@ -39,7 +39,7 @@ class Base(object):
         
         
         if len(self.OnChangeEventListeners) > 1:
-            Pool = pools.GetGlobalThreadPool() 
+            Pool = nornir_pools.GetGlobalThreadPool() 
             tlist = list()
                     
             for func in self.OnChangeEventListeners:

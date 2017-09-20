@@ -13,7 +13,7 @@ from scipy import stats
 from scipy.misc import imsave
 
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools as pools
+#import nornir_pools as pools
 import numpy as np
 
 from . import core

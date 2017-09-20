@@ -8,6 +8,9 @@ import unittest
 
 from nornir_imageregistration.transforms import *
 
+from nornir_imageregistration.transforms.rbftransform import \
+    RBFWithLinearCorrection
+
 import numpy as np
 
 
@@ -64,6 +67,16 @@ def TransformCheck(test, transform, warpedPoint, fixedPoint):
         test.assertTrue(np.array_equal(np.around(fp, 2), fixedPoint))
         wp = transform.InverseTransform(fp)
         test.assertTrue(np.array_equal(np.around(wp, 2), warpedPoint))
+
+def NearestFixedCheck(test, transform, fixedPoints, testPoints):
+        '''Ensures that the nearest fixed point can be found for a test point'''
+        distance, index = transform.NearestFixedPoint(testPoints)
+        test.assertTrue(np.array_equal(np.around(transform.FixedPoints[index,:], 2), fixedPoints))
+
+def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
+        '''Ensures that the nearest warped point can be found for a test point'''
+        distance, index = transform.NearestWarpedPoint(testPoints)
+        test.assertTrue(np.array_equal(np.around(transform.WarpedPoints[index,:], 2), warpedPoints))
 
 class Test(unittest.TestCase):
 
@@ -123,9 +136,24 @@ class Test(unittest.TestCase):
         warpedPoint = np.array([[-5, -5]])
         TransformCheck(self, T, warpedPoint, -warpedPoint)
 
-
+        NearestFixedCheck(self, T, MirrorTransformPoints[:,0:2], MirrorTransformPoints[:,0:2] - 1)
+        NearestWarpedCheck(self, T, MirrorTransformPoints[:,2:4], MirrorTransformPoints[:,2:4] - 1)
+ 
         # Add a point to the mirror transform, make sure it still works
         T.AddPoint([5.0, 5.0, -5.0, -5.0])
+
+        #Make sure the new point can be found correctly
+        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
+        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        
+        #Add a duplicate and see what happens
+        NumBefore = T.NumControlPoints
+        T.AddPoint([5.0, 5.0, -5.0, -5.0])
+        NumAfter = T.NumControlPoints
+        
+        self.assertEqual(NumBefore, NumAfter)
+        
+ 
 
         # We should have a new triangulation if we added a point
         self.assertTrue(len(T.FixedTriangles) > 2)
@@ -138,6 +166,72 @@ class Test(unittest.TestCase):
                                 [-4.0, -2.0],
                                 [0.0, -9.0],
                                 [-9.0, 0.0]])
+        TransformCheck(self, T, warpedPoints, -warpedPoints)
+        
+    def testRBFTriangulation(self):
+#        os.chdir('C:\\Buildscript\\Test\\Stos')
+#        MToCStos = IrTools.IO.stosfile.StosFile.Load('27-26.stos')
+#        CToVStos = IrTools.IO.stosfile.StosFile.Load('26-25.stos')
+#
+#        # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
+#        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.Transform)
+#        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.Transform)
+#
+#        MToV = CToV.AddTransform(MToC)
+#
+#        MToCStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
+#        MToCStos.Save("27-26_Test.stos")
+#
+#        MToVStos = copy.deepcopy(MToCStos)
+#        MToVStos.ControlImageFullPath = CToVStos.ControlImageFullPath
+#        MToVStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
+#        MToVStos.ControlImageDim = CToVStos.ControlImageDim
+#        MToVStos.MappedImageDim = MToCStos.MappedImageDim
+#
+#        MToVStos.Save("27-25.stos")
+
+        global MirrorTransformPoints
+        T = RBFWithLinearCorrection(MirrorTransformPoints[:,2:4], MirrorTransformPoints[:,0:2])
+        self.assertEqual(len(T.FixedTriangles), 2)
+        self.assertEqual(len(T.WarpedTriangles), 2)
+
+        warpedPoint = np.array([[-5, -5]])
+        TransformCheck(self, T, warpedPoint, -warpedPoint)
+
+        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
+        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+
+        # Add a point to the mirror transform, make sure it still works
+        T.AddPoint([5.0, 5.0, -5.0, -5.0])
+
+        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
+        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+
+        #Add a duplicate and see what happens
+        NumBefore = T.NumControlPoints
+        T.AddPoint([5.0, 5.0, -5.0, -5.0])
+        NumAfter = T.NumControlPoints
+
+        self.assertEqual(NumBefore, NumAfter)
+
+        # We should have a new triangulation if we added a point
+        self.assertTrue(len(T.FixedTriangles) > 2)
+        self.assertTrue(len(T.WarpedTriangles) > 2)
+
+        TransformCheck(self, T, warpedPoint, -warpedPoint)
+        
+        #Try removing a point
+
+        # Try points not on the transform points
+        warpedPoints = np.array([[-2.0, -4.0],
+                                [-4.0, -2.0],
+                                [0.0, -9.0],
+                                [-9.0, 0.0]])
+        TransformCheck(self, T, warpedPoints, -warpedPoints)
+
+        T.AddPoints([[2.5,2.5,-2.5,-2.5],
+                     [7.5,7.5,-7.5,-7.5]])
+
         TransformCheck(self, T, warpedPoints, -warpedPoints)
 
 

@@ -14,7 +14,7 @@ from   nornir_imageregistration.transforms.utils import InvalidIndicies
 from scipy.ndimage import interpolation
 
 import nornir_imageregistration.transforms.base as transformbase
-import nornir_pools as pools
+import nornir_pools
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 import numpy as np
@@ -28,10 +28,10 @@ def GetROICoords(botleft, area):
     
     # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
-        x_range = x_range[:area[1]]
+        x_range = x_range[:int(area[1])]
         
     if len(y_range) > area[0]:
-        y_range = y_range[:area[0]]
+        y_range = y_range[:int(area[0])]
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
@@ -384,7 +384,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
         sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
-        mpool = pools.GetGlobalMultithreadingPool()
+        mpool = nornir_pools.GetGlobalMultithreadingPool()
         
     
         for iY in range(0, height, int(tilesize[0])):

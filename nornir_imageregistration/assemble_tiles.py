@@ -16,7 +16,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.tileset as tiles
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools as pools
+import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
 
@@ -263,7 +263,7 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
     fullImage = None
     (minY, minX, maxY, maxX) = tutils.FixedBoundingBox(transforms).ToTuple()
     fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
-     
+
     if use_memmap:
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
@@ -277,7 +277,7 @@ def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
             raise 
     else:
         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
-     
+
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
     return (fullImage, fullImageZbuffer)
 
@@ -288,7 +288,7 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     global use_memmap
     fullImage = None
     fullImage_shape = (int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
-     
+
     if use_memmap:
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
@@ -300,7 +300,7 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
             raise 
     else:
         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
-        
+
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
     return (fullImage, fullImageZbuffer)
 
@@ -424,9 +424,9 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     
     if pool is None:
-        pool = pools.GetGlobalMultithreadingPool()
+        pool = nornir_pools.GetGlobalMultithreadingPool()
         
-    # pool = pools.GetGlobalSerialPool()
+    # pool = nornir_pools.GetGlobalSerialPool()
 
     tasks = []
     fixedRect = None

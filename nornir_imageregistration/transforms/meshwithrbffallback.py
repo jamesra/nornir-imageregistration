@@ -12,9 +12,9 @@ from nornir_imageregistration.transforms.rbftransform import \
 import numpy
 import scipy.interpolate
 
-import nornir_pools as pools
-import scipy.linalg as linalg
-import scipy.spatial as spatial
+import nornir_pools
+#import scipy.linalg as linalg
+#import scipy.spatial as spatial
 
 from . import utils
 
@@ -40,7 +40,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def UpdateDataStructures(self):
 
-        Pool = pools.GetGlobalThreadPool()
+        Pool = nornir_pools.GetGlobalThreadPool()
         ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
         ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
 
@@ -48,7 +48,6 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         self._ForwardRBFInstance = ForwardTask.wait_return()
         self._ReverseRBFInstance = ReverseTask.wait_return()
-
 
 
     def ClearDataStructures(self):
@@ -59,8 +58,6 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
-        
-
 
     def Transform(self, points, **kwargs):
         '''

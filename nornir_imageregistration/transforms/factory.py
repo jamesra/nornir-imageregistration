@@ -68,7 +68,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
-    template = " %(mx)g %(my)g %(cx)g %(cy)g"
+    template = " %(mx)f %(my)f %(cx)g %(cy)g"
 
     width = right - left
     height = top - bottom

@@ -15,7 +15,7 @@ import nornir_imageregistration
 from numpy.fft import fftshift
 
 import nornir_imageregistration.core as core
-import nornir_pools as pools
+import nornir_pools
 import numpy as np
 import scipy.ndimage.interpolation as interpolation
 
@@ -81,12 +81,9 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-        
-
-
 def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
-    
+
     imFixed = core.ImageParamToImageArray(imFixed)
     imWarped = core.ImageParamToImageArray(imWarped)
 
@@ -101,7 +98,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     if angle != 0:
         imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
         OKToDelimWarped = True
-        
+
 
     RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 
@@ -148,7 +145,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
 
 
 def GetFixedAndWarpedImageStats(imFixed, imWarped):
-    tpool = pools.GetGlobalThreadPool()
+    tpool = nornir_pools.GetGlobalThreadPool()
 
     fixedStatsTask = tpool.add_task('FixedStats', core.ImageStats.CalcStats, imFixed)
     warpedStatsTask = tpool.add_task('WarpedStats', core.ImageStats.CalcStats, imWarped)
@@ -170,11 +167,11 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     Cluster = False
 
     if Debug:
-        pool = pools.GetThreadPool(Poolname=None, num_threads=3)
+        pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
     elif Cluster:
-        pool = pools.GetGlobalClusterPool()
+        pool = nornir_pools.GetGlobalClusterPool()
     else:
-        pool = pools.GetGlobalMultithreadingPool()
+        pool = nornir_pools.GetGlobalMultithreadingPool()
 
 
     AngleMatchValues = list()

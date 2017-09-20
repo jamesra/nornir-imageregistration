@@ -17,7 +17,7 @@ import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
 
-import nornir_pools as pools
+import nornir_pools
 import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
@@ -44,6 +44,16 @@ class ImageStats():
         self._median = None
         self._mean = None
         self._stddev = None
+
+    def __getstate__(self):
+        dict = {}
+        dict['_median'] = self._median 
+        dict['_mean'] = self._mean
+        dict['_stddev'] = self._stddev
+        return dict
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     @classmethod
     def Create(cls, Image):
@@ -93,7 +103,7 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
        '''
 
     if Pool is None:
-        TPool = pools.GetGlobalMultithreadingPool()
+        TPool = nornir_pools.GetGlobalMultithreadingPool()
     else:
         TPool = Pool
 
@@ -103,7 +113,7 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
         task = TPool.add_task('Calc Feature Score: ' + os.path.basename(filename), Function, filename, **kwargs)
         task.filename = filename
         tasklist.append(task)
-        
+
     TPool.wait_completion()
 
     numTasks = len(tasklist)
@@ -214,7 +224,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
-    local_machine_pool = pools.GetGlobalLocalMachinePool()
+    local_machine_pool = nornir_pools.GetGlobalLocalMachinePool()
     for f in listfilenames:
         (root, ext) = os.path.splitext(f)
         if ext == '.npy':
@@ -257,7 +267,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
 
     threadTasks = []
      
-    thread_pool = pools.GetGlobalThreadPool()
+    thread_pool = nornir_pools.GetGlobalThreadPool()
     for f in list(OutputMap.keys()):
         threadTask = thread_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
         threadTasks.append(threadTask)
@@ -272,7 +282,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
 
     del threadTasks
 
-    # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=Pools.GetGlobalThreadPool(), ProcPool = Pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
+    # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
 
 #    maxVal = 1 << Bpp
 #    numBins = 256
