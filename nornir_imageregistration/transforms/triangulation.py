@@ -404,14 +404,14 @@ class Triangulation(Base):
         self._points = Triangulation.RemoveDuplicates(self._points)
         self.OnTransformChanged()
 
-    def UpdateDataStructures(self):
+    def InitializeDataStructures(self):
         '''This optional method performs all computationally intense data structure creation
            If not run these data structures should be initialized in a lazy fashion by the class
            If it is known that the data structures will be needed this function can be faster
            since computations can be performed in parallel'''
 
         MPool = nornir_pools.GetGlobalMultithreadingPool()
-        TPool = pools.GetGlobalThreadPool()
+        TPool = nornir_pools.GetGlobalThreadPool()
         FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
         WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
 
