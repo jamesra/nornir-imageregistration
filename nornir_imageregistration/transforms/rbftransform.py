@@ -11,9 +11,9 @@ import numpy
 import scipy.interpolate
 
 import nornir_pools
-import nornir_shared
-import scipy.linalg as linalg
-import scipy.spatial as spatial
+#import nornir_shared
+import scipy.linalg 
+import scipy.spatial
 
 
 class RBFWithLinearCorrection(triangulation.Triangulation):
@@ -60,7 +60,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
         if NumPts <= MaxChunkSize:
-            Distances = spatial.distance.cdist(Points, WarpedPoints)
+            Distances = scipy.spatial.distance.cdist(Points, WarpedPoints)
 
             # VectorBasisFunc = numpy.vectorize( self.BasisFunction)
             # FuncValues = VectorBasisFunc(Distances)
@@ -186,7 +186,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             iPointA = iRow - 3
 
             p = Points[list(range((iPointA + 1), NumPts))]
-            dList = spatial.distance.cdist([Points[iPointA]], p)
+            dList = scipy.spatial.distance.cdist([Points[iPointA]], p)
 
 
             valueList = numpy.power(dList, 2)
@@ -198,7 +198,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
 #            for iCol in range(iPointA+1, NumPts):
 #                iPointB = iCol
-#                dist = spatial.distance.euclidean(Points[iPointA], Points[iPointB])
+#                dist = scipy.spatial.distance.euclidean(Points[iPointA], Points[iPointB])
 #                value = BasisFunction(dist)
 #                BetaMatrix[iRow, iCol] = value
 #                BetaMatrix[iCol + 3, iRow - 3] = value
@@ -221,8 +221,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
         
-        Y_Task = thread_pool.add_task("WeightsY", linalg.solve, BetaMatrix, SolutionMatrix_Y)
-        WeightsX = linalg.solve(BetaMatrix, SolutionMatrix_X)
+        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg .solve, BetaMatrix, SolutionMatrix_Y)
+        WeightsX = scipy.linalg .solve(BetaMatrix, SolutionMatrix_X)
         WeightsY = Y_Task.wait_return()
 
         return numpy.hstack([WeightsX, WeightsY])

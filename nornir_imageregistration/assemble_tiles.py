@@ -16,7 +16,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.tileset as tiles
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools as pools
+import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
 
@@ -424,9 +424,9 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     
     if pool is None:
-        pool = pools.GetGlobalMultithreadingPool()
+        pool = nornir_pools.GetGlobalMultithreadingPool()
         
-    # pool = pools.GetGlobalSerialPool()
+    # pool = nornir_pools.GetGlobalSerialPool()
 
     tasks = []
     fixedRect = None

@@ -14,7 +14,7 @@ from   nornir_imageregistration.transforms.utils import InvalidIndicies
 from scipy.ndimage import interpolation
 
 import nornir_imageregistration.transforms.base as transformbase
-import nornir_pools as pools
+import nornir_pools
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 import numpy as np
@@ -384,7 +384,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
         sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
-        mpool = pools.GetGlobalMultithreadingPool()
+        mpool = nornir_pools.GetGlobalMultithreadingPool()
         
     
         for iY in range(0, height, int(tilesize[0])):

@@ -14,7 +14,7 @@ import nornir_imageregistration.arrange_mosaic as arrange
 import nornir_imageregistration.assemble_tiles as at
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools as pools
+import nornir_pools
 import numpy as np
 
 from . import spatial
@@ -245,7 +245,7 @@ class Mosaic(object):
         tilesPathList = self.CreateTilesPathList(tilesPath)
 
         if usecluster and len(tilesPathList) > 1:
-            cpool = pools.GetGlobalMultithreadingPool()
+            cpool = nornir_pools.GetGlobalMultithreadingPool()
             return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)

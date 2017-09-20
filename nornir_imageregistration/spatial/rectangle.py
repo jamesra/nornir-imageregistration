@@ -153,7 +153,7 @@ class RectangleSet():
 
 class Rectangle(object):
     '''
-    
+    Defines a 2D rectangle
     '''
 
     @property
@@ -253,7 +253,28 @@ class Rectangle(object):
                 self._bounds[iRect.MinX],
                 self._bounds[iRect.MaxY],
                 self._bounds[iRect.MaxX])
-    
+
+    @classmethod
+    def Union(cls, A, B):
+        '''
+        :param other: Either a 2D array for a point, a 4D array for a rectangle, or a rectangle object
+        :rtype: Rectangle
+        :returns: The rectangle describing the bounding box of both shapes
+        ''' 
+
+        A = Rectangle.PrimitiveToRectange(A)
+        B = Rectangle.PrimitiveToRectange(B)
+
+        if not cls.contains(A, B):
+            return None
+
+        minX = min((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
+        minY = min((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
+        maxX = max((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
+        maxY = max((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
+
+        return Rectangle.CreateFromBounds((minY, minX, maxY, maxX))
+
     @classmethod
     def _AreBoundsValid(cls, bounds):
         return isinstance(bounds, np.ndarray) and \

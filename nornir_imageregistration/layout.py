@@ -4,7 +4,7 @@ import os
 import nornir_imageregistration.tile
 
 import nornir_imageregistration.transforms.factory as tfactory
-import nornir_pools
+#import nornir_pools
 import numpy as np
 
 from . import alignment_record
