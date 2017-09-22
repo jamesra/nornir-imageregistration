@@ -38,13 +38,13 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         return self._ForwardRBFInstance
 
-    def UpdateDataStructures(self):
+    def InitializeDataStructures(self):
 
         Pool = nornir_pools.GetGlobalThreadPool()
         ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
         ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
 
-        super(MeshWithRBFFallback, self).UpdateDataStructures()
+        super(MeshWithRBFFallback, self).InitializeDataStructures()
 
         self._ForwardRBFInstance = ForwardTask.wait_return()
         self._ReverseRBFInstance = ReverseTask.wait_return()
@@ -56,6 +56,17 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         super(MeshWithRBFFallback, self).ClearDataStructures()
 
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def OnFixedPointChanged(self):
+        super(MeshWithRBFFallback, self).OnFixedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+
+    def OnWarpedPointChanged(self):
+        super(MeshWithRBFFallback, self).OnWarpedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
