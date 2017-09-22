@@ -355,7 +355,7 @@ class Triangulation(Base):
             return
 
         self._points = np.append(self.points, new_points, 0)
-        self._points = Triangulation.RemoveDuplicates(self._points)
+        #self._points = Triangulation.RemoveDuplicates(self._points)
 
         #We won't see a change in the number of points if the new point was a duplicate
         if self.NumControlPoints != numPts:
