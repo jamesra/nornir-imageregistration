@@ -220,7 +220,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
-        
+
         Y_Task = thread_pool.add_task("WeightsY", scipy.linalg .solve, BetaMatrix, SolutionMatrix_Y)
         WeightsX = scipy.linalg .solve(BetaMatrix, SolutionMatrix_X)
         WeightsY = Y_Task.wait_return()

@@ -55,20 +55,19 @@ class MeshWithRBFFallback(triangulation.Triangulation):
            Clear out our data structures so we do not use bad data'''
 
         super(MeshWithRBFFallback, self).ClearDataStructures()
-
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
     def OnFixedPointChanged(self):
-        super(MeshWithRBFFallback, self).OnFixedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
-
+        super(MeshWithRBFFallback, self).OnFixedPointChanged()
 
     def OnWarpedPointChanged(self):
-        super(MeshWithRBFFallback, self).OnWarpedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        super(MeshWithRBFFallback, self).OnWarpedPointChanged()
+
 
     def Transform(self, points, **kwargs):
         '''
