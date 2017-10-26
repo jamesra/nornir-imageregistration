@@ -22,9 +22,11 @@ if __name__ == '__main__':
     packages = find_packages()
     
     #OK to use pools v1.3.1, no changes made for v1.3.2
+    
+    #Starting with 1.3.4 Image Magick 7 is required
 
     install_requires = ["nornir_pools>=1.3.3",
-                        "nornir_shared>=1.3.3",
+                        "nornir_shared>=1.3.4",
                         "numpy>=1.9.1",
                         "scipy>=0.13.2",
                         "matplotlib>=1.3.0",
@@ -59,7 +61,7 @@ if __name__ == '__main__':
     setup(name='nornir_imageregistration',
           zip_safe=False,
           classifiers=classifiers,
-          version='1.3.3',
+          version='1.3.4',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",
