@@ -356,14 +356,15 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     else:
         assert(isinstance(numBins, int))
 
-    [histogram_array, low_range, binsize, extrapoints] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
+    #[histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     
-    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, low_range, binsize)
+    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], bin_edges[1] - bin_edges[0])
     
     return histogram_obj
 
 def __CreateImageMagickCommandLineForHistogram(filename, Scale):
-    CmdTemplate = "convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
+    CmdTemplate = "magick convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
     return CmdTemplate % {'filename' : filename, 'scale' : Scale * 100}
     
 
