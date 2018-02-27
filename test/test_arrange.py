@@ -143,14 +143,14 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         offsets = nornir_imageregistration.layout.OffsetsSortedByWeight(layout)
         weight_scores = offsets[:, 4]
         
-        numBins = len(weight_scores) / 4
+        numBins = len(weight_scores) / 4.0
         if numBins < 10:
             numBins = 10
         
         if not title is None:
             matplotlib.pyplot.title(title)
             
-        matplotlib.pyplot.hist(weight_scores, numBins)
+        matplotlib.pyplot.hist(weight_scores, int(numBins))
         
         if(ImageFilename is not None):
             # plt.show()

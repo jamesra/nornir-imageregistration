@@ -356,7 +356,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     else:
         assert(isinstance(numBins, int))
 
-    [histogram_array, low_range, binsize, extrapoints] = scipy.stats.histogram(ImOneD, numbins=numBins, defaultlimits=[0, 1])
+    [histogram_array, low_range, binsize, extrapoints] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, low_range, binsize)
     

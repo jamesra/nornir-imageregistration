@@ -954,7 +954,9 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
 
     CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
 
-    ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
+    ThresholdImage = numpy.array(image)
+    ThresholdImage[ThresholdImage < CutoffValue] = 0
+    #ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # ShowGrayscale(ThresholdImage)
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)

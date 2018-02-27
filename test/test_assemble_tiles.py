@@ -85,7 +85,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
             self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
             outputMask = core.LoadImage(outputImageMaskPath)
-            self.assertTrue(outputMask[outputMask.shape[0] / 2.0, outputMask.shape[1] / 2.0] > 0, "Center of assembled image mask should be non-zero")
+            self.assertTrue(outputMask[int(outputMask.shape[0] / 2.0), int(outputMask.shape[1] / 2.0)] > 0, "Center of assembled image mask should be non-zero")
 
             del mosaicImage
             del mask
