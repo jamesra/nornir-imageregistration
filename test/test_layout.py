@@ -155,6 +155,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         if not os.path.exists(MovieImageDir):
             os.makedirs(MovieImageDir)
             
+        filename = os.path.join(MovieImageDir, "%d.png" % i) 
+        pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField, layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+            
         while max_tension > max_tension_cutoff and i < max_iter:
             print("%d %g" % (i, max_tension))
             node_movement = nornir_imageregistration.layout.Layout.RelaxNodes(layout_obj)

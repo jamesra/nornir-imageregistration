@@ -100,8 +100,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         
     def CallTransformImage(self, imageDim):
         
-        Height = imageDim
-        Width = numpy.round(imageDim / 2)
+        Height = int(imageDim)
+        Width = int(numpy.round(imageDim / 2))
         
         identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(numpy.array([[0, 0, 0, 0],
                                                                               [Height, 0, Height, 0],
