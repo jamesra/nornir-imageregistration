@@ -75,6 +75,15 @@ class RegistrationTree(object):
         self.Nodes = {}  # Dictionary of all nodes
         self.RootNodes = {}  # Dictionary of nodes without parents
 
+    def __str__(self):
+        s = "Roots: "
+        for r in self.RootNodes:
+            s += " " + str(r)
+
+        s += '\r\nSections:'
+        s += ','.Join(self.SectionNumbers)
+        return s
+
     def _GetOrCreateRootNode(self, ControlSection):
         ControlNode = None
         if ControlSection in self.Nodes:
@@ -202,7 +211,8 @@ class RegistrationTree(object):
 
     @classmethod
     def CreateRegistrationTree(cls, sectionNumbers, adjacentThreshold=2, center=None):
-        sectionNumbers.sort()
+        sectionNumbers = sorted(sectionNumbers)
+        
         RT = RegistrationTree()
 
         if len(sectionNumbers) == 0:

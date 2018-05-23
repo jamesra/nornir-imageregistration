@@ -58,6 +58,25 @@ class TestAlignmentRecord(unittest.TestCase):
 
         transform = record.ToTransform([10, 10], [10, 10])
         TransformCheck(self, transform, [[4.5, 4.5]], [[4.5, 4.5]])
+        TransformCheck(self, transform, [[0, 0]], [[0, 0]])
+
+    def testIdentityFlipped(self):
+        record = AlignmentRecord((0, 0), 100, 0, True)
+        self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
+
+        # Get the corners for a 10,10  image rotated 90 degrees
+        predictedArray = np.array([[9, 0],
+                                   [9, 9],
+                                   [0, 0],
+                                   [0, 9]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
+        Corners = record.GetTransformedCornerPoints([10, 10])
+        self.assertTrue((Corners == predictedArray).all())
+
+        transform = record.ToTransform([10, 10], [10, 10])
+        TransformCheck(self, transform, [[4.5, 4.5]], [[4.5, 4.5]])
+        TransformCheck(self, transform, [[0, 0]], [[9, 0]])
 
     def testRotation(self):
         record = AlignmentRecord((0, 0), 100, 90)
@@ -75,6 +94,25 @@ class TestAlignmentRecord(unittest.TestCase):
 
         transform = record.ToTransform([10, 10], [10, 10])
         TransformCheck(self, transform, [[4.5, 4.5]], [[4.5, 4.5]])
+        TransformCheck(self, transform, [[0, 0]], [[9, 0]])
+
+    def testRotationFlipped(self):
+        record = AlignmentRecord((0, 0), 100, 90, True)
+        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
+
+        # Get the corners for a 10,10  image rotated 90 degrees
+        predictedArray = np.array([[9, 9],
+                                   [0, 9],
+                                   [9, 0],
+                                   [0, 0]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+
+        Corners = record.GetTransformedCornerPoints([10, 10])
+        self.assertTrue((Corners == predictedArray).all())
+
+        transform = record.ToTransform([10, 10], [10, 10])
+        TransformCheck(self, transform, [[4.5, 4.5]], [[4.5, 4.5]])
+        TransformCheck(self, transform, [[0, 0]], [[9, 9]])
 
     def testTranslate(self):
         peak = [3, 1]

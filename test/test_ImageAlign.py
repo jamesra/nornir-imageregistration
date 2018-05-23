@@ -44,6 +44,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
+        self.assertEqual(record.flippedud, False)
         self.assertAlmostEqual(record.peak[0], 0, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1)
         self.assertAlmostEqual(record.peak[1], 0, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1)
 
@@ -62,11 +63,10 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
+        self.assertEqual(record.flippedud, False)
         self.assertAlmostEqual(record.peak[0], 88.5, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
         self.assertAlmostEqual(record.peak[1], 107, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.0)
-
-        # Try again with overlap limits that should prevent or allow a match
-
+        
 #        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage, minOv)
 #        self.assertIsNotNone(record)
 #

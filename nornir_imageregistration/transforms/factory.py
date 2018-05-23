@@ -286,7 +286,7 @@ def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageS
     return (offset[0] + ((FixedImageShape[0] - MovingImageShape[0]) / 2.0), offset[1] + ((FixedImageShape[1] - MovingImageShape[1]) / 2.0))
 
 
-def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset):
+def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset, flip_ud=False):
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
 
@@ -301,7 +301,7 @@ def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset)
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
     FixedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle, AdjustedOffset)
-    WarpedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0))
+    WarpedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
     ControlPoints = np.append(FixedPoints, WarpedPoints, 1)
 
@@ -310,8 +310,9 @@ def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset)
     return transform
 
 
-def GetTransformedRigidCornerPoints(size, rangle, offset):
-    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center
+def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
+    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
+       Flip, if requested, is performed before the rotation and translation
     :param tuple size: (Height, Width)
     :param float rangle: Angle in radians
     :param tuple offset: (Y, X)
@@ -328,10 +329,16 @@ def GetTransformedRigidCornerPoints(size, rangle, offset):
 #     BotRight = CenteredRotation * matrix([[HalfWidth], [-HalfHeight], [1]])
 #     TopRight = CenteredRotation * matrix([[HalfWidth], [HalfHeight], [1]])
 
-    BotLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
-    TopLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
-    BotRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
-    TopRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+    if not flip_ud:
+        BotLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
+        TopLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
+        BotRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
+        TopRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+    else:
+        BotLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
+        TopLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
+        BotRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+        TopRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
 
     Translation = matrix([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
 

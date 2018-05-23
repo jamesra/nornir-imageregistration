@@ -65,16 +65,27 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
 
-    # Find the best match
+    imWarpedFlipped = np.flipud(imWarped)
+
+    BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
+    BestMatchFlipped.flippedud = True
+
+    # Determine if the best match is flipped or not
+    IsFlipped = BestMatchFlipped.weight > BestMatch.weight
+    if IsFlipped:
+        imWarped = imWarpedFlipped
+        BestMatch = BestMatchFlipped
 
     if not UserDefinedAngleSearchRange:
         BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)], SingleThread=SingleThread)
+        BestRefinedMatch.flippedud = IsFlipped
     else:
         BestRefinedMatch = BestMatch
 
+
     if scalar > 1.0:
         AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
-        BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle)
+        BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle, IsFlipped)
 
    # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
 
