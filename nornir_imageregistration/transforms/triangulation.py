@@ -422,7 +422,7 @@ class Triangulation(Base):
 
         self._WarpedKDTree = cKDTree(self.WarpedPoints)
 
-        MPool.wait_completion()
+        #MPool.wait_completion()
 
         self._FixedKDTree = FixedKDTask.wait_return()
 
