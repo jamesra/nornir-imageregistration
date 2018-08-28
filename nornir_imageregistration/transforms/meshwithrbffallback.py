@@ -40,7 +40,11 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def InitializeDataStructures(self):
 
-        Pool = nornir_pools.GetGlobalThreadPool()
+        if self.NumControlPoints <= 25:
+            Pool = nornir_pools.GetGlobalThreadPool()
+        else:
+            Pool = nornir_pools.GetGlobalMultithreadingPool()
+
         ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
         ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
 
