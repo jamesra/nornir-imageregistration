@@ -9,6 +9,9 @@ import copy
 import logging
 import math
 import operator
+ 
+from . import utils
+from .base import *
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms.utils import InvalidIndicies
@@ -19,10 +22,8 @@ import scipy.spatial
 
 import nornir_imageregistration.spatial as spatial
 import numpy as np
-
-from . import utils
-from .base import *
-
+from transforms.utils import EnsurePointsAre4xN_NumpyArray
+ 
 
 def distance(A, B):
     '''Distance between two arrays of points with equal numbers'''
@@ -46,7 +47,8 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
 
     return distance
 
-def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance = None, create_copy=True):
+
+def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance=None, create_copy=True):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.  
     :return: ndarray of points that can be assigned as control points for a transform'''
@@ -88,25 +90,24 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
         A_Centroids = A_To_B_Transform.GetWarpedCentroids()
 
      #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
-        #Get the centroids from B using A-B transform that correspond to A_Centroids
+        # Get the centroids from B using A-B transform that correspond to A_Centroids
         B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
 
-        #Warp the same centroids using both A->C and A->B transforms
+        # Warp the same centroids using both A->C and A->B transforms
         OC_Centroids = B_To_C_Transform.Transform(B_Centroids)
         AC_Centroids = A_To_C_Transform.Transform(A_Centroids)
 
-        #Measure the discrepancy in the the results and create a bool array indicating which centroids failed
+        # Measure the discrepancy in the the results and create a bool array indicating which centroids failed
         Distances = distance(OC_Centroids, AC_Centroids)
         CentroidMisplaced = Distances > epsilon
 
-
-        #In extreme distortion we don't want to add new control points forever or converge on existing control points. 
-        #So ignore centroids falling too close to an existing vertex        
+        # In extreme distortion we don't want to add new control points forever or converge on existing control points. 
+        # So ignore centroids falling too close to an existing vertex        
         A_CentroidTriangles = A_To_B_Transform.WarpedPoints[A_To_B_Transform.WarpedTriangles]
         CentroidVertexDistances = CentroidToVertexDistance(A_Centroids, A_CentroidTriangles)
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
-        #Add new verticies for the qualifying centroids
+        # Add new verticies for the qualifying centroids
         AddCentroid = np.logical_and(CentroidMisplaced, CentroidFarEnough)
         PointsAdded = np.any(AddCentroid)
 
@@ -116,7 +117,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
             A_To_B_Transform.AddPoints(New_ControlPoints)
             ending_num_points = A_To_B_Transform.points.shape[0]
             
-            #If we have the same number of points after adding we must have had some duplicates in either fixed or warped space.  Continue onward
+            # If we have the same number of points after adding we must have had some duplicates in either fixed or warped space.  Continue onward
             if starting_num_points == ending_num_points:
                 break 
 
@@ -124,7 +125,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
             print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
             print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
             
-            #TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
+            # TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
             
     print("End enrichment") 
 
@@ -158,7 +159,7 @@ class Triangulation(Base):
     def FindDuplicates(cls, points, new_points):
         '''Returns a bool array indicating which new_points already exist in points'''
 
-        #(new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
+        # (new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
 
         round_points = np.around(points, 3)
         round_new_points = np.around(new_points, 3)
@@ -202,19 +203,24 @@ class Triangulation(Base):
 
         (points, indicies) = utils.InvalidIndicies(points)
 
-        DuplicateRemoved = False
+        # The original implementation returned a sorted array.  I had to remove
+        # that behavior because the change in index was breaking the existing 
+        # triangulations the transform was caching.
+
         points = np.around(points, 3)
-        sortedpoints = sorted(points, key=operator.itemgetter(0, 1))
+        indicies = sorted(range(len(points)), key=lambda k: points[k, 1])
+        sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
+        duplicate_indicies = []
         for i in range(len(sortedpoints) - 1, 0, -1):
             lastP = sortedpoints[i - 1]
             testP = sortedpoints[i]
 
-            if lastP[0] == testP[0]:
-                if lastP[1] == testP[1]:
-                    DuplicateRemoved = True
-                    sortedpoints = np.delete(sortedpoints, i, 0)
+            if lastP[0] == testP[0] and lastP[1] == testP[1]:
+                sortedpoints = np.delete(sortedpoints, i, 0)
+                duplicate_indicies.append(indicies[i])
 
-        return np.asarray(sortedpoints)
+        unduplicatedPoints = np.delete(points, duplicate_indicies, 0)
+        return unduplicatedPoints
 
     @property
     def WarpedKDTree(self):
@@ -233,20 +239,20 @@ class Triangulation(Base):
     @property
     def fixedtri(self):
         if self._fixedtri is None:
-            #try:
-            #self._fixedtri = Delaunay(self.FixedPoints, incremental =True)
-            #except:
-            self._fixedtri = Delaunay(self.FixedPoints, incremental =False)
+            # try:
+            # self._fixedtri = Delaunay(self.FixedPoints, incremental =True)
+            # except:
+            self._fixedtri = Delaunay(self.FixedPoints, incremental=False)
 
         return self._fixedtri
 
     @property
     def warpedtri(self):
         if self._warpedtri is None:
-            #try:
-            #self._warpedtri = Delaunay(self.WarpedPoints, incremental =True)
-            #except:
-            self._warpedtri = Delaunay(self.WarpedPoints, incremental =False)
+            # try:
+            # self._warpedtri = Delaunay(self.WarpedPoints, incremental =True)
+            # except:
+            self._warpedtri = Delaunay(self.WarpedPoints, incremental=False)
 
         return self._warpedtri
     
@@ -273,31 +279,17 @@ class Triangulation(Base):
 
     @classmethod
     def EnsurePointsAre2DNumpyArray(cls, points):
-        if not isinstance(points, np.ndarray):
-            points = np.asarray(points, dtype=np.float32)
-
-        if points.ndim == 1:
-            points = np.resize(points, (1, 2))
-
-        return points
+        raise DeprecationWarning('EnsurePointsAre2DNumpyArray should use utility method')
+        return utils.EnsurePointsAre2DNumpyArray(points)
 
     @classmethod
     def EnsurePointsAre4xN_NumpyArray(cls, points):
-        if not isinstance(points, np.ndarray):
-            points = np.asarray(points, dtype=np.float32)
-
-        if points.ndim == 1:
-            points = np.resize(points, (1, 4))
-
-        if points.shape[1] != 4:
-            raise ValueError("There are not 4 columns in the corrected array")
-
-        return points
+        raise DeprecationWarning('EnsurePointsAre4xN_NumpyArray should use utility method')
+        return EnsurePointsAre4xN_NumpyArray(points)
 
     def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
         return AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
-
 
     def Transform(self, points, **kwargs):
         '''Map points from the fixed space to the warped space'''
@@ -305,7 +297,7 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = utils.EnsurePointsAre2DNumpyArray(points)
 
         try: 
             transPoints = self.ForwardInterpolator(points)
@@ -323,7 +315,7 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = utils.EnsurePointsAre2DNumpyArray(points)
 
         try:
             transPoints = self.InverseInterpolator(points)
@@ -335,7 +327,7 @@ class Triangulation(Base):
 
         return transPoints
 
-    def FindDuplicateFixedPoints(self, new_points, epsilon = 0):
+    def FindDuplicateFixedPoints(self, new_points, epsilon=0):
         '''Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
         '''
@@ -348,16 +340,16 @@ class Triangulation(Base):
         numPts = self.NumControlPoints
         new_points = self.EnsurePointsAre4xN_NumpyArray(new_points)
 
-        duplicates = self.FindDuplicateFixedPoints(new_points[:,0:2])
+        duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
         new_points = new_points[~duplicates, :]
 
         if(new_points.shape[0] == 0):
             return
 
         self._points = np.append(self.points, new_points, 0)
-        #self._points = Triangulation.RemoveDuplicates(self._points)
+        # self._points = Triangulation.RemoveDuplicates(self._points)
 
-        #We won't see a change in the number of points if the new point was a duplicate
+        # We won't see a change in the number of points if the new point was a duplicate
         if self.NumControlPoints != numPts:
             self.OnPointsAddedToTransform(new_points)
 
@@ -378,7 +370,6 @@ class Triangulation(Base):
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
- 
 
     def UpdateFixedPoint(self, index, point):
         self._points[index, 0:2] = point
@@ -422,11 +413,11 @@ class Triangulation(Base):
 
         self._WarpedKDTree = cKDTree(self.WarpedPoints)
 
-        #MPool.wait_completion()
+        # MPool.wait_completion()
 
         self._FixedKDTree = FixedKDTask.wait_return()
 
-        #self._FixedKDTree = cKDTree(self.FixedPoints)
+        # self._FixedKDTree = cKDTree(self.FixedPoints)
 
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
@@ -658,7 +649,6 @@ class Triangulation(Base):
         swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
-
     
     def GetWarpedCentroids(self, triangles=None):
         '''Centroids of warped triangles'''

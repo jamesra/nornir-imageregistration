@@ -16,7 +16,7 @@ import nornir_pools
 #import scipy.linalg as linalg
 #import scipy.spatial as spatial
 
-from . import utils
+from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
 class MeshWithRBFFallback(triangulation.Triangulation):
@@ -40,7 +40,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def InitializeDataStructures(self):
 
-        if self.NumControlPoints <= 25:
+        if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
             Pool = nornir_pools.GetGlobalThreadPool()
         else:
             Pool = nornir_pools.GetGlobalMultithreadingPool()
@@ -79,7 +79,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = utils.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];
@@ -111,7 +111,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         ''' 
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = utils.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];

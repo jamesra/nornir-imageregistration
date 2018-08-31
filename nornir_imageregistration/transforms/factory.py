@@ -153,6 +153,8 @@ def LoadTransform(Transform, pixelSpacing=None):
         return ParseLegendrePolynomialTransform(parts, pixelSpacing)
     elif transformType == "Rigid2DTransform_double_2_2":
         return ParseRigid2DTransform(parts, pixelSpacing)
+    
+    raise ValueError("LoadTransform was passed an unknown transform type")
 
 
 def ParseGridTransform(parts, pixelSpacing=None):

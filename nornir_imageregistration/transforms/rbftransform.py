@@ -15,6 +15,8 @@ import nornir_pools
 import scipy.linalg 
 import scipy.spatial
 
+from . import utils
+
 
 class RBFWithLinearCorrection(triangulation.Triangulation):
 
@@ -105,7 +107,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
     def Transform(self, Points, **kwargs):
 
-        Points = self.EnsurePointsAre2DNumpyArray(Points)
+        Points = utils.EnsurePointsAre2DNumpyArray(Points)
 
         NumCtrlPts = len(self.FixedPoints)
 

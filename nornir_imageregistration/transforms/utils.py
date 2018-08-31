@@ -8,6 +8,29 @@ import nornir_imageregistration.spatial as spatial
 import numpy as np
 
 
+def EnsurePointsAre2DNumpyArray(points):
+    if not isinstance(points, np.ndarray):
+        points = np.asarray(points, dtype=np.float32)
+
+    if points.ndim == 1:
+        points = np.resize(points, (1, 2))
+
+    return points
+
+
+def EnsurePointsAre4xN_NumpyArray(points):
+    if not isinstance(points, np.ndarray):
+        points = np.asarray(points, dtype=np.float32)
+
+    if points.ndim == 1:
+        points = np.resize(points, (1, 4))
+
+    if points.shape[1] != 4:
+        raise ValueError("There are not 4 columns in the corrected array")
+
+    return points
+    
+    
 def InvalidIndicies(points):
     '''Removes rows with a NAN value and returns a list of indicies'''
 
@@ -22,8 +45,10 @@ def InvalidIndicies(points):
 
     return (points, invalidIndicies);
 
+
 def RotationMatrix(rangle):
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
+
 
 if __name__ == '__main__':
     pass
@@ -66,6 +91,7 @@ def FixedBoundingBox(transforms):
 
     return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
 
+
 def MappedBoundingBox(transforms):
     '''Calculate the bounding box of the warped position for a set of transforms'''
     
@@ -86,11 +112,13 @@ def MappedBoundingBox(transforms):
     maxY = np.max(mbb[:, 2])
 
     return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
+
  
 def IsOriginAtZero(transforms):
     ''':return: True if transform bounding box has origin at 0,0 otherise false'''
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return minY == 0 and minX == 0
+
 
 def TranslateToZeroOrigin(transforms):
     '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''

@@ -14,6 +14,8 @@ import scipy.interpolate
 import scipy.linalg as linalg
 import scipy.spatial as spatial
 
+from . import utils
+
 
 class ScipyRbf(triangulation.Triangulation):
 
@@ -68,7 +70,7 @@ class ScipyRbf(triangulation.Triangulation):
 
     def Transform(self, Points, MaxChunkSize=65536):
 
-        Points = self.EnsurePointsAre2DNumpyArray(Points)
+        Points = utils.EnsurePointsAre2DNumpyArray(Points)
 
         NumPts = Points.shape[0]
 
@@ -103,7 +105,7 @@ class ScipyRbf(triangulation.Triangulation):
 
     def InverseTransform(self, Points):
 
-        Points = self.EnsurePointsAre2DNumpyArray(Points)
+        Points = utils.EnsurePointsAre2DNumpyArray(Points)
 
         transformedX = self.ReverseRbfiX(Points[:, iPoint.Y], Points[:, iPoint.X])
         transformedY = self.ReverseRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X]) 
