@@ -177,12 +177,13 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
     Cluster = False
 
-    if Debug:
-        pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
-    elif Cluster:
-        pool = nornir_pools.GetGlobalClusterPool()
-    else:
-        pool = nornir_pools.GetGlobalMultithreadingPool()
+    if not SingleThread:
+        if Debug:
+            pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
+        elif Cluster:
+            pool = nornir_pools.GetGlobalClusterPool()
+        else:
+            pool = nornir_pools.GetGlobalMultithreadingPool()
 
 
     AngleMatchValues = list()
@@ -257,7 +258,8 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
     
     # Delete the pool to ensure extra python threads do not stick around
-    pool.wait_completion()
+    if pool:
+        pool.wait_completion()
 
     del PaddedFixed
 
