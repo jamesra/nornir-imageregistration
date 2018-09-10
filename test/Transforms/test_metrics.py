@@ -8,6 +8,7 @@ import os
 import numpy
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
+import scipy.interpolate
 
 import nornir_imageregistration.files
 from nornir_imageregistration.transforms import * 
@@ -104,6 +105,23 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         nornir_shared.plot.Histogram(h)
         
         pass
+    
+    
+    def test_FixedImageOverlay(self):
+
+        dims = self.stos.ControlImageDim[2:]
+
+        angledelta = metrics.TriangleVertexAngleDelta(self.transform)
+
+        maxVal = numpy.max(list(map(numpy.max, angledelta)))
+        measurement = numpy.asarray(list(map(numpy.max, angledelta)))
+
+        grid_x, grid_y = numpy.mgrid[0:int(dims[1]), 0:int(dims[0])]
+
+        img = scipy.interpolate.griddata(self.transform.WarpedPoints, measurement, (grid_x, grid_y), method='cubic')
+
+        nornir_imageregistration.ShowGrayscale([img])
+
 
 
 if __name__ == "__main__":

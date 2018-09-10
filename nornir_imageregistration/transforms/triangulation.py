@@ -338,7 +338,7 @@ class Triangulation(Base):
     def AddPoints(self, new_points):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
-        new_points = self.EnsurePointsAre4xN_NumpyArray(new_points)
+        new_points = utils.EnsurePointsAre4xN_NumpyArray(new_points)
 
         duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
         new_points = new_points[~duplicates, :]
@@ -357,7 +357,7 @@ class Triangulation(Base):
 
     def AddPoint(self, pointpair):
         '''Add the point and return the index'''
-        new_points = self.EnsurePointsAre4xN_NumpyArray(pointpair)
+        new_points = utils.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
