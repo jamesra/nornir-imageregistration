@@ -29,7 +29,8 @@ def SliceToSliceBruteForce(FixedImageInput,
                            AngleSearchRange=None,
                            MinOverlap=0.75,
                            SingleThread=False,
-                           Cluster=False):
+                           Cluster=False,
+                           TestFlip=True):
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be'''
 
@@ -63,21 +64,25 @@ def SliceToSliceBruteForce(FixedImageInput,
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = list(range(-180, 180, 2))
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
+    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, Cluster=Cluster)
 
-    imWarpedFlipped = np.flipud(imWarped)
+    IsFlipped = False
+    if TestFlip:
+        imWarpedFlipped = np.copy(imWarped)
+        imWarpedFlipped = np.flipud(imWarpedFlipped)
+    
+        BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, Cluster=Cluster)
+        BestMatchFlipped.flippedud = True
 
-    BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, SingleThread=SingleThread, Cluster=Cluster)
-    BestMatchFlipped.flippedud = True
-
-    # Determine if the best match is flipped or not
-    IsFlipped = BestMatchFlipped.weight > BestMatch.weight
+        # Determine if the best match is flipped or not
+        IsFlipped = BestMatchFlipped.weight > BestMatch.weight
+        
     if IsFlipped:
         imWarped = imWarpedFlipped
         BestMatch = BestMatchFlipped
 
     if not UserDefinedAngleSearchRange:
-        BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)], SingleThread=SingleThread)
+        BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1 for x in range(0, 20)], MinOverlap=MinOverlap, SingleThread=SingleThread)
         BestRefinedMatch.flippedud = IsFlipped
     else:
         BestRefinedMatch = BestMatch
@@ -280,7 +285,6 @@ def __ExecuteProfiler():
                             SingleThread=True)
 
 if __name__ == '__main__':
-
     from nornir_shared import misc
     misc.RunWithProfiler("__ExecuteProfiler()", "C:\Temp\StosBrute")
     # __ExecuteProfiler()
