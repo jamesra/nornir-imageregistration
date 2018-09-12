@@ -120,7 +120,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
 
         img = scipy.interpolate.griddata(self.transform.WarpedPoints, measurement, (grid_x, grid_y), method='cubic')
 
-        nornir_imageregistration.ShowGrayscale([img])
+        self.assertTrue(nornir_imageregistration.ShowGrayscale([img], Title='An image showing transform warp metric', PassFail=True))
 
 
 

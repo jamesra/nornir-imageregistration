@@ -174,7 +174,8 @@ class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHe
         if openwindow:
             if title is None:
                 title = "A mosaic with no tiles out of place"
-            core.ShowGrayscale(assembledImage, title=title)
+
+            self.assertTrue(core.ShowGrayscale(assembledImage, title=title, PassFail=True))
 
 
     def __CheckNoOffsetsToSelf(self, layout):

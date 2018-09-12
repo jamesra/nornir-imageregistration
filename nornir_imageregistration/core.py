@@ -99,6 +99,23 @@ class ImageStats(object):
         obj.std = np.std(image.flat)
         return obj
     
+    def GenerateNoise(self, shape, limits=None):
+        '''
+        Generate random data of shape with the specified mean and standard deviation
+        :param array shape: Shape of the returned array
+        :param array limits: Min,Max cutoffs for returned array 
+        '''
+        data = (np.random.randn(shape.astype(np.int64)).astype(np.float32) * self.std) + self.median
+    
+        if limits is not None:
+            belowLimit = data < limits[0]
+            data[belowLimit] = limits[0]
+            
+            aboveLimit = data > limits[1]
+            data[aboveLimit] = limits[1]
+            
+        return data
+    
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
     if array.ndim == 1:
@@ -161,24 +178,39 @@ def _GridLayoutDims(imagelist):
 
     return (int(height), int(width))
 
-def ShowGrayscale(imageList, title=None):
+def ShowGrayscale(imageList, title=None,PassFail=False):
     '''
     :param list imageList: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     '''
-    
+    from matplotlib.widgets import Button
+ 
     def set_title_for_single_image(title):
         if not title is None:
             plt.title(title)
         return 
-    
+
     def set_title_for_multi_image(fig, title):
         if not title is None:
             fig.suptitle(title)
         return
-            
+
+    class PassFailInput(object):
+        def __init__(self):
+            self.Pass = True
+
+        def OnPassButton(self, event):
+            self.Pass = True
+            plt.close()
+            return
+
+        def OnFailButton(self, event):
+            self.Pass = False
+            plt.close()
+            return 
+
     fig = None
-    
+
     if isinstance(imageList, np.ndarray):
         plt.imshow(imageList, cmap=plt.gray())
         set_title_for_single_image(title)
@@ -209,12 +241,26 @@ def ShowGrayscale(imageList, title=None):
                     ax.imshow(image, cmap=plt.gray(), figure=fig)  
     else:
         return
+
+    callback = PassFailInput()
+    if PassFail == True:
+        axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
+        axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
+
+        bnext = Button(axnext, 'Pass', color='#00FF80')
+        bnext.on_clicked(callback.OnPassButton)
+        bprev = Button(axprev, 'Fail', color='#FF0000')
+        bprev.on_clicked(callback.OnFailButton)
+        plt.tight_layout(pad=1.0)  
+        plt.show()
     
-    plt.tight_layout(pad=1.0)  
-    plt.show()
+    else:
+        plt.tight_layout(pad=1.0)  
+        plt.show()
     # Do not call clf or we get two windows on the next call 
     # plt.clf()
-    
+
+    return callback.Pass
 
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
@@ -983,8 +1029,27 @@ def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOve
         return CorrelationImage
 
 
-def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
-    '''Defines a mask that determines which peaks should be considered'''
+def CreateOverlapMask(FixedImageSize, MovingImageSize, CorrellationImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+    '''Defines a mask that determines which peaks should be considered
+    :param array FixedImageSize: Shape of fixed image, before padding
+    :param array MovingImageSize: Shape of moving image, before padding
+    :param array CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
+    :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
+    :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
+    :return: An mxn image mask, with 1 indicating allowed peak locations
+    '''
+
+    MovingImageArea = np.prod(MovingImageSize)
+
+    Mask = np.zeros(CorrellationImageSize, dtype=np.bool)
+
+    Center = CorrellationImageSize // 2
+    HalfFixedDims = FixedImageSize // 2
+    
+    #Default to anywhere with 0 to 1 overlap being valid 
+    Mask[Center[0]-HalfFixedDims[0]:Center[0]+HalfFixedDims[0], Center[1]-HalfFixedDims[1]:Center[1]+HalfFixedDims[1]] = True
+    
+    
 
     MaxWidth = FixedImageSize[1] + MovingImageSize[1]
     MaxHeight = FixedImageSize[0] + MovingImageSize[0]

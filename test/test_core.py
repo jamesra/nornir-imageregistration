@@ -75,14 +75,18 @@ class Test(setup_imagetest.ImageTestBase):
         imageA = np.random.rand(64, 64)
         imageB = np.random.rand(64, 64)
         
-        core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title")
-        core.ShowGrayscale(imageA, title=None)
+        self.assertFalse(core.ShowGrayscale(imageA, title="Ensure the FAIL button works by clicking it now, select Pass button for all other tests", PassFail=True))
         
-        core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title")
-        core.ShowGrayscale([imageA], title=None)
+        self.assertTrue(core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title", PassFail=True))
+        self.assertTrue(core.ShowGrayscale(imageA, title=None, PassFail=True))
         
-        core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title")
-        core.ShowGrayscale([imageA, imageB], title=None)
+        self.assertTrue(core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title", PassFail=True))
+        self.assertTrue(core.ShowGrayscale([imageA], title=None, PassFail=True))
+        
+        self.assertTrue(core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title", PassFail=True))
+        self.assertTrue(core.ShowGrayscale([imageA, imageB], title=None, PassFail=True))
+        
+        
         
         
 #    def test_SaveImageJPeg2000(self):
@@ -183,7 +187,7 @@ class Test(setup_imagetest.ImageTestBase):
         for i in range(0, cropsize):
             self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
         
-        core.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.")
+        self.assertTrue(core.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.", PassFail=True))
             
     
     def testImageToTiles(self):
@@ -193,7 +197,7 @@ class Test(setup_imagetest.ImageTestBase):
         image = imread(self.FixedImagePath)
         tiles = core.ImageToTiles(image, tile_size=(256, 512))
         
-        core.ShowGrayscale(tiles.values(), "Expecting 512 wide x 256 tall tiles")
+        self.assertTrue(core.ShowGrayscale(tiles.values(), "Expecting 512 wide x 256 tall tiles", PassFail=True))
         
 
     def testReplaceImageExtramaWithNoise(self):

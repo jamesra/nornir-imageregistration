@@ -112,7 +112,9 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
 
     OKToDelimWarped = False 
     if angle != 0:
-        imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle)
+        imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle, cval=np.nan)
+        imWarpedEmptyIndicies = np.isnan(imWarped)
+        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
         OKToDelimWarped = True
 
 
@@ -134,8 +136,10 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
     RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
 
-    if OKToDelimWarped:
-        del imWarped
+    #if OKToDelimWarped:
+    del imWarped
+
+    del imFixed
 
     del RotatedWarped
 
@@ -151,7 +155,7 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     CorrelationImage /= CorrelationImage.max()
     
     # Timer.Start('Find Peak')
-    (peak, weight) = core.FindPeak(CorrelationImage)
+    (peak, weight) = core.FindPeak(CorrelationImage, MinOverlap=MinOverlap)
 
     del CorrelationImage
 
@@ -209,6 +213,10 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     if not Cluster:
         temp_padded_fixed_memmap = core.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
         temp_shared_warp_memmap = core.CreateTemporaryReadonlyMemmapFile(imWarped)
+
+        temp_padded_fixed_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
+        temp_shared_warp_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
+
         # SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
         # SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
@@ -263,14 +271,14 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
     
     # Delete the pool to ensure extra python threads do not stick around
-    if pool:
+    if pool is not None:
         pool.wait_completion()
 
     del PaddedFixed
 
     if not Cluster:
-        os.remove(temp_padded_fixed_memmap.path)
         os.remove(temp_shared_warp_memmap.path)
+        os.remove(temp_padded_fixed_memmap.path)
         # del SharedPaddedFixed
         # del SharedWarped
 

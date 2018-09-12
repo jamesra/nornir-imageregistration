@@ -139,7 +139,7 @@ class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
                                                     int(ScaledFixedRegion[3] - ScaledFixedRegion[1]),
                                                     int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
 
-        core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage], title="image: %s\n%s" % (imageKey, str(transform.FixedBoundingBox)))
+        self.assertTrue(core.ShowGrayscale([result.image, tileImage, croppedWholeImage, wholeimage], title="image: %s\n%s" % (imageKey, str(transform.FixedBoundingBox)), PassFail=True))
 
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir):
