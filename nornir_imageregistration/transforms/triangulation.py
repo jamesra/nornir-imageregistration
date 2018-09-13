@@ -22,7 +22,7 @@ import scipy.spatial
 
 import nornir_imageregistration.spatial as spatial
 import numpy as np
-from transforms.utils import EnsurePointsAre4xN_NumpyArray
+from nornir_imageregistration.transforms.utils import EnsurePointsAre4xN_NumpyArray
  
 
 def distance(A, B):
