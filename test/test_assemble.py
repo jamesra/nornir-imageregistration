@@ -20,8 +20,8 @@ import nornir_shared.images as images
 from . import setup_imagetest
 
 
-def ShowComparison(*args):
-    core.ShowGrayscale(*args)
+def ShowComparison(*args, **kwargs):
+    return core.ShowGrayscale(*args, **kwargs)
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
 
@@ -132,7 +132,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
-        self.assertTrue(ShowComparison([fixedImage, rotatedWarped, transformedImage], title="Identity transform should match scipy.interpolate.rotate result", PassFail=True)
+        self.assertTrue(ShowComparison([fixedImage, rotatedWarped, transformedImage], title="Identity transform should match scipy.interpolate.rotate result", PassFail=True))
+        return
 
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())

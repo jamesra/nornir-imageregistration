@@ -41,7 +41,8 @@ if __name__ == '__main__':
                'nornir-assemble = nornir_imageregistration.scripts.nornir_assemble:Execute',
                'nornir-rotate-transalate = nornir_imageregistration.scripts.nornir_rotate_translate:Execute',
                'nornir-slice-to-mosaic = nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
-               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute', ]
+               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute',
+               'nornir-scaletransform = nornir_imageregistration.scripts.nornir_scaletransform:Execute']
                
     
     # named_scripts = []

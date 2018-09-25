@@ -35,7 +35,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         FixedTriAngles = metrics.TriangleAngles(transform.FixedTriangles, transform.FixedPoints)
 
         CheckTriAngleSum180 = numpy.sum(FixedTriAngles, 1)
-        assert(numpy.alltrue(CheckTriAngleSum180 == numpy.pi))
+        assert(numpy.allclose(CheckTriAngleSum180, numpy.pi, rtol=0.00001))
 
     def test_TriangleAnglesAndView(self):
         #stosFile = os.path.join(self.TestInputPath, 'Transforms','1153-1152_TT.stos')
@@ -120,7 +120,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
 
         img = scipy.interpolate.griddata(self.transform.WarpedPoints, measurement, (grid_x, grid_y), method='cubic')
 
-        self.assertTrue(nornir_imageregistration.ShowGrayscale([img], Title='An image showing transform warp metric', PassFail=True))
+        self.assertTrue(nornir_imageregistration.ShowGrayscale([img], title='An image showing transform warp metric', PassFail=True))
 
 
 

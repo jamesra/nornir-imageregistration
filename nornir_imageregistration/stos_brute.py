@@ -11,7 +11,6 @@ import os
 from time import sleep
 
 import nornir_imageregistration
-import nornir_imageregistration
 from numpy.fft import fftshift
 
 import nornir_imageregistration.core as core
@@ -97,7 +96,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
+def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
     imFixed = core.ImageParamToImageArray(imFixed)
@@ -153,9 +152,12 @@ def ScoreOneAngle(imFixed, imWarped, angle, fixedStats=None, warpedStats=None, F
     CorrelationImage = fftshift(CorrelationImage)
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
-    
+
     # Timer.Start('Find Peak')
-    (peak, weight) = core.FindPeak(CorrelationImage, MinOverlap=MinOverlap)
+
+    OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
+    (peak, weight) = core.FindPeak(CorrelationImage, OverlapMask)
+    del OverlapMask
 
     del CorrelationImage
 
@@ -210,7 +212,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     # Create a shared read-only memory map for the Padded fixed image
 
-    if not Cluster:
+    if not (Cluster or SingleThread):
         temp_padded_fixed_memmap = core.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
         temp_shared_warp_memmap = core.CreateTemporaryReadonlyMemmapFile(imWarped)
 
@@ -226,13 +228,16 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     CheckTaskInterval = 16
 
+    fixed_shape = imFixed.shape
+    warped_shape = imWarped.shape
+
     for i, theta in enumerate(AngleList):
 
         if SingleThread:
-            record = ScoreOneAngle(temp_padded_fixed_memmap, temp_shared_warp_memmap, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
+            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, temp_padded_fixed_memmap, temp_shared_warp_memmap, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
+            task = pool.add_task(str(theta), ScoreOneAngle, temp_padded_fixed_memmap, temp_shared_warp_memmap, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
@@ -276,7 +281,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     del PaddedFixed
 
-    if not Cluster:
+    if not (Cluster or SingleThread):
         os.remove(temp_shared_warp_memmap.path)
         os.remove(temp_padded_fixed_memmap.path)
         # del SharedPaddedFixed

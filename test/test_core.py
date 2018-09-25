@@ -69,26 +69,24 @@ class Test(setup_imagetest.ImageTestBase):
 
         r = core.ROIRange(24, 16, 5)
         self.assertIsNone(r)
-        
+
     def testShowGrayscale(self):
-        
+
         imageA = np.random.rand(64, 64)
         imageB = np.random.rand(64, 64)
-        
+
         self.assertFalse(core.ShowGrayscale(imageA, title="Ensure the FAIL button works by clicking it now, select Pass button for all other tests", PassFail=True))
-        
+
         self.assertTrue(core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title", PassFail=True))
         self.assertTrue(core.ShowGrayscale(imageA, title=None, PassFail=True))
-        
+
         self.assertTrue(core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title", PassFail=True))
         self.assertTrue(core.ShowGrayscale([imageA], title=None, PassFail=True))
-        
+
         self.assertTrue(core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title", PassFail=True))
         self.assertTrue(core.ShowGrayscale([imageA, imageB], title=None, PassFail=True))
-        
-        
-        
-        
+
+
 #    def test_SaveImageJPeg2000(self):
 #        
 #         image_full_path = self.GetImagePath('0162_ds16.png')
@@ -197,7 +195,7 @@ class Test(setup_imagetest.ImageTestBase):
         image = imread(self.FixedImagePath)
         tiles = core.ImageToTiles(image, tile_size=(256, 512))
         
-        self.assertTrue(core.ShowGrayscale(tiles.values(), "Expecting 512 wide x 256 tall tiles", PassFail=True))
+        self.assertTrue(core.ShowGrayscale(list(tiles.values()), "Expecting 512 wide x 256 tall tiles", PassFail=True))
         
 
     def testReplaceImageExtramaWithNoise(self):

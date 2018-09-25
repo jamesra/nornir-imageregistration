@@ -29,10 +29,12 @@ from nornir_imageregistration.core import *
 from nornir_imageregistration.mosaic import Mosaic
 from nornir_imageregistration.spatial import *
 from nornir_imageregistration.volume import Volume
+from nornir_imageregistration.overlapmasking import GetOverlapMask
 
 import nornir_imageregistration.files as files
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
+
 
 
 __all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']

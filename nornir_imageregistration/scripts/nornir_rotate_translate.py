@@ -85,7 +85,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=float,
-                        default=None,
+                        default=0.5,
                         help='images are known to overlap by at least this percentage',
                         dest='minoverlap'
                         )

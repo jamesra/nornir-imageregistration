@@ -11,6 +11,8 @@ from pylab import *
 
 import nornir_imageregistration.core as core
 import nornir_imageregistration.stos_brute as stos_brute
+from nornir_imageregistration.spatial import Rectangle
+
 
 from . import setup_imagetest
 
@@ -104,7 +106,7 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         self.assertEqual(record.angle, 0.0)
         self.assertAlmostEqual(record.peak[0], 452, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
         self.assertAlmostEqual(record.peak[1], -10, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
-          
+    
 #      
 #     def test_DifficultRC2RodCellBodies(self):
 #         '''These tiles do not align with the current version of the code.  When we use only the overlapping regions the do overlap correctly.'''

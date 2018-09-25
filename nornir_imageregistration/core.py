@@ -24,6 +24,7 @@ import nornir_shared.images as shared_images
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+import overlapmasking
 
 
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
@@ -83,36 +84,57 @@ class ImageStats(object):
     @property
     def std(self):
         return self._std
-
+    
     @std.setter
     def std(self, val):
         self._std = val
+    
+    @property
+    def min(self):
+        return self._min
+    
+    @min.setter
+    def min(self, val):
+        self._min = val
+    
+    @property
+    def max(self):
+        return self._max
+    
+    @max.setter
+    def max(self, val):
+        self._max = val
+
+    
 
     def __init__(self):
         self._median = None
         self._std = None
+        self._min = None
+        self._max = None
 
     @classmethod
     def CalcStats(cls, image):
         obj = ImageStats()
-        obj.median = np.median(image.flat)
-        obj.std = np.std(image.flat)
+        flatImage = image.flat
+        obj.median = np.median(flatImage)
+        obj.std = np.std(flatImage)
+        obj.max = np.max(flatImage)
+        obj.min = np.min(flatImage)
         return obj
     
-    def GenerateNoise(self, shape, limits=None):
+    def GenerateNoise(self, shape):
         '''
-        Generate random data of shape with the specified mean and standard deviation
-        :param array shape: Shape of the returned array
-        :param array limits: Min,Max cutoffs for returned array 
+        Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
+        :param array shape: Shape of the returned array 
         '''
         data = (np.random.randn(shape.astype(np.int64)).astype(np.float32) * self.std) + self.median
     
-        if limits is not None:
-            belowLimit = data < limits[0]
-            data[belowLimit] = limits[0]
-            
-            aboveLimit = data > limits[1]
-            data[aboveLimit] = limits[1]
+        if self.median - (self.std * 2) < self.min:
+            data[data < self.min] = self.min
+        
+        if self.median + (self.std * 2) > self.max:
+            data[data > self.max] = self.max
             
         return data
     
@@ -196,32 +218,42 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
         return
 
     class PassFailInput(object):
-        def __init__(self):
-            self.Pass = True
+        
+        def __init__(self, fig):
+            self.Pass = None
+            self.fig = fig
+            
 
         def OnPassButton(self, event):
-            self.Pass = True
-            plt.close()
+            self.Pass = True   
             return
 
         def OnFailButton(self, event):
-            self.Pass = False
-            plt.close()
-            return 
-
+            self.Pass = False 
+            return
+                
     fig = None
+    axes = None
 
     if isinstance(imageList, np.ndarray):
-        plt.imshow(imageList, cmap=plt.gray())
-        set_title_for_single_image(title)
+        imageList = _Image_To_Uint8(imageList)
+        fig, ax = plt.subplots()
+        ax.imshow(imageList, cmap=plt.gray())
+        if not title is None:
+            ax.set_title(title)
+            
     elif isinstance(imageList, collections.Iterable):
-
+        for (i, img) in enumerate(imageList):
+            imageList[i] = _Image_To_Uint8(img)
+            
         if len(imageList) == 1:
-            plt.imshow(imageList[0], cmap=plt.gray())
-            set_title_for_single_image(title)
+            fig, ax = plt.subplots()
+            ax.imshow(imageList[0], cmap=plt.gray())
+            if not title is None:
+                ax.set_title(title)
         else: 
             height, width = _GridLayoutDims(imageList)
-            fig, axeslist = plt.subplots(height, width)
+            fig, axes = plt.subplots(height, width)
             set_title_for_multi_image(fig, title)
 
             for i, image in enumerate(imageList):
@@ -234,15 +266,18 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
                     print("Row %d Col %d" % (iRow, iCol))
 
                     if height > 1:
-                        ax = axeslist[iRow, iCol ]
+                        ax = axes[iRow, iCol ]
                     else:
-                        ax = axeslist[iCol]
+                        ax = axes[iCol]
 
                     ax.imshow(image, cmap=plt.gray(), figure=fig)  
     else:
         return
 
-    callback = PassFailInput()
+    callback = PassFailInput(fig)
+    
+    fig.tight_layout()
+
     if PassFail == True:
         axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
         axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
@@ -251,14 +286,21 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
         bnext.on_clicked(callback.OnPassButton)
         bprev = Button(axprev, 'Fail', color='#FF0000')
         bprev.on_clicked(callback.OnFailButton)
-        plt.tight_layout(pad=1.0)  
-        plt.show()
-    
+        #plt.tight_layout(pad=1.0)  
+        fig.show()
+        
+        while callback.Pass is None:
+            fig.waitforbuttonpress()
+            
+        plt.close(fig)
+
     else:
-        plt.tight_layout(pad=1.0)  
-        plt.show()
+        #plt.tight_layout(pad=1.0)  
+        fig.show(block=True)
     # Do not call clf or we get two windows on the next call 
     # plt.clf()
+ 
+    fig = None
 
     return callback.Pass
 
@@ -419,7 +461,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
     
     if not rMask is None:
-        RandomNoiseMask(cropped, rMask, Copy=False)
+        return RandomNoiseMask(cropped, rMask, Copy=False)
 
     return cropped
 
@@ -443,14 +485,18 @@ def CreateTemporaryReadonlyMemmapFile(npArray):
     return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
 
 
-def GenRandomData(height, width, mean, standardDev):
+def GenRandomData(height, width, mean, standardDev, min, max):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
     image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
 
-    if mean - (standardDev * 2) < 0:
-        image = abs(image)
+    if mean - (standardDev * 2) < min:
+        image[image < min] = min
+        
+    if mean + (standardDev * 2) > max:
+        image[image > max] = max 
+        
     return image
 
 
@@ -496,7 +542,8 @@ def _Image_To_Uint8(image):
         return image
     
     if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
-        image = image * 255.0
+        if image.max() <= 1:
+            image = image * 255.0
 
     if image.dtype == np.bool:
         image = image.astype(np.uint8) * 255
@@ -746,7 +793,7 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
             
         del UnmaskedImage1D
  
-    NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
+    NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev, image.min(), image.max())
 
     # iMasked = transpose(nonzero(iMasked))
     Image1D[iMasked] = NoiseData
@@ -780,7 +827,7 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     
     if num_pixels > 0:
         OutputImage1d = OutputImage.flat
-        randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev)
+        randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev, minima, maxima)
         OutputImage1d[maxima_index] = randData[0:len(maxima_index)]
         OutputImage1d[minima_index] = randData[len(maxima_index):]
 
@@ -793,6 +840,9 @@ def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     '''
     :return: Same as DimensionWithOverlap, but output dimension is increased to the next power of two for faster FFT operations
     '''
+    
+    if overlap is None:
+        overlap = 0.0
 
     if overlap > 1.0:
         overlap = 1.0
@@ -845,6 +895,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     Height = Size[0]
     Width = Size[1]
+    MinVal = image.min()
+    MaxVal = image.max()
 
     if(NewHeight is None):
         if PowerOfTwo:
@@ -878,8 +930,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
 
     if not Width == NewWidth:
-        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev)
-        RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev)
+        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev, MinVal, MaxVal)
 
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
@@ -889,8 +941,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     if not Height == NewHeight:
 
-        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev)
-        BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev)
+        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
         PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
@@ -984,24 +1036,31 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
 
 
 # @profile
-def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
+def FindPeak(image, OverlapMask=None, Cutoff=0.995):
     '''
     Find the offset of the strongest response in a phase correlation image
     
     :param ndimage image: grayscale image
     :param float Cutoff: Percentile used to threshold image.  Values below the percentile are ignored
-    :param float MinOverlap: Minimum overlap allowed
-    :param float MaxOverlap: Maximum overlap allowed
+    :param ndimage OverlapMask: Mask describing which pixels are eligible
     :return: Offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
 
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
-    CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-
+    #CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
     ThresholdImage = numpy.array(image)
+
+    if OverlapMask is not None:
+        CutoffValue = np.percentile(image[OverlapMask], q=Cutoff*100.0 )
+        ThresholdImage[OverlapMask == False] = 0
+    else:
+        CutoffValue = np.percentile(image, q=Cutoff*100.0 )
+
+
     ThresholdImage[ThresholdImage < CutoffValue] = 0
+        
     #ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # ShowGrayscale(ThresholdImage)
 
@@ -1029,36 +1088,6 @@ def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOve
         return CorrelationImage
 
 
-def CreateOverlapMask(FixedImageSize, MovingImageSize, CorrellationImageSize, MinOverlap=0.0, MaxOverlap=1.0):
-    '''Defines a mask that determines which peaks should be considered
-    :param array FixedImageSize: Shape of fixed image, before padding
-    :param array MovingImageSize: Shape of moving image, before padding
-    :param array CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
-    :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
-    :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
-    :return: An mxn image mask, with 1 indicating allowed peak locations
-    '''
-
-    MovingImageArea = np.prod(MovingImageSize)
-
-    Mask = np.zeros(CorrellationImageSize, dtype=np.bool)
-
-    Center = CorrellationImageSize // 2
-    HalfFixedDims = FixedImageSize // 2
-    
-    #Default to anywhere with 0 to 1 overlap being valid 
-    Mask[Center[0]-HalfFixedDims[0]:Center[0]+HalfFixedDims[0], Center[1]-HalfFixedDims[1]:Center[1]+HalfFixedDims[1]] = True
-    
-    
-
-    MaxWidth = FixedImageSize[1] + MovingImageSize[1]
-    MaxHeight = FixedImageSize[0] + MovingImageSize[0]
-
-    mask = np.ones([MaxHeight, MaxWidth], dtype=np.bool)
-
-    raise NotImplementedError()
-
-
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
        moving image must be rotated and translated to align perfectly with the FixedImage
@@ -1066,6 +1095,8 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
+    
+    
     
     CorrelationImage = None
     if FFT_Required:
@@ -1081,7 +1112,8 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
-    (peak, weight) = FindPeak(CorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap)
+    OverlapMask = overlapmasking.GetOverlapMask(FixedImage.shape, MovingImage.shape, CorrelationImage.shape, MinOverlap, MaxOverlap)
+    (peak, weight) = FindPeak(CorrelationImage, OverlapMask)
 
     del CorrelationImage
 
