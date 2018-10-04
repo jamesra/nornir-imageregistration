@@ -86,7 +86,6 @@ def SliceToSliceBruteForce(FixedImageInput,
     else:
         BestRefinedMatch = BestMatch
 
-
     if scalar > 1.0:
         AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
         BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle, IsFlipped)
@@ -187,6 +186,9 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
     Cluster = False
+    
+    if len(AngleList) == 0:
+        SingleThread = True
 
     if not SingleThread:
         if Debug:
