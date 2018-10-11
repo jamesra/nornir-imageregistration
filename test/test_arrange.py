@@ -46,7 +46,7 @@ def _GetBestOffsetPair(layout_obj):
     return (TileA_ID, TileB_ID)
 
 
-class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
+class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
 
     def test_Alignments(self):
 
@@ -94,7 +94,7 @@ class TestBasicTileAlignment(setup_imagetest.MosaicTestBase):
         # self.assertAlmostEqual(alignrecord.peak[0], ExpectedOffset[0], delta=2, msg="Y dimension incorrect: " + str(alignrecord.peak) + " != " + str(ExpectedOffset))
 
 
-class TestMosaicArrange(setup_imagetest.MosaicTestBase, setup_imagetest.PickleHelper):
+class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.PickleHelper):
 
     @property
     def Dataset(self):

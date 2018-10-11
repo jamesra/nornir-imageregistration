@@ -176,8 +176,6 @@ def ParseGridTransform(parts, pixelSpacing=None):
         iY = (i / 2) // gridWidth
         iX = (i / 2) % gridWidth
 
-        # print str((iX,iY))
-
         mappedX = (float(iX) / float(gridWidth - 1)) * ImageWidth
         mappedY = (float(iY) / float(gridHeight - 1)) * ImageHeight
         ControlX = VariableParameters[i]

@@ -23,21 +23,23 @@ from . import setup_imagetest
 
 
 # from pylab import *
-class TestMosaicAssemble(setup_imagetest.MosaicTestBase):
+class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
     def DownsampleFromTilePath(self, tilePath):
         downsamplePath = os.path.basename(tilePath)
         return float(downsamplePath)
 
     def setUp(self):
-        setup_imagetest.MosaicTestBase.setUp(self)
+        super(TestMosaicAssemble, self).setUp()
+        
+        self.assertTrue(len(self.GetMosaicFiles()) > 0, "No mosaic files found to test!")
 
-        # Make sure we save images before starting a long test
+        # Make sure we can save images before starting a long test
         z = np.zeros((16, 16))
         outputImagePath = os.path.join(self.TestOutputPath, 'z.png')
         imsave(outputImagePath, z)
 
-        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
+        self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found, test cannot write to disk!")
 
         os.remove(outputImagePath)
 

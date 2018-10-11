@@ -1,7 +1,6 @@
 '''
 '''
 
-
 import os
 
 import nornir_imageregistration
@@ -76,7 +75,12 @@ class AlignmentRecord:
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
     def __str__(self):
-        s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
+        s = 'Offset: {x:.2}, {y:.2} Weight: {w:.2}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
+        
+        if self._angle != 0:
+            s += ' Angle: {0:.2}'.format(self._angle)
+            
+        # s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
         if self.flippedud:
             s += ' Flipped up/down'
             
@@ -124,8 +128,8 @@ class AlignmentRecord:
 
         transform = self.ToTransform(fixedImageSize, warpedImageSize)
 
-        #Flipped is always false because the transform is already flipped if needed
-        warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0), flip_ud = False)
+        # Flipped is always false because the transform is already flipped if needed
+        warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0), flip_ud=False)
 
         fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
 
@@ -193,3 +197,34 @@ class AlignmentRecord:
 #        print "Done!"
 
         return stos
+    
+
+class EnhancedAlignmentRecord(AlignmentRecord):
+    '''
+    An extension of the AlignmentRecord class that also records the Fixed and Warped Points
+    '''
+    
+    @property
+    def ID(self):
+        return self._ID
+    
+    @property
+    def FixedPoint(self):
+        return self._FixedPoint
+    
+    @property
+    def OriginalWarpedPoint(self):
+        return self._OriginalWarpedPoint
+    
+    @property
+    def AdjustedWarpedPoint(self):
+        return self._OriginalWarpedPoint + self.peak
+    
+    def __init__(self, ID, FixedPoint, WarpedPoint, peak, weight, angle=0.0, flipped_ud=False):
+        
+        super(EnhancedAlignmentRecord, self).__init__(peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud)
+        self._ID = ID
+        self._FixedPoint = FixedPoint
+        self._OriginalWarpedPoint = WarpedPoint
+        
+    

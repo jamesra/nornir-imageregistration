@@ -34,7 +34,7 @@ class PickleHelper(object):
     
     
     def SaveVariable(self, var, path):
-        fullpath = os.path.join(self.TestCachePath, path)
+        fullpath = os.path.join(self.TestCachePath, path + ".pickle")
 
         if not os.path.exists(os.path.dirname(fullpath)):
             os.makedirs(os.path.dirname(fullpath))
@@ -154,7 +154,7 @@ class ImageTestBase(TestBase):
         super(ImageTestBase, self).setUp()
 
 
-class MosaicTestBase(TestBase):
+class TransformTestBase(TestBase):
 
     @property
     def TestName(self):
@@ -162,10 +162,19 @@ class MosaicTestBase(TestBase):
     
     @property
     def TestOutputPath(self):
-        return os.path.join(super(MosaicTestBase, self).TestOutputPath, self.id())
+        return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def GetMosaicFiles(self):
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
+    
+    def GetMosaicFile(self, filenamebase):
+        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, filenamebase + ".mosaic"))[0]
+    
+    def GetStosFiles(self):
+        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.stos"))
+    
+    def GetStosFile(self, filenamebase):
+        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, filenamebase + ".stos"))[0]
 
     def GetTileFullPath(self, downsamplePath=None):
         if downsamplePath is None:
@@ -183,7 +192,7 @@ class MosaicTestBase(TestBase):
                 if not os.path.exists(self.TestOutputPath):
                     os.makedirs(self.TestOutputPath)
 
-        super(MosaicTestBase, self).setUp()
+        super(TransformTestBase, self).setUp()
         
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''

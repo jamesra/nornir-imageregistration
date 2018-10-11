@@ -70,7 +70,7 @@ class TestMath(unittest.TestCase):
 
         return
 
-class TestIO(test.setup_imagetest.MosaicTestBase):
+class TestIO(test.setup_imagetest.TransformTestBase):
 
     @property
     def TestName(self):

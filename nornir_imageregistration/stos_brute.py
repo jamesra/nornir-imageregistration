@@ -169,10 +169,9 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     tpool = nornir_pools.GetGlobalThreadPool()
 
     fixedStatsTask = tpool.add_task('FixedStats', core.ImageStats.CalcStats, imFixed)
-    warpedStatsTask = tpool.add_task('WarpedStats', core.ImageStats.CalcStats, imWarped)
+    warpedStats = core.ImageStats.CalcStats(imWarped)
 
     fixedStats = fixedStatsTask.wait_return()
-    warpedStats = warpedStatsTask.wait_return()
 
     return (fixedStats, warpedStats)
 

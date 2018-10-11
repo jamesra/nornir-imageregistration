@@ -66,6 +66,25 @@ class StosFile(object):
         assert(os.path.exists(path))
         stosObj = StosFile.Load(path)
         return stosObj.Checksum
+    
+    @property
+    def Transform(self):
+        return self._Transform
+    
+    @Transform.setter
+    def Transform(self, val):
+        if val is None:
+            self._Transform = None
+            return 
+        
+        if isinstance(val, nornir_imageregistration.transforms.base.Base):
+            self._Transform = nornir_imageregistration.transforms.factory.TransformToIRToolsString(val)
+        elif isinstance(val, str):
+            self._Transform = val
+        else:
+            raise TypeError("Transform must be a transform object or a ITK transform string")
+        
+        return
 
     @property
     def Downsample(self):
@@ -222,8 +241,6 @@ class StosFile(object):
 
         self.ControlImageDim = None
         self.MappedImageDim = None
-
-        self.Transform = None
 
         self.StosSource = None
 
