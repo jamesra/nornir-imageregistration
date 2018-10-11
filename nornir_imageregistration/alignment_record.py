@@ -40,7 +40,7 @@ class AlignmentRecord:
 
     @weight.setter
     def weight(self, value):
-        self._weight = value
+        self._weight = float(value)
 
     @property
     def flippedud(self):
@@ -96,7 +96,7 @@ class AlignmentRecord:
             peak = np.array(peak)
 
         self._peak = peak
-        self._weight = weight
+        self._weight = float(weight)
         self._flippedud = flipped_ud
 
     def CorrectPeakForOriginalImageSize(self, FixedImageShape, MovingImageShape):
