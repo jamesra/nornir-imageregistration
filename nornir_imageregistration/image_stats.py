@@ -22,8 +22,8 @@ import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 
-from . import core
-from . import im_histogram_parser
+import nornir_imageregistration.core
+import nornir_imageregistration.im_histogram_parser  
 
 
 class ImageStats():
@@ -107,13 +107,12 @@ class ImageStats():
         
         obj = ImageStats()
         flatImage = image.flat
-        obj.median = numpy.median(flatImage)
-        obj.mean = numpy.mean(flatImage)
-        obj.std = numpy.std(flatImage)
-        obj.max = numpy.max(flatImage)
-        obj.min = numpy.min(flatImage)
-#
-#        
+        obj._median = numpy.median(flatImage)
+        obj._mean = numpy.mean(flatImage)
+        obj._std = numpy.std(flatImage)
+        obj._max = numpy.max(flatImage)
+        obj._min = numpy.min(flatImage)
+         
 #        image.__IrtoolsImageStats__ = obj
         return obj
     
@@ -212,7 +211,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
         # PrettyOutput.LogErr(filename + ' not found when attempting prune')
         return None
 
-    Im = core.LoadImage(filename)
+    Im = nornir_imageregistration.core.LoadImage(filename)
     (Height, Width) = Im.shape
 
     StdDevList = []
@@ -260,7 +259,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0.75
 
     del Im
-    # core.ShowGrayscale(Im)
+    # nornir_imageregistration.core.ShowGrayscale(Im)
     return (filename, sum(StdDevList))
 
 def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
@@ -314,7 +313,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
 
         OutputMap[f] = lines
 
-        (fminVal, fmaxVal) = im_histogram_parser.MinMaxValues(lines)
+        (fminVal, fmaxVal) = nornir_imageregistration.im_histogram_parser .MinMaxValues(lines)
         if minVal is None:
             minVal = fminVal
         else:
@@ -329,7 +328,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
      
     thread_pool = nornir_pools.GetGlobalThreadPool()
     for f in list(OutputMap.keys()):
-        threadTask = thread_pool.add_task(f, im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
+        threadTask = thread_pool.add_task(f, nornir_imageregistration.im_histogram_parser .Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
         threadTasks.append(threadTask)
         
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
@@ -381,7 +380,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
 
     Im = None
     if isinstance(filename, str):
-        Im = core.LoadImage(filename)
+        Im = nornir_imageregistration.core.LoadImage(filename)
     else:
         Im = filename
         
