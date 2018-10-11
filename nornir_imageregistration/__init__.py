@@ -30,6 +30,7 @@ from nornir_imageregistration.mosaic import Mosaic
 from nornir_imageregistration.spatial import *
 from nornir_imageregistration.volume import Volume
 from nornir_imageregistration.overlapmasking import GetOverlapMask
+from nornir_imageregistration.local_distortion_correction import RefineMosaic
 
 import nornir_imageregistration.files as files
 import nornir_imageregistration.tileset as tileset

@@ -145,8 +145,16 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
     
     if maxCoord[0] > input_image.shape[0]:
         maxCoord[0] = input_image.shape[0]
+        if minCoord[0] > maxCoord[0]:
+            minCoord[0] = maxCoord[0]
+            
     if maxCoord[1] > input_image.shape[1]:
         maxCoord[1] = input_image.shape[1]
+        if minCoord[1] > maxCoord[1]:
+            minCoord[1] = maxCoord[1]
+        
+    Width = int(maxCoord[1] - minCoord[1])
+    Height = int(maxCoord[0] - minCoord[0])
 
     cropped_image = core.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=int(maxCoord[1] - minCoord[1]), Height=int(maxCoord[0] - minCoord[0]), cval=cval)
     translated_coordinates = coordinates - minCoord
@@ -183,6 +191,13 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     # if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
         # if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
         (subroi_warpedImage, warped_coords) = __CropImageToFitCoords(WarpedImage, warped_coords, cval=cval)
+        if subroi_warpedImage.shape[0] == 0 or subroi_warpedImage.shape[1] == 0:
+            #No points transformed into the requested area, return empty area
+            transformedImage = np.full((area), cval, dtype=WarpedImage.dtype)
+            
+            del WarpedImage
+            return transformedImage
+        
         del WarpedImage
     else:
         subroi_warpedImage = WarpedImage
@@ -275,7 +290,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     :Param botleft: Origin of region to map
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
-    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
+    :param bool extrapolate: If true map points that fall outside the bounding box of the transform
     '''
 
     if botleft is None:
@@ -327,12 +342,12 @@ def ParameterToStosTransform(transformData):
         
     return stostransform
 
-def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):
+def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
     '''Assembles an image based on the passed transform.
-    :param bool fixedImageFilename: Image describing the size we want the warped image to fill
-    :param bool warpedImageFilename: Image we will warp into fixed space
+    :param str fixedImage: Image describing the size we want the warped image to fill, either a string or ndarray
+    :param str warpedImage: Image we will warp into fixed space, either a string or ndarray
     :param float scalar: Amount to scale the transform before passing the image through
-    :param bool CropUndefined: If true do exclude areas outside the convex hull of the transform, if it exists
+    :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
     :param bool Dicreet: True causes points outside the defined transform region to be clipped instead of interpolated
     :return: transformed image
     '''
@@ -340,28 +355,25 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
     stos = None
     stostransform = ParameterToStosTransform(transformData)
 
-    if CropUndefined:
-        stostransform = triangulation.Triangulation(pointpairs=stostransform.points)
-
-    if fixedImageFilename is None:
+    if fixedImage is None:
         if stos is None:
             return None
 
-        fixedImageFilename = stos.ControlImageFullPath
+        fixedImage = stos.ControlImageFullPath
 
-    if warpedImageFilename is None:
+    if warpedImage is None:
         if stos is None:
             return None
 
-        warpedImageFilename = stos.MappedImageFullPath
+        warpedImage = stos.MappedImageFullPath
 
-    fixedImageSize = core.GetImageSize(fixedImageFilename)
+    fixedImageSize = core.GetImageSize(fixedImage)
     fixedImageShape = np.array(fixedImageSize) * scalar
-    warpedImage = core.LoadImage(warpedImageFilename)
+    warpedImage = core.ImageParamToImageArray(warpedImage)
 
     stostransform.points = stostransform.points * scalar
 
-    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage)
+    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         imsave(OutputFilename, warpedImage, cmap='gray')
@@ -369,11 +381,21 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
     return warpedImage
 
 
-def TransformImage(transform, fixedImageShape, warpedImage):
-    '''Cut image into tiles, assemble small chunks'''
+def TransformImage(transform, fixedImageShape, warpedImage, CropUndefined):
+    '''Cut image into tiles, assemble small chunks
+    :param transform transform: Transform to apply to point to map from warped image to fixed space
+    :param ndarray fixedImageShape: Width and Height of the image to create
+    :param ndarray warpedImage: Image to transform to fixed space
+    :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
+    :return: An ndimage array of the transformed image
+    '''
+    
+    if CropUndefined:
+        transform = triangulation.Triangulation(pointpairs=transform.points)
 
     tilesize = [2048, 2048]
 
+    fixedImageShape = fixedImageShape.astype(dtype=np.int64)
     height = int(fixedImageShape[0])
     width = int(fixedImageShape[1])
  
@@ -385,7 +407,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
     
     if np.all(grid_shape == np.array([1, 1])):
         # Single threaded
-        return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape)
+        return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape, extrapolate=not CropUndefined)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
         sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
@@ -404,7 +426,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
                 if end_iX > width:
                     end_iX = width
     
-                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined)
                 task.iY = iY
                 task.end_iY = end_iY
                 task.iX = iX
