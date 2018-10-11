@@ -106,6 +106,14 @@ def _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSi
 
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0,0), FixedImageSize)
     WarpedImageRect = None
+    
+    maxPossibleOverlap = float(np.prod(FixedImageSize)) / float(np.prod(MovingImageSize))
+    if maxPossibleOverlap > 1.0:
+        maxPossibleOverlap = 1.0 / maxPossibleOverlap
+        
+    #Scale the min/max values to account for any size mismatch
+    MinOverlap = MinOverlap * maxPossibleOverlap
+    MaxOverlap = MaxOverlap * maxPossibleOverlap 
 
     for ix in range(0, Mask.shape[1]):
         for iy in range(0, Mask.shape[0]):
