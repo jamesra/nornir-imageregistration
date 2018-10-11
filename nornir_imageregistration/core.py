@@ -25,6 +25,7 @@ import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
 import overlapmasking
+from nornir_imageregistration.image_stats import ImageStats
 
 
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
@@ -68,76 +69,7 @@ class memmap_metadata(object):
         self._dtype = dtype
         self._mode = None
         self.mode = mode
-    
-
-class ImageStats(object):
-    '''A container for image statistics'''
-
-    @property
-    def median(self):
-        return self._median
-
-    @median.setter
-    def median(self, val):
-        self._median = val
-
-    @property
-    def std(self):
-        return self._std
-    
-    @std.setter
-    def std(self, val):
-        self._std = val
-    
-    @property
-    def min(self):
-        return self._min
-    
-    @min.setter
-    def min(self, val):
-        self._min = val
-    
-    @property
-    def max(self):
-        return self._max
-    
-    @max.setter
-    def max(self, val):
-        self._max = val
-
-    
-
-    def __init__(self):
-        self._median = None
-        self._std = None
-        self._min = None
-        self._max = None
-
-    @classmethod
-    def CalcStats(cls, image):
-        obj = ImageStats()
-        flatImage = image.flat
-        obj.median = np.median(flatImage)
-        obj.std = np.std(flatImage)
-        obj.max = np.max(flatImage)
-        obj.min = np.min(flatImage)
-        return obj
-    
-    def GenerateNoise(self, shape):
-        '''
-        Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
-        :param array shape: Shape of the returned array 
-        '''
-        data = (np.random.randn(shape.astype(np.int64)).astype(np.float32) * self.std) + self.median
-    
-        if self.median - (self.std * 2) < self.min:
-            data[data < self.min] = self.min
         
-        if self.median + (self.std * 2) > self.max:
-            data[data > self.max] = self.max
-            
-        return data
-    
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
     if array.ndim == 1:
@@ -234,6 +166,9 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
                 
     fig = None
     axes = None
+    
+    if isinstance(imageList, str):
+        imageList = ImageParamToImageArray(imageList)
 
     if isinstance(imageList, np.ndarray):
         imageList = _Image_To_Uint8(imageList)
@@ -244,6 +179,9 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
             
     elif isinstance(imageList, collections.Iterable):
         for (i, img) in enumerate(imageList):
+            if isinstance(img, str):
+                img = ImageParamToImageArray(img)
+                
             imageList[i] = _Image_To_Uint8(img)
             
         if len(imageList) == 1:
@@ -296,7 +234,7 @@ def ShowGrayscale(imageList, title=None,PassFail=False):
 
     else:
         #plt.tight_layout(pad=1.0)  
-        fig.show(block=True)
+        fig.show()
     # Do not call clf or we get two windows on the next call 
     # plt.clf()
  
@@ -500,8 +438,9 @@ def GenRandomData(height, width, mean, standardDev, min, max):
     return image
 
 
-def GetImageSize(ImageFullPath):
+def GetImageSize(image_param):
     '''
+    :param image_param str: Either a path to an image file or an ndarray
     :returns: Image (height, width)
     :rtype: tuple
     '''
@@ -509,18 +448,21 @@ def GetImageSize(ImageFullPath):
     # if not os.path.exists(ImageFullPath):
         # raise ValueError("%s does not exist" % (ImageFullPath))
         
-    (root, ext) = os.path.splitext(ImageFullPath)
+    if isinstance(image_param, np.ndarray):
+        return image_param.shape
+        
+    (root, ext) = os.path.splitext(image_param)
     
     image = None
     try:
         if ext == '.npy':
-            image = _LoadImageByExtension(ImageFullPath)
+            image = _LoadImageByExtension(image_param)
             return image.shape
         else:
-            image = Image.open(ImageFullPath)
+            image = Image.open(image_param)
             return (image.size[1], image.size[0])
     except IOError:
-        raise IOError("Unable to read size from %s" % (ImageFullPath))
+        raise IOError("Unable to read size from %s" % (image_param))
     finally:
         del image
 
@@ -543,6 +485,9 @@ def _Image_To_Uint8(image):
     
     if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
         if image.max() <= 1:
+            image = image * 255.0
+        else:
+            image /= image.max()
             image = image * 255.0
 
     if image.dtype == np.bool:

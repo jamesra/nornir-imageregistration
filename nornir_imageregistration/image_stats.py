@@ -27,18 +27,47 @@ from . import im_histogram_parser
 
 
 class ImageStats():
-
+    '''A container for image statistics'''
+    
     @property
     def median(self):
         return self._median
 
+    @median.setter
+    def median(self, val):
+        self._median = val
+        
     @property
     def mean(self):
         return self._mean
 
+    @mean.setter
+    def mean(self, val):
+        self._mean = val
+
     @property
-    def stddev(self):
-        return self._stddev
+    def std(self):
+        return self._std
+    
+    @std.setter
+    def std(self, val):
+        self._std = val
+    
+    @property
+    def min(self):
+        return self._min
+    
+    @min.setter
+    def min(self, val):
+        self._min = val
+    
+    @property
+    def max(self):
+        return self._max
+    
+    @max.setter
+    def max(self, val):
+        self._max = val
 
     def __init__(self):
         self._median = None
@@ -46,31 +75,62 @@ class ImageStats():
         self._stddev = None
 
     def __getstate__(self):
-        dict = {}
-        dict['_median'] = self._median 
-        dict['_mean'] = self._mean
-        dict['_stddev'] = self._stddev
-        return dict
+        d = {}
+        d['_median'] = self._median 
+        d['_mean'] = self._mean
+        d['_std'] = self._std
+        d['_min'] = self._min
+        d['_max'] = self._max
+        return d
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+        
+    @classmethod
+    def CalcStats(cls, image):
+        return ImageStats.Create(image)
 
     @classmethod
-    def Create(cls, Image):
+    def Create(cls, image):
         '''Returns an object with the mean,median,std.dev of an image,
            this object is attached to the image object and only calculated once'''
 
-        if '__IrtoolsImageStats__' in Image.__dict__:
-            return Image.__dict__["__IrtoolsImageStats__"]
-
-        istats = ImageStats()
-
-        istats._median = median(Image)
-        istats._mean = mean(Image)
-        istats._stddev = std(Image)
-
-        Image.__dict__["__IrtoolsImageStats__"] = istats
-        return istats
+#        I removed this cache in the image object of the statistics.  I believe 
+#        Python 3 had issues with it.  If there are performance problems we 
+#        should add it back
+#         try:
+#             cachedVal = image.__IrToolsImageStats__
+#             if cachedVal is not None:
+#                 return cachedVal
+#         except AttributeError:
+#             pass
+        
+        obj = ImageStats()
+        flatImage = image.flat
+        obj.median = numpy.median(flatImage)
+        obj.mean = numpy.mean(flatImage)
+        obj.std = numpy.std(flatImage)
+        obj.max = numpy.max(flatImage)
+        obj.min = numpy.min(flatImage)
+#
+#        
+#        image.__IrtoolsImageStats__ = obj
+        return obj
+    
+    def GenerateNoise(self, shape):
+        '''
+        Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
+        :param array shape: Shape of the returned array 
+        '''
+        data = (numpy.random.randn(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
+    
+        if self.median - (self.std * 2) < self.min:
+            data[data < self.min] = self.min
+        
+        if self.median + (self.std * 2) > self.max:
+            data[data > self.max] = self.max
+             
+        return data
 
 
 def Prune(filenames, MaxOverlap=None):
