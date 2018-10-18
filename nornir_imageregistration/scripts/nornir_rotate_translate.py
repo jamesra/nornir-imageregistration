@@ -89,6 +89,15 @@ def __CreateArgParser(ExecArgs=None):
                         help='images are known to overlap by at least this percentage',
                         dest='minoverlap'
                         )
+    
+    parser.add_argument('-checkflip', '-flip',
+                        action='store',
+                        required=False,
+                        type=bool,
+                        default=False,
+                        help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
+                        dest='testflip'
+                        )
 
     return parser
 
@@ -178,7 +187,12 @@ def Execute(ExecArgs=None):
 
     stosArgs = StosBruteArgs(Args)
 
-    alignRecord = sb.SliceToSliceBruteForce(stosArgs.ControlImage, stosArgs.WarpedImage, stosArgs.ControlMask, stosArgs.WarpedMask, MinOverlap=Args.minoverlap)
+    alignRecord = sb.SliceToSliceBruteForce( stosArgs.ControlImage,
+                                             stosArgs.WarpedImage,
+                                             stosArgs.ControlMask,
+                                             stosArgs.WarpedMask,
+                                             MinOverlap=Args.minoverlap,
+                                             TestFlip=Args.testflip)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,
