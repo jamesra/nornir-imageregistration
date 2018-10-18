@@ -292,7 +292,7 @@ class Triangulation(Base):
         return AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
 
     def Transform(self, points, **kwargs):
-        '''Map points from the fixed space to the warped space'''
+        '''Map points from the warped space to fixed space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -310,7 +310,7 @@ class Triangulation(Base):
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''Map points from the warped space to the fixed space'''
+        '''Map points from the fixed space to the warped space'''
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -671,7 +671,7 @@ class Triangulation(Base):
     def __init__(self, pointpairs):
         '''
         Constructor requires at least three point pairs
-        :param ndarray pointpairs: [ControlX, ControlY, MappedX, MappedY] 
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
         '''
         super(Triangulation, self).__init__()
 

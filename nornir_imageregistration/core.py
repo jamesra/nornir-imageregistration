@@ -70,6 +70,31 @@ class memmap_metadata(object):
         self._mode = None
         self.mode = mode
         
+def ravel_index(idx, shp):
+    '''
+    Convert a nx2 numpy array of coordinates into array indicies
+    
+    The arrays we expect are in this shape [[X1,Y1],
+                                    [X2,Y2],
+                                    [XN,YN]]
+    '''
+    
+    if idx.shape[0] != shp[-1]:
+        idx = np.transpose(idx)
+    
+    return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1],[1])).dot(idx))
+
+
+def index_with_array(image, indicies):
+    '''
+    Returns values from image at the coordinates
+    :param ndarray image: Image to index into
+    :param ndarray indicies: nx2 array of pixel coordinates
+    '''
+    
+    return np.take(image,ravel_index(indicies, image.shape))
+    #return np.reshape(values, (len(values),1))
+        
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
     if array.ndim == 1:
@@ -1035,7 +1060,10 @@ def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOve
 
 def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
-       moving image must be rotated and translated to align perfectly with the FixedImage
+       moving image must be rotated and translated to align perfectly with the FixedImage.
+       
+       If adjusting control points the peak can be added to the fixed image's control point, or subtracted from the 
+       warped image's control point (accounting for any transform used to create the warped image) to align the images.
        '''
 
     # Find peak requires both the fixed and moving images have equal size

@@ -110,7 +110,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         
         warpedImage = numpy.ones([Height, Width])
 
-        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage)
+        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage, CropUndefined=False)
         self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
@@ -130,9 +130,9 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Translate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
+        #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
-        self.assertTrue(ShowComparison([fixedImage, rotatedWarped, transformedImage], title="Identity transform should match scipy.interpolate.rotate result", PassFail=True))
+        self.assertTrue(ShowComparison([fixedImage, transformedImage], title="Image should be translated +100x,+50y but not rotated.", PassFail=True))
         return
 
         # delta = fixedImage[1:64, 1:64] - transformedImage

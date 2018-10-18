@@ -76,6 +76,8 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def Transform(self, points, **kwargs):
         '''
+        Transform from warped space to fixed space
+        
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
 
@@ -108,6 +110,8 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def InverseTransform(self, points, **kwargs):
         '''
+        Transform from fixed space to warped space
+        
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         ''' 
 

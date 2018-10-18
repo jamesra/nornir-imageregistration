@@ -17,10 +17,10 @@ from nornir_imageregistration.spatial import Rectangle
 from . import setup_imagetest
 
 
-class Test(setup_imagetest.ImageTestBase):
+class TestImageAlign(setup_imagetest.ImageTestBase):
 
     def setUp(self):
-        super(Test, self).setUp()
+        super(TestImageAlign, self).setUp()
 
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input " + self.FixedImagePath)
@@ -66,16 +66,9 @@ class Test(setup_imagetest.ImageTestBase):
 
         self.assertEqual(record.angle, 0.0)
         self.assertEqual(record.flippedud, False)
-        self.assertAlmostEqual(record.peak[0], 88.5, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
-        self.assertAlmostEqual(record.peak[1], 107, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.0)
+        self.assertAlmostEqual(record.peak[0], 88.5, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.0)
+        self.assertAlmostEqual(record.peak[1], 107, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
         
-#        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage, minOv)
-#        self.assertIsNotNone(record)
-#
-#        self.assertEqual(record.angle, 0.0)
-#        self.assertAlmostEqual(record.peak[0], 107, msg = "Expected X offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
-#        self.assertAlmostEqual(record.peak[1], 177, msg = "Expected Y offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
-
 
 class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
     

@@ -112,7 +112,8 @@ def Execute(ExecArgs=None):
                                    OutputFilename=Args.outputpath,
                                    fixedImageFilename=Args.fixedimagepath,
                                    warpedImageFilename=Args.warpedimagepath,
-                                   scalar=Args.scalar)
+                                   scalar=Args.scalar,
+                                   CropUndefined=False)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)

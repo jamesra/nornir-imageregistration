@@ -215,13 +215,26 @@ def SplitDisplacements(A, B, point_pairs):
     '''
     
     raise NotImplementedError()
+    
 
-
-def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, warped_mask=None, cell_size=(256, 256), grid_spacing=(256, 256)):
+def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, 
+                    warped_mask=None, cell_size=(256, 256), grid_spacing=(256, 256),
+                    finalized=None):
+    '''
+    :param transform transform: Transform
+    :param ndarray fixed_image: Fixed image
+    :param ndarray warped_image: Warped image
+    :param ndarray fixed_mask: Fixed image mask, can be None
+    :param ndarray warped_mask: Warped image mask, can be None
+    :param dict finalized: A dictionary of points, indexed by FixedPosition, that are finalized and do not need to be checked
+    :param tuple cell_size: (width, height) amount of image to use for registration 
+    :param tuple grid_spacing: (width, height) of separation between points on the grid
+    
+    '''
     
     if isinstance(Transform, str):
         Transform = nornir_imageregistration.factory.LoadTransform(Transform, 1)
-        
+         
     grid_spacing = np.asarray(grid_spacing, np.int32)
     cell_size = np.asarray(cell_size, np.int32)
         
@@ -229,39 +242,84 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, warpe
     warped_image = core.ImageParamToImageArray(warped_image)
     
     if fixed_mask is not None:
-        fixed_mask = core.ImageParamToImageArray(fixed_mask)
+        fixed_mask = core.ImageParamToImageArray(fixed_mask).astype(np.bool)
         fixed_image = nornir_imageregistration.core.RandomNoiseMask(fixed_image, fixed_mask)
         
     if warped_mask is not None:
-        warped_mask = core.ImageParamToImageArray(warped_mask)
+        warped_mask = core.ImageParamToImageArray(warped_mask).astype(np.bool)
         warped_image = nornir_imageregistration.core.RandomNoiseMask(warped_image, warped_mask)
-        
+    
+#     shared_fixed_image  = core.npArrayToReadOnlySharedArray(fixed_image)
+#     shared_fixed_image.mode = 'r'
+#     shared_warped_image = core.npArrayToReadOnlySharedArray(warped_image)
+#     shared_warped_image.mode = 'r'
+    
     # Mark a grid along the fixed image, then find the points on the warped image
     grid_dims = core.TileGridShape(warped_image.shape, grid_spacing)
+    
+    AnglesToSearch = [0]
+    #AnglesToSearch = np.linspace(-7.5, 7.5, 11)
+    
+    # Create the grid coordinates
+    coords = [np.asarray((iRow, iCol), dtype=np.int32) for iRow in range(grid_dims[1]) for iCol in range(grid_dims[0])]
+    coords = np.vstack(coords)
+    
+    # Create 
+    FixedPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
+    
+    if finalized is not None:
+        found = [tuple(FixedPoints[i,:]) in finalized for i in coords.shape.prod()]
+        valid = np.asarray(found, np.bool)
+        FixedPoints = FixedPoints[valid, :]
+        coords = coords[valid, :]
+    
+    # Filter Fixed Points falling outside the mask
+    if fixed_mask is not None:
+        valid = nornir_imageregistration.index_with_array(fixed_mask, FixedPoints)
+        FixedPoints = FixedPoints[valid, :]
+        coords = coords[valid, :]
+        
+    WarpedPoints = Transform.InverseTransform(FixedPoints).astype(np.int32)
+    if warped_mask is not None:
+        valid = np.logical_and(np.all(WarpedPoints >= np.asarray((0, 0)), 1), np.all(WarpedPoints < warped_mask.shape, 1))
+        WarpedPoints = WarpedPoints[valid, :]
+        FixedPoints = FixedPoints[valid, :]
+        coords = coords[valid, :]
+        
+        valid = nornir_imageregistration.index_with_array(warped_mask, WarpedPoints)
+        WarpedPoints = WarpedPoints[valid, :]
+        FixedPoints = FixedPoints[valid, :]
+        coords = coords[valid, :]
     
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     alignment_records = list()
     
-    for iRow in range(grid_dims[1]):
-        for iCol in range(grid_dims[0]):
-            FixedPoint = np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32)
-            WarpedPoint = Transform.Transform(FixedPoint).astype(np.int32)
-            WarpedPoint = np.reshape(WarpedPoint, 2)
-            
-            if fixed_mask[(FixedPoint[0], FixedPoint[1])] == False:
-                continue
-            
-            if warped_mask[(WarpedPoint[0], WarpedPoint[1])] == False:
-                continue
-            
-            # arecord = AttemptAlignPoint(Transform, fixed_image, warped_image, FixedPoint, cell_size, anglesToSearch=[0])
-            AlignTask = pool.add_task("Align %d,%d" % (iRow, iCol), AttemptAlignPoint, Transform, fixed_image, warped_image, FixedPoint, cell_size, anglesToSearch=[0])
-            AlignTask.ID = (iRow, iCol)
-            AlignTask.FixedPoint = FixedPoint
-            AlignTask.WarpedPoint = WarpedPoint #Transform.InverseTransform(FixedPoint)
-            tasks.append(AlignTask)
-#             arecord.iRow = iRow
+    for (i, coord) in enumerate(coords):
+        
+        AlignTask = StartAttemptAlignPoint(pool,
+                                           "Align %d,%d" % (coord[0], coord[1]),
+                                           Transform,
+                                           fixed_image,
+                                           warped_image,
+                                           FixedPoints[i, :],
+                                           cell_size,
+                                           anglesToSearch=AnglesToSearch)
+        
+#         AlignTask = pool.add_task("Align %d,%d" % (coord[0], coord[1]),
+#                                   AttemptAlignPoint,
+#                                   Transform,
+#                                   shared_fixed_image,
+#                                   shared_warped_image,
+#                                   FixedPoints[i,:],
+#                                   cell_size,
+#                                   anglesToSearch=AnglesToSearch)
+        
+        AlignTask.ID = i
+        AlignTask.coord = coord
+        tasks.append(AlignTask)
+        
+    #             arecord.iRow = iRow
 #             arecord.iCol = iCol
 #             arecord.FixedPoint = FixedPoint
 #             arecord.WarpedPoint = WarpedPoint
@@ -272,18 +330,28 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, warpe
     for t in tasks:
         arecord = t.wait_return()
         
-        erec = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=(iRow, iCol), FixedPoint=t.FixedPoint, WarpedPoint=t.WarpedPoint, peak=arecord.peak, weight=arecord.weight, angle=arecord.angle, flipped_ud=arecord.flippedud)
+        erec = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=t.coord,
+                                                                                 FixedPoint=FixedPoints[t.ID],
+                                                                                 WarpedPoint=WarpedPoints[t.ID],
+                                                                                 peak=arecord.peak,
+                                                                                 weight=arecord.weight,
+                                                                                 angle=arecord.angle,
+                                                                                 flipped_ud=arecord.flippedud)
+        
+        erec.FixedROI = t.FixedROI
+        erec.WarpedROI = t.WarpedROI
+        #erec.CalculatedWarpedPoint = Transform.InverseTransform(erec.AdjustedFixedPoint).reshape(2)
         # arecord.ID = (iRow, iCol)
         # arecord.FixedPoint = t.FixedPoint
         # arecord.WarpedPoint = t.WarpedPoint
         # arecord.AdjustedWarpedPoint = t.WarpedPoint + arecord.peak
          
         alignment_records.append(erec)
+#         
+#     del shared_warped_image
+#     del shared_fixed_image
     
-    weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
-    h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights))
-    h.Add(weights)
-    nornir_shared.plot.Histogram(h, Title="Histogram of Weights", xlabel="Weight Value")
+    
     
     return alignment_records
     # Cull the worst of the alignment records
@@ -297,22 +365,80 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, warpe
     # return updatedTransform
 
     
-def _PeakListToTransform(alignment_records):
+def _PeakListToTransform(alignment_records, percentile = None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
     '''
     
     FixedPoints = np.asarray(list(map(lambda a: a.FixedPoint, alignment_records)))
-    WarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, alignment_records)))
+    OriginalWarpedPoints = np.asarray(list(map(lambda a: a.OriginalWarpedPoint, alignment_records)))
+    AdjustedFixedPoints = np.asarray(list(map(lambda a: a.AdjustedFixedPoint, alignment_records)))
+    AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, alignment_records)))
+    #CalculatedWarpedPoints = np.asarray(list(map(lambda a: a.CalculatedWarpedPoint, alignment_records)))
+    weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
+    #WarpedPeaks = AdjustedWarpedPoints - OriginalWarpedPoints
+
+    median = np.median(weights)    
+    stddev = np.std(weights)
+    
+    cutoff = 0
+    if percentile is not None:
+        cutoff = np.percentile(weights, percentile)       
+    
+    valid_indicies = weights >= cutoff
+    
+    ValidFP = AdjustedFixedPoints[valid_indicies, :]
+    ValidWP = OriginalWarpedPoints[valid_indicies, :]
     
     # PointPairs = np.hstack((FixedPoints, WarpedPoints))
-    PointPairs = np.hstack((WarpedPoints, FixedPoints))
+    PointPairs = np.hstack((ValidFP, ValidWP))
     # PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
     T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(PointPairs)
     
     return T
 
+# def AlignmentRecordsTo2DArray(alignment_records):
+#     
+#     def IsFinalFunc(record):
+#         record.weight = 
+#     
+#     #Create a 2D array of 
+#     Indicies = np.hstack([np.asarray(a.ID,np.int32) for a in alignment_records])
+#     
+#     grid_dims = Indicies.max()
+#     
+#     mask = np.zeros(grid_dims, np.bool)
+#     
+#     for a in alignment_records:
+#         mask[a.ID] = 
+#           
+
+def AlignmentRecordsToDict(alignment_records):
+    
+    lookup = {}
+    for a in alignment_records:
+        lookup[a.ID] = a
+        
+    return lookup
+
+
+def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask = None, percentile=0.5, min_travel_distance = 1.0):
+    
+    weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
+    peaks = np.asarray(list(map(lambda a: a.peak, alignment_records)))
+    peak_distance = np.square(peaks)
+    peak_distance = np.sum(peak_distance, axis=0)
+    
+    cutoff = np.percentile(weights, percentile)    
+    
+    valid_weight = weights > cutoff 
+    valid_distance = peak_distance <= min_travel_distance
+    
+    finalize_mask = np.logical_and(valid_weight, valid_distance)
+    
+    return finalize_mask
+    
     
 def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmentArea, anglesToSearch=None):
     '''Try to use the Composite view to render the two tiles we need for alignment'''
@@ -347,4 +473,47 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
  
     # print("Auto-translate result: " + str(apoint))
     return apoint
+
     
+def StartAttemptAlignPoint(pool, taskname, transform, fixedImage, warpedImage, controlpoint, alignmentArea, anglesToSearch=None):
+    if anglesToSearch is None:
+        anglesToSearch = np.linspace(-7.5, 7.5, 11)
+        
+    FixedRectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(point=[controlpoint[0] - (alignmentArea[0] / 2.0),
+                                                                                   controlpoint[1] - (alignmentArea[1] / 2.0)],
+                                                                             area=alignmentArea)
+
+    FixedRectangle = nornir_imageregistration.Rectangle.SafeRound(FixedRectangle)
+    FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea)
+    
+    # Pull image subregions 
+    warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
+                            fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
+
+    fixedImageROI = nornir_imageregistration.CropImage(fixedImage, FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
+
+    # nornir_imageregistration.core.ShowGrayscale([fixedImageROI, warpedImageROI])
+
+    # pool = Pools.GetGlobalMultithreadingPool()
+
+    # task = pool.add_task("AttemptAlignPoint", core.FindOffset, fixedImageROI, warpedImageROI, MinOverlap = 0.2)
+    # apoint = task.wait_return()
+    # apoint = core.FindOffset(fixedImageROI, warpedImageROI, MinOverlap=0.2)
+    # nornir_imageregistration.ShowGrayscale([fixedImageROI, warpedImageROI], "Fixed <---> Warped")
+    
+    # core.ShowGrayscale([fixedImageROI, warpedImageROI])
+    
+    task = pool.add_task(taskname,
+                        nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
+                        fixedImageROI,
+                        warpedImageROI,
+                        AngleSearchRange=anglesToSearch,
+                        MinOverlap=0.25,
+                        SingleThread=True,
+                        Cluster=False,
+                        TestFlip=False)
+    
+    task.FixedROI = fixedImageROI
+    task.WarpedROI = warpedImageROI
+    
+    return task

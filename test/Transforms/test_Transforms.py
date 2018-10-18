@@ -12,6 +12,7 @@ from nornir_imageregistration.transforms.rbftransform import \
     RBFWithLinearCorrection
 
 import numpy as np
+from build.lib.nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
 
 
 ### MirrorTransformPoints###
@@ -61,6 +62,11 @@ OffsetTransformPoints = np.array([[1, 1, 0, 0],
                               [1, 2, 0, 1],
                               [2, 2, 1, 1]])
 
+def ForwardTransformCheck(test, transform, warpedPoint, fixedPoint):
+        '''Ensures that a point can map to its expected transformed position and back again'''
+        fp = transform.Transform(warpedPoint)
+        test.assertTrue(np.array_equal(np.around(fp, 2), fixedPoint))
+
 def TransformCheck(test, transform, warpedPoint, fixedPoint):
         '''Ensures that a point can map to its expected transformed position and back again'''
         fp = transform.Transform(warpedPoint)
@@ -78,7 +84,7 @@ def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
         distance, index = transform.NearestWarpedPoint(testPoints)
         test.assertTrue(np.array_equal(np.around(transform.WarpedPoints[index,:], 2), warpedPoints))
 
-class Test(unittest.TestCase):
+class TestTransforms(unittest.TestCase):
 
 
     def testIdentity(self):
@@ -196,6 +202,83 @@ class Test(unittest.TestCase):
         self.assertEqual(len(T.WarpedTriangles), 2)
 
         warpedPoint = np.array([[-5, -5]])
+        ForwardTransformCheck(self, T, warpedPoint, -warpedPoint)
+
+        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
+        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+
+        # Add a point to the mirror transform, make sure it still works
+        T.AddPoint([5.0, 5.0, -5.0, -5.0])
+
+        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
+        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+
+        #Add a duplicate and see what happens
+        NumBefore = T.NumControlPoints
+        T.AddPoint([5.0, 5.0, -5.0, -5.0])
+        NumAfter = T.NumControlPoints
+
+        self.assertEqual(NumBefore, NumAfter)
+
+        # We should have a new triangulation if we added a point
+        self.assertTrue(len(T.FixedTriangles) > 2)
+        self.assertTrue(len(T.WarpedTriangles) > 2)
+
+        ForwardTransformCheck(self, T, warpedPoint, -warpedPoint)
+        
+        #Try removing a point
+
+        # Try points not on the transform points
+        warpedPoints = np.array([[-2.0, -4.0],
+                                [-4.0, -2.0],
+                                [0.0, -9.0],
+                                [-9.0, 0.0]])
+        ForwardTransformCheck(self, T, warpedPoints, -warpedPoints)
+        
+        # Try points outside the transform points
+        # There is no inverse transform for the RBFTransform, so only 
+        #check the forward transform
+        warpedPoints = np.array([[-15.0, 0.0],
+                                [11.0, 0.0],
+                                [11.0, 11.0],
+                                [-11.0, 11.0]])
+        ForwardTransformCheck(self, T, warpedPoints, -warpedPoints) 
+        
+
+        T.AddPoints([[2.5,2.5,-2.5,-2.5],
+                     [7.5,7.5,-7.5,-7.5]])
+
+        ForwardTransformCheck(self, T, warpedPoints, -warpedPoints)
+        
+    
+    def testMeshWithRBFFallback(self):
+#        os.chdir('C:\\Buildscript\\Test\\Stos')
+#        MToCStos = IrTools.IO.stosfile.StosFile.Load('27-26.stos')
+#        CToVStos = IrTools.IO.stosfile.StosFile.Load('26-25.stos')
+#
+#        # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
+#        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.Transform)
+#        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.Transform)
+#
+#        MToV = CToV.AddTransform(MToC)
+#
+#        MToCStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
+#        MToCStos.Save("27-26_Test.stos")
+#
+#        MToVStos = copy.deepcopy(MToCStos)
+#        MToVStos.ControlImageFullPath = CToVStos.ControlImageFullPath
+#        MToVStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
+#        MToVStos.ControlImageDim = CToVStos.ControlImageDim
+#        MToVStos.MappedImageDim = MToCStos.MappedImageDim
+#
+#        MToVStos.Save("27-25.stos")
+
+        global MirrorTransformPoints
+        T = MeshWithRBFFallback(MirrorTransformPoints)
+        self.assertEqual(len(T.FixedTriangles), 2)
+        self.assertEqual(len(T.WarpedTriangles), 2)
+
+        warpedPoint = np.array([[-5, -5]])
         TransformCheck(self, T, warpedPoint, -warpedPoint)
 
         NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
@@ -228,6 +311,16 @@ class Test(unittest.TestCase):
                                 [0.0, -9.0],
                                 [-9.0, 0.0]])
         TransformCheck(self, T, warpedPoints, -warpedPoints)
+        
+        # Try points outside the transform points
+        # There is no inverse transform for the RBFTransform, so only 
+        #check the forward transform
+        warpedPoints = np.array([[-15.0, 0.0],
+                                [11.0, 0.0],
+                                [11.0, 11.0],
+                                [-11.0, 11.0]])
+        TransformCheck(self, T, warpedPoints, -warpedPoints) 
+        
 
         T.AddPoints([[2.5,2.5,-2.5,-2.5],
                      [7.5,7.5,-7.5,-7.5]])

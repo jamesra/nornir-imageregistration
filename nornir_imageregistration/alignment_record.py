@@ -75,7 +75,7 @@ class AlignmentRecord:
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
     def __str__(self):
-        s = 'Offset: {x:.2}, {y:.2} Weight: {w:.2}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
+        s = 'Offset: {x:.2}x, {y:.2}y Weight: {w:.2}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
         
         if self._angle != 0:
             s += ' Angle: {0:.2}'.format(self._angle)
@@ -217,8 +217,12 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         return self._OriginalWarpedPoint
     
     @property
+    def AdjustedFixedPoint(self):
+        return self._FixedPoint + self.peak
+    
+    @property
     def AdjustedWarpedPoint(self):
-        return self._OriginalWarpedPoint + self.peak
+        return self._OriginalWarpedPoint - self.peak
     
     def __init__(self, ID, FixedPoint, WarpedPoint, peak, weight, angle=0.0, flipped_ud=False):
         
