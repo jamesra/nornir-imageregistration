@@ -162,6 +162,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #            OutPoints[iPoint, :] = [X, Y]
 
         return MatrixOutpoints
+    
+    def InverseTransform(self, Points, **kwargs):
+        raise NotImplemented("RBF Transform does not support inverse transformations")
 
     @classmethod
     def CreateSolutionMatricies(cls, ControlPoints):
