@@ -215,6 +215,9 @@ def SplitDisplacements(A, B, point_pairs):
     '''
     
     raise NotImplementedError()
+
+
+
     
 
 def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None, 
@@ -255,20 +258,29 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None,
 #     shared_warped_image.mode = 'r'
     
     # Mark a grid along the fixed image, then find the points on the warped image
-    grid_dims = core.TileGridShape(warped_image.shape, grid_spacing)
+    grid_dims = core.TileGridShape(fixed_image.shape, grid_spacing)
     
     AnglesToSearch = [0]
     #AnglesToSearch = np.linspace(-7.5, 7.5, 11)
     
     # Create the grid coordinates
-    coords = [np.asarray((iRow, iCol), dtype=np.int32) for iRow in range(grid_dims[1]) for iCol in range(grid_dims[0])]
+    coords = [np.asarray((iRow, iCol), dtype=np.int32) for iRow in range(grid_dims[0]) for iCol in range(grid_dims[1])]
     coords = np.vstack(coords)
     
     # Create 
     FixedPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
     
+    #Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
+    overage = ((grid_dims * grid_spacing) - fixed_image.shape) / 2.0
+    FixedPoints = np.round(FixedPoints - overage).astype(np.int64)
+    
+    #TODO, ensure fixedPoints are within the bounds of fixed_image
+    valid_inbounds = np.logical_and(np.all(FixedPoints >= np.asarray((0, 0)), 1), np.all(FixedPoints < fixed_mask.shape, 1))
+    FixedPoints = FixedPoints[valid_inbounds, :]
+    coords = coords[valid_inbounds, :]
+    
     if finalized is not None:
-        found = [tuple(FixedPoints[i,:]) in finalized for i in coords.shape.prod()]
+        found = [tuple(FixedPoints[i,:]) not in finalized for i in range(coords.shape[0])]
         valid = np.asarray(found, np.bool)
         FixedPoints = FixedPoints[valid, :]
         coords = coords[valid, :]
@@ -370,16 +382,13 @@ def _PeakListToTransform(alignment_records, percentile = None):
     Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
     '''
     
-    FixedPoints = np.asarray(list(map(lambda a: a.FixedPoint, alignment_records)))
+    #FixedPoints = np.asarray(list(map(lambda a: a.FixedPoint, alignment_records)))
     OriginalWarpedPoints = np.asarray(list(map(lambda a: a.OriginalWarpedPoint, alignment_records)))
     AdjustedFixedPoints = np.asarray(list(map(lambda a: a.AdjustedFixedPoint, alignment_records)))
-    AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, alignment_records)))
+    #AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, alignment_records)))
     #CalculatedWarpedPoints = np.asarray(list(map(lambda a: a.CalculatedWarpedPoint, alignment_records)))
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
     #WarpedPeaks = AdjustedWarpedPoints - OriginalWarpedPoints
-
-    median = np.median(weights)    
-    stddev = np.std(weights)
     
     cutoff = 0
     if percentile is not None:
@@ -397,6 +406,9 @@ def _PeakListToTransform(alignment_records, percentile = None):
     T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(PointPairs)
     
     return T
+
+
+#def _Create
 
 # def AlignmentRecordsTo2DArray(alignment_records):
 #     
@@ -428,7 +440,7 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask = None, pe
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
     peaks = np.asarray(list(map(lambda a: a.peak, alignment_records)))
     peak_distance = np.square(peaks)
-    peak_distance = np.sum(peak_distance, axis=0)
+    peak_distance = np.sum(peak_distance, axis=1)
     
     cutoff = np.percentile(weights, percentile)    
     

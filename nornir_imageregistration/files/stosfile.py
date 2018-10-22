@@ -379,11 +379,12 @@ class StosFile(object):
         transformObj = factory.LoadTransform(self.Transform, pixelSpacing=1)
         transformObj.Scale(scalar=scalar)
 
-        if hasattr(transformObj, 'gridWidth'):
-            # Save as a stos grid if we can
-            self.Transform = factory.TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=self.MappedImageDim)
-        else:
-            self.Transform = factory.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
+#         if hasattr(transformObj, 'gridWidth'):
+#             # Save as a stos grid if we can
+#             self.Transform = factory.TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=self.MappedImageDim)
+#         else:
+#             self.Transform = factory.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
+        self.Transform = factory.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
 
         self._Downsample = self._Downsample * scalar
 
