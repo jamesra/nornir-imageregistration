@@ -71,14 +71,17 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         '''
         This is a test for the refine mosaic feature which is not fully implemented
         '''
+        
+        SaveImages = False
+        
         tilesDir = self.GetTileFullPath()
-        #stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
         #stosFile = self.GetStosFile("0164-0162_brute_32")
-        stosFile = self.GetStosFile("0617-0618_brute_64")
+        #stosFile = self.GetStosFile("0617-0618_brute_64")
         stosObj = nornir_imageregistration.files.StosFile.Load(stosFile)
-        stosObj.Downsample = 64.0
-        stosObj.Scale(2.0)
-        stosObj.Save(os.path.join(self.TestOutputPath, "0617-0618_brute_32.stos"))
+        #stosObj.Downsample = 64.0
+        #stosObj.Scale(2.0)
+        #stosObj.Save(os.path.join(self.TestOutputPath, "0617-0618_brute_32.stos"))
         
         fixedImage = os.path.join(self.ImageDir, stosObj.ControlImageFullPath)
         warpedImage = os.path.join(self.ImageDir, stosObj.MappedImageFullPath)
@@ -90,7 +93,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         unrefined_image_path = os.path.join(self.TestOutputPath, 'unrefined_transform.png')
         
-        if not os.path.exists(unrefined_image_path):        
+        if not os.path.exists(unrefined_image_path) and SaveImages:        
             unrefined_warped_image = nornir_imageregistration.assemble.TransformStos(stosTransform, 
                                                                                      fixedImage=fixedImage,
                                                                                      warpedImage=warpedImage)
@@ -99,7 +102,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             unrefined_warped_image = nornir_imageregistration.LoadImage(unrefined_image_path)
         
         
-        num_iterations = 8
+        num_iterations = 10
         
         cell_size=(256, 256)
         grid_spacing=(256, 256)
@@ -108,7 +111,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         finalized_points = {}
         
-        SaveImages = True
+        
                 
         while i <= num_iterations: 
                 
@@ -139,8 +142,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                       xlim=(0, fixedImageData.shape[0]))
                 
             percentile = (1.0 - (i / float(num_iterations))) * 100.0
-            if percentile < 5.0:
-                percentile = 5.0
+            if percentile < 10.0:
+                percentile = 10.0
                 
             updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, percentile)
              
@@ -186,9 +189,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             stosTransform = updatedTransform
             
         #Convert the transform to a grid transform and persist to disk
-        
-            
-        pass
+        stosObj.Transform = local_distortion_correction._ConvertTransformToGridTransform(stosObj.Transform, fixedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
+        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos") )
+        return
     
     @classmethod
     def _PlotWeightHistogram(cls, alignment_records, filename, cutoff):

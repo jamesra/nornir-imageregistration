@@ -14,6 +14,8 @@ import nornir_imageregistration.tile as tile
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.stos_brute
 import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms.triangulation import Triangulation
+import nornir_imageregistration.grid_refinement_cell
 import nornir_pools
 import nornir_shared.histogram
 import nornir_shared.plot
@@ -258,63 +260,75 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None,
 #     shared_warped_image.mode = 'r'
     
     # Mark a grid along the fixed image, then find the points on the warped image
-    grid_dims = core.TileGridShape(fixed_image.shape, grid_spacing)
+    
+    #grid_data = nornir_imageregistration.grid_subdivision.CenteredGridRefinementCells(fixed_image.shape, cell_size)
+    grid_data = nornir_imageregistration.grid_refinement_cell.ITKGridDivision(fixed_image.shape, cell_size=cell_size)
+    
+    #grid_dims = core.TileGridShape(fixed_image.shape, grid_spacing)
     
     AnglesToSearch = [0]
     #AnglesToSearch = np.linspace(-7.5, 7.5, 11)
     
     # Create the grid coordinates
-    coords = [np.asarray((iRow, iCol), dtype=np.int32) for iRow in range(grid_dims[0]) for iCol in range(grid_dims[1])]
-    coords = np.vstack(coords)
+#    coords = [np.asarray((iRow, iCol), dtype=np.int32) for iRow in range(grid_data.grid_dims[0]) for iCol in range(grid_data.grid_dims[1])]
+#    coords = np.vstack(coords)
     
     # Create 
-    FixedPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
+#    FixedPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
     
     #Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
-    overage = ((grid_dims * grid_spacing) - fixed_image.shape) / 2.0
-    FixedPoints = np.round(FixedPoints - overage).astype(np.int64)
+#    overage = ((grid_dims * grid_spacing) - fixed_image.shape) / 2.0
+#    FixedPoints = np.round(FixedPoints - overage).astype(np.int64)
     
     #TODO, ensure fixedPoints are within the bounds of fixed_image
-    valid_inbounds = np.logical_and(np.all(FixedPoints >= np.asarray((0, 0)), 1), np.all(FixedPoints < fixed_mask.shape, 1))
-    FixedPoints = FixedPoints[valid_inbounds, :]
-    coords = coords[valid_inbounds, :]
-    
+    grid_data.FilterOutofBoundsFixedPoints(fixed_image.shape)
+    grid_data.RemoveCellsUsingFixedImageMask(fixed_mask,0.45)
+    grid_data.PopulateWarpedPoints(Transform)
+    grid_data.RemoveCellsUsingWarpedImageMask(warped_mask,0.45)
+     #grid_data.ApplyWarpedImageMask(warped_mask)
+#     valid_inbounds = np.logical_and(np.all(FixedPoi4nts >= np.asarray((0, 0)), 1), np.all(FixedPoints < fixed_mask.shape, 1))
+#     FixedPoints = FixedPoints[valid_inbounds, :]
+#     coords = coords[valid_inbounds, :]
+#     
     if finalized is not None:
-        found = [tuple(FixedPoints[i,:]) not in finalized for i in range(coords.shape[0])]
+        found = [tuple(grid_data.FixedPoints[i,:]) not in finalized for i in range(grid_data.coords.shape[0])]
         valid = np.asarray(found, np.bool)
-        FixedPoints = FixedPoints[valid, :]
-        coords = coords[valid, :]
-    
-    # Filter Fixed Points falling outside the mask
-    if fixed_mask is not None:
-        valid = nornir_imageregistration.index_with_array(fixed_mask, FixedPoints)
-        FixedPoints = FixedPoints[valid, :]
-        coords = coords[valid, :]
+        grid_data.RemoveMaskedPoints(valid)
         
-    WarpedPoints = Transform.InverseTransform(FixedPoints).astype(np.int32)
-    if warped_mask is not None:
-        valid = np.logical_and(np.all(WarpedPoints >= np.asarray((0, 0)), 1), np.all(WarpedPoints < warped_mask.shape, 1))
-        WarpedPoints = WarpedPoints[valid, :]
-        FixedPoints = FixedPoints[valid, :]
-        coords = coords[valid, :]
         
-        valid = nornir_imageregistration.index_with_array(warped_mask, WarpedPoints)
-        WarpedPoints = WarpedPoints[valid, :]
-        FixedPoints = FixedPoints[valid, :]
-        coords = coords[valid, :]
+#         FixedPoints = FixedPoints[valid, :]
+#         coords = coords[valid, :]
+#     
+#     # Filter Fixed Points falling outside the mask
+#     if fixed_mask is not None:
+#         valid = nornir_imageregistration.index_with_array(fixed_mask, FixedPoints)
+#         FixedPoints = FixedPoints[valid, :]
+#         coords = coords[valid, :]
+#         
+#     WarpedPoints = Transform.InverseTransform(FixedPoints).astype(np.int32)
+#     if warped_mask is not None:
+#         valid = np.logical_and(np.all(WarpedPoints >= np.asarray((0, 0)), 1), np.all(WarpedPoints < warped_mask.shape, 1))
+#         WarpedPoints = WarpedPoints[valid, :]
+#         FixedPoints = FixedPoints[valid, :]
+#         coords = coords[valid, :]
+#         
+#         valid = nornir_imageregistration.index_with_array(warped_mask, WarpedPoints)
+#         WarpedPoints = WarpedPoints[valid, :]
+#         FixedPoints = FixedPoints[valid, :]
+#         coords = coords[valid, :]
     
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     alignment_records = list()
     
-    for (i, coord) in enumerate(coords):
+    for (i, coord) in enumerate(grid_data.coords):
         
         AlignTask = StartAttemptAlignPoint(pool,
                                            "Align %d,%d" % (coord[0], coord[1]),
                                            Transform,
                                            fixed_image,
                                            warped_image,
-                                           FixedPoints[i, :],
+                                           grid_data.FixedPoints[i, :],
                                            cell_size,
                                            anglesToSearch=AnglesToSearch)
         
@@ -343,8 +357,8 @@ def RefineTwoImages(Transform, fixed_image, warped_image, fixed_mask=None,
         arecord = t.wait_return()
         
         erec = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=t.coord,
-                                                                                 FixedPoint=FixedPoints[t.ID],
-                                                                                 WarpedPoint=WarpedPoints[t.ID],
+                                                                                 FixedPoint=grid_data.FixedPoints[t.ID],
+                                                                                 WarpedPoint=grid_data.WarpedPoints[t.ID],
                                                                                  peak=arecord.peak,
                                                                                  weight=arecord.weight,
                                                                                  angle=arecord.angle,
@@ -399,6 +413,11 @@ def _PeakListToTransform(alignment_records, percentile = None):
     ValidFP = AdjustedFixedPoints[valid_indicies, :]
     ValidWP = OriginalWarpedPoints[valid_indicies, :]
     
+    assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidFP).shape,
+                          ValidFP.shape), "Duplicate fixed points detected")
+    assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidWP).shape,
+                          ValidWP.shape), "Duplicate warped points detected")
+    
     # PointPairs = np.hstack((FixedPoints, WarpedPoints))
     PointPairs = np.hstack((ValidFP, ValidWP))
     # PointPairs.append((ControlY, ControlX, mappedY, mappedX))
@@ -408,7 +427,23 @@ def _PeakListToTransform(alignment_records, percentile = None):
     return T
 
 
-#def _Create
+def _ConvertTransformToGridTransform(Transform, fixed_image_shape, warped_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
+    '''
+    Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
+    '''
+    
+    grid_data = nornir_imageregistration.grid_refinement_cell.ITKGridDivision(fixed_image_shape, cell_size=cell_size, grid_spacing=grid_spacing, grid_dims=grid_dims)
+    grid_data.PopulateWarpedPoints(Transform)
+    
+    PointPairs = np.hstack((grid_data.FixedPoints, grid_data.WarpedPoints))
+     
+    #TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
+    T = nornir_imageregistration.transforms.triangulation.Triangulation(PointPairs)
+    T.gridWidth = grid_data.grid_dims[1]
+    T.gridHeight = grid_data.grid_dims[0]
+    
+    return T
+
 
 # def AlignmentRecordsTo2DArray(alignment_records):
 #     
@@ -445,7 +480,7 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask = None, pe
     cutoff = np.percentile(weights, percentile)    
     
     valid_weight = weights > cutoff 
-    valid_distance = peak_distance <= min_travel_distance
+    valid_distance = peak_distance <= np.square(min_travel_distance)
     
     finalize_mask = np.logical_and(valid_weight, valid_distance)
     
