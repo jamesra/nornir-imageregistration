@@ -9,6 +9,7 @@ The factory is focused on the loading and saving of transforms
 from scipy import *
 
 from nornir_imageregistration.spatial.indicies import *
+from nornir_imageregistration.spatial import Rectangle 
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 import numpy as np
 
@@ -30,6 +31,8 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
         (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
+    elif isinstance(bounds, Rectangle):
+        (bottom, left, top, right) = bounds.BoundingBox
     else:
         (bottom, left, top, right) = bounds
 
@@ -62,6 +65,8 @@ def _TransformToIRToolsString(Transform, bounds=None):
     (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
         (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
+    elif isinstance(bounds, Rectangle):
+        (bottom, left, top, right) = bounds.BoundingBox
     else:
         (bottom, left, top, right) = bounds
 
