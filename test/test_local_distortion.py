@@ -73,6 +73,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         '''
         
         SaveImages = False
+        SavePlots = False
         
         tilesDir = self.GetTileFullPath()
         stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
@@ -121,8 +122,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             
             if alignment_points is None:
                 alignment_points = RefineTwoImages(stosTransform,
-                            fixedImage,
-                            warpedImage,
+                            fixedImageData,
+                            warpedImageData,
                             os.path.join(self.ImageDir, stosObj.ControlMaskFullPath),
                             os.path.join(self.ImageDir, stosObj.MappedMaskFullPath),
                             cell_size=cell_size,
@@ -134,12 +135,13 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 
             combined_alignment_points = alignment_points + list(finalized_points.values())
                 
-            histogram_filename = os.path.join(self.TestOutputPath, 'weight_histogram_pass{0}.png'.format(i))
-            TestSliceToSliceRefinement._PlotWeightHistogram(alignment_points, histogram_filename, cutoff=1.0 - (float(i) / float(num_iterations)))
-            vector_field_filename = os.path.join(self.TestOutputPath, 'Vector_field_pass{0}.png'.format(i))
-            TestSliceToSliceRefinement._PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
-                                                      ylim=(0, fixedImageData.shape[1]),
-                                                      xlim=(0, fixedImageData.shape[0]))
+            if SavePlots:
+                histogram_filename = os.path.join(self.TestOutputPath, 'weight_histogram_pass{0}.png'.format(i))
+                TestSliceToSliceRefinement._PlotWeightHistogram(alignment_points, histogram_filename, cutoff=1.0 - (float(i) / float(num_iterations)))
+                vector_field_filename = os.path.join(self.TestOutputPath, 'Vector_field_pass{0}.png'.format(i))
+                TestSliceToSliceRefinement._PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
+                                                          ylim=(0, fixedImageData.shape[1]),
+                                                          xlim=(0, fixedImageData.shape[0]))
                 
             percentile = (1.0 - (i / float(num_iterations))) * 100.0
             if percentile < 10.0:
@@ -168,7 +170,6 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                  flipped_ud=record.flippedud )
                 
             print("Pass {0} has locked {1} points".format(i,len(finalized_points)))
-            
              
             stosObj.Transform = updatedTransform
             stosObj.Save(os.path.join(self.TestOutputPath, "UpdatedTransform_pass{0}.stos".format(i)))
@@ -190,7 +191,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             stosTransform = updatedTransform
             
         #Convert the transform to a grid transform and persist to disk
-        stosObj.Transform = local_distortion_correction._ConvertTransformToGridTransform(stosObj.Transform, fixedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
+        stosObj.Transform = local_distortion_correction._ConvertTransformToGridTransform(stosObj.Transform, source_image_shape=warpedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
         stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos") )
         return
     

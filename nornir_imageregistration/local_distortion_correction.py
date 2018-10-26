@@ -238,7 +238,7 @@ def RefineTwoImages(Transform, target_image, source_image, target_mask=None,
     '''
     
     if isinstance(Transform, str):
-        Transform = nornir_imageregistration.factory.LoadTransform(Transform, 1)
+        Transform = nornir_imageregistration.transforms.factory.LoadTransform(Transform, 1)
          
     grid_spacing = np.asarray(grid_spacing, np.int32)
     cell_size = np.asarray(cell_size, np.int32)
@@ -248,11 +248,11 @@ def RefineTwoImages(Transform, target_image, source_image, target_mask=None,
     
     if target_mask is not None:
         target_mask = core.ImageParamToImageArray(target_mask).astype(np.bool)
-        target_image = nornir_imageregistration.core.RandomNoiseMask(target_image, target_mask)
+        target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask)
         
     if source_mask is not None:
         source_mask = core.ImageParamToImageArray(source_mask).astype(np.bool)
-        source_image = nornir_imageregistration.core.RandomNoiseMask(source_image, source_mask)
+        source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask)
     
 #     shared_fixed_image  = core.npArrayToReadOnlySharedArray(target_image)
 #     shared_fixed_image.mode = 'r'
@@ -427,12 +427,15 @@ def _PeakListToTransform(alignment_records, percentile = None):
     return T
 
 
-def _ConvertTransformToGridTransform(Transform, target_image_shape, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
+def _ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
     '''
     
-    grid_data = nornir_imageregistration.grid_subdivision.ITKGridDivision(target_image_shape, cell_size=cell_size, grid_spacing=grid_spacing, grid_dims=grid_dims)
+    if isinstance(Transform, str):
+        Transform = nornir_imageregistration.transforms.factory.LoadTransform(Transform, 1)
+    
+    grid_data = nornir_imageregistration.grid_subdivision.ITKGridDivision(source_image_shape, cell_size=cell_size, grid_spacing=grid_spacing, grid_dims=grid_dims)
     grid_data.PopulateTargetPoints(Transform)
     
     PointPairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
