@@ -155,16 +155,17 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 if not new_finalized_points[ir]:
                     continue
                 
-                key = tuple(record.FixedPoint)
+                key = tuple(record.SourcePoint)
                 if key in finalized_points:
                     continue
                  
                 #Create a record that is unmoving
                 finalized_points[key] =  EnhancedAlignmentRecord(record.ID, 
-                                                                 record.AdjustedFixedPoint,
-                                                                 record.OriginalWarpedPoint,
-                                                                 np.asarray((0,0), dtype=np.float32),
-                                                                 record.weight, 0, record.flippedud )
+                                                                 TargetPoint=record.AdjustedTargetPoint,
+                                                                 SourcePoint=record.SourcePoint,
+                                                                 peak=np.asarray((0,0), dtype=np.float32),
+                                                                 weight=record.weight, angle=0, 
+                                                                 flipped_ud=record.flippedud )
                 
             print("Pass {0} has locked {1} points".format(i,len(finalized_points)))
             
@@ -210,9 +211,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         shapes = ['s' for a in new_alignment_records]
         shapes.extend(['.' for a in finalized_alignment_records])
                      
-        FixedPoints = np.asarray(list(map(lambda a: a.FixedPoint, all_records)))
-        #OriginalWarpedPoints = np.asarray(list(map(lambda a: a.OriginalWarpedPoint, all_records)))
-        AdjustedFixedPoints = np.asarray(list(map(lambda a: a.AdjustedFixedPoint, all_records)))
+        FixedPoints = np.asarray(list(map(lambda a: a.TargetPoint, all_records)))
+        #OriginalWarpedPoints = np.asarray(list(map(lambda a: a.SourcePoint, all_records)))
+        AdjustedFixedPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, all_records)))
         #AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, all_records)))
         weights = np.asarray(list(map(lambda a: a.weight, all_records)))
         percentile_prep = weights - weights.min()
@@ -239,8 +240,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                   [10, 10, 20, 20]]
         T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(InitialTransformPoints)
         
-        transformed = T.InverseTransform(T.FixedPoints)
-        self.assertTrue(np.allclose(T.WarpedPoints, transformed), "Transform could not map the initial input to the test correctly")
+        transformed = T.InverseTransform(T.TargetPoints)
+        self.assertTrue(np.allclose(T.SourcePoints, transformed), "Transform could not map the initial input to the test correctly")
         
         transform_testPoints = [[-1,-2]] 
         expectedOutOfBounds = np.asarray([[9,8]], dtype=np.float64) 
@@ -260,7 +261,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         ##Transforming the adjusted fixed point with the old transform generates an incorrect result
         for r in records:
-            r.CalculatedWarpedPoint = T.InverseTransform(r.AdjustedFixedPoint)
+            r.CalculatedWarpedPoint = T.InverseTransform(r.AdjustedTargetPoint)
         ########
         
         transform = local_distortion_correction._PeakListToTransform(records)
@@ -273,10 +274,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
          
         records2 = []
         ####Begin 2nd pass.  Pretend we need to shift every over one
-        for iRow in range(0,transform.WarpedPoints.shape[0]):
+        for iRow in range(0,transform.SourcePoints.shape[0]):
             r = EnhancedAlignmentRecord(records[iRow].ID, 
-                                        transform.FixedPoints[iRow,:], 
-                                        transform.WarpedPoints[iRow,:], 
+                                        transform.TargetPoints[iRow,:], 
+                                        transform.SourcePoints[iRow,:], 
                                         (0,-1),
                                         5.0)
             records2.append(r)

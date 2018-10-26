@@ -209,26 +209,27 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         return self._ID
     
     @property
-    def FixedPoint(self):
-        return self._FixedPoint
+    def TargetPoint(self):
+        return self._TargetPoint
     
     @property
-    def OriginalWarpedPoint(self):
-        return self._OriginalWarpedPoint
+    def SourcePoint(self):
+        return self._SourcePoint
     
     @property
-    def AdjustedFixedPoint(self):
-        return self._FixedPoint + self.peak
+    def AdjustedTargetPoint(self):
+        return self._TargetPoint + self.peak
     
     @property
-    def AdjustedWarpedPoint(self):
-        return self._OriginalWarpedPoint - self.peak
+    def AdjustedSourcePoint(self):
+        '''Note if there is rotation involved this point is not reliable'''
+        return self._SourcePoint - self.peak
     
-    def __init__(self, ID, FixedPoint, WarpedPoint, peak, weight, angle=0.0, flipped_ud=False):
+    def __init__(self, ID, TargetPoint, SourcePoint, peak, weight, angle=0.0, flipped_ud=False):
         
         super(EnhancedAlignmentRecord, self).__init__(peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud)
         self._ID = ID
-        self._FixedPoint = FixedPoint
-        self._OriginalWarpedPoint = WarpedPoint
+        self._TargetPoint = TargetPoint
+        self._SourcePoint = SourcePoint
         
     
