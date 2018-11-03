@@ -35,6 +35,10 @@ from nornir_imageregistration.local_distortion_correction import RefineMosaic
 import nornir_imageregistration.files as files
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
+import nornir_imageregistration.spatial as spatial
+
+from nornir_imageregistration.files.stosfile import StosFile
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 
 
 

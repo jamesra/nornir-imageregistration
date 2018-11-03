@@ -13,9 +13,11 @@ import nornir_shared.plot as plot
 import numpy as np
 import nornir_imageregistration.files
 import nornir_imageregistration.transforms.meshwithrbffallback
-from nornir_imageregistration.local_distortion_correction import RefineTwoImages
+from nornir_imageregistration.local_distortion_correction import RefineTwoImages, RefineStosFile
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 import nornir_imageregistration.assemble
+
+import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 
 from nornir_shared.files import try_locate_file
 
@@ -51,9 +53,17 @@ import local_distortion_correction
     
 class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imagetest.PickleHelper):
 
+    def __init__(self, methodName='runTest'):
+        if methodName.startswith('test'):
+            self._TestName = methodName[len('test'):]
+        else:
+            self._TestName = methodName
+            
+        setup_imagetest.TransformTestBase.__init__(self, methodName=methodName)
+        
     @property
     def TestName(self):
-        return "StosRefinement"
+        return self._TestName
     
     def setUp(self):
         super(TestSliceToSliceRefinement, self).setUp()
@@ -67,28 +77,54 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     def ImageDir(self):
         return os.path.join(self.ImportedDataPath, '..\\..\\Images\\')
     
-    def testStosRefinement(self):
+    #def testStosRefinementRC1_258(self): 
+        ##self.TestName = "StosRefinementRC1_258"
+        #stosFile = self.GetStosFile("0258-0257_grid_16.stos")
+        #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
+    
+#     def testStosRefinementRC2_162(self):
+#         SaveImages = False
+#         SavePlots = True
+#         self.TestName = "StosRefinementRC2_162"
+#         stosFile = self.GetStosFile("0164-0162_brute_32")
+#         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
+#     
+    def testStosRefinementRC2_617(self):
+        #self.TestName = "StosRefinementRC2_617"
+        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+        #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
+        RefineStosFile(InputStos=stosFile, 
+                       OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+                       num_iterations=3,
+                       cell_size=(128,128),
+                       grid_spacing=(256,256),
+                       angles_to_search=[0],
+                       min_travel_for_finalization=0.5,
+                       min_alignment_overlap=0.5,
+                       SaveImages=True,
+                       SavePlots=True)
+    
+    def RunStosRefinement(self, stosFilePath, ImageDir=None, SaveImages=False, SavePlots=True):
         '''
         This is a test for the refine mosaic feature which is not fully implemented
         '''
-        
-        SaveImages = False
-        SavePlots = False
-        
-        tilesDir = self.GetTileFullPath()
-        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+          
         #stosFile = self.GetStosFile("0164-0162_brute_32")
         #stosFile = self.GetStosFile("0617-0618_brute_64")
-        stosObj = nornir_imageregistration.files.StosFile.Load(stosFile)
+        stosObj = nornir_imageregistration.files.StosFile.Load(stosFilePath)
         #stosObj.Downsample = 64.0
         #stosObj.Scale(2.0)
         #stosObj.Save(os.path.join(self.TestOutputPath, "0617-0618_brute_32.stos"))
         
-        fixedImage = os.path.join(self.ImageDir, stosObj.ControlImageFullPath)
-        warpedImage = os.path.join(self.ImageDir, stosObj.MappedImageFullPath)
+        fixedImage = stosObj.ControlImageFullPath
+        warpedImage = stosObj.MappedImageFullPath
         
-        fixedImageData = nornir_imageregistration.core.ImageParamToImageArray(fixedImage)
-        warpedImageData = nornir_imageregistration.core.ImageParamToImageArray(warpedImage)
+        if ImageDir is not None:
+            fixedImage = os.path.join(ImageDir, stosObj.ControlImageFullPath)
+            warpedImage = os.path.join(ImageDir, stosObj.MappedImageFullPath) 
+        
+        fixedImageData = nornir_imageregistration.ImageParamToImageArray(fixedImage)
+        warpedImageData = nornir_imageregistration.ImageParamToImageArray(warpedImage)
         
         stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(stosObj.Transform, 1)
         
@@ -105,54 +141,72 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         num_iterations = 10
         
-        cell_size=(256, 256)
+        cell_size=np.asarray((128, 128),dtype=np.int32) * 2.0
         grid_spacing=(256, 256)
         
         i = 1
         
         finalized_points = {}
         
+        min_percentile_included = 5.0
         
-                
+        final_pass = False
+        final_pass_angles = np.linspace(-7.5, 7.5, 11)
+        
+        CutoffPercentilePerIteration = 10
+        
+        angles_to_search = None
+                        
         while i <= num_iterations: 
                 
-            cachedFileName = 'alignment_points_Cell_{2}x{1}_Grid_{4}x{3}_pass{0}'.format(i,cell_size[0], cell_size[1],
-                                                                                         grid_spacing[0], grid_spacing[1])
+            cachedFileName = '{5}_pass{0}_alignment_Cell_{2}x{1}_Grid_{4}x{3}'.format(i,cell_size[0], cell_size[1],
+                                                                                         grid_spacing[0], grid_spacing[1], 
+                                                                                         self.TestName)
             alignment_points = self.ReadOrCreateVariable(cachedFileName)
             
             if alignment_points is None:
                 alignment_points = RefineTwoImages(stosTransform,
                             fixedImageData,
                             warpedImageData,
-                            os.path.join(self.ImageDir, stosObj.ControlMaskFullPath),
-                            os.path.join(self.ImageDir, stosObj.MappedMaskFullPath),
+                            os.path.join(ImageDir, stosObj.ControlMaskFullPath),
+                            os.path.join(ImageDir, stosObj.MappedMaskFullPath),
                             cell_size=cell_size,
                             grid_spacing=grid_spacing,
-                            finalized=finalized_points)
+                            finalized=finalized_points,
+                            angles_to_search=angles_to_search)
                 self.SaveVariable(alignment_points, cachedFileName)
                 
             print("Pass {0} aligned {1} points".format(i,len(alignment_points)))
+            
+            if i == 1:
+                cell_size = cell_size / 2.0
                 
             combined_alignment_points = alignment_points + list(finalized_points.values())
+            
+            percentile = 100.0 - (CutoffPercentilePerIteration * 10.0)
+            if percentile < 10.0:
+                percentile = 10.0
+            elif percentile > 100:
+                percentile = 100
+                
+            if final_pass:
+                percentile = 0
                 
             if SavePlots:
                 histogram_filename = os.path.join(self.TestOutputPath, 'weight_histogram_pass{0}.png'.format(i))
-                TestSliceToSliceRefinement._PlotWeightHistogram(alignment_points, histogram_filename, cutoff=1.0 - (float(i) / float(num_iterations)))
+                TestSliceToSliceRefinement.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile/100.0)
                 vector_field_filename = os.path.join(self.TestOutputPath, 'Vector_field_pass{0}.png'.format(i))
-                TestSliceToSliceRefinement._PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
+                TestSliceToSliceRefinement.PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
                                                           ylim=(0, fixedImageData.shape[1]),
                                                           xlim=(0, fixedImageData.shape[0]))
-                
-            percentile = (1.0 - (i / float(num_iterations))) * 100.0
-            if percentile < 10.0:
-                percentile = 10.0
-                
+                                
             updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, percentile)
              
             new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(combined_alignment_points,
                                                                                                      percentile=percentile,
-                                                                                                     min_travel_distance=0.25)
+                                                                                                     min_travel_distance=0.333)
              
+            new_finalizations = 0
             for (ir, record) in enumerate(alignment_points): 
                 if not new_finalized_points[ir]:
                     continue
@@ -160,6 +214,24 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 key = tuple(record.SourcePoint)
                 if key in finalized_points:
                     continue
+                
+                #See if we can improve the final alignment
+                refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
+                                                                                                  record.SourceROI,
+                                                                                                  AngleSearchRange=final_pass_angles,
+                                                                                                  MinOverlap=0.25,
+                                                                                                  SingleThread=True,
+                                                                                                  Cluster=False,
+                                                                                                  TestFlip=False)
+                
+                if refined_align_record.weight > record.weight:
+                    record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
+                                                                                 TargetPoint=record.TargetPoint,
+                                                                                 SourcePoint=record.SourcePoint,
+                                                                                 peak=refined_align_record.peak,
+                                                                                 weight=refined_align_record.weight,
+                                                                                 angle=refined_align_record.angle,
+                                                                                 flipped_ud=refined_align_record.flippedud)
                  
                 #Create a record that is unmoving
                 finalized_points[key] =  EnhancedAlignmentRecord(record.ID, 
@@ -169,7 +241,12 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                  weight=record.weight, angle=0, 
                                                                  flipped_ud=record.flippedud )
                 
-            print("Pass {0} has locked {1} points".format(i,len(finalized_points)))
+                new_finalizations += 1
+                
+            print("Pass {0} has locked {1} new points, {2} of {3} are locked".format(i,
+                                                                                     new_finalizations,
+                                                                                     len(finalized_points), len(combined_alignment_points)))
+                
              
             stosObj.Transform = updatedTransform
             stosObj.Save(os.path.join(self.TestOutputPath, "UpdatedTransform_pass{0}.stos".format(i)))
@@ -190,45 +267,44 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             
             stosTransform = updatedTransform
             
+            if final_pass:
+                break
+            
+            if i == num_iterations:
+                final_pass = True
+                angles_to_search = final_pass_angles
+            
+            #If we've locked 10% of the points and have not locked any new ones we are done
+            if len(finalized_points) > len(combined_alignment_points) * 0.1 and new_finalizations == 0:
+                final_pass = True
+                angles_to_search = final_pass_angles
+            
+            #If we've locked 90% of the points we are done
+            if len(finalized_points) > len(combined_alignment_points) * 0.9:
+                final_pass = True
+                angles_to_search = final_pass_angles
+            
         #Convert the transform to a grid transform and persist to disk
         stosObj.Transform = local_distortion_correction._ConvertTransformToGridTransform(stosObj.Transform, source_image_shape=warpedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
         stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos") )
         return
     
-    @classmethod
-    def _PlotWeightHistogram(cls, alignment_records, filename, cutoff):
-        weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
-        h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights))
-        h.Add(weights)
-        nornir_shared.plot.Histogram(h, Title="Histogram of Weights", xlabel="Weight Value", ImageFilename=filename, MinCutoffPercent=cutoff, MaxCutoffPercent=1.0)
     
-    @classmethod
-    def _PlotPeakList(cls, new_alignment_records, finalized_alignment_records, filename, ylim=None, xlim=None):
-        '''
-        Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
-        '''
+    
+    
+    def testGridRefineScript(self):
+        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+        args = ['-input', stosFile,
+                '-output', os.path.join(self.TestOutputPath,'scriptTestResult.stos'),
+                '-min_overlap', '0.5',
+                '-grid_spacing', '512,512',
+                '-it', '3',
+                '-c','128,128',
+                '-angles','0',
+                '-travel_cutoff','0.75']
         
-        all_records = new_alignment_records + finalized_alignment_records
-        shapes = ['s' for a in new_alignment_records]
-        shapes.extend(['.' for a in finalized_alignment_records])
-                     
-        FixedPoints = np.asarray(list(map(lambda a: a.TargetPoint, all_records)))
-        #OriginalWarpedPoints = np.asarray(list(map(lambda a: a.SourcePoint, all_records)))
-        AdjustedFixedPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, all_records)))
-        #AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, all_records)))
-        weights = np.asarray(list(map(lambda a: a.weight, all_records)))
-        percentile_prep = weights - weights.min()
-        percentiles = (percentile_prep / np.max(percentile_prep)) * 100
-        #WarpedPeaks = AdjustedWarpedPoints - OriginalWarpedPoints
-        FixedPeaks = AdjustedFixedPoints - FixedPoints
-        #peaks = np.asarray(list(map(lambda a: a.peak, all_records)))
-        
-        #nornir_shared.plot.VectorField(OriginalWarpedPoints, WarpedPeaks, shapes, weights, filename, ylim, xlim )
-        nornir_shared.plot.VectorField(FixedPoints.astype(np.float32), FixedPeaks, shapes, percentiles, filename, ylim, xlim )
-         
+        nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
         return
-    
-    
     
     def testAlignmentRecordsToTransforms(self):
         '''

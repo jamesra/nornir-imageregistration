@@ -127,6 +127,7 @@ class TestBase(unittest.TestCase):
         self.profiler = None
 
         if 'PROFILE' in os.environ:
+            os.environ['PROFILE'] = self.TestOutputPath #Overwrite the value with the directory we want the profile data saved in
             self.profiler = cProfile.Profile()
             self.profiler.enable()
 
@@ -161,6 +162,10 @@ class TransformTestBase(TestBase):
         raise NotImplementedError("Test should override TestName property")
     
     @property
+    def TestInputDataPath(self):
+        return os.path.join(self.ImportedDataPath, self.TestName)
+    
+    @property
     def TestOutputPath(self):
         return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
@@ -168,19 +173,27 @@ class TransformTestBase(TestBase):
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
     
     def GetMosaicFile(self, filenamebase):
-        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, filenamebase + ".mosaic"))[0]
+        (base, ext) = os.path.splitext(filenamebase)
+        if ext is None or len(ext) == 0:
+            filenamebase = filenamebase + '.mosaic'
+            
+        return glob.glob(os.path.join(self.TestInputDataPath, filenamebase + ".mosaic"))[0]
     
     def GetStosFiles(self):
-        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.stos"))
+        return glob.glob(os.path.join(self.TestInputDataPath, "*.stos"))
     
-    def GetStosFile(self, filenamebase):
-        return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, filenamebase + ".stos"))[0]
+    def GetStosFile(self, filenamebase): 
+        (base, ext) = os.path.splitext(filenamebase)
+        if ext is None or len(ext) == 0:
+            filenamebase = filenamebase + '.stos'
+            
+        return glob.glob(os.path.join(self.TestInputDataPath, filenamebase))[0]
 
     def GetTileFullPath(self, downsamplePath=None):
         if downsamplePath is None:
             downsamplePath = "001"
 
-        return os.path.join(self.ImportedDataPath, self.TestName, "Leveled", "TilePyramid", downsamplePath)
+        return os.path.join(self.TestInputDataPath, "Leveled", "TilePyramid", downsamplePath)
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")

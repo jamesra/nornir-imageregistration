@@ -480,6 +480,28 @@ class StosFile(object):
                                             'width' : ImageDimArray[2] - (ImageDimArray[0] - 1),
                                             'height' : ImageDimArray[3] - (ImageDimArray[1] - 1)}
         return DimStr
+    
+    
+    def TryConvertRelativePathsToAbsolutePaths(self, stosDir):
+        '''
+        Converts any relative paths in the StosFile to an absolute path using the stosDir parameter.
+        Existing absolute paths are left alone.  Relative paths are unchanged, just prepended with 
+        the stosDir parameter 
+        '''
+         
+        if stosDir is not None and len(stosDir) > 0:
+            #Ensure any relative paths to images in the .stos file are relative to the position of the stos file    
+            if self.ControlImageFullPath is not None and not os.path.isabs(self.ControlImageFullPath):
+                self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath)
+                
+            if self.MappedImageFullPath is not None and not os.path.isabs(self.MappedImageFullPath):
+                self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath)
+                
+            if self.ControlMaskFullPath is not None and not os.path.isabs(self.ControlMaskFullPath):
+                self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath)
+                
+            if self.MappedMaskFullPath is not None and not os.path.isabs(self.MappedMaskFullPath):
+                self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
 
 
     def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath,
