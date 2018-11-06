@@ -32,7 +32,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
          
         transform = self.transform
 
-        FixedTriAngles = metrics.TriangleAngles(transform.FixedTriangles, transform.FixedPoints)
+        FixedTriAngles = metrics.TriangleAngles(transform.FixedTriangles, transform.TargetPoints)
 
         CheckTriAngleSum180 = numpy.sum(FixedTriAngles, 1)
         assert(numpy.allclose(CheckTriAngleSum180, numpy.pi, rtol=0.00001))
@@ -49,7 +49,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         triangleTension = angledelta[:,2] / maxdelta
 
         triColor = numpy.swapaxes(numpy.vstack((triangleTension, triangleTension, triangleTension)),0,1)
-        points = transform.WarpedPoints
+        points = transform.SourcePoints
         
         fig1, ax1 = plt.subplots()
         ax1.set_aspect('equal')
@@ -81,7 +81,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         #triangleTension = angledelta[:,2] / maxdelta
 
         #triColor = numpy.swapaxes(numpy.vstack((triangleTension, triangleTension, triangleTension)),0,1)
-        points = transform.WarpedPoints
+        points = transform.SourcePoints
 
         plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], transform.FixedTriangles)
 
@@ -118,7 +118,7 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
 
         grid_x, grid_y = numpy.mgrid[0:int(dims[1]), 0:int(dims[0])]
 
-        img = scipy.interpolate.griddata(self.transform.WarpedPoints, measurement, (grid_x, grid_y), method='cubic')
+        img = scipy.interpolate.griddata(self.transform.SourcePoints, measurement, (grid_x, grid_y), method='cubic')
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale([img], title='An image showing transform warp metric', PassFail=True))
 

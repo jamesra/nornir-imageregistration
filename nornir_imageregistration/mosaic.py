@@ -215,7 +215,7 @@ class Mosaic(object):
     def RefineLayout(self, tilesPath, usecluster=False):
 
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.RefineMosaic(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        (layout, tiles) = nornir_imageregistration.RefineGrid(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
         return LayoutToMosaic(layout, tiles)
     
     

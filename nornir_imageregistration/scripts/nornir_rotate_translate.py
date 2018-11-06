@@ -28,6 +28,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=str,
+                        default=None,
                         help='Input .stos file path',
                         dest='inputpath')
 
@@ -38,7 +39,7 @@ def __CreateArgParser(ExecArgs=None):
                         help='Output .stos file path',
                         dest='outputpath')
 
-    StosOverrideArgs.ExtendParser(parser)
+    StosOverrideArgs.ExtendParser(parser, RequireInputImages=True)
 
     parser.add_argument('-min_overlap', '-mino',
                         action='store',
@@ -87,6 +88,9 @@ def Execute(ExecArgs=None):
     (Args, extra) = ParseArgs(ExecArgs)
 
     stosArgs = StosOverrideArgs(Args)
+    
+    if not os.path.exists(os.path.dirname(Args.outputpath)):
+        os.makedirs(os.path.dirname(Args.outputpath))
 
     alignRecord = sb.SliceToSliceBruteForce( stosArgs.ControlImage,
                                              stosArgs.WarpedImage,

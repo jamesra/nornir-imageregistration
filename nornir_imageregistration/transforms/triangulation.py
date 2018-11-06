@@ -60,10 +60,10 @@ def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichToleran
 
 
 def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
-    mappedControlPoints = AToB_mapped_Transform.FixedPoints
+    mappedControlPoints = AToB_mapped_Transform.TargetPoints
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
 
-    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.WarpedPoints))
+    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))
 
     newTransform = None
     if create_copy:
@@ -103,7 +103,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
 
         # In extreme distortion we don't want to add new control points forever or converge on existing control points. 
         # So ignore centroids falling too close to an existing vertex        
-        A_CentroidTriangles = A_To_B_Transform.WarpedPoints[A_To_B_Transform.WarpedTriangles]
+        A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles]
         CentroidVertexDistances = CentroidToVertexDistance(A_Centroids, A_CentroidTriangles)
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
@@ -225,14 +225,14 @@ class Triangulation(Base):
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = cKDTree(self.WarpedPoints)
+            self._WarpedKDTree = cKDTree(self.SourcePoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = cKDTree(self.FixedPoints)
+            self._FixedKDTree = cKDTree(self.TargetPoints)
 
         return self._FixedKDTree
 
@@ -240,9 +240,9 @@ class Triangulation(Base):
     def fixedtri(self):
         if self._fixedtri is None:
             # try:
-            # self._fixedtri = Delaunay(self.FixedPoints, incremental =True)
+            # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
             # except:
-            self._fixedtri = Delaunay(self.FixedPoints, incremental=False)
+            self._fixedtri = Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
 
@@ -250,9 +250,9 @@ class Triangulation(Base):
     def warpedtri(self):
         if self._warpedtri is None:
             # try:
-            # self._warpedtri = Delaunay(self.WarpedPoints, incremental =True)
+            # self._warpedtri = Delaunay(self.SourcePoints, incremental =True)
             # except:
-            self._warpedtri = Delaunay(self.WarpedPoints, incremental=False)
+            self._warpedtri = Delaunay(self.SourcePoints, incremental=False)
 
         return self._warpedtri
     
@@ -266,14 +266,14 @@ class Triangulation(Base):
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.FixedPoints)
+            self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
 
         return self._ForwardInterpolator
 
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.WarpedPoints)
+            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
 
@@ -403,21 +403,21 @@ class Triangulation(Base):
 
         MPool = nornir_pools.GetGlobalMultithreadingPool()
         TPool = nornir_pools.GetGlobalThreadPool()
-        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.FixedPoints)
-        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.WarpedPoints)
+        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.TargetPoints)
+        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.SourcePoints)
 
         # Cannot pickle KDTree, so use Python's thread pool
 
-        FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.FixedPoints)
-        # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.WarpedPoints)
+        FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.TargetPoints)
+        # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.SourcePoints)
 
-        self._WarpedKDTree = cKDTree(self.WarpedPoints)
+        self._WarpedKDTree = cKDTree(self.SourcePoints)
 
         # MPool.wait_completion()
 
         self._FixedKDTree = FixedKDTask.wait_return()
 
-        # self._FixedKDTree = cKDTree(self.FixedPoints)
+        # self._FixedKDTree = cKDTree(self.TargetPoints)
 
         self._fixedtri = FixedTriTask.wait_return()
         self._warpedtri = WarpedTriTask.wait_return()
@@ -531,14 +531,14 @@ class Triangulation(Base):
         self.OnTransformChanged()
 
     @property
-    def FixedPoints(self):
+    def TargetPoints(self):
         ''' [[Y1, X1],
              [Y2, X2],
              [Yn, Xn]]'''
         return self._points[:, 0:2]
 
     @property
-    def WarpedPoints(self):
+    def SourcePoints(self):
         ''' [[Y1, X1],
              [Y2, X2],
              [Yn, Xn]]'''
@@ -550,7 +550,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.FixedPoints)
+            self._FixedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.TargetPoints)
 
         return self._FixedBoundingBox
 
@@ -560,7 +560,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.WarpedPoints)
+            self._MappedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.SourcePoints)
 
         return self._MappedBoundingBox
 
@@ -595,24 +595,24 @@ class Triangulation(Base):
 
     def GetFixedPointsRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        # return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        # return self.GetPointPairsInRect(self.TargetPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
     
     def GetFixedPointsInRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.WarpedPoints, bounds)
+        return self.GetPointPairsInRect(self.SourcePoints, bounds)
     
     def GetPointsInFixedRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.FixedPoints, bounds)
+        return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointsInWarpedRect(self, bounds):
         '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.WarpedPoints, bounds)
+        return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInRect(self, points, bounds):
         OutputPoints = None
@@ -645,7 +645,7 @@ class Triangulation(Base):
         if triangles is None:
             triangles = self.FixedTriangles
 
-        fixedTriangleVerticies = self.FixedPoints[triangles]
+        fixedTriangleVerticies = self.TargetPoints[triangles]
         swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
@@ -655,7 +655,7 @@ class Triangulation(Base):
         if triangles is None:
             triangles = self.WarpedTriangles
 
-        warpedTriangleVerticies = self.WarpedPoints[triangles]
+        warpedTriangleVerticies = self.SourcePoints[triangles]
         swappedTriangleVerticies = np.swapaxes(warpedTriangleVerticies, 0, 2)
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)

@@ -61,8 +61,8 @@ def TriangleAngleDelta(transform):
 
     fixed_tri = transform.FixedTriangles
 
-    FixedTriAngles = TriangleAngles(fixed_tri, transform.FixedPoints)
-    WarpedTriAngles = TriangleAngles(fixed_tri, transform.WarpedPoints)
+    FixedTriAngles = TriangleAngles(fixed_tri, transform.TargetPoints)
+    WarpedTriAngles = TriangleAngles(fixed_tri, transform.SourcePoints)
 
     return numpy.abs(FixedTriAngles - WarpedTriAngles)
 
@@ -105,8 +105,8 @@ def TriangleVertexAngleDelta(transform):
 
     fixed_tri = transform.FixedTriangles
 
-    FixedTriAngles = TriangleAngles(fixed_tri, transform.FixedPoints)
-    WarpedTriAngles = TriangleAngles(fixed_tri, transform.WarpedPoints)
+    FixedTriAngles = TriangleAngles(fixed_tri, transform.TargetPoints)
+    WarpedTriAngles = TriangleAngles(fixed_tri, transform.SourcePoints)
 
     delta = numpy.abs(FixedTriAngles - WarpedTriAngles)
 

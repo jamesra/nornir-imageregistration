@@ -27,14 +27,14 @@ class MeshWithRBFFallback(triangulation.Triangulation):
     @property
     def ReverseRBFInstance(self):
         if self._ReverseRBFInstance is None:
-            self._ReverseRBFInstance = RBFWithLinearCorrection(self.FixedPoints, self.WarpedPoints)
+            self._ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 
         return self._ReverseRBFInstance
 
     @property
     def ForwardRBFInstance(self):
         if self._ForwardRBFInstance is None:
-            self._ForwardRBFInstance = RBFWithLinearCorrection(self.WarpedPoints, self.FixedPoints)
+            self._ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
 
         return self._ForwardRBFInstance
 
@@ -45,8 +45,8 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         else:
             Pool = nornir_pools.GetGlobalMultithreadingPool()
 
-        ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
+        ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+        ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 
         super(MeshWithRBFFallback, self).InitializeDataStructures()
 

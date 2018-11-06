@@ -32,28 +32,28 @@ class ScipyRbf(triangulation.Triangulation):
     @property
     def ForwardRbfiX(self):
         if self._ForwardRbfiX is None:
-            self._ForwardRbfiX = scipy.interpolate.Rbf(self.FixedPoints[:, iPoint.Y], self.FixedPoints[:, iPoint.X], self.WarpedPoints[:, iPoint.X])
+            self._ForwardRbfiX = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X], self.SourcePoints[:, iPoint.X])
              
         return self._ForwardRbfiX
     
     @property
     def ForwardRbfiY(self):
         if self._ForwardRbfiY is None:
-            self._ForwardRbfiY = scipy.interpolate.Rbf(self.FixedPoints[:, iPoint.Y], self.FixedPoints[:, iPoint.X], self.WarpedPoints[:, iPoint.Y])
+            self._ForwardRbfiY = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X], self.SourcePoints[:, iPoint.Y])
              
         return self._ForwardRbfiY
     
     @property
     def ReverseRbfiX(self):
         if self._ReverseRbfiX is None:
-            self._ReverseRbfiX = scipy.interpolate.Rbf(self.WarpedPoints[:, iPoint.Y], self.WarpedPoints[:, iPoint.X], self.FixedPoints[:, iPoint.X])
+            self._ReverseRbfiX = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X], self.TargetPoints[:, iPoint.X])
 
         return self._ReverseRbfiX 
 
     @property
     def ReverseRbfiY(self):
         if self._ReverseRbfiY is None:
-            self._ReverseRbfiY = scipy.interpolate.Rbf(self.WarpedPoints[:, iPoint.Y], self.WarpedPoints[:, iPoint.X], self.FixedPoints[:, iPoint.Y])
+            self._ReverseRbfiY = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X], self.TargetPoints[:, iPoint.Y])
 
         return self._ReverseRbfiY  
 
@@ -121,23 +121,23 @@ class ScipyRbf(triangulation.Triangulation):
 #
 #    def OnTransformChanged(self):
 #
-#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
-#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
+#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 #
 #        self.ForwardRBFInstance = ForwardTask.wait_return()
 #        self.ReverseRBFInstance = ReverseTask.wait_return()
 #
 #        super(RBFTransform, self).OnTransformChanged()
 #
-#        # self.ForwardRBFInstance = RBFWithLinearCorrection(self.WarpedPoints, self.FixedPoints)
-#        # self.ReverseRBFInstance = RBFWithLinearCorrection(self.FixedPoints, self.WarpedPoints)
+#        # self.ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
+#        # self.ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 #
 #
 #
-# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
-# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
-# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
-# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
+# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.SourcePoints[:, 0], self.SourcePoints[:, 1], self.TargetPoints[:, 0], function='gaussian')
+# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.SourcePoints[:, 0], self.SourcePoints[:, 1], self.TargetPoints[:, 1], function='gaussian')
+# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.TargetPoints[:, 0], self.TargetPoints[:, 1], self.SourcePoints[:, 0], function='gaussian')
+# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.TargetPoints[:, 0], self.TargetPoints[:, 1], self.SourcePoints[:, 1], function='gaussian')
 #
 #    @classmethod
 #    def InvalidIndicies(self, points):
@@ -174,9 +174,9 @@ class ScipyRbf(triangulation.Triangulation):
 #                BadPoints = points
 #
 #        BadPoints = numpy.array(BadPoints)
-#        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
+#        TargetPoints = self.ForwardRBFInstance.Transform(BadPoints)
 #
-#        TransformedPoints[InvalidIndicies] = FixedPoints
+#        TransformedPoints[InvalidIndicies] = TargetPoints
 #        return TransformedPoints
 #
 #    def InverseTransform(self, points):
@@ -198,9 +198,9 @@ class ScipyRbf(triangulation.Triangulation):
 #
 #        BadPoints = numpy.array(BadPoints)
 #
-#        FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
+#        TargetPoints = self.ReverseRBFInstance.Transform(BadPoints)
 #
-#        TransformedPoints[InvalidIndicies] = FixedPoints
+#        TransformedPoints[InvalidIndicies] = TargetPoints
 #        return TransformedPoints
 #
 #    def __init__(self, pointpairs):

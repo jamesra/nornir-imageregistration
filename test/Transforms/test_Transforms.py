@@ -77,12 +77,12 @@ def TransformCheck(test, transform, warpedPoint, fixedPoint):
 def NearestFixedCheck(test, transform, fixedPoints, testPoints):
         '''Ensures that the nearest fixed point can be found for a test point'''
         distance, index = transform.NearestFixedPoint(testPoints)
-        test.assertTrue(np.array_equal(np.around(transform.FixedPoints[index,:], 2), fixedPoints))
+        test.assertTrue(np.array_equal(np.around(transform.TargetPoints[index,:], 2), fixedPoints))
 
 def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
         '''Ensures that the nearest warped point can be found for a test point'''
         distance, index = transform.NearestWarpedPoint(testPoints)
-        test.assertTrue(np.array_equal(np.around(transform.WarpedPoints[index,:], 2), warpedPoints))
+        test.assertTrue(np.array_equal(np.around(transform.SourcePoints[index,:], 2), warpedPoints))
 
 class TestTransforms(unittest.TestCase):
 
@@ -149,8 +149,8 @@ class TestTransforms(unittest.TestCase):
         T.AddPoint([5.0, 5.0, -5.0, -5.0])
 
         #Make sure the new point can be found correctly
-        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
-        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        NearestFixedCheck(self, T, T.TargetPoints, T.TargetPoints - 1)
+        NearestWarpedCheck(self, T, T.SourcePoints, T.SourcePoints - 1)
         
         #Add a duplicate and see what happens
         NumBefore = T.NumControlPoints
@@ -204,14 +204,14 @@ class TestTransforms(unittest.TestCase):
         warpedPoint = np.array([[-5, -5]])
         ForwardTransformCheck(self, T, warpedPoint, -warpedPoint)
 
-        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
-        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        NearestFixedCheck(self, T, T.TargetPoints, T.TargetPoints - 1)
+        NearestWarpedCheck(self, T, T.SourcePoints, T.SourcePoints - 1)
 
         # Add a point to the mirror transform, make sure it still works
         T.AddPoint([5.0, 5.0, -5.0, -5.0])
 
-        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
-        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        NearestFixedCheck(self, T, T.TargetPoints, T.TargetPoints - 1)
+        NearestWarpedCheck(self, T, T.SourcePoints, T.SourcePoints - 1)
 
         #Add a duplicate and see what happens
         NumBefore = T.NumControlPoints
@@ -281,14 +281,14 @@ class TestTransforms(unittest.TestCase):
         warpedPoint = np.array([[-5, -5]])
         TransformCheck(self, T, warpedPoint, -warpedPoint)
 
-        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
-        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        NearestFixedCheck(self, T, T.TargetPoints, T.TargetPoints - 1)
+        NearestWarpedCheck(self, T, T.SourcePoints, T.SourcePoints - 1)
 
         # Add a point to the mirror transform, make sure it still works
         T.AddPoint([5.0, 5.0, -5.0, -5.0])
 
-        NearestFixedCheck(self, T, T.FixedPoints, T.FixedPoints - 1)
-        NearestWarpedCheck(self, T, T.WarpedPoints, T.WarpedPoints - 1)
+        NearestFixedCheck(self, T, T.TargetPoints, T.TargetPoints - 1)
+        NearestWarpedCheck(self, T, T.SourcePoints, T.SourcePoints - 1)
 
         #Add a duplicate and see what happens
         NumBefore = T.NumControlPoints

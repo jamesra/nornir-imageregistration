@@ -43,8 +43,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         points = numpy.hstack((FixedPoints, WarpedPoints))
         super(RBFWithLinearCorrection, self).__init__(points)
 
-        # self.ControlPoints = FixedPoints
-        # self.WarpedPoints = WarpedPoints
+        # self.ControlPoints = TargetPoints
+        # self.SourcePoints = SourcePoints
         self.BasisFunction = BasisFunction
         if(self.BasisFunction is None):
             self.BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
@@ -54,10 +54,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
     def OnPointsAddedToTransform(self, new_points):
         '''Update our data structures to account for added control points'''
         super(RBFWithLinearCorrection, self).OnPointsAddedToTransform(new_points)
-        self._Weights = self.CalculateRBFWeights(self.WarpedPoints, self.FixedPoints, self.BasisFunction)
+        self._Weights = self.CalculateRBFWeights(self.SourcePoints, self.TargetPoints, self.BasisFunction)
 
-    def _GetMatrixWeightSums(self, Points, FixedPoints, WarpedPoints, MaxChunkSize=65536):
-        NumCtrlPts = len(FixedPoints)
+    def _GetMatrixWeightSums(self, Points, WarpedPoints, MaxChunkSize=65536):
+        NumCtrlPts = len(WarpedPoints)
         NumPts = Points.shape[0]
 
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
@@ -70,7 +70,11 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             #We have to check for zeros so we don't crash if the transformed point exactly matches our control point
             nonzero = Distances != 0
             FuncValues = numpy.zeros(Distances.shape)
-            FuncValues[nonzero] = numpy.multiply(numpy.power(Distances[nonzero], 2.0), numpy.log(Distances[nonzero]))
+            
+            if numpy.all(nonzero):
+                FuncValues = numpy.multiply(numpy.power(Distances, 2.0), numpy.log(Distances))
+            else: 
+                FuncValues[nonzero] = numpy.multiply(numpy.power(Distances[nonzero], 2.0), numpy.log(Distances[nonzero]))
 
             del Distances
 
@@ -91,7 +95,6 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
                     iEnd = Points.shape[0]
 
                 (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
-                                                                                      FixedPoints,
                                                                                       WarpedPoints)
 
                 # Failing these asserts means we are stomping earlier results
@@ -109,10 +112,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         Points = utils.EnsurePointsAre2DNumpyArray(Points)
 
-        NumCtrlPts = len(self.FixedPoints)
+        NumCtrlPts = len(self.TargetPoints)
 
-        (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints)
-        # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.FixedPoints, self.WarpedPoints, MaxChunkSize=32768000)
+        (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
+        # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.TargetPoints, self.SourcePoints, MaxChunkSize=32768000)
         # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
         Xa = Points[:, 1] * self.Weights[NumCtrlPts]
@@ -241,23 +244,23 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #
 #    def OnTransformChanged(self):
 #
-#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
-#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
+#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 #
 #        self.ForwardRBFInstance = ForwardTask.wait_return()
 #        self.ReverseRBFInstance = ReverseTask.wait_return()
 #
 #        super(RBFTransform, self).OnTransformChanged()
 #
-#        # self.ForwardRBFInstance = RBFWithLinearCorrection(self.WarpedPoints, self.FixedPoints)
-#        # self.ReverseRBFInstance = RBFWithLinearCorrection(self.FixedPoints, self.WarpedPoints)
+#        # self.ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
+#        # self.ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 #
 #
 #
-# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 0], function='gaussian')
-# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.WarpedPoints[:, 0], self.WarpedPoints[:, 1], self.FixedPoints[:, 1], function='gaussian')
-# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 0], function='gaussian')
-# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.FixedPoints[:, 0], self.FixedPoints[:, 1], self.WarpedPoints[:, 1], function='gaussian')
+# #        self.ForwardRBFInstanceX = scipy.interpolate.Rbf(self.SourcePoints[:, 0], self.SourcePoints[:, 1], self.TargetPoints[:, 0], function='gaussian')
+# #        self.ForwardRBFInstanceY = scipy.interpolate.Rbf(self.SourcePoints[:, 0], self.SourcePoints[:, 1], self.TargetPoints[:, 1], function='gaussian')
+# #        self.ReverseRBFInstanceX = scipy.interpolate.Rbf(self.TargetPoints[:, 0], self.TargetPoints[:, 1], self.SourcePoints[:, 0], function='gaussian')
+# #        self.ReverseRBFInstanceY = scipy.interpolate.Rbf(self.TargetPoints[:, 0], self.TargetPoints[:, 1], self.SourcePoints[:, 1], function='gaussian')
 #
 #    @classmethod
 #    def InvalidIndicies(self, points):
@@ -294,9 +297,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #                BadPoints = points
 #
 #        BadPoints = numpy.array(BadPoints)
-#        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
+#        TargetPoints = self.ForwardRBFInstance.Transform(BadPoints)
 #
-#        TransformedPoints[InvalidIndicies] = FixedPoints
+#        TransformedPoints[InvalidIndicies] = TargetPoints
 #        return TransformedPoints
 #
 #    def InverseTransform(self, points):
@@ -318,9 +321,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 #
 #        BadPoints = numpy.array(BadPoints)
 #
-#        FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
+#        TargetPoints = self.ReverseRBFInstance.Transform(BadPoints)
 #
-#        TransformedPoints[InvalidIndicies] = FixedPoints
+#        TransformedPoints[InvalidIndicies] = TargetPoints
 #        return TransformedPoints
 #
 #    def __init__(self, pointpairs):
