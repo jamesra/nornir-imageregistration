@@ -39,6 +39,7 @@ import nornir_imageregistration.spatial as spatial
 
 from nornir_imageregistration.files.stosfile import StosFile
 from nornir_imageregistration.files.mosaicfile import MosaicFile
+from nornir_imageregistration.overlapmasking import GetOverlapMask
 
 
 

@@ -1085,7 +1085,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
-    OverlapMask = overlapmasking.GetOverlapMask(FixedImage.shape, MovingImage.shape, CorrelationImage.shape, MinOverlap, MaxOverlap)
+    OverlapMask = nornir_imageregistration.GetOverlapMask(FixedImage.shape, MovingImage.shape, CorrelationImage.shape, MinOverlap, MaxOverlap)
     (peak, weight) = FindPeak(CorrelationImage, OverlapMask)
 
     del CorrelationImage
