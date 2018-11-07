@@ -24,7 +24,7 @@ assemble_tiles
 
 '''
 
-from nornir_imageregistration.alignment_record import AlignmentRecord
+from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord
 from nornir_imageregistration.core import *
 from nornir_imageregistration.mosaic import Mosaic
 from nornir_imageregistration.spatial import *

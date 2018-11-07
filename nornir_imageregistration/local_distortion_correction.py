@@ -22,7 +22,7 @@ import nornir_shared.histogram
 import nornir_shared.plot as plot
 
 import numpy as np
-from alignment_record import AlignmentRecord, EnhancedAlignmentRecord 
+from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord 
 from numpy import histogram
 import os
 
