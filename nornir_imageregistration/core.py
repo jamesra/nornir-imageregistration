@@ -24,7 +24,6 @@ import nornir_shared.images as shared_images
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
-import overlapmasking
 from nornir_imageregistration.image_stats import ImageStats
 
 
