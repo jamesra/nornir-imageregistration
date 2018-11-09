@@ -43,7 +43,7 @@ if __name__ == '__main__':
                'nornir-slice-to-mosaic = nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
                'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute',
                'nornir-scaletransform = nornir_imageregistration.scripts.nornir_scaletransform:Execute',
-               'nornir_stos-grid-refinement = nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute']
+               'nornir-stos-grid-refinement = nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute']
                
     
     # named_scripts = []

@@ -168,7 +168,7 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         # t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
         (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         
-        # __tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
+        #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
         try:
             t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
@@ -240,6 +240,12 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A, excess_scalar=excess_scalar)
     OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B, excess_scalar=excess_scalar)
     
+    #It is fairly common to underflow when dividing float16 images, so just warn and move on. 
+    #I spent a day debugging why a mosaic was not building correctly to find the underflow 
+    #issue, so don't remove it.  The underflow error removes one of the ties between a tile
+    #and its neighbors
+    old_float_err_settings = np.seterr(under='warn')
+    
     OverlappingRegionA -= OverlappingRegionA.min()
     OverlappingRegionA /= OverlappingRegionA.max()
     
@@ -248,12 +254,14 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     
     # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB])
     
+    
     record = core.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)
     
     # overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.translate(overlapping_rect_B, -record.peak) 
     # overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, overlapping_rect_A.Size)
     # median_diff = __AlignmentScoreRemote(A, B, overlapping_rect_A, overlapping_rect_B_AdjustedToPeak)
     # diff_weight = 1.0 - median_diff
+    np.seterr(**old_float_err_settings)
     
     adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
     return adjusted_record
