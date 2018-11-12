@@ -20,22 +20,7 @@ import numpy as np
 from . import spatial
 
 
-def LayoutToMosaic(layout, tiles):
 
-    mosaic = Mosaic()
-
-    for ID in sorted(tiles.keys()):
-        if not ID in layout.nodes:
-            continue
-        
-        tile = tiles[ID]
-        
-        transform = nornir_imageregistration.layout.CreateTransform(layout, ID, tile.MappedBoundingBox)
-        mosaic.ImageToTransform[tile.ImagePath] = transform
-
-    mosaic.TranslateToZeroOrigin()
-
-    return mosaic
 
 class Mosaic(object):
     '''
@@ -206,17 +191,24 @@ class Mosaic(object):
         return values
          
 
-    def ArrangeTilesWithTranslate(self, tilesPath, excess_scalar=1.5, usecluster=False):
-
+    def ArrangeTilesWithTranslate(self, tilesPath,
+                                   excess_scalar=1.5,
+                                   max_relax_iterations=None,
+                                   max_relax_tension_cutoff=None):
+        
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath), excess_scalar)
-        return LayoutToMosaic(layout, tiles)
+        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(),
+                                                 self.CreateTilesPathList(tilesPath),
+                                                 excess_scalar=excess_scalar, 
+                                                 max_relax_iterations=max_relax_iterations,
+                                                 max_relax_tension_cutoff=max_relax_tension_cutoff)
+        return layout.ToMosaic(tiles)
     
-    def RefineLayout(self, tilesPath, usecluster=False):
+    def RefineLayout(self, tilesPath):
 
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
         (layout, tiles) = nornir_imageregistration.RefineGrid(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
-        return LayoutToMosaic(layout, tiles)
+        return layout.ToMosaic(tiles)
     
     
     def QualityScore(self, tilesPath):

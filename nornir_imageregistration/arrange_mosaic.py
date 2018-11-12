@@ -39,26 +39,39 @@ def _CalculateImageFFTs(tiles):
     pool.wait_completion()
     
     
-def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None):
+def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_relax_iterations=None, max_relax_tension_cutoff=None):
     '''
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
+    :param list transforms: list of transforms for tiles
+    :param list imagepaths: list of paths to tile images, must be same length as transforms list
     :param float excess_scalar: How much additional area should we pad the overlapping regions with.
+    :param float imageScale: The downsampling of the images in imagepaths.  If None then this is calculated based on the difference in the transform and the image file dimensions
+    :param int max_relax_iterations: Maximum number of iterations in the relax stage
+    :param float max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
+    :return: (offsets_collection, tiles) tuple
     '''
+    
+    if max_relax_iterations is None:
+        max_relax_iterations=150
+    
+    if max_relax_tension_cutoff is None:
+        max_relax_tension_cutoff = 1.0
+            
 
     tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
 
     if imageScale is None:
         imageScale = tileset.MostCommonScalar(transforms, imagepaths)
 
-    offsets_collection = _FindTileOffsets(tiles, excess_scalar, imageScale=imageScale)
+    tile_layout = _FindTileOffsets(tiles, excess_scalar, imageScale=imageScale)
     
-    nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(offsets_collection, min_allowed_weight=0.25, max_allowed_weight=1.0)
-    nornir_imageregistration.layout.RelaxLayout(offsets_collection, max_tension_cutoff=1.0, max_iter=150)
+    nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(tile_layout, min_allowed_weight=0.25, max_allowed_weight=1.0)
+    nornir_imageregistration.layout.RelaxLayout(tile_layout, max_tension_cutoff=max_relax_tension_cutoff, max_iter=max_relax_iterations)
     
     # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 
     # Create a mosaic file using the tile paths and transforms
-    return (offsets_collection, tiles)
+    return (tile_layout, tiles)
 
 
 def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=None):
@@ -138,7 +151,9 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
     '''Populates the OffsetToTile dictionary for tiles
     :param dict tiles: Dictionary mapping TileID to a tile
     :param dict imageScale: downsample level if known.  None causes it to be calculated.
-    :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.'''
+    :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
+    :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
+    '''
     
 
     if imageScale is None:
@@ -222,6 +237,11 @@ def __get_overlapping_image(image, overlapping_rect, excess_scalar):
 
 def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping_rect_B, OffsetAdjustment, excess_scalar):
     '''
+    :param A_Filename: Path to tile A
+    :param B_Filename: Path to tile B
+    :param overlapping_rect_A: Region of overlap on tile A with tile B
+    :param overlapping_rect_B: Region of overlap on tile B with tile A
+    :param OffsetAdjustment: Offset to account for the (center) position of tile B relative to tile A.  If the overlapping rectangles are perfectly aligned the reported offset would be (0,0).  OffsetAdjustment would be added to that (0,0) result to ensure Tile B remained in the same position. 
     :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
     Return the offset required to align to image files.
     This function exists to minimize the inter-process communication
@@ -253,7 +273,6 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     OverlappingRegionB /= OverlappingRegionB.max()
     
     # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB])
-    
     
     record = core.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)
     
@@ -294,7 +313,7 @@ def __tile_offset(A, B, imageScale):
 
 
 def BuildOverlappingTileDict(list_tiles, minOverlap=0.05):
-    ''':return: A map of tile ID to all overlappign tile IDs'''
+    ''':return: A map of tile ID to all overlapping tile IDs'''
     
     list_rects = []
     for tile in list_tiles:

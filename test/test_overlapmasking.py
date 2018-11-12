@@ -22,22 +22,65 @@ from . import setup_imagetest
     
 class TestOverlapMask(setup_imagetest.ImageTestBase):
     
-    def testOverlapMask(self):
+    def testSquareOverlapMask(self):
+
+        FixedImageSize = np.asarray((128,128),dtype=np.int32)
+        MovingImageSize = np.asarray((128,128),dtype=np.int32)
+        CorrelationImageSize = FixedImageSize + MovingImageSize
+
+        mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        self.assertTrue(core.ShowGrayscale([mask],title="Square Overlap Mask: 25% Min overlap, 75% max overlap", PassFail=True))
+        
+    def testSquarePaddedOverlapMask(self):
 
         FixedImageSize = np.asarray((128,128),dtype=np.int32)
         MovingImageSize = np.asarray((128,128),dtype=np.int32)
         CorrelationImageSize = FixedImageSize + MovingImageSize + np.asarray((64,64), dtype=np.int32)
 
         mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
-        core.ShowGrayscale([mask],title="Overlap Mask: 25% Min overlap, 75% max overlap", PassFail=True)
+        self.assertTrue(core.ShowGrayscale([mask],title="Square Padded Overlap Mask: 25% Min overlap, 75% max overlap", PassFail=True))
 
+    def testMismatchedOverlapMask_FixedLarger(self):
 
-        FixedImageSize = np.asarray((128,256),dtype=np.int32)
-        MovingImageSize = np.asarray((128,64),dtype=np.int32)
+        FixedImageSize = np.asarray((64,256),dtype=np.int32)
+        MovingImageSize = np.asarray((64,64),dtype=np.int32)
+        CorrelationImageSize = FixedImageSize + MovingImageSize
+
+        mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        self.assertTrue(core.ShowGrayscale([mask],title="Mismatched Overlap Mask (Fixed Larger): 25% Min overlap, 75% max overlap", PassFail=True))
+
+        return
+    
+    def testMismatchedPaddedOverlapMask_FixedLarger(self):
+
+        FixedImageSize = np.asarray((64,256),dtype=np.int32)
+        MovingImageSize = np.asarray((64,64),dtype=np.int32)
         CorrelationImageSize = FixedImageSize + MovingImageSize + np.asarray((64,64), dtype=np.int32)
 
         mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
-        core.ShowGrayscale([mask],title="Overlap Mask: 25% Min overlap, 75% max overlap", PassFail=True)
+        self.assertTrue(core.ShowGrayscale([mask],title="Mismatched Padded Overlap Mask (Fixed Larger): 25% Min overlap, 75% max overlap", PassFail=True))
+
+        return
+    
+    def testMismatchedOverlapMask_MovingLarger(self):
+
+        FixedImageSize = np.asarray((64,64),dtype=np.int32)
+        MovingImageSize = np.asarray((64,256),dtype=np.int32)
+        CorrelationImageSize = FixedImageSize + MovingImageSize
+
+        mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        self.assertTrue(core.ShowGrayscale([mask],title="Mismatched Overlap Mask (Moving Larger): 25% Min overlap, 75% max overlap", PassFail=True))
+
+        return
+    
+    def testMismatchedPaddedOverlapMask_MovingLarger(self):
+
+        FixedImageSize = np.asarray((64,64),dtype=np.int32)
+        MovingImageSize = np.asarray((64,256),dtype=np.int32)
+        CorrelationImageSize = FixedImageSize + MovingImageSize + np.asarray((64,64), dtype=np.int32)
+
+        mask = nornir_imageregistration.GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        self.assertTrue(core.ShowGrayscale([mask],title="Mismatched Padded Overlap Mask (Moving Larger): 25% Min overlap, 75% max overlap", PassFail=True))
 
         return
 
@@ -52,8 +95,8 @@ class TestOverlapMask(setup_imagetest.ImageTestBase):
         BruteForceMask = np.zeros(QuadrantSize, dtype=np.bool)
         BruteForceMaskOptimized = np.zeros(QuadrantSize, dtype=np.bool)
 
-        nornir_imageregistration.overlapmasking._PopulateMaskQuadrantBruteForce(BruteForceMask, FixedImageSize, MovingImageSize, MinOverlap=0.25, MaxOverlap=0.75)
-        nornir_imageregistration.overlapmasking._PopulateMaskQuadrantBruteForceOptimized(BruteForceMaskOptimized, FixedImageSize, MovingImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        BruteForceMask = nornir_imageregistration.overlapmasking._PopulateMaskQuadrantBruteForce(BruteForceMask, FixedImageSize, MovingImageSize, MinOverlap=0.25, MaxOverlap=0.75)
+        BruteForceMaskOptimized = nornir_imageregistration.overlapmasking._PopulateMaskQuadrantBruteForceOptimized(BruteForceMaskOptimized, FixedImageSize, MovingImageSize, MinOverlap=0.25, MaxOverlap=0.75)
 
         self.assertTrue(core.ShowGrayscale([BruteForceMask, BruteForceMaskOptimized], title="Two equal masks", PassFail=True))
 

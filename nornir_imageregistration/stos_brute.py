@@ -103,10 +103,10 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
 
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
-        fixedStats = core.ImageStats.CalcStats(imFixed)
+        fixedStats = nornir_imageregistration.ImageStats.CalcStats(imFixed)
 
     if warpedStats is None:
-        warpedStats = core.ImageStats.CalcStats(imWarped)
+        warpedStats = nornir_imageregistration.ImageStats.CalcStats(imWarped)
 
     OKToDelimWarped = False 
     if angle != 0:
@@ -168,8 +168,8 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
 def GetFixedAndWarpedImageStats(imFixed, imWarped):
     tpool = nornir_pools.GetGlobalThreadPool()
 
-    fixedStatsTask = tpool.add_task('FixedStats', core.ImageStats.CalcStats, imFixed)
-    warpedStats = core.ImageStats.CalcStats(imWarped)
+    fixedStatsTask = tpool.add_task('FixedStats', nornir_imageregistration.ImageStats.CalcStats, imFixed)
+    warpedStats = nornir_imageregistration.ImageStats.CalcStats(imWarped)
 
     fixedStats = fixedStatsTask.wait_return()
 

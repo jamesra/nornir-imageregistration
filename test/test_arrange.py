@@ -98,7 +98,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
     @property
     def Dataset(self):
-        return "PMG1"
+        return "RPC2_626"
     
     @property
     def MosaicFiles(self, testName=None):
@@ -317,7 +317,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         OutputDir = os.path.join(self.TestOutputPath, name + '.mosaic')
         # OutputMosaicDir = os.path.join(self.TestOutputPath, name + '.png')
         
-        created_mosaic = nornir_imageregistration.mosaic.LayoutToMosaic(layout_obj, tiles)
+        created_mosaic = layout_obj.ToMosaic(tiles)
         created_mosaic.SaveToMosaicFile(OutputDir)
         return created_mosaic
         
@@ -362,7 +362,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
         return layout_obj
 
-    def ArrangeMosaic(self, mosaicFilePath, TilePyramidDir=None, parallel=False, downsample=None):
+    def ArrangeMosaic(self, mosaicFilePath, TilePyramidDir=None, downsample=None, 
+                      max_relax_iterations=None,
+                      max_relax_tension_cutoff=None):
  
         if downsample is None:
             downsample = 1
@@ -396,7 +398,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
         timer.Start("ArrangeTiles " + TilesDir)
 
-        translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, 1.5, usecluster=False)
+        translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, 1.5,
+                                                             max_relax_iterations=max_relax_iterations,
+                                                             max_relax_tension_cutoff=max_relax_tension_cutoff)
 
         timer.End("ArrangeTiles " + TilesDir, True)
         
@@ -405,13 +409,26 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         print("Original Quality Score: %g" % (original_score))
         print("Translate Quality Score: %g" % (translated_score))
         
+        second_translated_mosaic = translated_mosaic.ArrangeTilesWithTranslate(TilesDir, 
+                                                                               1.5,
+                                                                               max_relax_iterations=max_relax_iterations,
+                                                                               max_relax_tension_cutoff=max_relax_tension_cutoff)
+
+        timer.End("ArrangeTiles " + TilesDir, True)
+        
+        second_translated_score = second_translated_mosaic.QualityScore(TilesDir)
+        
+        print("Original Quality Score: %g" % (original_score))
+        print("Translate Quality Score: %g" % (translated_score))
+        print("Second Translate Quality Score: %g" % (second_translated_score))
+        
         # self.assertLess(translated_score, original_score, "Quality score should improve after we run translate")
                 
         OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
 
-        translated_mosaic.SaveToMosaicFile(OutputDir)
-        self._ShowMosaic(translated_mosaic, OutputMosaicDir)
+        second_translated_score.SaveToMosaicFile(OutputDir)
+        self._ShowMosaic(second_translated_score, OutputMosaicDir)
          
         
     def test_RC2_0197_Mosaic(self):
@@ -435,14 +452,14 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     def test_ArrangeMosaic(self):
         
         for m in self.MosaicFiles:
-            self.ArrangeMosaic(m, TilePyramidDir=None, parallel=False, downsample=1)
+            self.ArrangeMosaic(m, TilePyramidDir=None, downsample=4, max_relax_iterations=50, max_relax_tension_cutoff=1.0)
 
         print("All done")
 
     def test_ArrangeMosaicDirect(self):
 
         for m in self.MosaicFiles:
-            self.ArrangeMosaicDirect(m, TilePyramidDir=None, parallel=False, downsample=1, openwindow=False)
+            self.ArrangeMosaicDirect(m, TilePyramidDir=None, parallel=False, downsample=4, openwindow=False)
 
         print("All done")
 

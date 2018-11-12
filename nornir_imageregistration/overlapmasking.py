@@ -5,6 +5,7 @@ Created on Sep 14, 2018
 '''
 
 import numpy as np
+from nornir_imageregistration.core import ShowGrayscale
 from nornir_imageregistration.spatial import Rectangle
 
 #Collection of masks we have already calculated
@@ -80,7 +81,7 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
     QuadrantSize = (CorrelationImageSize[0] // 2, CorrelationImageSize[1] // 2)
     Mask = np.zeros(QuadrantSize, dtype=np.bool)
 
-    _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)
+    Mask = _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)
 #     for ix in range(0, HalfCorrelationSize[1]):
 #         for iy in range(0, HalfCorrelationSize[0]):
 #             WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
@@ -94,37 +95,48 @@ def _PopulateMaskQuadrantBruteForce(Mask, FixedImageSize, MovingImageSize, MinOv
 
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0,0), FixedImageSize)
     WarpedImageRect = None
+    
+    #We cannot overlap more than the minimum of each dimension
+    maxPossibleOverlap = np.min(np.vstack((FixedImageSize, MovingImageSize)),1)
+    maxPossibleOverlapArea = np.prod(maxPossibleOverlap)
+    
+    Overlap = np.zeros(Mask.shape,dtype=np.float32)
 
     for ix in range(0, Mask.shape[1]):
         for iy in range(0, Mask.shape[0]):
             WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
 
             overlap = Rectangle.overlap(WarpedImageRect, FixedImageRect)
-            Mask[iy, ix] = overlap >= MinOverlap and overlap <= MaxOverlap
+            Overlap[iy, ix] = overlap
+            
+    Mask = np.logical_and(Overlap >= MinOverlap, Overlap <= MaxOverlap)
+    return Mask
 
 def _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
 
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0,0), FixedImageSize)
     WarpedImageRect = None
     
-    maxPossibleOverlap = float(np.prod(FixedImageSize)) / float(np.prod(MovingImageSize))
-    if maxPossibleOverlap > 1.0:
-        maxPossibleOverlap = 1.0 / maxPossibleOverlap
-        
-    #Scale the min/max values to account for any size mismatch
-    MinOverlap = MinOverlap * maxPossibleOverlap
-    MaxOverlap = MaxOverlap * maxPossibleOverlap 
-
+    #We cannot overlap more than the minimum of each dimension
+    maxPossibleOverlap = np.min(np.vstack((FixedImageSize, MovingImageSize)),0)
+    maxPossibleOverlapArea = np.prod(maxPossibleOverlap)
+             
     for ix in range(0, Mask.shape[1]):
         for iy in range(0, Mask.shape[0]):
             WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
 
-            overlap = Rectangle.overlap(WarpedImageRect, FixedImageRect)
+            overlap_rect = Rectangle.overlap_rect(WarpedImageRect, FixedImageRect)
+            overlap = 0
+            if overlap_rect is not None:
+                overlap = overlap_rect.Area / maxPossibleOverlapArea
+            
+            #Overlap[iy, ix] = overlap #Rectangle.overlap(WarpedImageRect, FixedImageRect)
             Mask[iy, ix] = overlap >= MinOverlap and overlap <= MaxOverlap
 
             if overlap < MinOverlap:
                 Mask[iy:Mask.shape[0], ix] = False
                 break
 
-
+    #Mask = np.logical_and(Overlap >= MinOverlap, Overlap <= MaxOverlap)
+    return Mask
     

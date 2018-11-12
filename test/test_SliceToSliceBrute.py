@@ -84,25 +84,29 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        
+        MinOverlap=0.5
 
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(-140, -130)))
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(-140, -130)),
+                               TestFlip = FlipUD,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=False, Cluster=True)
+                               WarpedImagePath, SingleThread=False, Cluster=True,
+                               TestFlip = FlipUD,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath)
+                               WarpedImagePath,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)

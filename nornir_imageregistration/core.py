@@ -13,7 +13,6 @@ import tempfile
 
 from PIL import Image
 import nornir_imageregistration
-from nornir_imageregistration.spatial.rectangle import Rectangle
 import numpy.fft
 import scipy.misc
 import scipy.ndimage.measurements
@@ -24,12 +23,8 @@ import nornir_shared.images as shared_images
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
-from nornir_imageregistration.image_stats import ImageStats
 
 
-# In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
-np.seterr(all='raise')
-    
 # from memory_profiler import profile
 
 class memmap_metadata(object):
@@ -362,10 +357,10 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
     
-    image_rectangle = Rectangle([0, 0, image.shape[0], image.shape[1]])
-    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
+    image_rectangle = nornir_imageregistration.Rectangle([0, 0, image.shape[0], image.shape[1]])
+    crop_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
     
-    overlap_rectangle = Rectangle.overlap_rect(image_rectangle, crop_rectangle)
+    overlap_rectangle = nornir_imageregistration.Rectangle.overlap_rect(image_rectangle, crop_rectangle)
     
     in_startY = Yo
     in_startX = Xo

@@ -36,11 +36,17 @@ import nornir_imageregistration.files as files
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
 import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.image_stats as image_stats
 
 from nornir_imageregistration.files.stosfile import StosFile
 from nornir_imageregistration.files.mosaicfile import MosaicFile
 from nornir_imageregistration.overlapmasking import GetOverlapMask
+from nornir_imageregistration.mosaic import Mosaic
+from nornir_imageregistration.image_stats import ImageStats
 
+import numpy as np
+# In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
+np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 
 __all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']

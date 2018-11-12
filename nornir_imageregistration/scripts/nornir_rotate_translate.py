@@ -14,7 +14,7 @@ import nornir_imageregistration
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 
-from nornir_imageregistration.file.stos_override_args import StosOverrideArgs
+from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 
 
 def __CreateArgParser(ExecArgs=None):

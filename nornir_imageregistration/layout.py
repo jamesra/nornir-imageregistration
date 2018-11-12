@@ -160,8 +160,8 @@ class LayoutPosition(object):
         
 
 class Layout(object):
-    '''Arranges tiles in 2D space to form a mosaic.
-       IDs of nodes should be incremental and match the row index of the array'''
+    ''' Records the optimal offset from each tile in a mosaic tile to overlapping tiles. 
+        IDs of nodes should be incremental and match the row index of the array.'''
     
     # Offsets into node position array
     iNodeID = 0
@@ -290,6 +290,7 @@ class Layout(object):
         '''Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
+        :return: nx2 array of tile movement distance
         '''
         
         # TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
@@ -299,7 +300,6 @@ class Layout(object):
         # vectors = {}
         
         i = 0
-        first = True
         for ID, node in layout_obj.nodes.items():
             
             vector = layout_obj.WeightedNetTensionVector(ID) * vector_scalar
@@ -322,6 +322,48 @@ class Layout(object):
         layoutB.Translate(offset)
         layoutA.nodes.update(layoutB.nodes) 
         return layoutA
+    
+    def ToTransforms(self, tiles):
+        '''
+        Create a new set of transform for each tile in the tiles dictionary
+        :param tiles: Dictionary of tile ID to tiles
+        :return: sorted list of transforms for ID's found tiles
+        '''
+        
+        transforms = []
+        
+        for ID in sorted(tiles.keys()):
+            if not ID in self.nodes:
+                continue
+            
+            tile = tiles[ID]
+            
+            transform = CreateTransform(self, ID, tile.MappedBoundingBox)
+            transforms.append(transform)
+            
+        return transforms
+        
+    
+    def ToMosaic(self, tiles):
+        '''
+        Generate a Mosaic object from a dictionary mapping tile numbers to tile paths that can be used to create a .mosaic file 
+        :param dict tiles: Maps tile ID used in layout to a Tile object
+        '''
+        
+        mosaic = nornir_imageregistration.Mosaic()
+    
+        for ID in sorted(tiles.keys()):
+            if not ID in self.nodes:
+                continue
+            
+            tile = tiles[ID]
+            
+            transform = CreateTransform(self, ID, tile.MappedBoundingBox)
+            mosaic.ImageToTransform[tile.ImagePath] = transform
+    
+        mosaic.TranslateToZeroOrigin()
+    
+        return mosaic
     
 
 def OffsetsSortedByWeight(layout):
@@ -408,30 +450,35 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
 
     
 def RelaxLayout(layout_obj, max_tension_cutoff=5, max_iter=50):
-                
-        
-        max_tension = layout_obj.MaxWeightedTension
-                 
-        i = 0
-        
+    '''
+    
+    :param layout_obj: Layout to refine
+    :param float max_tension_cutoff: Stop iteration after the maximum tension vector has a magnitude below this value
+    :param int max_iter: Maximum number of iterations
+    '''
+     
+    max_tension = layout_obj.MaxWeightedTension
+             
+    i = 0
+    
 #         MovieImageDir = os.path.join(self.TestOutputPath, "relax_movie")
 #         if not os.path.exists(MovieImageDir):
 #             os.makedirs(MovieImageDir)
-            
-        print("Relax Layout")
-            
-        while max_tension > max_tension_cutoff and i < max_iter:
-            print("\t%d %g" % (i, max_tension))
-            Layout.RelaxNodes(layout_obj)
-            max_tension = layout_obj.MaxWeightedTension
-            # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
-            # max_distance = np.max(node_distance,0)
-            i += 1
-            
-            # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
-            # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
-            
-        return layout_obj
+        
+    print("Relax Layout")
+        
+    while max_tension > max_tension_cutoff and i < max_iter:
+        print("\t%d %g" % (i, max_tension))
+        Layout.RelaxNodes(layout_obj)
+        max_tension = layout_obj.MaxWeightedTension
+        # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
+        # max_distance = np.max(node_distance,0)
+        i += 1
+        
+        # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), filename)
+        # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
+        
+    return layout_obj
 
         
 
