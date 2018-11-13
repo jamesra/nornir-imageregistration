@@ -427,8 +427,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
 
-        second_translated_score.SaveToMosaicFile(OutputDir)
-        self._ShowMosaic(second_translated_score, OutputMosaicDir)
+        second_translated_mosaic.SaveToMosaicFile(OutputDir)
+        self._ShowMosaic(second_translated_mosaic, OutputMosaicDir)
          
         
     def test_RC2_0197_Mosaic(self):

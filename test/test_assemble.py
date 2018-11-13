@@ -220,9 +220,6 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertEquals(core.GetImageSize(self.FixedImagePath)[0], core.GetImageSize(OutputPath)[0])
         self.assertEquals(core.GetImageSize(self.FixedImagePath)[1], core.GetImageSize(OutputPath)[1])
-        
-    
-        
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")

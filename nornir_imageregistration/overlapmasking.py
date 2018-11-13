@@ -106,7 +106,11 @@ def _PopulateMaskQuadrantBruteForce(Mask, FixedImageSize, MovingImageSize, MinOv
         for iy in range(0, Mask.shape[0]):
             WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
 
-            overlap = Rectangle.overlap(WarpedImageRect, FixedImageRect)
+            overlap_rect = Rectangle.overlap_rect(WarpedImageRect, FixedImageRect)
+            overlap = 0
+            if overlap_rect is not None:
+                overlap = overlap_rect.Area / maxPossibleOverlapArea
+                
             Overlap[iy, ix] = overlap
             
     Mask = np.logical_and(Overlap >= MinOverlap, Overlap <= MaxOverlap)
