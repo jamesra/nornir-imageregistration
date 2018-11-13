@@ -185,10 +185,7 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         
         #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
-        try:
-            t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
-        except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
-            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
+        t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
         t.A = A
         t.B = B
@@ -200,8 +197,11 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         try:
             offset = t.wait_return()
         except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
-            print("%d -> %d = %s" % (t.A.ID, t.B.ID, str(e)))
-            continue 
+            print("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.A.ID, t.B.ID, str(e)))
+            
+            #Create an alignment record using only stage position and a weight of zero 
+            offset = nornir_imageregistration.AlignmentRecord(peak=OffsetAdjustment, weight=0)
+            
         
         # Figure out what offset we found vs. what offset we expected
         PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
@@ -263,9 +263,18 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     #It is fairly common to underflow when dividing float16 images, so just warn and move on. 
     #I spent a day debugging why a mosaic was not building correctly to find the underflow 
     #issue, so don't remove it.  The underflow error removes one of the ties between a tile
-    #and its neighbors
-    old_float_err_settings = np.seterr(under='warn')
+    #and its neighbors.
     
+    #Note error levelshould now be set in nornir_imageregistration.__init__
+    #old_float_err_settings = np.seterr(under='warn')
+    
+    #If the entire region is a solid color, then return an alignment record with no offset and a weight of zero
+    if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \
+        (OverlappingRegionA.max() == 0) or \
+        (OverlappingRegionB.min() == OverlappingRegionB.max()) or \
+        (OverlappingRegionB.max() == 0):
+        return nornir_imageregistration.AlignmentRecord(peak=OffsetAdjustment, weight=0)
+        
     OverlappingRegionA -= OverlappingRegionA.min()
     OverlappingRegionA /= OverlappingRegionA.max()
     
@@ -280,7 +289,7 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     # overlapping_rect_B_AdjustedToPeak = spatial.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, overlapping_rect_A.Size)
     # median_diff = __AlignmentScoreRemote(A, B, overlapping_rect_A, overlapping_rect_B_AdjustedToPeak)
     # diff_weight = 1.0 - median_diff
-    np.seterr(**old_float_err_settings)
+    #np.seterr(**old_float_err_settings)
     
     adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) + OffsetAdjustment, record.weight)
     return adjusted_record
@@ -343,6 +352,8 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
     for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles):
         (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         
+        #__AlignmentScoreRemote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
+        
         t = pool.add_task("Score %d -> %d" % (A.ID, B.ID), __AlignmentScoreRemote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
         tasks.append(t)
         
@@ -366,27 +377,47 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
 
 def __AlignmentScoreRemote(A_Filename, B_Filename, overlapping_rect_A, overlapping_rect_B):
     '''Returns the difference between the images'''
-    OverlappingRegionA = __get_overlapping_image(A_Filename, overlapping_rect_A, excess_scalar=1.0)
-    OverlappingRegionB = __get_overlapping_image(B_Filename, overlapping_rect_B, excess_scalar=1.0)
     
-    OverlappingRegionA -= OverlappingRegionA.min()
-    OverlappingRegionA /= OverlappingRegionA.max()
-    
-    OverlappingRegionB -= OverlappingRegionB.min()
-    OverlappingRegionB /= OverlappingRegionB.max()
-    
-    ignoreIndicies = OverlappingRegionA == OverlappingRegionA.max()
-    ignoreIndicies |= OverlappingRegionA == OverlappingRegionA.min()
-    ignoreIndicies |= OverlappingRegionB == OverlappingRegionB.max()
-    ignoreIndicies |= OverlappingRegionB == OverlappingRegionB.min()
-    
-    validIndicies = np.invert(ignoreIndicies)
-      
-    OverlappingRegionA -= OverlappingRegionB
-    absoluteDiff = np.fabs(OverlappingRegionA)
+    try:
+        OverlappingRegionA = __get_overlapping_image(A_Filename, overlapping_rect_A, excess_scalar=1.0)
+        OverlappingRegionB = __get_overlapping_image(B_Filename, overlapping_rect_B, excess_scalar=1.0)
         
-    # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB, absoluteDiff])
-    return np.mean(absoluteDiff[validIndicies])
+        #If the entire region is a solid color, then return the maximum score possible
+        if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \
+            (OverlappingRegionA.max() == 0) or \
+            (OverlappingRegionB.min() == OverlappingRegionB.max()) or \
+            (OverlappingRegionB.max() == 0):
+            return 1.0 
+        
+        OverlappingRegionA -= OverlappingRegionA.min()
+        OverlappingRegionA /= OverlappingRegionA.max()
+        
+        OverlappingRegionB -= OverlappingRegionB.min()
+        OverlappingRegionB /= OverlappingRegionB.max()
+        
+        ignoreIndicies = OverlappingRegionA == OverlappingRegionA.max()
+        ignoreIndicies |= OverlappingRegionA == OverlappingRegionA.min()
+        ignoreIndicies |= OverlappingRegionB == OverlappingRegionB.max()
+        ignoreIndicies |= OverlappingRegionB == OverlappingRegionB.min()
+        
+        #There was data in the aligned images, but not overlapping.  So we return the maximum value
+        if np.alltrue(ignoreIndicies):
+            return 1.0
+        
+        validIndicies = np.invert(ignoreIndicies)
+        
+        
+          
+        OverlappingRegionA -= OverlappingRegionB
+        absoluteDiff = np.fabs(OverlappingRegionA)
+        
+        # core.ShowGrayscale([OverlappingRegionA, OverlappingRegionB, absoluteDiff])
+        return np.mean(absoluteDiff[validIndicies])
+    except FloatingPointError as e:
+        print("FloatingPointError: {0} for images\n\t{1}\n\t{2}".format(str(e), A_Filename, B_Filename))
+        raise e
+        
+    
     
     # return (np.sum(absoluteDiff[validIndicies].flat), np.sum(validIndicies))
 
