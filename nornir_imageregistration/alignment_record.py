@@ -10,7 +10,7 @@ from scipy import pi
 import numpy as np
 
 
-class AlignmentRecord:
+class AlignmentRecord(object):
     '''
     Records basic registration information as an angle and offset between a fixed and moving image
     If the offset is zero the center of both images occupy the same point.  
