@@ -10,7 +10,7 @@ from scipy import *
 
 from nornir_imageregistration.spatial.indicies import *
 from nornir_imageregistration.spatial import Rectangle 
-import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+import nornir_imageregistration.transforms
 import numpy as np
 
 from . import utils
@@ -19,22 +19,31 @@ from . import utils
 def TransformToIRToolsString(transformObj, bounds=None):
     if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
         return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=bounds)
+    if isinstance(transformObj, nornir_imageregistration.transforms.Rigid):
+        return Transform.ToITKString()
     else:
         return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
-
+    
+def _GetMappedBoundsExtents(transform, bounds=None):
+    # Find the extent of the mapped boundaries
+    (bottom, left, top, right) = (None, None, None, None)
+    if bounds is None:
+        (bottom, left, top, right) = transform.MappedBoundingBox.ToTuple()
+    elif isinstance(bounds, Rectangle):
+        (bottom, left, top, right) = bounds.BoundingBox
+    else:
+        (bottom, left, top, right) = bounds
+    
+    return (bottom, left, top, right)
+ 
+    
 def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (bottom, left, top, right) = (None, None, None, None)
-    if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
-    elif isinstance(bounds, Rectangle):
-        (bottom, left, top, right) = bounds.BoundingBox
-    else:
-        (bottom, left, top, right) = bounds
+    (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
 
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
@@ -62,13 +71,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (bottom, left, top, right) = (None, None, None, None)
-    if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
-    elif isinstance(bounds, Rectangle):
-        (bottom, left, top, right) = bounds.BoundingBox
-    else:
-        (bottom, left, top, right) = bounds
+    (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
 
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
@@ -187,7 +190,7 @@ def ParseGridTransform(parts, pixelSpacing=None):
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     T.gridWidth = gridWidth
     T.gridHeight = gridHeight
     return T
@@ -216,7 +219,7 @@ def ParseMeshTransform(parts, pixelSpacing=None):
 
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
@@ -249,7 +252,7 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
         ControlY = (FixedParameters[1] * pixelSpacing) + mappedY
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
@@ -262,28 +265,14 @@ def ParseRigid2DTransform(parts, pixelSpacing=None):
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-    gridWidth = int(float(FixedParameters[2])) + 1
-    gridHeight = int(float(FixedParameters[1])) + 1
-
-    Left = float(FixedParameters[3]) * pixelSpacing
-    Bottom = float(FixedParameters[4]) * pixelSpacing
-    ImageWidth = float(FixedParameters[5]) * pixelSpacing
-    ImageHeight = float(FixedParameters[6]) * pixelSpacing
-
-    PointPairs = []
-
-    for i in range(0, len(VariableParameters) - 1, 4):
-        iY = i // gridWidth
-        iX = i % gridWidth
-
-        mappedX = (VariableParameters[i + 0] * ImageWidth) + Left
-        mappedY = (VariableParameters[i + 1] * ImageHeight) + Bottom
-        ControlX = float(VariableParameters[i + 2])
-        ControlY = float(VariableParameters[i + 3])
-        PointPairs.append((ControlX, ControlY, mappedX, mappedY))
-
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
-    return T
+    angle = float(VariableParameters[0])
+    xoffset = float(VariableParameters[1])
+    yoffset = float(VariableParameters[2])
+    
+    x_center = float(FixedParameters[0])
+    y_center = float(FixedParameters[1])
+    
+    return nornir_imageregistration.transforms.Rigid(target_offset=(yoffset, xoffset), source_center=(y_center, x_center), angle=angle)
 
 
 def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageShape):
@@ -305,12 +294,12 @@ def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset,
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
-    FixedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle, AdjustedOffset)
-    WarpedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0), flip_ud=flip_ud)
+    TargetPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle, AdjustedOffset)
+    SourcePoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
-    ControlPoints = np.append(FixedPoints, WarpedPoints, 1)
+    ControlPoints = np.append(TargetPoints, SourcePoints, 1)
 
-    transform = meshwithrbffallback.MeshWithRBFFallback(ControlPoints)
+    transform = nornir_imageregistration.transforms.MeshWithRBFFallback(ControlPoints)
 
     return transform
 
