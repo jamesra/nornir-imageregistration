@@ -23,6 +23,10 @@ class GridDivisionBase(object):
         self.SourcePoints = None
         self.source_shape = None
         
+    @property
+    def num_points(self):
+        return self.coords.shape[0]
+        
     def PopulateTargetPoints(self, transform):
         if transform is not None:
             self.TargetPoints = transform.Transform(self.SourcePoints).astype(np.int64)
