@@ -27,7 +27,7 @@ def IsValidRectangleInputArray(bounds):
         return bounds.shape[1] == 4
      
 class RectangleSet():
-    '''A set of rectangles'''
+    '''A set of rectangles with minor optimization to identify overlapping rectangles in the set'''
     
     rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'), ('MaxY', 'f4'), ('MaxX', 'f4'), ('ID', 'u8')])
     # active_dtype is used for lists sorting the start and end position of rectangles
@@ -196,6 +196,14 @@ class Rectangle(object):
         return self.Width * self.Height
     
     @property
+    def Dimensions(self):
+        '''
+        The [height, width] of the rectangle
+        '''
+        
+        return np.asarray([self.Height, self.Width], np.float64)
+    
+    @property
     def Size(self):
         return self.TopRight - self.BottomLeft
 
@@ -346,6 +354,20 @@ class Rectangle(object):
         return True
     
     @classmethod
+    def max_overlap_dimensions(cls, A, B):
+        '''
+        :returns: The maximum distance the rectangles can overlap on each axis
+        '''
+        return np.min(np.vstack((A.Dimensions, B.Dimensions)),0)
+        
+    @classmethod
+    def max_overlap_area(cls, A,B):
+        '''
+        :returns: The maximum area the rectangles can overlap
+        '''
+        return np.prod(cls.max_overlap_dimensions(A, B))
+    
+    @classmethod
     def overlap_rect(cls, A, B):
         '''
         :rtype: Rectangle
@@ -374,8 +396,21 @@ class Rectangle(object):
         overlapping_rect = cls.overlap_rect(A, B)
         if overlapping_rect is None:
             return 0.0
-        
+          
         return overlapping_rect.Area / A.Area
+    
+    @classmethod 
+    def overlap_normalized(cls, A, B):
+        '''
+        :rtype: float
+        :returns: 0 to 1 indicating overlapping rect divided by maximum possible overlapping rectangle
+        '''
+       
+        overlapping_rect = cls.overlap_rect(A, B)
+        if overlapping_rect is None:
+            return 0.0
+          
+        return overlapping_rect.Area / Rectangle.max_overlap_area(A, B)
     
     @classmethod
     def translate(cls, A, offset):
