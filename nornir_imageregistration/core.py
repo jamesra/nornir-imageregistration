@@ -23,6 +23,7 @@ import nornir_shared.images as shared_images
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+from numpy import dtype
 
 
 # from memory_profiler import profile
@@ -106,13 +107,24 @@ def ApproxEqual(A, B, epsilon=None):
 
     return np.abs(A - B) < epsilon
 
-def ImageParamToImageArray(imageparam):
+def ImageParamToImageArray(imageparam, dtype=None):
     image = None
     if isinstance(imageparam, np.ndarray):
-        image = imageparam
+        if dtype is None:
+            image = imageparam
+        else:
+            image = imageparam.astype(dtype=dtype)
+            
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam)
+        
+        if dtype is not None:
+            image = image.astype(dtype=dtype)
+                                 
     elif isinstance(imageparam, memmap_metadata):
+        if dtype is None:
+            dtype = imageparam.dtype
+            
         image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
     
     if image is None:
@@ -124,7 +136,7 @@ def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
     shapearray = None
     if not isinstance(shapes, list):
-         shapearray = np.array(shapes)
+        shapearray = np.array(shapes)
     else:
         shapeArrays = list(map(np.array, shapes))
         shapearray = np.hstack(shapeArrays)
