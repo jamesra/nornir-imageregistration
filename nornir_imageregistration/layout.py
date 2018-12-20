@@ -101,7 +101,6 @@ class LayoutPosition(object):
                 self._OffsetArray = np.reshape(self._OffsetArray, (1, self._OffsetArray.shape[0]))
             else:
                 self._OffsetArray = _sort_array_on_column(self._OffsetArray, 0)
-            
         return
     
     def TensionVectors(self, connected_positions):
@@ -183,8 +182,9 @@ class Layout(object):
         return np.max(core.array_distance(net_tension_vectors))
     
     def Contains(self, ID):
-        ''':rtype: bool
-           :return: True if layout contains the ID
+        '''
+        :rtype: bool
+        :return: True if layout contains the ID
         '''
         return ID in self._nodes
     
@@ -198,7 +198,6 @@ class Layout(object):
     def GetPosition(self, ID):
         '''Return the position array for a set of nodes, sorted by node ID'''
         return self.nodes[ID].Position
-              
         
     def GetPositions(self, IDs=None):
         '''Return the position array for a set of nodes, sorted by node ID'''
