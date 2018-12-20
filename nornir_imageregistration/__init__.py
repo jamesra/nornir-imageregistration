@@ -33,6 +33,7 @@ from nornir_imageregistration.overlapmasking import GetOverlapMask
 from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineStosFile, RefineTwoImages
 
 import nornir_imageregistration.files as files
+import nornir_imageregistration.tile as tile
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
 import nornir_imageregistration.spatial as spatial
@@ -43,6 +44,7 @@ from nornir_imageregistration.files.mosaicfile import MosaicFile
 from nornir_imageregistration.overlapmasking import GetOverlapMask
 from nornir_imageregistration.mosaic import Mosaic
 from nornir_imageregistration.image_stats import ImageStats
+from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKGridDivision
 
 import numpy as np
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
