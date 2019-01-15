@@ -108,6 +108,6 @@ def Execute(ExecArgs=None):
 
 if __name__ == '__main__':
 
-    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute()
