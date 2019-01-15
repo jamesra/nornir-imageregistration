@@ -13,7 +13,7 @@ import nornir_shared.plot as plot
 import numpy as np
 import nornir_imageregistration.files
 import nornir_imageregistration.transforms.meshwithrbffallback
-from nornir_imageregistration.local_distortion_correction import RefineTwoImages, RefineStosFile
+from nornir_imageregistration.local_distortion_correction import _RunRefineTwoImagesIteration, RefineStosFile
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 import nornir_imageregistration.assemble
 
@@ -165,7 +165,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             alignment_points = self.ReadOrCreateVariable(cachedFileName)
             
             if alignment_points is None:
-                alignment_points = RefineTwoImages(stosTransform,
+                alignment_points = _RunRefineTwoImagesIteration(stosTransform,
                             fixedImageData,
                             warpedImageData,
                             os.path.join(ImageDir, stosObj.ControlMaskFullPath),
