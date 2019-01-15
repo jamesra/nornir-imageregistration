@@ -14,6 +14,7 @@ import sys
 import numpy
 from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
 import scipy.misc
+import scipy.ndimage
 import scipy.ndimage.measurements
 import scipy.stats
 
@@ -24,6 +25,8 @@ import nornir_shared.prettyoutput as PrettyOutput
 
 import nornir_imageregistration.core
 import nornir_imageregistration.im_histogram_parser  
+from numpy import int32
+import matplotlib.pyplot as plt
 
 
 class ImageStats():
@@ -106,12 +109,17 @@ class ImageStats():
 #             pass
         
         obj = ImageStats()
-        flatImage = image.flat
+        if image.dtype is not numpy.float64: #Use float 64 to ensure accurate statistical results
+            image = image.astype(dtype=numpy.float64)
+            
+        flatImage = image.flat 
         obj._median = numpy.median(flatImage)
         obj._mean = numpy.mean(flatImage)
         obj._std = numpy.std(flatImage)
         obj._max = numpy.max(flatImage)
         obj._min = numpy.min(flatImage)
+        
+        del flatImage
          
 #        image.__IrtoolsImageStats__ = obj
         return obj
@@ -149,8 +157,8 @@ def Prune(filenames, MaxOverlap=None):
     FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__PruneFileSciPy__, MaxOverlap=MaxOverlap)
 
     # Convert results to a float
-    for k in FilenameToResult:
-        FilenameToResult[k] = float(FilenameToResult[k][1])
+    for k in FilenameToResult.keys():
+        FilenameToResult[k] = float(FilenameToResult[k])
 
     if isinstance(filenames, str):
         return list(FilenameToResult.items())[0]
@@ -181,12 +189,12 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
         Result = task.wait_return()
         iTask = iTask + 1
         if Result is None:
-            PrettyOutput.LogErr('No return value for ' + task.name)
+            PrettyOutput.LogErr('No return value for ' + task.filename)
             continue
 
-        if Result[0] is None:
-            PrettyOutput.LogErr('No filename for ' + task.name)
-            continue
+#         if Result[0] is None:
+#             PrettyOutput.LogErr('No filename for ' + task.name)
+#             continue
 
         PrettyOutput.CurseProgress("ImageStats", iTask, numTasks)
 
@@ -195,27 +203,104 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
 
     return TileToScore
 
+
+def __PruneFileSciPyV2__(image, cell_size=None, **kwargs):
+    
+    Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float32)
+    Im_filtered = scipy.ndimage.filters.median_filter(Im, size=3)
+    sx = scipy.ndimage.sobel(Im_filtered, axis=0, mode='nearest')
+    sy = scipy.ndimage.sobel(Im_filtered, axis=1, mode='nearest')
+    sob = numpy.hypot(sx,sy)
+# #     
+#     fft = numpy.fft.rfft2(Im_filtered)
+#     fft = numpy.fft.fftshift(fft)
+#     amp = numpy.abs(fft)
+#     
+# #     
+#     logamp = numpy.log(amp) ** 2 
+#     logampflat = numpy.asarray(logamp.flat)
+#     aboveMedian = numpy.median(logampflat)
+#     score = numpy.mean(logampflat[logampflat > aboveMedian])
+
+    #score = numpy.max(Im_filtered.flat) - numpy.min(Im_filtered.flat)
+    
+    #score = numpy.var(Im_filtered.flat)
+    #score = numpy.percentile(sob.flat, 90)
+    #score = numpy.max(sob.flat)
+    score = numpy.mean(sob.flat)
+    #score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10)
+    #mode = numpy.stats.mode(sob.flat)
+    
+    #p10 = numpy.percentile(Im_filtered.flat, 10)
+    #p90 = numpy.percentile(Im_filtered.flat, 90)
+    #med = numpy.median(sob.flat)
+    
+    #score = (p90 - p10)
+    
+    #score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10))
+    
+#     if score < .025:
+#         nornir_imageregistration.ShowGrayscale([Im, Im_filtered, sob], title=str(score))
+#         plt.figure()
+#         plt.hist(sob.flat, bins=100)
+#         a = 4
+    return score
+
+#     finite_subset = numpy.asarray(Im[numpy.isfinite(Im)].flat, dtype=numpy.float32)
+#     if len(finite_subset) < 3:
+#         return 0
+# 
+#     return numpy.std(finite_subset)
+         
+    if cell_size is None:
+        cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
+     
+    grid = nornir_imageregistration.CenteredGridDivision(Im.shape, cell_size=cell_size)
+     
+    StdDevList = []
+     
+    for iPoint in range(0, grid.num_points):
+        rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint,:], grid.cell_size)
+        subset = nornir_imageregistration.CropImageRect(image, rect,cval=numpy.nan)
+        finite_subset = subset[numpy.isfinite(subset)].flat
+        if len(finite_subset) < 3:
+            continue
+         
+        std_val = numpy.std(numpy.asarray(finite_subset, dtype=numpy.float32))
+        StdDevList.append(std_val)
+         
+    #val = numpy.percentile(StdDevList, q=90)
+ 
+    #val = numpy.max(StdDevList)
+    #val = numpy.mean(StdDevList)
+    val = numpy.median(StdDevList)    
+    return val
+    
+
 def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     '''Returns a prune score for a single file
         Args:
            MaxOverlap = 0 to 1'''
+
+    #TODO: This function should be updated to use the grid_subdivision module to create cells.  It should be used in the mosaic tile translation code to eliminate featureless 
+    #overlap regions of adjacent tiles
 
     # logger = logging.getLogger('irtools.prune')
     # logger = multiprocessing.log_to_stderr()
 
     if MaxOverlap > 0.5:
         MaxOverlap = 0.5
+# 
+#     if not os.path.exists(filename):
+#         # logger.error(filename + ' not found when attempting prune')
+#         # PrettyOutput.LogErr(filename + ' not found when attempting prune')
+#         return None
 
-    if not os.path.exists(filename):
-        # logger.error(filename + ' not found when attempting prune')
-        # PrettyOutput.LogErr(filename + ' not found when attempting prune')
-        return None
-
-    Im = nornir_imageregistration.core.LoadImage(filename)
+    Im = nornir_imageregistration.ImageParamToImageArray(filename)
     (Height, Width) = Im.shape
 
     StdDevList = []
-    MeanList = []
+    #MeanList = []
 
     MaxDim = Height
     if Width > Height:
@@ -235,32 +320,32 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     # Calculate the top
     for iHeight in range(0, MaskTopBorder - (SampleSize - 1), SampleSize):
         for iWidth in range(0, Width - 1, SampleSize):
-            StdDev = std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
+            StdDev = numpy.std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
             StdDevList.append(StdDev)
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0
 
     # Calculate the sides
     for iHeight in range(MaskTopBorder, MaskBottomBorder, SampleSize):
         for iWidth in range(0, MaskLeftBorder - (SampleSize - 1), SampleSize):
-            StdDev = std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
+            StdDev = numpy.std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
             StdDevList.append(StdDev)
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0.25
 
         for iWidth in range(MaskRightBorder, Width - SampleSize, SampleSize):
-            StdDev = std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
+            StdDev = numpy.std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
             StdDevList.append(StdDev)
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0.5
 
     # Calculate the bottom
     for iHeight in range(MaskBottomBorder, Height - SampleSize, SampleSize):
         for iWidth in range(0, Width - 1, SampleSize):
-            StdDev = std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
+            StdDev = numpy.std(Im[iHeight:iHeight + SampleSize, iWidth:iWidth + SampleSize])
             StdDevList.append(StdDev)
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0.75
 
     del Im
     # nornir_imageregistration.core.ShowGrayscale(Im)
-    return (filename, sum(StdDevList))
+    return sum(StdDevList)
 
 def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     '''Returns a single histogram built by combining histograms of all images
@@ -368,8 +453,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
 
 def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
     
-    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
-    subprocess.Open
+    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale) 
     raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
     
     
