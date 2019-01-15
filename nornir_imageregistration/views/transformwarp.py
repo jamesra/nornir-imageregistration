@@ -70,7 +70,7 @@ class TransformWarpView:
         maxVal = numpy.pi / 12.0 #Maximum angle change is 60
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
-        points = self.transform.WarpedPoints
+        points = self.transform.SourcePoints
 
         #plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], self.transform.FixedTriangles)
 
@@ -93,7 +93,6 @@ class TransformWarpView:
         
         if(outputfullpath is not None):
             # plt.show()
-            plt.ioff()
             plt.savefig(outputfullpath, bbox_inches='tight', figure=(1280,1280))
             plt.close()
         else:

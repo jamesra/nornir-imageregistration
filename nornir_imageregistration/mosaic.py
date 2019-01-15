@@ -36,7 +36,7 @@ class Mosaic(object):
             print("Loading mosaic: " + mosaicfile)
             mosaicfile = MosaicFile.Load(mosaicfile)
             if mosaicfile is None:
-                raise ValueError("Expected valid mosaic file path")
+                raise ValueError("Expected valid mosaic file path: {}".format(mosaicfile))
             
             # Don't copy, we throw away the mosaic object
             ImageToTransform = mosaicfile.ImageToTransformString

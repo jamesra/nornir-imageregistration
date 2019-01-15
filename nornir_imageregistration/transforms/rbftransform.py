@@ -198,7 +198,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
 
             valueList = numpy.power(dList, 2)
-            assert(numpy.all(dList > 0), "Cannot have duplicate points in transform")
+            #assert(numpy.all(dList > 0), "Cannot have duplicate points in transform")
             valueList = numpy.multiply(valueList, numpy.log(dList))
             valueList = valueList.ravel()
 
@@ -231,7 +231,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
         Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y)
-        WeightsX = scipy.linalg .solve(BetaMatrix, SolutionMatrix_X)
+        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X)
         WeightsY = Y_Task.wait_return()
 
         return numpy.hstack([WeightsX, WeightsY])

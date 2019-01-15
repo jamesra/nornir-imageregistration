@@ -16,6 +16,7 @@ import nornir_imageregistration.core as core
 import nornir_pools as pools
 import nornir_shared.histogram as histogram
 import nornir_shared.plot as plot
+import nornir_shared.images 
 
 from . import setup_imagetest
 
@@ -34,8 +35,8 @@ class testHistogram(ImageStatsBase):
 
     def HistogramFromFileImageMagick(self, File):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''
-        Bpp = core.GetBitsPerPixel(File)
-        # maxVal = (1 << Bpp) - 1;
+        Bpp = nornir_shared.images.GetImageBpp(File)
+        # maxVal = (1 << Bpp) - 1; 
         maxVal = None;
         Scale = 0.125
         numBins = 2048
@@ -57,7 +58,7 @@ class testHistogram(ImageStatsBase):
     
     def HistogramFromFileSciPy(self, File):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''
-        Bpp = core.GetBitsPerPixel(File)
+        Bpp = nornir_shared.images.GetImageBpp(File)
         # maxVal = (1 << Bpp) - 1;
         maxVal = None;
         Scale = 0.125

@@ -6,7 +6,6 @@ import collections
 import ctypes
 import logging
 import math
-import multiprocessing
 import multiprocessing.sharedctypes
 import os
 import tempfile
@@ -18,13 +17,18 @@ import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
 
+import matplotlib 
+#A backend that does not allocate windows in the GUI should be used. 
+#Otherwise bugs will appear in multi-threaded environments
+matplotlib.use('Agg') 
+
 import matplotlib.pyplot as plt
-import nornir_shared.images as shared_images
+
+plt.ioff()
+
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
-from numpy import dtype
-
 
 # from memory_profiler import profile
 
@@ -97,8 +101,8 @@ def array_distance(array):
     
     return np.sqrt(np.sum(array ** 2, 1))
     
-def GetBitsPerPixel(File): 
-    return shared_images.GetImageBpp(File)
+#def GetBitsPerPixel(File): 
+#    return shared_images.GetImageBpp(File)
 
 def ApproxEqual(A, B, epsilon=None):
 
@@ -1139,8 +1143,7 @@ if __name__ == '__main__':
     FilenameB = 'C:\\BuildScript\\Test\\Images\\401.png'
     OutputDir = 'C:\\Buildscript\\Test\\Results\\'
 
-    if not os.path.exists(OutputDir):
-        os.makedirs(OutputDir)
+    os.makedirs(OutputDir, exist_ok=True)
 
 
     def TestPhaseCorrelation(imA, imB):

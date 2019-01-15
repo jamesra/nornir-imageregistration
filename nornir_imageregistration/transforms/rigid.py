@@ -5,7 +5,7 @@ import nornir_imageregistration.transforms.utils
 import nornir_imageregistration.transforms.factory
 
 
-class Rigid(base):
+class Rigid(base.Base):
     
     def __init__(self, target_offset, source_center, angle=None):
         self.target_offset = nornir_imageregistration.transforms.utils.EnsurePointsAre2DNumpyArray(target_offset)

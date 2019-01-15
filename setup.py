@@ -56,14 +56,13 @@ if __name__ == '__main__':
         
     entry_points = {'console_scripts' : scripts}
 
-    classifiers = ['Programming Language :: Python :: 3.4',
-                   'Programming Language :: Python :: 2.7',
+    classifiers = ['Programming Language :: Python :: 3.7',
                    'Topic :: Scientific/Engineering']
 
     setup(name='nornir_imageregistration',
           zip_safe=False,
           classifiers=classifiers,
-          version='1.3.5',
+          version='1.4.0',
           description="Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes",
           author="James Anderson",
           author_email="James.R.Anderson@utah.edu",

@@ -189,7 +189,8 @@ class RegistrationTree(object):
 
         leafonlynode = self._GetOrCreateMappedNode(sectionnum, leaf_only=True)
         parent.AddChild(leafonlynode)
-        assert(not leafonlynode.SectionNumber in self.RootNodes)
+        if leafonlynode.SectionNumber in self.RootNodes:
+            raise ValueError("Leaf node cannot have the same number as an existing root node")
 
         return
 
@@ -221,7 +222,7 @@ class RegistrationTree(object):
             RT.AddEmptyRoot(sectionNumbers[0])
             return RT
         else:
-            centerindex = (len(sectionNumbers) - 1) / 2
+            centerindex = (len(sectionNumbers) - 1) // 2
             if not center is None:
                 center = NearestSection(sectionNumbers, center)
                 centerindex = sectionNumbers.index(center)
@@ -284,6 +285,10 @@ def AdjacentPairs(sectionNumbers, adjacentThreshold, startindex, endindex):
     step = 1
     if startindex > endindex:
         step = -1
+        
+    assert(isinstance(startindex, int))
+    assert(isinstance(endindex, int))
+    assert(isinstance(step, int))
 
     for imapped in range(startindex, endindex + step, step):
             mappedSection = sectionNumbers[imapped]
