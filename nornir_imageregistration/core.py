@@ -16,14 +16,8 @@ import numpy.fft
 import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
-
-import matplotlib 
-#A backend that does not allocate windows in the GUI should be used. 
-#Otherwise bugs will appear in multi-threaded environments
-matplotlib.use('Agg') 
-
+ 
 import matplotlib.pyplot as plt
-
 plt.ioff()
 
 import numpy as np
@@ -1174,8 +1168,6 @@ if __name__ == '__main__':
         return
 
     def SecondMain():
-
-
         imA = plt.imread(FilenameA)
         imB = plt.imread(FilenameB)
 

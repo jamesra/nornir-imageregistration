@@ -180,10 +180,9 @@ class testHistogram(ImageStatsBase):
         
         self.assertTrue(os.path.exists(File), "Input image missing " + File)
 
-        (filename, score) = image_stats.__PruneFileSciPy__(File, overlap=0.15)
+        score = image_stats.__PruneFileSciPy__(File, overlap=0.15)
         
         self.assertGreater(score, 0, msg="Non-zero score expected for prune score")
-        self.assertEqual(filename, File, "output filename should match input filename")
         return
 
 

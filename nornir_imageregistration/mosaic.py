@@ -34,12 +34,12 @@ class Mosaic(object):
         ImageToTransform = {}
         if isinstance(mosaicfile, str):
             print("Loading mosaic: " + mosaicfile)
-            mosaicfile = MosaicFile.Load(mosaicfile)
-            if mosaicfile is None:
+            mosaicObj = MosaicFile.Load(mosaicfile)
+            if mosaicObj is None:
                 raise ValueError("Expected valid mosaic file path: {}".format(mosaicfile))
             
             # Don't copy, we throw away the mosaic object
-            ImageToTransform = mosaicfile.ImageToTransformString
+            ImageToTransform = mosaicObj.ImageToTransformString
         elif isinstance(mosaicfile, MosaicFile):
             # Copy the transforms to ensure we don't break anything
             ImageToTransform = copy.deepcopy(mosaicfile.ImageToTransformString)

@@ -6,13 +6,10 @@ Created on Mar 18, 2013
 import os
 import unittest
 
+import nornir_imageregistration.transforms 
 from nornir_imageregistration.transforms import *
-
-from nornir_imageregistration.transforms.rbftransform import \
-    RBFWithLinearCorrection
-
+ 
 import numpy as np
-from build.lib.nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
 
 
 ### MirrorTransformPoints###
@@ -197,7 +194,7 @@ class TestTransforms(unittest.TestCase):
 #        MToVStos.Save("27-25.stos")
 
         global MirrorTransformPoints
-        T = RBFWithLinearCorrection(MirrorTransformPoints[:,2:4], MirrorTransformPoints[:,0:2])
+        T = nornir_imageregistration.transforms.RBFWithLinearCorrection(MirrorTransformPoints[:,2:4], MirrorTransformPoints[:,0:2])
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
 
@@ -274,7 +271,7 @@ class TestTransforms(unittest.TestCase):
 #        MToVStos.Save("27-25.stos")
 
         global MirrorTransformPoints
-        T = MeshWithRBFFallback(MirrorTransformPoints)
+        T = nornir_imageregistration.transforms.MeshWithRBFFallback(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
 
