@@ -47,6 +47,8 @@ def InvalidIndicies(points):
 
 
 def RotationMatrix(rangle):
+    if rangle is None:
+        raise ValueError("Angle must not be none")
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
 
 

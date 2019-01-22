@@ -38,6 +38,7 @@ import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.image_stats as image_stats
+import nornir_imageregistration.assemble_tiles as assemble_tiles
 
 from nornir_imageregistration.spatial.indicies import *
 from nornir_imageregistration.tileset import ShadeCorrectionTypes

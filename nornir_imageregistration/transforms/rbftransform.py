@@ -198,7 +198,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
 
             valueList = numpy.power(dList, 2)
-            #assert(numpy.all(dList > 0), "Cannot have duplicate points in transform")
+            if len(dList) > 1:
+                assert(numpy.min(dList) > 0) # "Cannot have duplicate points in transform"
+                
             valueList = numpy.multiply(valueList, numpy.log(dList))
             valueList = valueList.ravel()
 

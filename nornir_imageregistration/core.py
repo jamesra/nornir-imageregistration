@@ -16,6 +16,8 @@ import numpy.fft
 import scipy.misc
 import scipy.ndimage.measurements
 import scipy.stats
+
+import nornir_shared.images
  
 import matplotlib.pyplot as plt
 plt.ioff()
@@ -317,10 +319,39 @@ def ExtractROI(image, center, area):
 
     return ROI
 
-def ChangeImageDownsample(image, input_downsample, output_downsample):
-    scale_factor = int(input_downsample) / output_downsample
-    desired_size = scipy.array(image.shape) * scale_factor
-    return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
+
+def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
+    image = nornir_imageregistration.LoadImage(InFile)
+    resized_image = nornir_imageregistration.ResizeImage(image, Scalar)
+    nornir_imageregistration.SaveImage(OutFile, resized_image)
+    
+def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
+    img = Image.open(InFile)
+    dims = numpy.asarray(img.size).astype(dtype=numpy.float64)
+    
+    desired_dims = dims * Scalar
+    desired_dims = numpy.around(desired_dims).astype(dtype=numpy.int64)
+    
+    resampler = Image.BILINEAR
+    if Scalar < 1.0:
+        resampler = Image.BICUBIC
+    
+    shrunk_img = img.resize(size=desired_dims, resample=resampler)
+    shrunk_img.save(OutFile, **kwargs)
+
+# Shrinks the passed image file, return procedure handle of invoked command
+def Shrink(InFile, OutFile, Scalar, **kwargs):
+    '''Shrinks the passed image file.  If Pool is not None the 
+       task is returned. kwargs are passed on to Pillow's image save function
+       :param str InFile: Path to input file
+       :param str OutFile: Path to output file
+       :param float ShrinkFactor: Multiplier for image dimensions
+    '''
+    (root, ext) = os.path.splitext(InFile)
+    if ext == '.npy':
+        _ShrinkNumpyImageFile(InFile, OutFile, Scalar, **kwargs)
+    else:
+        _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs)
 
 def ResizeImage(image, scalar):
     '''Change image size by scalar'''
@@ -332,6 +363,12 @@ def ResizeImage(image, scalar):
     new_size = np.array(image.shape, dtype=np.float) * scalar
     
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
+
+
+def ChangeImageDownsample(image, input_downsample, output_downsample):
+    scale_factor = int(input_downsample) / output_downsample
+    desired_size = scipy.array(image.shape) * scale_factor
+    return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
 
 def CropImageRect(imageparam, bounding_rect, cval=None):
     return CropImage(imageparam, Xo=int(bounding_rect[1]), Yo=int(bounding_rect[0]), Width=int(bounding_rect.Width), Height=int(bounding_rect.Height), cval=cval)
@@ -474,26 +511,8 @@ def GetImageSize(image_param):
     :rtype: tuple
     '''
 
-    # if not os.path.exists(ImageFullPath):
-        # raise ValueError("%s does not exist" % (ImageFullPath))
+    return nornir_shared.images.GetImageSize(image_param)
         
-    if isinstance(image_param, np.ndarray):
-        return image_param.shape
-        
-    (root, ext) = os.path.splitext(image_param)
-    
-    image = None
-    try:
-        if ext == '.npy':
-            image = _LoadImageByExtension(image_param)
-            return image.shape
-        else:
-            image = Image.open(image_param)
-            return (image.size[1], image.size[0])
-    except IOError:
-        raise IOError("Unable to read size from %s" % (image_param))
-    finally:
-        del image
 
 def ForceGrayscale(image):
     '''
@@ -603,11 +622,10 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
     :rtype: ndimage
     '''
-    if(not os.path.isfile(ImageFullPath)):
-        
+    if(not os.path.isfile(ImageFullPath)): 
         logger = logging.getLogger(__name__)
         logger.error('File does not exist: ' + ImageFullPath)
-        return None
+        raise IOError("Unable to load image: %s" % (imagefullpath))
     
     (root, ext) = os.path.splitext(ImageFullPath)
     

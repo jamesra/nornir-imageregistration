@@ -11,6 +11,7 @@ import os
 import tempfile
 import threading
 
+import nornir_imageregistration
 import nornir_imageregistration.assemble  as assemble
 import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
@@ -557,16 +558,12 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
 
     if not os.path.exists(imagefullpath):
         return TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
-
-
-
+ 
     # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
     # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
     #   transform = triangulation.Triangulation(transform.points)
 
-    warpedImage = core.LoadImage(imagefullpath)
-    if warpedImage is None:
-        raise IOError("Unable to load image: %s" % (imagefullpath))
+    warpedImage = nornir_imageregistration.ImageParamToImageArray(imagefullpath)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
     transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
@@ -588,11 +585,14 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     (width, height, minX, minY) = (0, 0, 0, 0)
 
     if FixedRegion is None:
+        if hasattr(transform, 'FixedBoundingBox'):
+            width = transform.FixedBoundingBox.Width
+            height = transform.FixedBoundingBox.Height
 
-        width = transform.FixedBoundingBox.Width
-        height = transform.FixedBoundingBox.Height
-
-        (minY, minX, maxY, maxX) = transform.FixedBoundingBox.ToTuple()
+            (minY, minX, maxY, maxX) = transform.FixedBoundingBox.ToTuple()
+        else:
+            width = warpedImage.shape[1]
+            height = warpedImage.shape[0]
     else:
         assert(len(FixedRegion) == 4)
         (minY, minX, height, width) = (FixedRegion[0], FixedRegion[1], FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1])

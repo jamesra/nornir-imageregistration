@@ -28,6 +28,8 @@ import nornir_imageregistration.im_histogram_parser
 from numpy import int32
 import matplotlib.pyplot as plt
 
+from PIL import Image
+
 
 class ImageStats():
     '''A container for image statistics'''
@@ -368,13 +370,16 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
-    local_machine_pool = nornir_pools.GetGlobalLocalMachinePool()
+    pool = nornir_pools.GetGlobalThreadPool()
     for f in listfilenames:
-        (root, ext) = os.path.splitext(f)
-        if ext == '.npy':
-            task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
-        else:
-            task = __HistogramFileImageMagick__(f, ProcPool=local_machine_pool, Bpp=Bpp, Scale=Scale)
+        #(root, ext) = os.path.splitext(f)
+        task = pool.add_task(f,__HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale)
+#         if ext == '.npy':
+#             task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
+#         else:
+#             #task = __HistogramFilePillow__(f, ProcPool=pool, Bpp=Bpp, Scale=Scale)
+#             task = pool.add_task(f, __HistogramFilePillow__,f, Bpp=Bpp, Scale=Scale)
+#             #task = __HistogramFileImageMagick__(f, ProcPool=pool, Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
 
     # maxVal = (1 << Bpp) - 1
@@ -386,45 +391,47 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     else:
         assert(isinstance(numBins, int))
 
-    local_machine_pool.wait_completion()
+    pool.wait_completion()
 
     OutputMap = {}
     minVal = None
     maxVal = None
+    histlist = []
     for f in list(FilenameToTask.keys()):
         task = FilenameToTask[f]
-        taskOutput = task.wait_return()
-        lines = taskOutput.splitlines()
-
-        OutputMap[f] = lines
-
-        (fminVal, fmaxVal) = nornir_imageregistration.im_histogram_parser .MinMaxValues(lines)
+        h = task.wait_return()
+        histlist.append(h)
+#         lines = taskOutput.splitlines()
+# 
+#         OutputMap[f] = lines
+# 
+#         (fminVal, fmaxVal) = nornir_imageregistration.im_histogram_parser.MinMaxValues(lines)
         if minVal is None:
-            minVal = fminVal
+            minVal = h.MinValue
         else:
-            minVal = min(minVal, fminVal)
+            minVal = min(minVal, h.MinValue)
 
         if maxVal is None:
-            maxVal = fmaxVal
+            maxVal = h.MaxValue
         else:
-            maxVal = max(maxVal, fmaxVal)
-
-    threadTasks = []
-     
-    thread_pool = nornir_pools.GetGlobalThreadPool()
-    for f in list(OutputMap.keys()):
-        threadTask = thread_pool.add_task(f, nornir_imageregistration.im_histogram_parser .Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
-        threadTasks.append(threadTask)
-        
+            maxVal = max(maxVal, h.MaxValue)
+# 
+#     threadTasks = []
+#      
+#     thread_pool = nornir_pools.GetGlobalThreadPool()
+#     for f in list(OutputMap.keys()):
+#         threadTask = thread_pool.add_task(f, nornir_imageregistration.im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
+#         threadTasks.append(threadTask)
+#         
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
-    for t in threadTasks:
-        hist = t.wait_return()
-        HistogramComposite.AddHistogram(hist.Bins)
+    for h in histlist:
+        #hist = t.wait_return()
+        HistogramComposite.AddHistogram(h.Bins)
         # histogram = IMHistogramOutput.Parse(taskOutput, minVal=minVal, maxVal=maxVal, numBins=numBins)
 
         # FilenameToResult[f] = [histogram, None, None]
 
-    del threadTasks
+    #del threadTasks
 
     # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
 
@@ -462,11 +469,7 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None):
     '''Return the histogram of an image'''
 
-    Im = None
-    if isinstance(filename, str):
-        Im = nornir_imageregistration.core.LoadImage(filename)
-    else:
-        Im = filename
+    Im = nornir_imageregistration.ImageParamToImageArray(filename)
         
     (Height, Width) = Im.shape
     NumPixels = Width * Height
@@ -501,8 +504,8 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
 
     #[histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
-    
-    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], bin_edges[1] - bin_edges[0])
+    binWidth = (1 << Bpp) // len(histogram_array) 
+    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
     
     return histogram_obj
 
@@ -510,6 +513,25 @@ def __CreateImageMagickCommandLineForHistogram(filename, Scale):
     CmdTemplate = "magick convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
     return CmdTemplate % {'filename' : filename, 'scale' : Scale * 100}
     
+def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
+
+    if Scale is None:
+        Scale = 1
+
+    # We only scale down, so if it is over 1 assume it is a percentage
+    if Scale > 1:
+        Scale = Scale / 100.0
+
+    if Scale > 1:
+        Scale = 1
+        
+    im = Image.open(filename)
+    histogram_array = im.histogram()
+    binWidth = (1 << Bpp) // len(histogram_array) 
+     
+    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, 0, binWidth)
+
+    return histogram_obj
 
 def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 

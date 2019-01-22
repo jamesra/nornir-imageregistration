@@ -67,9 +67,7 @@ class TestStos(setup_imagetest.ImageTestBase):
 
 
 class TestStosBrute(setup_imagetest.ImageTestBase):
-
-
-
+ 
     def testStosBrute(self):
         WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
