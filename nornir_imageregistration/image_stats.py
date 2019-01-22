@@ -370,7 +370,11 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
-    pool = nornir_pools.GetGlobalThreadPool()
+    if len(listfilenames) > 1:
+        pool = nornir_pools.GetGlobalLocalMachinePool()
+    else:
+        pool = nornir_pools.GetGlobalSerialPool()
+    
     for f in listfilenames:
         #(root, ext) = os.path.splitext(f)
         task = pool.add_task(f,__HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale)
