@@ -327,7 +327,7 @@ def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
     
 def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
     img = Image.open(InFile)
-    dims = numpy.asarray(img.size).astype(dtype=numpy.float64)
+    dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
     
     desired_dims = dims * Scalar
     desired_dims = numpy.around(desired_dims).astype(dtype=numpy.int64)

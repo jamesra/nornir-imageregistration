@@ -349,7 +349,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     # nornir_imageregistration.core.ShowGrayscale(Im)
     return sum(StdDevList)
 
-def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
+def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
     '''Returns a single histogram built by combining histograms of all images
        If scale is not none the images are scaled before the histogram is collected'''
 
@@ -365,8 +365,6 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     if Bpp is None:
         Bpp = images.GetImageBpp(listfilenames[0])
         
-    
-
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
@@ -377,7 +375,8 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     
     for f in listfilenames:
         #(root, ext) = os.path.splitext(f)
-        task = pool.add_task(f,__HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale)
+        #__HistogramFilePillow__(f, Bpp=Bpp, Scale=Scale)
+        task = pool.add_task(f,__HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale, **kwargs)
 #         if ext == '.npy':
 #             task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
 #         else:
@@ -403,7 +402,12 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     histlist = []
     for f in list(FilenameToTask.keys()):
         task = FilenameToTask[f]
-        h = task.wait_return()
+        try:
+            h = task.wait_return()
+        except IOError:
+            PrettyOutput.Log("File not found " + f)
+            continue
+        
         histlist.append(h)
 #         lines = taskOutput.splitlines()
 # 
@@ -419,6 +423,8 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
             maxVal = h.MaxValue
         else:
             maxVal = max(maxVal, h.MaxValue)
+            
+        numBins = len(h.Bins)
 # 
 #     threadTasks = []
 #      
@@ -430,7 +436,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for h in histlist:
         #hist = t.wait_return()
-        HistogramComposite.AddHistogram(h.Bins)
+        HistogramComposite.AddHistogram(h)
         # histogram = IMHistogramOutput.Parse(taskOutput, minVal=minVal, maxVal=maxVal, numBins=numBins)
 
         # FilenameToResult[f] = [histogram, None, None]
@@ -440,7 +446,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None):
     # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
 
 #    maxVal = 1 << Bpp
-#    numBins = 256
+#    numBins = 256    
 #    if Bpp > 8:
 #        numBins = 1024
 
@@ -470,23 +476,39 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
     
  
 
-def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None):
+def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None, MinVal=None, MaxVal=None):
     '''Return the histogram of an image'''
 
-    Im = nornir_imageregistration.ImageParamToImageArray(filename)
-        
+    img = Image.open(filename)
+    img_I = img.convert("I")
+    Im = numpy.asarray(img_I)
+    #dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
+     
     (Height, Width) = Im.shape
     NumPixels = Width * Height
     
-    if(not Scale is None):
-        if(Scale != 1.0):
-            Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
+    if MinVal is None:
+        MinVal = 0
+        
+    if MaxVal is None:
+        if Bpp is None:
+            Bpp = images.GetImageBpp(filename)
+        
+        assert(isinstance(Bpp, int))
+        MaxVal = 1 << Bpp
+        
+    if numBins is None:
+        numBins = MaxVal - MinVal
+    else:
+        assert(isinstance(numBins, int))
+         
+    #if(not Scale is None):
+    #    if(Scale != 1.0):
+    #        Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
 
     # ImOneD = reshape(Im, Width * Height, 1)
+    
     ImOneD = Im.flat
-
-    if Bpp is None:
-        Bpp = images.GetImageBpp(filename)
 
     if NumSamples is None:
         NumSamples = Height * Width
@@ -499,16 +521,9 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
         Samples = numpy.random.random_integers(0, NumPixels - 1, NumSamples)
         ImOneD = ImOneD[Samples]
 
-    if numBins is None:
-        numBins = 256
-        if Bpp > 8:
-            numBins = 1024
-    else:
-        assert(isinstance(numBins, int))
-
     #[histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
-    binWidth = (1 << Bpp) // len(histogram_array) 
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range =[MinVal, MaxVal])
+    binWidth = (MaxVal - MinVal) // len(histogram_array)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
     
     return histogram_obj
@@ -529,7 +544,7 @@ def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
     if Scale > 1:
         Scale = 1
         
-    im = Image.open(filename)
+    im = Image.open(filename).convert('I')
     histogram_array = im.histogram()
     binWidth = (1 << Bpp) // len(histogram_array) 
      
