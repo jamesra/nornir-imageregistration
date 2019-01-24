@@ -38,7 +38,8 @@ class testHistogram(ImageStatsBase):
         Bpp = nornir_shared.images.GetImageBpp(File)
         # maxVal = (1 << Bpp) - 1; 
         maxVal = None;
-        Scale = 0.125
+        #Scale = 0.125
+        Scale = 1
         numBins = 2048
 
         self.assertTrue(os.path.exists(File), "Input image missing " + File)
@@ -92,8 +93,8 @@ class testHistogram(ImageStatsBase):
 
         histA = self.HistogramFromFileImageMagick(tileAFullPath)
         self.assertIsNotNone(histA)
-        self.assertEqual(histA.MinValue, 348)
-        self.assertEqual(histA.MaxValue, 7934)
+        self.assertEqual(histA.MinValue, 290)
+        self.assertEqual(histA.MaxValue, 8853)
         self.SaveHistogram(histA, 'A')
         
 #    Pillow and matplotlib do not like reading our 16-bit tif files
@@ -105,8 +106,8 @@ class testHistogram(ImageStatsBase):
 
         histB = self.HistogramFromFileImageMagick(tileBFullPath);
         self.assertIsNotNone(histB)
-        self.assertEqual(histB.MinValue, 404)
-        self.assertEqual(histB.MaxValue, 7384)
+        self.assertEqual(histB.MinValue, 317)
+        self.assertEqual(histB.MaxValue, 7912)
         # Can we add them together?
         self.SaveHistogram(histB, 'B')
         
@@ -118,7 +119,7 @@ class testHistogram(ImageStatsBase):
 #         # Can we add them together?
 #         self.SaveHistogram(histB_Scipy, 'B')
 
-        HistogramComposite = image_stats.Histogram([tileAFullPath, tileBFullPath], Scale=0.125, Bpp=16);
+        HistogramComposite = image_stats.Histogram([tileAFullPath, tileBFullPath], Scale=1, Bpp=16);
         self.assertEqual(HistogramComposite.MinValue, min(histA.MinValue, histB.MinValue))
         self.assertEqual(HistogramComposite.MaxValue, max(histA.MaxValue, histB.MaxValue))
 

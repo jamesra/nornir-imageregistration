@@ -368,7 +368,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
-    if len(listfilenames) > 1:
+    if len(listfilenames) > 2:
         pool = nornir_pools.GetGlobalLocalMachinePool()
     else:
         pool = nornir_pools.GetGlobalSerialPool()
@@ -404,7 +404,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
         task = FilenameToTask[f]
         try:
             h = task.wait_return()
-        except IOError:
+        except IOError as e:
             PrettyOutput.Log("File not found " + f)
             continue
         
@@ -441,6 +441,8 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 
         # FilenameToResult[f] = [histogram, None, None]
 
+    if Bpp > 8:
+        HistogramComposite = nornir_shared.histogram.Histogram.Trim(HistogramComposite)
     #del threadTasks
 
     # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
@@ -479,7 +481,7 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None, MinVal=None, MaxVal=None):
     '''Return the histogram of an image'''
 
-    img = Image.open(filename)
+    img = Image.open(filename, mode='r')
     img_I = img.convert("I")
     Im = numpy.asarray(img_I)
     #dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
