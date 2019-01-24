@@ -685,9 +685,9 @@ def _PeakListToTransform(alignment_records, percentile=None):
     ValidWP = OriginalSourcePoints[valid_indicies, :]
     
     assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidFP).shape,
-                          ValidFP.shape), "Duplicate fixed points detected")
+                          ValidFP.shape)) #, "Duplicate fixed points detected")
     assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidWP).shape,
-                          ValidWP.shape), "Duplicate warped points detected")
+                          ValidWP.shape)) #, "Duplicate warped points detected")
     
     # PointPairs = np.hstack((TargetPoints, SourcePoints))
     PointPairs = np.hstack((ValidFP, ValidWP))

@@ -337,7 +337,11 @@ def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
         resampler = Image.BICUBIC
     
     shrunk_img = img.resize(size=desired_dims, resample=resampler)
+    img.close()
+    
     shrunk_img.save(OutFile, **kwargs)
+    shrunk_img.close()
+    
 
 # Shrinks the passed image file, return procedure handle of invoked command
 def Shrink(InFile, OutFile, Scalar, **kwargs):
