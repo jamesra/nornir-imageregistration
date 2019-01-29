@@ -225,6 +225,9 @@ class Rectangle(object):
 
     def __delslice__(self, i, j, sequence):
         raise Exception("Spatial objects should not have elements deleted from the array")
+    
+    def __str__(self):
+        return "x:{0}g y:{1}g w:{2}g h:{3}g".format(self.BottomLeft[1], self.BottomLeft[0], self.Width, self.Height)
 
     def __init__(self, bounds):
         '''
