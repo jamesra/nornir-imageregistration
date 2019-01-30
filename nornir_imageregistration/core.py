@@ -978,8 +978,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     #--------------------------------
 
-    FFTFixed = fftpack.rfft2(FixedImage)
-    FFTMoving = fftpack.rfft2(MovingImage)
+    FFTFixed = fftpack.rfft2(FixedImage - numpy.mean(FixedImage.flat))
+    FFTMoving = fftpack.rfft2(MovingImage - numpy.mean(MovingImage.flat))
     
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True) 
     
