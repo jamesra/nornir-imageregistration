@@ -23,6 +23,14 @@ class GridDivisionBase(object):
         self.SourcePoints = None
         self.source_shape = None
         
+    def __str__(self):
+        return "grid_dims:{0},{1} grid_spacing:{2},{3} cell_size:{4},{5}".format(self.grid_dims[0],
+                                                                                 self.grid_dims[1],
+                                                                                 self.grid_spacing[0],
+                                                                                 self.grid_spacing[1],
+                                                                                 self.cell_size[0],
+                                                                                 self.cell_size[1])
+        
     @property
     def num_points(self):
         return self.coords.shape[0]
@@ -195,7 +203,10 @@ class CenteredGridDivision(GridDivisionBase):
         self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in range(self.grid_dims[1])]
         self.coords = np.vstack(self.coords)
         
+        
+        
         self.SourcePoints = self.coords * self.grid_spacing
+        self.SourcePoints = self.SourcePoints + (self.grid_spacing / 2.0)
         #Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
         overage = ((self.grid_dims * self.grid_spacing) - source_shape) / 2.0
         self.SourcePoints = np.round(self.SourcePoints - overage).astype(np.int64)
