@@ -1,11 +1,37 @@
 
 # from . import index
 import numpy as np
+import nornir_imageregistration
 
 from .boundingbox import BoundingBox 
 from .indicies import *
 from .point import *
 from .rectangle import Rectangle, RectangleSet, RaiseValueErrorOnInvalidBounds, IsValidBoundingBox
+from numpy import arctan2
+
+
+def ArcAngle(origin, A, B):
+    '''
+    :return: The angle, in radians, between A to B as observed from the origin 
+    '''
+
+    A = nornir_imageregistration.EnsurePointsAre2DNumpyArray(A)
+    B = nornir_imageregistration.EnsurePointsAre2DNumpyArray(B)
+    origin = nornir_imageregistration.EnsurePointsAre2DNumpyArray(origin)
+
+    A = A - origin
+    B = B - origin
+    AnglesA = numpy.arctan2(A[:, 0], A[:, 1])
+    AnglesB = numpy.arctan2(B[:, 0], B[:, 1])
+    angle = AnglesB - AnglesA
+
+    lessthanpi = angle < -numpy.pi
+    angle[lessthanpi] = angle[lessthanpi] + (numpy.pi * 2)
+
+    greaterthanpi = angle > numpy.pi
+    angle[greaterthanpi] = angle[greaterthanpi] - (numpy.pi * 2)
+    
+    return angle
 
 
 def BoundsArrayFromPoints(points):

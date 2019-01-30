@@ -7,7 +7,7 @@ import os
 import unittest
 
 import nornir_imageregistration
-from nornir_imageregistration.alignment_record import AlignmentRecord
+from nornir_imageregistration import AlignmentRecord
 import numpy
 from scipy.misc import imsave
 from scipy.ndimage import interpolation

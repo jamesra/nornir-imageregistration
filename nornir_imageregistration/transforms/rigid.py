@@ -17,8 +17,8 @@ class RigidNoRotation(base.Base):
         if source_rotation_center is None:
             source_rotation_center = [0,0]
             
-        self.target_offset = nornir_imageregistration.transforms.utils.EnsurePointsAre2DNumpyArray(target_offset)
-        self.source_space_center_of_rotation = nornir_imageregistration.transforms.utils.EnsurePointsAre2DNumpyArray(source_rotation_center)
+        self.target_offset = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_offset)
+        self.source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_rotation_center)
         self.angle = angle
         
     @classmethod
@@ -46,6 +46,9 @@ class RigidNoRotation(base.Base):
             raise NotImplemented("Rotation is not implemented")
         
         return points - self.target_offset
+    
+    def __repr__(self):
+        return "Offset: {0}y,{1}x Angle: {2} deg Rot Center: {3}y,{4}x".format(self.target_offset[0], self.target_offset[1], self.angle, self.source_space_center_of_rotation[0], self.source_space_center_of_rotation[1])
 
 
 class Rigid(RigidNoRotation):
@@ -74,7 +77,7 @@ class Rigid(RigidNoRotation):
     
     def Transform(self, points, **kwargs):
         
-        points = nornir_imageregistration.transforms.utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         
         if self.angle == 0:
             return points + self.target_offset
@@ -92,11 +95,11 @@ class Rigid(RigidNoRotation):
           
         rotated_points = centered_rotated_points + self.source_space_center_of_rotation
         output_points = rotated_points + self.target_offset
-        return output_points
+        return np.asarray(output_points)
 
     def InverseTransform(self, points, **kwargs):
         
-        points = nornir_imageregistration.transforms.utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         
         if self.angle == 0:
             return points - self.target_offset
@@ -113,4 +116,4 @@ class Rigid(RigidNoRotation):
         rotated_points = rotated_points[:,0:2]
         
         output_points = rotated_points + self.source_space_center_of_rotation
-        return output_points
+        return np.asarray(output_points)

@@ -11,8 +11,8 @@ import nornir_pools
 import nornir_shared.plot
 import nornir_shared.plot as plot
 import numpy as np
-import nornir_imageregistration.files
-import nornir_imageregistration.transforms.meshwithrbffallback
+import nornir_imageregistration 
+
 from nornir_imageregistration.local_distortion_correction import _RunRefineTwoImagesIteration, RefineStosFile
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 import nornir_imageregistration.assemble
@@ -95,10 +95,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
         RefineStosFile(InputStos=stosFile, 
                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-                       num_iterations=3,
+                       num_iterations=10,
                        cell_size=(128,128),
                        grid_spacing=(256,256),
-                       angles_to_search=[0],
+                       angles_to_search=[-2.5, 0, 2.5],
                        min_travel_for_finalization=0.5,
                        min_alignment_overlap=0.5,
                        SaveImages=True,
@@ -306,16 +306,60 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
         return
     
+    def _rotate_points(self, points, rotcenter, rangle):
+        
+        t = nornir_imageregistration.transforms.Rigid(target_offset=(0,0), source_rotation_center=rotcenter, angle=rangle)
+        return t.Transform(points)
+    
+    def testTransformReductionToRigidTransform(self):
+        '''
+        Takes the control points of a transform and converts each point to a rigid transform that approximates the offset and angle centered at that point
+        '''
+        
+        #A set of control points offset by (10,10)
+        InitialTargetPoints = np.asarray([[0, 0],
+                                  [10, 0],
+                                  [0, 10],
+                                  [10, 10]], dtype=np.float64)
+        
+        angle = -30.0
+        rangle = (angle / 180.0) * np.pi
+        
+        CalculatedSourcePoints = self._rotate_points(InitialTargetPoints, rotcenter=(0,0), rangle=rangle)
+        
+        #Optional offset to add as an additional test
+        CalculatedSourcePoints += np.array((-1,4))
+        
+        controlPoints = np.hstack((InitialTargetPoints, CalculatedSourcePoints))
+        reference_transform = nornir_imageregistration.transforms.MeshWithRBFFallback(controlPoints)
+
+        ValidationTestPoints = reference_transform.InverseTransform(InitialTargetPoints)
+        np.testing.assert_allclose(ValidationTestPoints, CalculatedSourcePoints)
+        
+        #OK, check that the rigid transforms returned for the InitialTargetPoints perfectly match our reference_transform
+        local_rigid_transforms = local_distortion_correction.ApproximateRigidTransform(reference_transform, InitialTargetPoints)
+        
+        for i, t in enumerate(local_rigid_transforms):
+            test_source_points = t.InverseTransform(InitialTargetPoints)
+            np.testing.assert_allclose(test_source_points, CalculatedSourcePoints, atol=.001, err_msg="Inverse Transform Iteration {0}".format(i))
+            
+            test_target_points = t.Transform(CalculatedSourcePoints)
+            np.testing.assert_allclose(test_target_points, InitialTargetPoints, atol=.001, err_msg="Transform Iteration {0}".format(i))
+            
+        return
+        
+    
     def testAlignmentRecordsToTransforms(self):
         '''
         Converts a set of alignment records into a transform
         '''
         
+        #A set of control points offset by (10,10)
         InitialTransformPoints = [[0, 0, 10, 10],
                                   [10, 0, 20, 10],
                                   [0, 10, 10, 20],
                                   [10, 10, 20, 20]]
-        T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(InitialTransformPoints)
+        T = nornir_imageregistration.transforms.MeshWithRBFFallback(InitialTransformPoints)
         
         transformed = T.InverseTransform(T.TargetPoints)
         self.assertTrue(np.allclose(T.SourcePoints, transformed), "Transform could not map the initial input to the test correctly")

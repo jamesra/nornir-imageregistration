@@ -6,6 +6,7 @@ Created on Oct 18, 2012
 
 import math
 
+import nornir_imageregistration
 from nornir_imageregistration.transforms import triangulation
 import numpy
 import scipy.interpolate
@@ -110,7 +111,7 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
     def Transform(self, Points, **kwargs):
 
-        Points = utils.EnsurePointsAre2DNumpyArray(Points)
+        Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
         NumCtrlPts = len(self.TargetPoints)
 

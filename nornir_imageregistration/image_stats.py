@@ -111,7 +111,7 @@ class ImageStats():
 #             pass
         
         obj = ImageStats()
-        if image.dtype is not numpy.float64: #Use float 64 to ensure accurate statistical results
+        if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
             image = image.astype(dtype=numpy.float64)
             
         flatImage = image.flat 
@@ -167,6 +167,7 @@ def Prune(filenames, MaxOverlap=None):
     else:
         return FilenameToResult
 
+
 def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwargs):
     '''Return a number indicating how interesting the image is using SciPy
        '''
@@ -206,17 +207,43 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
     return TileToScore
 
 
-def __PruneFileSciPyV2__(image, cell_size=None, **kwargs):
+def ScoreImageWithPowerSpectralDensity(image):
     
+    # Find all NaN values and replace with median value
+    adjustment_value = numpy.mean(image[numpy.isfinite(image)].flat)
+    image[numpy.isfinite(image) == False] = adjustment_value
+    
+    # Adjust image to have median value of zero, makes the PSD numbers more human-readable and possibly avoids floating point precision issues
+    Im_centered = image - adjustment_value   
+    fft = numpy.fft.rfft2(Im_centered)
+    # fft = numpy.fft.fftshift(fft) 
+    total_amp = numpy.sum(numpy.abs(fft).flat)
+    score = total_amp / numpy.prod(Im_centered.shape)
+    return score
+
+
+def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_percent=None, **kwargs):
+    '''
+    Calculates a score indicating the amount of texture available for our phase correlation algorithm to use for alignment
+    :param image: The image to score, either an ndarray or filename
+    :param tuple cell_size: The dimensions of the subregions that will be evaluated across the image.
+    :param float feature_coverage_percent: A value from 0 - 100 indicating what percentage of the image should contain textures scoring at or above the returned value.
+     
+    '''
+    
+    if feature_coverage_percent is None:
+        feature_coverage_percent = 75
+    else:
+        feature_coverage_percent = 100 - feature_coverage_percent
+        assert(feature_coverage_percent <= 100 and feature_coverage_percent >= 0)
+         
     Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float32)
-    Im_filtered = scipy.ndimage.filters.median_filter(Im, size=3)
-    sx = scipy.ndimage.sobel(Im_filtered, axis=0, mode='nearest')
-    sy = scipy.ndimage.sobel(Im_filtered, axis=1, mode='nearest')
-    sob = numpy.hypot(sx,sy)
-# #     
-#     fft = numpy.fft.rfft2(Im_filtered)
-#     fft = numpy.fft.fftshift(fft)
-#     amp = numpy.abs(fft)
+# #     Im_filtered = scipy.ndimage.filters.median_filter(Im, size=3)
+# #     sx = scipy.ndimage.sobel(Im_filtered, axis=0, mode='nearest')
+# #     sy = scipy.ndimage.sobel(Im_filtered, axis=1, mode='nearest')
+# #     sob = numpy.hypot(sx,sy)
+# #
+      
 #     
 # #     
 #     logamp = numpy.log(amp) ** 2 
@@ -224,29 +251,29 @@ def __PruneFileSciPyV2__(image, cell_size=None, **kwargs):
 #     aboveMedian = numpy.median(logampflat)
 #     score = numpy.mean(logampflat[logampflat > aboveMedian])
 
-    #score = numpy.max(Im_filtered.flat) - numpy.min(Im_filtered.flat)
+    # score = numpy.max(Im_filtered.flat) - numpy.min(Im_filtered.flat)
     
-    #score = numpy.var(Im_filtered.flat)
-    #score = numpy.percentile(sob.flat, 90)
-    #score = numpy.max(sob.flat)
-    score = numpy.mean(sob.flat)
-    #score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10)
-    #mode = numpy.stats.mode(sob.flat)
+    # score = numpy.var(Im_filtered.flat)
+    # score = numpy.percentile(sob.flat, 90)
+    # score = numpy.max(sob.flat)
+# #    score = numpy.mean(sob.flat)
+    # score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10)
+    # mode = numpy.stats.mode(sob.flat)
     
-    #p10 = numpy.percentile(Im_filtered.flat, 10)
-    #p90 = numpy.percentile(Im_filtered.flat, 90)
-    #med = numpy.median(sob.flat)
+    # p10 = numpy.percentile(Im_filtered.flat, 10)
+    # p90 = numpy.percentile(Im_filtered.flat, 90)
+    # med = numpy.median(sob.flat)
     
-    #score = (p90 - p10)
+    # score = (p90 - p10)
     
-    #score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10))
+    # score = numpy.median(sob.flat) - numpy.percentile(sob.flat, 10))
     
 #     if score < .025:
 #         nornir_imageregistration.ShowGrayscale([Im, Im_filtered, sob], title=str(score))
 #         plt.figure()
 #         plt.hist(sob.flat, bins=100)
 #         a = 4
-    return score
+# #     return score
 
 #     finite_subset = numpy.asarray(Im[numpy.isfinite(Im)].flat, dtype=numpy.float32)
 #     if len(finite_subset) < 3:
@@ -255,28 +282,38 @@ def __PruneFileSciPyV2__(image, cell_size=None, **kwargs):
 #     return numpy.std(finite_subset)
          
     if cell_size is None:
-        cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
+        # cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
+        cell_size = numpy.asarray((64, 64), dtype=numpy.int32)
      
     grid = nornir_imageregistration.CenteredGridDivision(Im.shape, cell_size=cell_size)
+    
+    cell_area = numpy.prod(cell_size)
      
-    StdDevList = []
+    score_list = []
      
     for iPoint in range(0, grid.num_points):
-        rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint,:], grid.cell_size)
-        subset = nornir_imageregistration.CropImageRect(image, rect,cval=numpy.nan)
+        rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint, :], grid.cell_size)
+        subset = nornir_imageregistration.CropImageRect(image, rect, cval=numpy.nan)
         finite_subset = subset[numpy.isfinite(subset)].flat
-        if len(finite_subset) < 3:
+        if len(finite_subset) < (cell_area / 2.0):
             continue
          
-        std_val = numpy.std(numpy.asarray(finite_subset, dtype=numpy.float32))
-        StdDevList.append(std_val)
+        std_val = ScoreImageWithPowerSpectralDensity(subset)
          
-    #val = numpy.percentile(StdDevList, q=90)
- 
-    #val = numpy.max(StdDevList)
-    #val = numpy.mean(StdDevList)
-    val = numpy.median(StdDevList)    
-    return val
+        # std_val = numpy.var(numpy.asarray(finite_subset, dtype=numpy.float32))
+        # std_val = numpy.percentile(finite_subset, q=90) - numpy.percentile(finite_subset, q=10) 
+        score_list.append(std_val)
+
+    if len(score_list) == 0:
+        return 0
+    elif len(score_list) == 1:
+        return score_list[1]
+    else:
+        val = numpy.percentile(score_list, q=feature_coverage_percent)
+     
+        # val = numpy.max(score_list)
+        # val = numpy.mean(score_list) #Median was less reliable when using the range of intensity values as a measure
+        return val
     
 
 def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
@@ -284,8 +321,8 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
         Args:
            MaxOverlap = 0 to 1'''
 
-    #TODO: This function should be updated to use the grid_subdivision module to create cells.  It should be used in the mosaic tile translation code to eliminate featureless 
-    #overlap regions of adjacent tiles
+    # TODO: This function should be updated to use the grid_subdivision module to create cells.  It should be used in the mosaic tile translation code to eliminate featureless 
+    # overlap regions of adjacent tiles
 
     # logger = logging.getLogger('irtools.prune')
     # logger = multiprocessing.log_to_stderr()
@@ -299,10 +336,11 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
 #         return None
 
     Im = nornir_imageregistration.ImageParamToImageArray(filename)
+    # Imb = nornir_imageregistration.LoadImage(filename)
     (Height, Width) = Im.shape
 
     StdDevList = []
-    #MeanList = []
+    # MeanList = []
 
     MaxDim = Height
     if Width > Height:
@@ -346,8 +384,9 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
             # Im[iHeight:iHeight+SampleSize,iWidth:iWidth+SampleSize] = 0.75
 
     del Im
-    # nornir_imageregistration.core.ShowGrayscale(Im)
+    # nornir_imageregistration.ShowGrayscale(Im)
     return sum(StdDevList)
+
 
 def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
     '''Returns a single histogram built by combining histograms of all images
@@ -374,9 +413,9 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
         pool = nornir_pools.GetGlobalSerialPool()
     
     for f in listfilenames:
-        #(root, ext) = os.path.splitext(f)
-        #__HistogramFilePillow__(f, Bpp=Bpp, Scale=Scale)
-        task = pool.add_task(f,__HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale, **kwargs)
+        # (root, ext) = os.path.splitext(f)
+        # __HistogramFilePillow__(f, Bpp=Bpp, Scale=Scale)
+        task = pool.add_task(f, __HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale, **kwargs)
 #         if ext == '.npy':
 #             task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
 #         else:
@@ -435,7 +474,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 #         
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for h in histlist:
-        #hist = t.wait_return()
+        # hist = t.wait_return()
         HistogramComposite.AddHistogram(h)
         # histogram = IMHistogramOutput.Parse(taskOutput, minVal=minVal, maxVal=maxVal, numBins=numBins)
 
@@ -443,7 +482,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 
     if Bpp > 8:
         HistogramComposite = nornir_shared.histogram.Histogram.Trim(HistogramComposite)
-    #del threadTasks
+    # del threadTasks
 
     # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
 
@@ -451,7 +490,6 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 #    numBins = 256    
 #    if Bpp > 8:
 #        numBins = 1024
-
 
     # Sum all of the result arrays together
 #    for filename in listfilenames:
@@ -466,7 +504,6 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 #
 #            HistogramComposite.AddHistogram(histogram.Bins)
 
-
     return HistogramComposite
 
 
@@ -474,8 +511,6 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
     
     Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale) 
     raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
-    
-    
  
 
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None, MinVal=None, MaxVal=None):
@@ -484,7 +519,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     img = Image.open(filename, mode='r')
     img_I = img.convert("I")
     Im = numpy.asarray(img_I)
-    #dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
+    # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
      
     (Height, Width) = Im.shape
     NumPixels = Width * Height
@@ -504,7 +539,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     else:
         assert(isinstance(numBins, int))
          
-    #if(not Scale is None):
+    # if(not Scale is None):
     #    if(Scale != 1.0):
     #        Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
 
@@ -523,16 +558,18 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
         Samples = numpy.random.random_integers(0, NumPixels - 1, NumSamples)
         ImOneD = ImOneD[Samples]
 
-    #[histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range =[MinVal, MaxVal])
+    # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range=[MinVal, MaxVal])
     binWidth = (MaxVal - MinVal) // len(histogram_array)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
     
     return histogram_obj
 
+
 def __CreateImageMagickCommandLineForHistogram(filename, Scale):
     CmdTemplate = "magick convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
     return CmdTemplate % {'filename' : filename, 'scale' : Scale * 100}
+
     
 def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
 
@@ -554,6 +591,7 @@ def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
 
     return histogram_obj
 
+
 def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 
     if Scale is None:
@@ -570,7 +608,6 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
     task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True)
 
     return task
-
 
 # if __name__ == '__main__':
 # 
@@ -601,8 +638,4 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 #             pr.sort_stats('time')
 #             print(str(pr.print_stats(.05)))
 # 
-
-
-
-
 

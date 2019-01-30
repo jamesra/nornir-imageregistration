@@ -5,8 +5,8 @@ Created on Aug 31, 2018
 '''
 
 import numpy
+from nornir_imageregistration import ArcAngle
 from . import triangulation, utils
-from numpy import arctan2
 
 # /// <summary>
 # /// Angle of arc between A & B with Origin
@@ -24,29 +24,6 @@ from numpy import arctan2
 #     return AngleB - AngleA; 
 # }
 
-
-def ArcAngle(origin, A, B):
-    '''
-    :return: The angle, in radians, between A to B as observed from the origin 
-    '''
-
-    A = utils.EnsurePointsAre2DNumpyArray(A)
-    B = utils.EnsurePointsAre2DNumpyArray(B)
-    origin = utils.EnsurePointsAre2DNumpyArray(origin)
-
-    A = A - origin
-    B = B - origin
-    AnglesA = numpy.arctan2(A[:, 0], A[:, 1])
-    AnglesB = numpy.arctan2(B[:, 0], B[:, 1])
-    angle = AnglesB - AnglesA
-
-    lessthanpi = angle < -numpy.pi
-    angle[lessthanpi] = angle[lessthanpi] + (numpy.pi * 2)
-
-    greaterthanpi = angle > numpy.pi
-    angle[greaterthanpi] = angle[greaterthanpi] - (numpy.pi * 2)
-    
-    return angle
 
 
 def TriangleAngleDelta(transform):

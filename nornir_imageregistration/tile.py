@@ -35,10 +35,7 @@ def CreateTiles(transforms, imagepaths):
 def IterateOverlappingTiles(list_tiles, minOverlap=None):
     '''Return all tiles which overlap'''
     
-    list_rects = []
-    for tile in list_tiles:
-        list_rects.append(tile.ControlBoundingBox)
-        
+    list_rects = [tile.ControlBoundingBox for tile in list_tiles]        
     rset = nornir_imageregistration.RectangleSet.Create(list_rects)
     
     for (A, B) in rset.EnumerateOverlapping():
@@ -47,8 +44,8 @@ def IterateOverlappingTiles(list_tiles, minOverlap=None):
         elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > minOverlap:
             yield (list_tiles[A], list_tiles[B])
             
-def CalculateTileOverlaps(list_tiles, imageScale=1.0):
-    for (A, B) in IterateOverlappingTiles(list_tiles):
+def CreateTileOverlaps(list_tiles, imageScale=1.0, minOverlap=None):
+    for (A, B) in IterateOverlappingTiles(list_tiles,minOverlap=minOverlap):
         overlap_data = TileOverlap(A,B,imageScale=imageScale)
         if overlap_data.has_overlap:
             yield overlap_data
@@ -68,19 +65,27 @@ class TileOverlap(object):
     
     @property
     def ID(self):
+        '''ID tuple of (A.ID, B.ID)'''
         return (self._Tiles[0].ID, self._Tiles[1].ID)
     
     @property
     def Tiles(self):
+        '''[A,B]'''
         return self._Tiles
     
     @property
     def A(self):
+        '''Tile object'''
         return self._Tiles[0]
     
     @property
     def B(self):
+        '''Tile object'''
         return self._Tiles[1]
+    
+    @property
+    def feature_scores(self):
+        return self._feature_scores
     
     @property
     def A_feature_score(self):
@@ -124,13 +129,13 @@ class TileOverlap(object):
             imageScale = 1.0
             
         self._Tiles = (A,B)
-        self._feature_scores = (A,B)
+        self._feature_scores = [None, None]
         self._overlap = None
         (overlapping_rect_A, overlapping_rect_B, self._offset) = Tile.Calculate_Overlapping_Regions(A,B, imageScale=imageScale)
         self._overlapping_rects =  (overlapping_rect_A, overlapping_rect_B)
         
-    def __str__(self):
-        return str(self.ID)
+    def __repr__(self):
+        return "({0},{1})".format(self.ID[0], self.ID[1])
     
 
 class Tile(object):
@@ -277,5 +282,5 @@ class Tile(object):
         self._paddedimage = None
         self._fftimage = None
 
-    def __str__(self):
+    def __repr__(self):
         return "%d: %s" % (self._ID, self._imagepath)

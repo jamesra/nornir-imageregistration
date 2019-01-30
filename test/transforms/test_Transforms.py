@@ -8,7 +8,7 @@ import unittest
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import *
-test.transformsfrom . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
               IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints
 
 import numpy as np

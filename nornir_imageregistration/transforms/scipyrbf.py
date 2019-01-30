@@ -70,7 +70,7 @@ class ScipyRbf(triangulation.Triangulation):
 
     def Transform(self, Points, MaxChunkSize=65536):
 
-        Points = utils.EnsurePointsAre2DNumpyArray(Points)
+        Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
         NumPts = Points.shape[0]
 
@@ -105,7 +105,7 @@ class ScipyRbf(triangulation.Triangulation):
 
     def InverseTransform(self, Points):
 
-        Points = utils.EnsurePointsAre2DNumpyArray(Points)
+        Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
         transformedX = self.ReverseRbfiX(Points[:, iPoint.Y], Points[:, iPoint.X])
         transformedY = self.ReverseRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X]) 

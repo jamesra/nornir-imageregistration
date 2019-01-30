@@ -4,33 +4,9 @@ Created on Apr 4, 2013
 @author: u0490822
 '''
 
-import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration
 import numpy as np
-
-
-def EnsurePointsAre2DNumpyArray(points):
-    if not isinstance(points, np.ndarray):
-        points = np.asarray(points, dtype=np.float32)
-
-    if points.ndim == 1:
-        points = np.resize(points, (1, 2))
-
-    return points
-
-
-def EnsurePointsAre4xN_NumpyArray(points):
-    if not isinstance(points, np.ndarray):
-        points = np.asarray(points, dtype=np.float32)
-
-    if points.ndim == 1:
-        points = np.resize(points, (1, 4))
-
-    if points.shape[1] != 4:
-        raise ValueError("There are not 4 columns in the corrected array")
-
-    return points
-    
-    
+ 
 def InvalidIndicies(points):
     '''Removes rows with a NAN value and returns a list of indicies'''
 
@@ -47,6 +23,9 @@ def InvalidIndicies(points):
 
 
 def RotationMatrix(rangle):
+    '''
+    :param float rangle: Angle in radians
+    '''
     if rangle is None:
         raise ValueError("Angle must not be none")
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
@@ -77,7 +56,7 @@ def FixedBoundingBox(transforms):
     
     if len(transforms) == 1:
         # Copy the data instead of passing the transforms object
-        return spatial.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
+        return nornir_imageregistration.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
 
     mbb = None
     for t in transforms:
@@ -91,7 +70,7 @@ def FixedBoundingBox(transforms):
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
+    return  nornir_imageregistration.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
 
 
 def MappedBoundingBox(transforms):
@@ -99,7 +78,7 @@ def MappedBoundingBox(transforms):
     
     if len(transforms) == 1:
         # Copy the data instead of passing the transforms object
-        return spatial.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
+        return nornir_imageregistration.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
 
     mbb = None
     for t in transforms:
@@ -113,7 +92,7 @@ def MappedBoundingBox(transforms):
     maxX = np.max(mbb[:, 3])
     maxY = np.max(mbb[:, 2])
 
-    return  spatial.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
+    return  nornir_imageregistration.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
 
  
 def IsOriginAtZero(transforms):

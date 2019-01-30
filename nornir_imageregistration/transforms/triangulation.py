@@ -13,17 +13,13 @@ import operator
 from . import utils
 from .base import *
 
-import nornir_imageregistration.transforms
+import nornir_imageregistration 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
-from scipy.interpolate import griddata, LinearNDInterpolator
-from scipy.spatial import *
+from scipy.interpolate import griddata, LinearNDInterpolator 
 import scipy.spatial
-
-import nornir_imageregistration.spatial as spatial
-import numpy as np
-from nornir_imageregistration.transforms.utils import EnsurePointsAre4xN_NumpyArray
  
+import numpy as np 
 
 def distance(A, B):
     '''Distance between two arrays of points with equal numbers'''
@@ -225,14 +221,14 @@ class Triangulation(Base):
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = cKDTree(self.SourcePoints)
+            self._WarpedKDTree = scipy.spatial.cKDTree(self.SourcePoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = cKDTree(self.TargetPoints)
+            self._FixedKDTree = scipy.spatial.cKDTree(self.TargetPoints)
 
         return self._FixedKDTree
 
@@ -242,7 +238,7 @@ class Triangulation(Base):
             # try:
             # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
             # except:
-            self._fixedtri = Delaunay(self.TargetPoints, incremental=False)
+            self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
 
@@ -252,7 +248,7 @@ class Triangulation(Base):
             # try:
             # self._warpedtri = Delaunay(self.SourcePoints, incremental =True)
             # except:
-            self._warpedtri = Delaunay(self.SourcePoints, incremental=False)
+            self._warpedtri = scipy.spatial.Delaunay(self.SourcePoints, incremental=False)
 
         return self._warpedtri
     
@@ -266,26 +262,26 @@ class Triangulation(Base):
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
+            self._ForwardInterpolator = scipy.interpolate.LinearNDInterpolator(self.warpedtri, self.TargetPoints)
 
         return self._ForwardInterpolator
 
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
+            self._InverseInterpolator = scipy.interpolate.LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
 
     @classmethod
     def EnsurePointsAre2DNumpyArray(cls, points):
         raise DeprecationWarning('EnsurePointsAre2DNumpyArray should use utility method')
-        return utils.EnsurePointsAre2DNumpyArray(points)
+        return nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
     @classmethod
     def EnsurePointsAre4xN_NumpyArray(cls, points):
         raise DeprecationWarning('EnsurePointsAre4xN_NumpyArray should use utility method')
-        return EnsurePointsAre4xN_NumpyArray(points)
+        return nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(points)
 
     def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
@@ -297,7 +293,7 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
-        points = utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         try: 
             transPoints = self.ForwardInterpolator(points)
@@ -315,11 +311,11 @@ class Triangulation(Base):
 
         method = kwargs.get('method', 'linear')
 
-        points = utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         try:
             transPoints = self.InverseInterpolator(points)
-        except:
+        except Exception as e:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
@@ -338,7 +334,7 @@ class Triangulation(Base):
     def AddPoints(self, new_points):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
-        new_points = utils.EnsurePointsAre4xN_NumpyArray(new_points)
+        new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
 
         duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
         new_points = new_points[~duplicates, :]
@@ -357,7 +353,7 @@ class Triangulation(Base):
 
     def AddPoint(self, pointpair):
         '''Add the point and return the index'''
-        new_points = utils.EnsurePointsAre4xN_NumpyArray(pointpair)
+        new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
@@ -550,7 +546,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.TargetPoints)
+            self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
 
         return self._FixedBoundingBox
 
@@ -560,7 +556,7 @@ class Triangulation(Base):
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = spatial.BoundingPrimitiveFromPoints(self.SourcePoints)
+            self._MappedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.SourcePoints)
 
         return self._MappedBoundingBox
 
@@ -619,7 +615,7 @@ class Triangulation(Base):
 
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
-            if(x >= bounds[spatial.iRect.MinX] and x <= bounds[spatial.iRect.MaxX] and y >= bounds[spatial.iRect.MinY] and y <= bounds[spatial.iRect.MaxY]):
+            if(x >= bounds[nornir_imageregistration.iRect.MinX] and x <= bounds[nornir_imageregistration.iRect.MaxX] and y >= bounds[nornir_imageregistration.iRect.MinY] and y <= bounds[nornir_imageregistration.iRect.MaxY]):
                 PointPair = self._points[iPoint, :] 
                 if(OutputPoints is None):
                     OutputPoints = PointPair

@@ -6,6 +6,7 @@ Created on Oct 18, 2012
 
 import math
 
+import nornir_imageregistration
 from nornir_imageregistration.transforms import base, triangulation
 from nornir_imageregistration.transforms.rbftransform import \
     RBFWithLinearCorrection
@@ -81,7 +82,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
 
-        points = utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];
@@ -115,7 +116,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         ''' 
 
-        points = utils.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];

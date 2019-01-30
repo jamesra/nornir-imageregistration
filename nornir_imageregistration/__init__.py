@@ -55,4 +55,27 @@ import numpy as np
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 
+def EnsurePointsAre2DNumpyArray(points):
+    if not isinstance(points, np.ndarray):
+        points = np.asarray(points, dtype=np.float32)
+
+    if points.ndim == 1:
+        points = np.resize(points, (1, 2))
+
+    return points
+
+
+def EnsurePointsAre4xN_NumpyArray(points):
+    if not isinstance(points, np.ndarray):
+        points = np.asarray(points, dtype=np.float32)
+
+    if points.ndim == 1:
+        points = np.resize(points, (1, 4))
+
+    if points.shape[1] != 4:
+        raise ValueError("There are not 4 columns in the corrected array")
+
+    return points
+    
+    
 __all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']

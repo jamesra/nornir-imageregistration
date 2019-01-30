@@ -25,6 +25,7 @@ Rotated 90 Degrees::
 
 '''
 import unittest
+import os
 
 from  nornir_imageregistration.alignment_record import *
 from nornir_imageregistration.files.stosfile import StosFile
@@ -34,7 +35,7 @@ import test.setup_imagetest
 import nornir_imageregistration.core as core
 import nornir_imageregistration.transforms.factory as factory
 
-test.transformsfrom . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck
+from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck
  
 
 

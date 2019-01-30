@@ -390,14 +390,14 @@ def RefineTransform(stosTransform,
             
         combined_alignment_points = alignment_points + list(finalized_points.values())
             
-        percentile = 100.0 - (CutoffPercentilePerIteration * 10.0)
+        percentile = 100.0 - (CutoffPercentilePerIteration * i)
         if percentile < 10.0:
             percentile = 10.0
         elif percentile > 100:
             percentile = 100
             
-        if final_pass:
-            percentile = 0
+#         if final_pass:
+#             percentile = 0
             
         if SavePlots:
             histogram_filename = os.path.join(outputDir, 'weight_histogram_pass{0}.png'.format(i))
@@ -406,6 +406,11 @@ def RefineTransform(stosTransform,
             views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
                                                       ylim=(0, target_image.shape[1]),
                                                       xlim=(0, target_image.shape[0]))
+            vector_field_filename = os.path.join(outputDir, 'Vector_field_pass_delta{0}.png'.format(i))
+            views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
+                                                      ylim=(0, target_image.shape[1]),
+                                                      xlim=(0, target_image.shape[0]),
+                                                      attrib='PSDDelta')
             
         updatedTransform = _PeakListToTransform(combined_alignment_points, percentile)
              
@@ -432,6 +437,7 @@ def RefineTransform(stosTransform,
                                                                                               TestFlip=False)
             
             if refined_align_record.weight > record.weight:
+                oldPSDDelta = record.PSDDelta
                 record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
                                                                              TargetPoint=record.TargetPoint,
                                                                              SourcePoint=record.SourcePoint,
@@ -439,6 +445,7 @@ def RefineTransform(stosTransform,
                                                                              weight=refined_align_record.weight,
                                                                              angle=refined_align_record.angle,
                                                                              flipped_ud=refined_align_record.flippedud)
+                record.PSDDelta =  oldPSDDelta
              
             # Create a record that is unmoving
             finalized_points[key] = EnhancedAlignmentRecord(record.ID,
@@ -447,6 +454,8 @@ def RefineTransform(stosTransform,
                                                              peak=np.asarray((0, 0), dtype=np.float32),
                                                              weight=record.weight, angle=0,
                                                              flipped_ud=record.flippedud)
+            
+            finalized_points[key].PSDDelta = record.PSDDelta
             
             new_finalizations += 1
             
@@ -460,7 +469,7 @@ def RefineTransform(stosTransform,
              
             Delta = warpedToFixedImage - target_image
             ComparisonImage = np.abs(Delta)
-            ComparisonImage = ComparisonImage / ComparisonImage.max() 
+            ComparisonImage = ComparisonImage / ComparisonImage.max()
              
             nornir_imageregistration.SaveImage(os.path.join(outputDir, 'delta_pass{0}.png'.format(i)), ComparisonImage)
             nornir_imageregistration.SaveImage(os.path.join(outputDir, 'image_pass{0}.png'.format(i)), warpedToFixedImage)
@@ -593,17 +602,22 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     tasks = list()
     alignment_records = list()
     
+    rigid_transforms = ApproximateRigidTransform(input_transform=Transform, target_points=grid_data.TargetPoints)
+    
     for (i, coord) in enumerate(grid_data.coords):
         
         AlignTask = StartAttemptAlignPoint(pool,
                                            "Align %d,%d" % (coord[0], coord[1]),
-                                           Transform,
+                                           rigid_transforms[i],
                                            target_image,
                                            source_image,
                                            grid_data.TargetPoints[i, :],
                                            cell_size,
                                            anglesToSearch=angles_to_search,
                                            min_alignment_overlap=min_alignment_overlap)
+        
+        if AlignTask is None:
+            continue
         
 #         AlignTask = pool.add_task("Align %d,%d" % (coord[0], coord[1]),
 #                                   AttemptAlignPoint,
@@ -639,6 +653,13 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
         
         erec.TargetROI = t.TargetROI
         erec.SourceROI = t.SourceROI
+        
+        #erec.TargetPSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.TargetROI)
+        #erec.SourcePSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.SourceROI)
+        
+        #erec.PSDDelta = abs(erec.TargetPSDScore - erec.SourcePSDScore)
+        erec.PSDDelta = (erec.TargetROI - np.mean(erec.TargetROI.flat)) - (erec.SourceROI - np.mean(erec.SourceROI.flat))
+        erec.PSDDelta = np.sum(np.abs(erec.PSDDelta))
         # erec.CalculatedWarpedPoint = Transform.InverseTransform(erec.AdjustedTargetPoint).reshape(2)
         # arecord.ID = (iRow, iCol)
         # arecord.TargetPoint = t.TargetPoint
@@ -795,6 +816,34 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
     # print("Auto-translate result: " + str(apoint))
     return apoint
 
+def ApproximateRigidTransform(input_transform, target_points):
+    '''
+    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
+    '''
+    numPoints = target_points.shape[0]
+    
+    target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
+
+    source_points = input_transform.InverseTransform(target_points)
+    
+    #Offset the target points by 1, and find the angle between the source points
+    offset = np.array([0,1]) 
+    offset_target_points = target_points + offset
+    
+    offsets = np.tile(offset, (numPoints,1))
+    origins = np.tile(np.array([0,0]), (numPoints,1))
+    
+    offset_source_points = input_transform.InverseTransform(offset_target_points)
+    
+    source_delta = offset_source_points - source_points
+    
+    angles = nornir_imageregistration.ArcAngle(origins, offsets, source_delta)
+    
+    target_offsets = target_points - source_points  
+    
+    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i], source_rotation_center=source_points[i], angle=angles[i]) for i in range(0,len(angles))]
+    
+    return output_transforms
     
 def StartAttemptAlignPoint(pool, taskname, transform,
                            targetImage, sourceImage,
@@ -818,6 +867,12 @@ def StartAttemptAlignPoint(pool, taskname, transform,
 
     targetImageROI = nornir_imageregistration.CropImage(targetImage, FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
 
+    #Just ignore pure color regions
+    if np.all(sourceImageROI == sourceImageROI[0]):
+        return None
+    if np.all(targetImageROI == targetImageROI[0]):
+        return None
+    
     # nornir_imageregistration.core.ShowGrayscale([targetImageROI, sourceImageROI])
 
     # pool = Pools.GetGlobalMultithreadingPool()
