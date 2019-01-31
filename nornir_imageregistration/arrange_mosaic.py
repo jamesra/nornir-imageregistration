@@ -82,12 +82,12 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, tiles)
 
 
-def GenerateScoredTileOverlapDictionary(tiles, excess_scalar=None, imageScale=None):
+def GenerateScoredTileOverlaps(tiles, excess_scalar=None, imageScale=None, min_overlap=None):
     assert(isinstance(tiles, dict))
     if imageScale is None:
         imageScale = tileset.MostCommonScalar([tile.Transform for tile in tiles.values()], [tile.ImagePath for tile in tiles.values()])
 
-    tile_overlaps = nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), imageScale)
+    tile_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), imageScale))
     #A dictionary containing a list of tuples with (TileIndex, OverlapObject)
     #TileIndex records if the tile is the first or second tile (A or B)
     #described in the overlap object
@@ -104,27 +104,8 @@ def GenerateScoredTileOverlapDictionary(tiles, excess_scalar=None, imageScale=No
         tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
         specific_overlap = tile_overlaps_dict[score.overlap_ID]
         specific_overlap.tile_overlap.feature_scores[score.iTile] = score.feature_score
-        
-    #Convert the dictionary to just map tile -> [TileOverlap]
-    tile_to_overlaps_final = {}
-    for tile_ID in tile_to_overlaps_dict.keys():
-        tile_TileToOverlap_dict = tile_to_overlaps_dict[tile_ID]
-        tile_TileOverlap_dict = {}
-        for v in tile_TileToOverlap_dict.values():
-            overlap_obj = v.tile_overlap
-            iOtherTile = 0
-            if v.iTile == 0:
-                iOtherTile = 1
-            other_tile_ID = overlap_obj.ID[iOtherTile]
-            assert(tile_ID != other_tile_ID)
-            tile_TileOverlap_dict[other_tile_ID] = v.tile_overlap
-            
-            assert(v.tile_overlap.A_feature_score is not None)
-            assert(v.tile_overlap.B_feature_score is not None)
-        
-        tile_to_overlaps_final[tile_ID] = tile_TileOverlap_dict
-                
-    return tile_to_overlaps_final
+           
+    return tile_overlaps
             
 
 def ScoreTileOverlaps(tile_to_overlaps_dict):
@@ -257,10 +238,10 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples,feature_coverage_scor
 #     return (layout, tiles)
             
             
-def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
+def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None):
     '''Populates the OffsetToTile dictionary for tiles
-    :param dict tiles: Dictionary mapping TileID to a tile
-    :param dict imageScale: downsample level if known.  None causes it to be calculated.
+    :param list tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
+    :param float imageScale: downsample level if known.  None causes it to be calculated.
     :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
     :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
     '''
@@ -282,27 +263,37 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
     
     layout = nornir_imageregistration.layout.Layout()
     
-    list_tiles = tiles
-    if isinstance(tiles, dict):
-        list_tiles = list(tiles.values())
+    list_tile_overlaps = tile_overlaps
+    if isinstance(tile_overlaps, dict):
+        list_tile_overlaps = list(tile_overlaps.values())
         
-    assert(isinstance(list_tiles, list))
+    assert(isinstance(list_tile_overlaps, list))
     
-    for t in list_tiles:
-        layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
+    for t in list_tile_overlaps:
+        if not layout.Contains(t.A.ID):
+            layout.CreateNode(t.A.ID, t.A.ControlBoundingBox.Center)
+            
+        if not layout.Contains(t.B.ID):
+            layout.CreateNode(t.B.ID, t.B.ControlBoundingBox.Center)
         
     print("Starting tile alignment") 
-    for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles, min_overlap):
+    for tile_overlap in list_tile_overlaps: #A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tile_overlaps, min_overlap):
         # Used for debugging: __tile_offset(A, B, imageScale)
         # t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
+        #(downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         
         #__tile_offset_remote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
         
-        t = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __tile_offset_remote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, excess_scalar)
+        t = pool.add_task("Align %d -> %d" % (tile_overlap.ID[0], tile_overlap.ID[1]),
+                          __tile_offset_remote,
+                          tile_overlap.A.ImagePath,
+                          tile_overlap.B.ImagePath,
+                          tile_overlap.overlapping_rect_A,
+                          tile_overlap.overlapping_rect_B,
+                          tile_overlap.Offset,
+                          excess_scalar)
         
-        t.A = A
-        t.B = B
+        t.tile_overlap = tile_overlap
         tasks.append(t)
         CalculationCount += 1
         # print("Start alignment %d -> %d" % (A.ID, B.ID))
@@ -311,22 +302,22 @@ def _FindTileOffsets(tiles, excess_scalar, min_overlap=0.05, imageScale=None):
         try:
             offset = t.wait_return()
         except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
-            print("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.A.ID, t.B.ID, str(e)))
+            print("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
             
             #Create an alignment record using only stage position and a weight of zero 
-            offset = nornir_imageregistration.AlignmentRecord(peak=OffsetAdjustment, weight=0)
+            offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.Offset, weight=0)
             
-        
+        tile_overlap = t.tile_overlap
         # Figure out what offset we found vs. what offset we expected
-        PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
+        PredictedOffset = tile_overlap.B.ControlBoundingBox.Center - tile_overlap.A.ControlBoundingBox.Center
         ActualOffset = offset.peak * downsample
         
         diff = ActualOffset - PredictedOffset
         distance = np.sqrt(np.sum(diff ** 2))
         
-        print("%d -> %d = %g" % (t.A.ID, t.B.ID, distance))
+        print("%d -> %d = %g" % (tile_overlap.A.ID, tile_overlap.B.ID, distance))
         
-        layout.SetOffset(t.A.ID, t.B.ID, ActualOffset, offset.weight) 
+        layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, offset.weight) 
         
     pool.wait_completion()
     

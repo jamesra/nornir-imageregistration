@@ -4,7 +4,7 @@ import os
 import nornir_imageregistration.tile
 
 import nornir_imageregistration.transforms.factory as tfactory
-#import nornir_pools
+# import nornir_pools
 import numpy as np
 
 from . import alignment_record
@@ -19,7 +19,6 @@ def _sort_array_on_column(a, iCol, ascending=False):
     if not ascending:
         iSorted = np.flipud(iSorted)
     return a[iSorted, :]
-
 
 
 class LayoutPosition(object):
@@ -70,7 +69,6 @@ class LayoutPosition(object):
     def ConnectedIDs(self):
         return self._OffsetArray[:, LayoutPosition.iOffsetID]
     
-    
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
@@ -78,7 +76,6 @@ class LayoutPosition(object):
     def GetWeight(self, ID):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight]
-    
     
     def SetOffset(self, ID, offset, weight):
         '''Set the offset for the specified Layout position ID.  
@@ -129,7 +126,6 @@ class LayoutPosition(object):
         weighted_position_difference = position_difference * normalized_weight.reshape((normalized_weight.shape[0], 1))
         
         return np.sum(weighted_position_difference, 0)
-         
     
     def ScaleOffsetWeightsByPosition(self, connected_positions):
         '''
@@ -258,7 +254,6 @@ class Layout(object):
         node = LayoutPosition(ID, position)
         self.nodes[ID] = node
         return
-    
         
     def CreateOffsetNode(self, Existing_ID, New_ID, Offset, Weight):
         '''Add a new position to the layout.  Place the new relative to the specified existing position plus an offset'''
@@ -322,6 +317,14 @@ class Layout(object):
         layoutA.nodes.update(layoutB.nodes) 
         return layoutA
     
+    def CreateTransform(self, ID, bounding_box):
+        '''
+        Create a transform for the position in the layout
+        '''
+        OriginalImageSize = (bounding_box[spatial.iRect.MaxY] - 1, bounding_box[spatial.iRect.MaxX] - 1)
+        
+        return tfactory.CreateRigidTransform(OriginalImageSize, OriginalImageSize, 0, self.GetPosition(ID)) 
+    
     def ToTransforms(self, tiles):
         '''
         Create a new set of transform for each tile in the tiles dictionary
@@ -337,11 +340,30 @@ class Layout(object):
             
             tile = tiles[ID]
             
-            transform = CreateTransform(self, ID, tile.MappedBoundingBox)
+            transform = self.CreateTransform(self, ID, tile.MappedBoundingBox)
             transforms.append(transform)
             
         return transforms
+    
+    def UpdateTileTransforms(self, tiles):
+        '''
+        Create a new set of transform for each tile in the tiles dictionary
+        :param tiles: Dictionary of tile ID to tiles
+        :return: sorted list of transforms for ID's found tiles
+        '''
         
+        transforms = []
+        
+        for ID in sorted(tiles.keys()):
+            if not ID in self.nodes:
+                continue
+            
+            tile = tiles[ID]
+            
+            transform = self.CreateTransform(ID, tile.MappedBoundingBox)
+            tile.Transform = transform
+            
+        return transforms
     
     def ToMosaic(self, tiles):
         '''
@@ -357,7 +379,7 @@ class Layout(object):
             
             tile = tiles[ID]
             
-            transform = CreateTransform(self, ID, tile.MappedBoundingBox)
+            transform = self.CreateTransform(ID, tile.MappedBoundingBox)
             mosaic.ImageToTransform[tile.ImagePath] = transform
     
         mosaic.TranslateToZeroOrigin()
@@ -386,6 +408,7 @@ def OffsetsSortedByWeight(layout):
         
     return _sort_array_on_column(ret_array, 4)  
 
+
 def ScaleOffsetWeightsByPosition(original_layout):
     
     for node in original_layout.nodes.values():
@@ -393,6 +416,7 @@ def ScaleOffsetWeightsByPosition(original_layout):
         node.ScaleOffsetWeightsByPosition(linked_node_positions)
         
     return
+
 
 def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
     '''
@@ -478,7 +502,6 @@ def RelaxLayout(layout_obj, max_tension_cutoff=5, max_iter=50):
         # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), filename)
         
     return layout_obj
-
         
 
 def BuildLayoutWithHighestWeightsFirst(original_layout):
@@ -546,16 +569,6 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     LargestLayout = LayoutList[0]
 
     return LargestLayout
-
-
-def CreateTransform(layout, ID, bounding_box):
-    '''
-    Create a transform for the position in the layout
-    '''
-    OriginalImageSize = (bounding_box[spatial.iRect.MaxY] - 1, bounding_box[spatial.iRect.MaxX] - 1)
-    
-    return tfactory.CreateRigidTransform(OriginalImageSize, OriginalImageSize, 0, layout.GetPosition(ID)) 
-    
     
  
 def GetLayoutForID(listLayouts, ID):

@@ -48,7 +48,7 @@ class RigidNoRotation(base.Base):
         return points - self.target_offset
     
     def __repr__(self):
-        return "Offset: {0}y,{1}x Angle: {2} deg Rot Center: {3}y,{4}x".format(self.target_offset[0], self.target_offset[1], self.angle, self.source_space_center_of_rotation[0], self.source_space_center_of_rotation[1])
+        return "Offset: {0}y,{1}x Angle: {2}deg Rot Center: {3}y,{4}x".format(self.target_offset[0], self.target_offset[1], self.angle, self.source_space_center_of_rotation[0], self.source_space_center_of_rotation[1])
 
 
 class Rigid(RigidNoRotation):

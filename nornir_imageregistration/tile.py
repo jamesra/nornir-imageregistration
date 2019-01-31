@@ -128,6 +128,7 @@ class TileOverlap(object):
         if imageScale is None:
             imageScale = 1.0
             
+        self._imageScale = imageScale
         self._Tiles = (A,B)
         self._feature_scores = [None, None]
         self._overlap = None
@@ -135,7 +136,12 @@ class TileOverlap(object):
         self._overlapping_rects =  (overlapping_rect_A, overlapping_rect_B)
         
     def __repr__(self):
-        return "({0},{1})".format(self.ID[0], self.ID[1])
+        val = "({0},{1})".format(self.ID[0], self.ID[1])
+        
+        if self.feature_scores[0] is not None and self.feature_scores[1] is not None:
+            val = val + " {0}".format(str(self.feature_scores))
+            
+        return val
     
 
 class Tile(object):
@@ -166,6 +172,11 @@ class Tile(object):
     def Transform(self):
         '''A string encoding our tile's transform'''
         return self._transform
+    
+    @Transform.setter
+    def Transform(self,val):
+        '''A string encoding our tile's transform'''
+        self._transform = val
 
     @property
     def Image(self):
