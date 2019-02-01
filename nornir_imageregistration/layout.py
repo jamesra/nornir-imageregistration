@@ -100,6 +100,18 @@ class LayoutPosition(object):
                 self._OffsetArray = _sort_array_on_column(self._OffsetArray, 0)
         return
     
+    def RemoveOffset(self, ID):
+        '''
+        Remove the offset to the other tile entirely
+        '''
+        
+        iKnown = self.ConnectedIDs == ID
+        if np.any(iKnown):
+            self._OffsetArray = self._OffsetArray[iKnown == False,:]
+        
+        Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
+        return 
+    
     def TensionVectors(self, connected_positions):
         '''The difference between the current connected_positions and the expected positions based on our offsets
         :param ndarray connected_positions: Position of the connected nodes'''
@@ -150,6 +162,13 @@ class LayoutPosition(object):
         self.Position = position
         self._OffsetArray = np.empty((0, 4))  # dtype=LayoutPosition.offset_dtype)
         
+    def copy(self):
+        ''':return: A copy of the object'''
+        c = LayoutPosition(self._ID, 
+                              position=self.Position.copy())
+        c._OffsetArray = self._OffsetArray.copy()
+        return c
+        
     def __str__(self):
         return "%d y:%g x:%g" % (self._ID, self.Position[0], self.Position[1]) 
         
@@ -185,11 +204,30 @@ class Layout(object):
         return ID in self._nodes
     
     def SetOffset(self, A_ID, B_ID, offset, weight=1.0):
-        '''Specify the expected offset between two nodes in the spring model'''
+        '''
+        Specify the expected offset between two nodes in the spring model.
+        '''
         A = self.nodes[A_ID]
         B = self.nodes[B_ID]
         A.SetOffset(B.ID, offset, weight)
         B.SetOffset(A.ID, -offset, weight)
+        
+    def RemoveOverlap(self, overlap):
+        A_ID = None
+        B_ID = None
+        if isinstance(overlap, nornir_imageregistration.tile.TileOverlap):
+            A_ID = overlap.A.ID
+            B_ID = overlap.B.ID
+        else:
+            (A_ID, B_ID) = overlap
+        
+        if self.Contains(A_ID) and self.Contains(B_ID):
+            A = self.nodes[A_ID]
+            B = self.nodes[B_ID]
+            A.RemoveOffset(B.ID)
+            B.RemoveOffset(A.ID)
+        
+        return
         
     def GetPosition(self, ID):
         '''Return the position array for a set of nodes, sorted by node ID'''
@@ -267,6 +305,11 @@ class Layout(object):
         
         self._nodes = {}
         return
+    
+    def copy(self):
+        c = Layout()
+        c._nodes = {n.ID: n.copy() for n in self._nodes.values()}
+        return c
     
     def Translate(self, vector):
         '''Move all nodes by offset'''
