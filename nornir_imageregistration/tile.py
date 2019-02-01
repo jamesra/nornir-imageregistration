@@ -7,6 +7,7 @@ Created on Feb 21, 2014
 import logging
 import os
 
+
 import nornir_imageregistration 
 import numpy as np
 
@@ -32,20 +33,20 @@ def CreateTiles(transforms, imagepaths):
     return tiles
 
 
-def IterateOverlappingTiles(list_tiles, minOverlap=None):
+def IterateOverlappingTiles(list_tiles, min_overlap=None):
     '''Return all tiles which overlap'''
     
     list_rects = [tile.ControlBoundingBox for tile in list_tiles]        
     rset = nornir_imageregistration.RectangleSet.Create(list_rects)
     
     for (A, B) in rset.EnumerateOverlapping():
-        if minOverlap is None:
+        if min_overlap is None:
             yield (list_tiles[A], list_tiles[B])
-        elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > minOverlap:
+        elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > min_overlap:
             yield (list_tiles[A], list_tiles[B])
             
-def CreateTileOverlaps(list_tiles, imageScale=1.0, minOverlap=None):
-    for (A, B) in IterateOverlappingTiles(list_tiles,minOverlap=minOverlap):
+def CreateTileOverlaps(list_tiles, imageScale=1.0, min_overlap=None):
+    for (A, B) in IterateOverlappingTiles(list_tiles,min_overlap=min_overlap):
         overlap_data = TileOverlap(A,B,imageScale=imageScale)
         if overlap_data.has_overlap:
             yield overlap_data
@@ -66,6 +67,7 @@ class TileOverlap(object):
     @property
     def ID(self):
         '''ID tuple of (A.ID, B.ID)'''
+        assert(self._Tiles[0].ID < self._Tiles[1].ID)
         return (self._Tiles[0].ID, self._Tiles[1].ID)
     
     @property
@@ -94,6 +96,18 @@ class TileOverlap(object):
     @property
     def B_feature_score(self):
         return self._feature_scores[1]
+    
+    @feature_scores.setter
+    def feature_scores(self, val):
+        self._feature_scores = val.copy()
+    
+    @A_feature_score.setter
+    def A_feature_score(self, val):
+        self._feature_scores[0] = val
+    
+    @B_feature_score.setter
+    def B_feature_score(self, val):
+        self._feature_scores[1] = val
     
     @property
     def Offset(self):
@@ -127,6 +141,12 @@ class TileOverlap(object):
         
         if imageScale is None:
             imageScale = 1.0
+             
+        #Ensure ID's used are from low to high
+        if A.ID > B.ID:
+            temp = A
+            A = B
+            B = temp
             
         self._imageScale = imageScale
         self._Tiles = (A,B)

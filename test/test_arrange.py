@@ -197,9 +197,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
  
     
-    def CalculateOffsetsForTiles(self, tile_offsets, excess_scalar, imageScale):
+    def CalculateOffsetsForTiles(self, tile_offsets, excess_scalar, imageScale, existing_layout):
      
-        translate_layout = arrange._FindTileOffsets(tile_offsets, excess_scalar, imageScale)
+        translate_layout = arrange._FindTileOffsets(tile_offsets, excess_scalar, imageScale, existing_layout)
         
         self.__CheckNoOffsetsToSelf(translate_layout)
         
@@ -252,17 +252,29 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         
         imageScale = self.ReadOrCreateVariable(self.id() + "_imageScale_%03d" % downsample, tileset.MostCommonScalar, transforms=transforms, imagepaths=tilesPathList)
         first_pass_excess_scalar = 1.5
+        excess_scalar = first_pass_excess_scalar
         
         initial_tiles = nornir_imageregistration.tile.CreateTiles( transforms=transforms, imagepaths=tilesPathList)
         
-        feature_score_threshold = 0.4
+        feature_score_threshold = 0.35
+        min_overlap = 0.05
         
         #tile_overlap_feature_scores = arrange.ScoreTileOverlaps(tiles=initial_tiles, imageScale=imageScale)
+        last_pass_overlaps = None
+        translated_layout = None
         
         for iPass in range(0,5):
-            distinct_overlaps = arrange.GenerateScoredTileOverlaps(tiles=initial_tiles,
-                                                          imageScale=imageScale,
-                                                          min_overlap=0.05)
+            (distinct_overlaps, new_or_updated_overlaps, removed_overlap_IDs) = arrange.GenerateTileOverlaps(tiles=initial_tiles,
+                                                             existing_overlaps=last_pass_overlaps,
+                                                             offset_epsilon=1.0,
+                                                             imageScale=imageScale,
+                                                             min_overlap=min_overlap)
+            
+            arrange.ScoreTileOverlaps(distinct_overlaps)
+            
+            if translated_layout is not None:
+                for ID in removed_overlap_IDs:
+                    translated_layout.RemoveOverlap(ID)
             
     #         tile_overlap_feature_scores = self.ReadOrCreateVariable(self.id() + "tile_overlap_feature_scores_%03d_%03g" % (downsample, first_pass_excess_scalar),
     #                                                       arrange.GenerateScoredTileOverlaps,
@@ -272,8 +284,6 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             Scores = []
             for overlap in distinct_overlaps: 
                 Scores.extend(overlap.feature_scores)
-    #         for tile_score_list in tile_overlap_feature_scores.values():
-    #             Scores.extend([tile_score.feature_score for tile_score in tile_score_list])
         
             Scores.sort()
             h = nornir_shared.histogram.Histogram.Init(minVal=np.min(Scores), maxVal=np.max(Scores), numBins=int(np.sqrt(len(Scores)) * 10))
@@ -282,21 +292,23 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             #nornir_shared.plot.Histogram(h)
             nornir_shared.plot.Histogram(h, ImageFilename=os.path.join("C:\Temp", "_{0:d}pass_PruneScoreHistogram.png".format(iPass)), Title="Tile overlap feature scores")
             nornir_shared.plot.Histogram(h, ImageFilename=mosaicBaseName + "_{0d}pass_PrunePlotHistogram.png", Title="Tile overlap feature scores")
+            
             #pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             #pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             
             self.assertEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
         
-            filtered_overlaps = []
-            for overlap in distinct_overlaps:
+            filtered_overlaps_needing_offsets = []
+            for overlap in new_or_updated_overlaps:
                 if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
-                    filtered_overlaps.append(overlap)
+                    filtered_overlaps_needing_offsets.append(overlap)
                 
             translated_layout = self.ReadOrCreateVariable(self.id() + "_{0:d}pass_tile_layout_{1:03d}_{2:03g}".format(iPass, downsample, first_pass_excess_scalar),
                                                           self.CalculateOffsetsForTiles,
-                                                          tile_offsets=filtered_overlaps, 
-                                                          excess_scalar=first_pass_excess_scalar, 
-                                                          imageScale=imageScale)
+                                                          tile_offsets=filtered_overlaps_needing_offsets, 
+                                                          excess_scalar=excess_scalar, 
+                                                          imageScale=imageScale,
+                                                          existing_layout=translated_layout)
       
             # Each tile should contain a dictionary with the known offsets.  Show the overlapping images using the calculated offsets
     
@@ -307,22 +319,35 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             self.ShowTilesWithOffset(translated_layout, initial_tiles, tileA_ID, tileB_ID, "_{0:d}pass_Best1stPass".format(iPass), openwindow=openwindow)
             
             # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
-            # nornir_imageregistration.layout.ScaleOffsetWeightsByPosition(translated_layout)
-            nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(translated_layout, min_allowed_weight=minWeight, max_allowed_weight=maxWeight)
-            self.PlotLayoutWeightHistogram(translated_layout, mosaicBaseName + "_{0:d}pass_weight_histogram".format(iPass), openwindow=False)
-            translated_final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(translated_layout)
+            scaled_translated_layout = translated_layout.copy()
+            nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout, min_allowed_weight=minWeight, max_allowed_weight=maxWeight)
+            self.PlotLayoutWeightHistogram(scaled_translated_layout, mosaicBaseName + "_{0:d}pass_weight_histogram".format(iPass), openwindow=False)
+            translated_final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(scaled_translated_layout)
             
             translated_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_Weighted".format(iPass), translated_final_layout, initial_tiles, openwindow)
             
-            relaxed_layout = self._Relax_Layout(translated_layout,
+            relaxed_layout = self._Relax_Layout(scaled_translated_layout,
                                                 max_iter=max_relax_iterations,
                                                 max_tension_cutoff=max_relax_tension_cutoff,
                                                 dirname_postfix="_pass{0:d}".format(iPass))
             
+            relaxed_layout.UpdateTileTransforms(initial_tiles)
+            
             relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_relaxed".format(iPass), relaxed_layout, initial_tiles, openwindow)
             
-            relaxed_layout.UpdateTileTransforms(initial_tiles)
-#             
+            last_pass_overlaps = distinct_overlaps
+            
+            #Copy the relaxed layout positions back into the translated layout
+            for ID,node in relaxed_layout.nodes.items():
+                tnode = translated_layout.nodes[ID]
+                tnode.Position = node.Position
+                
+            nornir_pools.WaitOnAllPools()
+             
+            
+        #self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_relaxed".format(iPass), relaxed_layout, initial_tiles, openwindow)
+            
+        #             
         original_score = mosaic.QualityScore(TilesDir)
         translated_score = translated_mosaic.QualityScore(TilesDir)
         relaxed_score = relaxed_mosaic.QualityScore(TilesDir)
@@ -330,13 +355,14 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         #translated_refined_relaxed_score = translated_refined_relaxed_mosaic.QualityScore(TilesDir) 
         
         print("Original Quality Score: %g" % (original_score))
-        print("Translated Quality Score: %g" % (translated_score))
-        print("Relaxed Quality Score: %g" % (relaxed_score))
+        #print("Translated Quality Score: %g" % (translated_score))
+        #print("Relaxed Quality Score: %g" % (relaxed_score))
         #print("Translated refined Quality Score: %g" % (translated_refined_score))
         #print("Translated refined relaxed Quality Score: %g" % (translated_refined_relaxed_score))
         
         # self.assertLess(translated_score, original_score, "Translated worse than original")
         # self.assertLess(relaxed_score, translated_score, "Translated worse than original")
+        
         
     def CreateMosaic(self, name, layout_obj, tiles, *args, **kwargs):
         OutputDir = os.path.join(self.TestOutputPath, name + '.mosaic')
@@ -375,7 +401,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
          
         i = 0
         
-        pool = nornir_pools.GetGlobalMultithreadingPool()
+        #pool = nornir_pools.GetGlobalMultithreadingPool()
         
         MovieImageDir = os.path.join(self.TestOutputPath, "relax_movie" + dirname_postfix)
         if not os.path.exists(MovieImageDir):
@@ -389,13 +415,14 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             # max_distance = np.max(node_distance,0)
             i += 1
             
-            filename = os.path.join(MovieImageDir, "%d.tif" % i)
-            
-            pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField, 
-                          Points=layout_obj.GetPositions(),
-                          Offsets=layout_obj.WeightedNetTensionVectors(),
-                          weights=nornir_imageregistration.array_distance(layout_obj.WeightedNetTensionVectors()) / layout_obj.MaxWeightedTension,
-                          OutputFilename=filename)
+#             filename = os.path.join(MovieImageDir, "%d.tif" % i)
+#             
+#             pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField, 
+#                           Points=layout_obj.GetPositions(),
+#                           Offsets=layout_obj.WeightedNetTensionVectors(),
+#                           weights=nornir_imageregistration.array_distance(layout_obj.WeightedNetTensionVectors()) / layout_obj.MaxWeightedTension,
+#                           OutputFilename=filename)
+
 #             nornir_shared.plot.VectorField(Points=layout_obj.GetPositions(),
 #                                            Offsets=layout_obj.WeightedNetTensionVectors(),
 #                                            weights=nornir_imageregistration.array_distance(layout_obj.WeightedNetTensionVectors()) / layout_obj.MaxWeightedTension,
@@ -489,18 +516,18 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0380\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0380\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
 # 
 #         print("All done")
-#         
-    def test_RC2_0192_Mosaic(self):
-             
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
-     
-        print("All done")
-          
-#     def test_RC2_0192_Smaller_Mosaic(self):
-#             
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
-#     
+# #         
+#     def test_RC2_0192_Mosaic(self):
+#               
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+#       
 #         print("All done")
+           
+    def test_RC2_0192_Smaller_Mosaic(self):
+              
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+      
+        print("All done")
         
 #     def test_RC2_0626_Mosaic(self):
 #         

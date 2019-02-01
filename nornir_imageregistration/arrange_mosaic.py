@@ -31,6 +31,23 @@ TileToOverlap = collections.namedtuple('TileToOverlap',
 TileOverlapFeatureScore = collections.namedtuple('TileOverlapFeatureScore',
                                                      'overlap_ID iTile image feature_score')
 
+def __CreateTileToOverlapsDict(tile_overlaps):
+    '''
+    Returns a dictionary containing a list of tuples with (TileIndex, OverlapObject)
+    TileIndex records if the tile is the first or second tile (A or B)
+    described in the overlap object
+    '''
+    
+    if isinstance(tile_overlaps, dict):
+        tile_overlaps = list(tile_overlaps.values())
+        
+    tile_to_overlaps_dict = collections.defaultdict(dict)
+    for tile_overlap in tile_overlaps:
+        tile_to_overlaps_dict[tile_overlap.A.ID][tile_overlap.ID] = TileToOverlap(iTile=0,tile_overlap=tile_overlap)
+        tile_to_overlaps_dict[tile_overlap.B.ID][tile_overlap.ID] = TileToOverlap(iTile=1,tile_overlap=tile_overlap)
+        
+    return tile_to_overlaps_dict
+
 
 def _CalculateImageFFTs(tiles):
     '''
@@ -46,8 +63,8 @@ def _CalculateImageFFTs(tiles):
         
     print("Calculating FFTs\n")
     pool.wait_completion()
-    
-    
+     
+     
 def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_relax_iterations=None, max_relax_tension_cutoff=None):
     '''
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
@@ -82,44 +99,93 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, tiles)
 
 
-def GenerateScoredTileOverlaps(tiles, excess_scalar=None, imageScale=None, min_overlap=None):
+def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, imageScale=None, min_overlap=None):
+    '''
+    Create a list of TileOverlap objects for each overlapping region in the mosaic.  Assign a feature score to the regions from each image that overlap.
+    :param list tiles: A list or dictionary of Tile objects
+    :param list existing_overlaps: A list of overlaps created previously.  Scores for these offsets will be copied into the generated offsets if the difference in offset between the tiles
+                                   is less than offset_epsilon.
+    :param float offset_epsilon: The distance the expected offset between tiles has to change before we recalculate feature scores and registration
+    :param float imageScale: The amount the images are downsampled compared to coordinates in the transforms
+    :param float min_overlap: Tiles that overlap less than this amount percentage of area will not be included
+    
+    :return: Returns a three-component tuple composed of the new overlaps, the overlaps that are new or will require updating, and the deleted overlaps from the existing set. 
+             None of the returned overlaps are the same objects as those in the original set
+    '''
     assert(isinstance(tiles, dict))
     if imageScale is None:
         imageScale = tileset.MostCommonScalar([tile.Transform for tile in tiles.values()], [tile.ImagePath for tile in tiles.values()])
-
-    tile_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), imageScale))
-    #A dictionary containing a list of tuples with (TileIndex, OverlapObject)
-    #TileIndex records if the tile is the first or second tile (A or B)
-    #described in the overlap object
-    tile_to_overlaps_dict = collections.defaultdict(dict)
-    for tile_overlap in tile_overlaps:
-        tile_to_overlaps_dict[tile_overlap.A.ID][tile_overlap.ID] = TileToOverlap(iTile=0,tile_overlap=tile_overlap)
-        tile_to_overlaps_dict[tile_overlap.B.ID][tile_overlap.ID] = TileToOverlap(iTile=1,tile_overlap=tile_overlap)
         
-    tile_overlap_scores = ScoreTileOverlaps(tile_to_overlaps_dict)
+    updated_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), imageScale, min_overlap=min_overlap))
     
-    for score in tile_overlap_scores:
-        tile_ID = score.overlap_ID[score.iTile]
+    removed_offset_IDs = []
+    new_or_updated = []
+    
+    #Iterate the current set of overlaps and determine if:
+    #1. The overlap is new and should be included  
+    #2. The overlap is not different in a meaningful way
+    #3. The overlap is changed and should be recalculated
+    num_new = 0
+    num_different = 0
+    num_similiar = 0
+    
+    if existing_overlaps is None:
+        new_or_updated.extend(updated_overlaps)
+        num_new = len(updated_overlaps)
+    else:
+        existing_dict = {o.ID: o for o in existing_overlaps} 
+        updated_dict = {o.ID: o for o in updated_overlaps} 
+         
+        #Remove overlaps that no longer exist so they aren't considered later
+        for overlap in existing_overlaps:
+            if overlap.ID not in updated_dict:
+    #             to_remove = existing_dict[overlap.ID]
+    #             del existing_dict[overlap.ID]
+    #             existing_overlaps.remove(to_remove)
+                print("Removing overlap {0}".format(str(overlap)))
+                removed_offset_IDs.append(overlap.ID)
+ 
+        for updated in updated_overlaps:
+            if not updated.ID in existing_dict:
+                new_or_updated.append(updated)
+                num_new = num_new + 1
+                print("New overlap {0}".format(str(updated)))
+            else:
+                existing = existing_dict[updated.ID]
+                
+                #Compare the offsets
+                delta = updated.Offset - existing.Offset
+                distance = nornir_imageregistration.array_distance(delta)
+                
+                #Check whether it is significantly different
+                if distance < offset_epsilon:
+                    #Substantially the same, recycle the feature scores
+                    updated.feature_scores = existing.feature_scores
+                    num_similiar += 1
+                else:
+                    new_or_updated.append(updated)
+                    num_different += 1
+    
+    print("\n")
+    print("Updated Tile Overlaps:")
+    print("{0} overlaps new".format(num_new))
+    print("{0} overlaps unchanged".format(num_similiar))
+    print("{0} overlaps changed".format(num_different))
+    print("{0} overlaps removed".format(len(removed_offset_IDs)))
+    print("\n")
         
-        tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
-        specific_overlap = tile_overlaps_dict[score.overlap_ID]
-        specific_overlap.tile_overlap.feature_scores[score.iTile] = score.feature_score
-           
-    return tile_overlaps
-            
+    return (updated_overlaps, new_or_updated, removed_offset_IDs)
 
-def ScoreTileOverlaps(tile_to_overlaps_dict):
+
+def ScoreTileOverlaps(tile_overlaps):
     '''
-    Loads the overlapping regions of tiles, and removes overlaps with no features to use for alignment
-    :param list transforms: list of transforms for tiles
-    :param list imagepaths: list of paths to tile images, must be same length as transforms list
-    :param float excess_scalar: How much additional area should we pad the overlapping regions with.
-    :param float imageScale: The downsampling of the images in imagepaths.  If None then this is calculated based on the difference in the transform and the image file dimensions
-    :param int max_relax_iterations: Maximum number of iterations in the relax stage
-    :param float max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
-    :return: (offsets_collection, tiles) tuple
+    Assigns feature scores to TileOverlap objects without scores.
+    :param list tile_overlaps: list of TileOverlap objects
+    :return: The TileOverlap object list
     '''
 
+    tile_to_overlaps_dict = __CreateTileToOverlapsDict(tile_overlaps)
+    
     tile_feature_score_list = []
     
     tasks = []
@@ -128,10 +194,16 @@ def ScoreTileOverlaps(tile_to_overlaps_dict):
     for tile_ID in list(tile_to_overlaps_dict.keys()):
         tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
         
-        params = [TileOverlapDetails(overlap_ID=tile_overlap.ID, iTile=iTile, overlapping_rect=tile_overlap.overlapping_rects[iTile]) for (iTile, tile_overlap) in tile_overlaps_dict.values()]
+        params = [] #Build a list of overlaps that need to be scored
+        for (iTile, tile_overlap) in tile_overlaps_dict.values():
+            if tile_overlap.feature_scores[iTile] is None:
+                params.append(TileOverlapDetails(overlap_ID=tile_overlap.ID, iTile=iTile, overlapping_rect=tile_overlap.overlapping_rects[iTile]))
         
         #tile_feature_scores = _CalculateTileFeatures(tiles[tile_ID].ImagePath, params)
         #tile_feature_score_list.append(tile_feature_scores)
+        if len(params) == 0:
+            continue
+        
         first_overlap = list(tile_overlaps_dict.values())[0]
         tile = first_overlap.tile_overlap.Tiles[first_overlap.iTile]
         t =  pool.add_task(str(tile_ID), _CalculateTileFeatures, tile.ImagePath, params)
@@ -145,13 +217,16 @@ def ScoreTileOverlaps(tile_to_overlaps_dict):
 #             pool.add_task("Save {0}".format(filename), nornir_imageregistration.SaveImage, filename, score.image)
             
         tile_feature_score_list.extend(tile_feature_scores)
-    
-    return tile_feature_score_list
-    # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
+        
+    for score in tile_feature_score_list:
+        tile_ID = score.overlap_ID[score.iTile]
+        
+        tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
+        specific_overlap = tile_overlaps_dict[score.overlap_ID]
+        specific_overlap.tile_overlap.feature_scores[score.iTile] = score.feature_score
 
-    # Create a mosaic file using the tile paths and transforms
-    
-
+    return tile_overlaps
+      
 
 def _CalculateTileFeatures(image_path, list_overlap_tuples,feature_coverage_score=None):
     
@@ -238,7 +313,7 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples,feature_coverage_scor
 #     return (layout, tiles)
             
             
-def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None):
+def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_layout=None):
     '''Populates the OffsetToTile dictionary for tiles
     :param list tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param float imageScale: downsample level if known.  None causes it to be calculated.
@@ -261,7 +336,9 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None):
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
-    layout = nornir_imageregistration.layout.Layout()
+    layout = existing_layout
+    if layout is None:
+        layout = nornir_imageregistration.layout.Layout()
     
     list_tile_overlaps = tile_overlaps
     if isinstance(tile_overlaps, dict):
