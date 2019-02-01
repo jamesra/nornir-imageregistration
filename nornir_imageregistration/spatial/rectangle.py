@@ -114,11 +114,21 @@ class RectangleSet():
         for (ID, overlappingIDs) in RectangleSet.SweepAlongAxis(self.y_sweep_array):
             OverlapSet[ID] &= overlappingIDs
         
+        returned_overlaps = set()
         for (ID, overlappingIDs) in OverlapSet.items():
             for MatchingID in overlappingIDs:
                 if MatchingID != ID:
-                    yield (ID, MatchingID)
+                    key = None
+                    if ID < MatchingID:
+                        key = (ID, MatchingID)
+                    else:
+                        key = (MatchingID, ID)
                         
+                    if key in returned_overlaps:
+                        continue
+                    
+                    returned_overlaps.add(key)
+                    yield key
     
     @classmethod
     def SweepAlongAxis(cls, sweep_array):

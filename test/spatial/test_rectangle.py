@@ -100,6 +100,11 @@ class Test(unittest.TestCase):
             
         print("Validate overlapping rectangles")
         for (A, B) in rset.EnumerateOverlapping():
+            #Make sure it is not a duplicate
+            self.assertFalse(B in OverlapSets[A])
+            self.assertFalse(A in OverlapSets[B])
+            print ("{0},{1}".format(A,B))
+            
             OverlapSets[A].add(B)
             OverlapSets[B].add(A)
             self.assertTrue(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "Overlapping rectangles do not overlap")
