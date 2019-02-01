@@ -67,11 +67,15 @@ class LayoutPosition(object):
         
     @property
     def ConnectedIDs(self):
-        return self._OffsetArray[:, LayoutPosition.iOffsetID]
+        return self._OffsetArray[:, LayoutPosition.iOffsetID].astype(np.int)
     
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
+    
+    def ContainsOffset(self, ID):
+        iKnown = self.ConnectedIDs == ID
+        return np.any(iKnown)
     
     def GetWeight(self, ID):
         iKnown = self.ConnectedIDs == ID
@@ -158,6 +162,9 @@ class LayoutPosition(object):
      
     def __init__(self, ID, position, *args, **kwargs):
         
+        if not isinstance(ID, int):
+            raise TypeError("Node ID must be an integer: {0}".format(ID))
+        
         self._ID = ID 
         self.Position = position
         self._OffsetArray = np.empty((0, 4))  # dtype=LayoutPosition.offset_dtype)
@@ -181,6 +188,17 @@ class Layout(object):
     iNodeID = 0
     iNodeY = 1 
     iNodeX = 2 
+    
+    @classmethod 
+    def _parameter_to_offset_IDs(cls, param):
+        '''
+        :param param: Either a TileOverlap object or a tuple of node ID's.
+        :return: A tuple of node ID's
+        ''' 
+        if isinstance(param, nornir_imageregistration.tile.TileOverlap):
+            return (param.A.ID, param.B.ID)
+        else:
+            return param
     
     @property
     def nodes(self):
@@ -212,14 +230,20 @@ class Layout(object):
         A.SetOffset(B.ID, offset, weight)
         B.SetOffset(A.ID, -offset, weight)
         
+    def ContainsOffset(self, overlap):
+        ''':return: True if the layout has an offset between the two nodes'''
+        (A_ID, B_ID) = Layout._parameter_to_offset_IDs(overlap)
+        
+        if not self.Contains(A_ID) and self.Contains(B_ID):
+            return False
+        
+        A = self.nodes[A_ID]
+        B = self.nodes[B_ID]
+        
+        return A.ContainsOffset(B_ID) and B.ContainsOffset(A_ID)
+        
     def RemoveOverlap(self, overlap):
-        A_ID = None
-        B_ID = None
-        if isinstance(overlap, nornir_imageregistration.tile.TileOverlap):
-            A_ID = overlap.A.ID
-            B_ID = overlap.B.ID
-        else:
-            (A_ID, B_ID) = overlap
+        (A_ID, B_ID) = Layout._parameter_to_offset_IDs(overlap)
         
         if self.Contains(A_ID) and self.Contains(B_ID):
             A = self.nodes[A_ID]
@@ -561,8 +585,8 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     LayoutList = [] 
     for iRow in range(0, sorted_offsets.shape[0]):
         row = sorted_offsets[iRow, :]      
-        A_ID = row[0]
-        B_ID = row[1]
+        A_ID = int(row[0])
+        B_ID = int(row[1])
         YOffset = row[2]
         XOffset = row[3]
         Weight = row[4]

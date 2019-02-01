@@ -182,7 +182,23 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     def __CheckNoOffsetsToSelf(self, layout):
 
         for i, node in layout.nodes.items():
-            self.assertFalse(i in node.ConnectedIDs, "Tiles should not be registered to themselves")
+            self.assertFalse(i in node.ConnectedIDs, "Tiles should not be registered to themselves, node {0}".format(i))
+            
+    def __CheckAllOffsetsPresent(self, layout, expected_offsets):
+
+        for offset in expected_offsets:
+            self.assertTrue(layout.ContainsOffset(offset), "{0} should have an offset in the layout but does not".format(offset))
+            
+    def __CheckNoExtraOffsets(self, layout, expected_offsets):
+
+        offset_keys = frozenset([o.ID for o in expected_offsets])
+        for i, node in layout.nodes.items():
+            for other in node.ConnectedIDs:
+                key = (node.ID, other)
+                if key[0] > key[1]:
+                    key = (other, node.ID)
+                    
+                self.assertTrue(key in offset_keys, "{0} is an unexpected offset".format(key))
 
 
     def __RemoveExtraImages(self, mosaic):
@@ -197,11 +213,13 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
  
     
-    def CalculateOffsetsForTiles(self, tile_offsets, excess_scalar, imageScale, existing_layout):
+    def CalculateOffsetsForTiles(self, tile_offsets_to_update, all_tile_offsets, excess_scalar, imageScale, existing_layout):
      
-        translate_layout = arrange._FindTileOffsets(tile_offsets, excess_scalar, imageScale, existing_layout)
+        translate_layout = arrange._FindTileOffsets(tile_offsets_to_update, excess_scalar, imageScale, existing_layout)
         
         self.__CheckNoOffsetsToSelf(translate_layout)
+        self.__CheckAllOffsetsPresent(translate_layout, all_tile_offsets)
+        self.__CheckNoExtraOffsets(translate_layout, all_tile_offsets)
         
         return translate_layout
 
@@ -298,14 +316,22 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
             self.assertEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
         
+            #Create a list of offsets requiring updates
             filtered_overlaps_needing_offsets = []
             for overlap in new_or_updated_overlaps:
                 if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
                     filtered_overlaps_needing_offsets.append(overlap)
+                    
+            #Create a list of every offset that should be found in the layout for debugging
+            filtered_distinct_offsets = []
+            for overlap in distinct_overlaps:
+                if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
+                    filtered_distinct_offsets.append(overlap)
                 
             translated_layout = self.ReadOrCreateVariable(self.id() + "_{0:d}pass_tile_layout_{1:03d}_{2:03g}".format(iPass, downsample, first_pass_excess_scalar),
                                                           self.CalculateOffsetsForTiles,
-                                                          tile_offsets=filtered_overlaps_needing_offsets, 
+                                                          tile_offsets_to_update=filtered_overlaps_needing_offsets,
+                                                          all_tile_offsets=filtered_distinct_offsets,
                                                           excess_scalar=excess_scalar, 
                                                           imageScale=imageScale,
                                                           existing_layout=translated_layout)

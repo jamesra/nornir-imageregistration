@@ -299,6 +299,9 @@ class Tile(object):
         else:
             self._ID = ID
             
+        if not isinstance(self._ID, int):
+            raise TypeError("Tile ID must be an integer: {0}".format(ID))
+            
     def __getstate__(self):
         odict = {}
         odict['_transform'] = self._transform
