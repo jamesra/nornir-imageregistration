@@ -191,17 +191,23 @@ class Mosaic(object):
         return values
          
 
-    def ArrangeTilesWithTranslate(self, tilesPath,
+    def ArrangeTilesWithTranslate(self, tiles_path,
+                                   image_scale=None, 
                                    excess_scalar=1.5,
+                                   min_overlap=None,
+                                   feature_score_threshold=None,
                                    max_relax_iterations=None,
                                    max_relax_tension_cutoff=None):
         
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.TranslateTiles(self._TransformsSortedByKey(),
-                                                 self.CreateTilesPathList(tilesPath),
-                                                 excess_scalar=excess_scalar, 
+        (layout, tiles) = arrange.TranslateTiles2(transforms=self._TransformsSortedByKey(),
+                                                 imagepaths=self.CreateTilesPathList(tiles_path),
+                                                 excess_scalar=excess_scalar,
+                                                 feature_score_threshold=feature_score_threshold,
+                                                 image_scale=image_scale, 
                                                  max_relax_iterations=max_relax_iterations,
-                                                 max_relax_tension_cutoff=max_relax_tension_cutoff)
+                                                 max_relax_tension_cutoff=max_relax_tension_cutoff,
+                                                 min_overlap=min_overlap)
         return layout.ToMosaic(tiles)
     
     def RefineLayout(self, tilesPath):

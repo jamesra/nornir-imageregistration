@@ -82,12 +82,12 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     
     if max_relax_tension_cutoff is None:
         max_relax_tension_cutoff = 1.0
-
-    tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
-
+        
     if imageScale is None:
         imageScale = tileset.MostCommonScalar(transforms, imagepaths)
 
+    tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
+ 
     tile_layout = _FindTileOffsets(tiles, excess_scalar, imageScale=imageScale)
     
     nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(tile_layout, min_allowed_weight=0.25, max_allowed_weight=1.0)
@@ -99,7 +99,94 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, tiles)
 
 
-def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, imageScale=None, min_overlap=None):
+def TranslateTiles2(transforms, imagepaths, excess_scalar,
+                    feature_score_threshold=None, image_scale=None,
+                    max_relax_iterations=None, max_relax_tension_cutoff=None,
+                    min_overlap=None):
+    '''
+    Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
+    :param list transforms: list of transforms for tiles
+    :param list imagepaths: list of paths to tile images, must be same length as transforms list
+    :param float excess_scalar: How much additional area should we pad the overlapping regions with.
+    :param float feature_score_threshold: The minimum average power spectral density per pixel measurement required to believe there is enough texture in overlapping regions for registration algorithms 
+    :param float imageScale: The downsampling of the images in imagepaths.  If None then this is calculated based on the difference in the transform and the image file dimensions
+    :param int max_relax_iterations: Maximum number of iterations in the relax stage
+    :param float max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
+    :param float min_overlap: The percentage of area that two tiles must overlap before being considered by the layout model 
+    :return: (offsets_collection, tiles) tuple
+    '''
+    
+    if max_relax_iterations is None:
+        max_relax_iterations=150
+    
+    if max_relax_tension_cutoff is None:
+        max_relax_tension_cutoff = 1.0
+        
+    if feature_score_threshold is None:
+        feature_score_threshold = 0.035
+        
+    if image_scale is None:
+        image_scale = tileset.MostCommonScalar(transforms, imagepaths)
+
+    tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
+    
+    minOffsetWeight = 0
+    maxOffsetWeight = 1.0
+    
+    last_pass_overlaps = None
+    translated_layout = None
+    for iPass in range(0,5):
+        (distinct_overlaps, new_or_updated_overlaps, removed_overlap_IDs) = GenerateTileOverlaps(tiles=tiles,
+                                                             existing_overlaps=last_pass_overlaps,
+                                                             offset_epsilon=1.0,
+                                                             image_scale=image_scale,
+                                                             min_overlap=min_overlap)
+        
+        #If there is nothing to update we are done
+        if len(new_or_updated_overlaps) == 0:
+            break 
+        
+        ScoreTileOverlaps(distinct_overlaps)
+        
+        #If this is the second pass remove any overlaps from the layout that no longer qualify
+        if translated_layout is not None:
+            for ID in removed_overlap_IDs:
+                translated_layout.RemoveOverlap(ID)
+                
+        #Create a list of offsets requiring updates
+        filtered_overlaps_needing_offsets = []
+        for overlap in new_or_updated_overlaps:
+            if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
+                filtered_overlaps_needing_offsets.append(overlap)
+
+        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar,
+                                             imageScale=image_scale,
+                                             existing_layout=translated_layout)
+        
+        scaled_translated_layout = translated_layout.copy()
+        nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
+                                                                           min_allowed_weight=minOffsetWeight,
+                                                                           max_allowed_weight=maxOffsetWeight)
+        
+        relaxed_layout = nornir_imageregistration.layout.RelaxLayout(scaled_translated_layout,
+                                                                     max_tension_cutoff=max_relax_tension_cutoff,
+                                                                     max_iter=max_relax_iterations)
+        
+        relaxed_layout.UpdateTileTransforms(tiles)
+        last_pass_overlaps = distinct_overlaps
+        
+        #Copy the relaxed layout positions back into the translated layout
+        for ID,node in relaxed_layout.nodes.items():
+            tnode = translated_layout.nodes[ID]
+            tnode.Position = node.Position
+    
+    # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
+
+    # Create a mosaic file using the tile paths and transforms
+    return (relaxed_layout, tiles)
+
+
+def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, image_scale=None, min_overlap=None):
     '''
     Create a list of TileOverlap objects for each overlapping region in the mosaic.  Assign a feature score to the regions from each image that overlap.
     :param list tiles: A list or dictionary of Tile objects
@@ -113,10 +200,10 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
              None of the returned overlaps are the same objects as those in the original set
     '''
     assert(isinstance(tiles, dict))
-    if imageScale is None:
-        imageScale = tileset.MostCommonScalar([tile.Transform for tile in tiles.values()], [tile.ImagePath for tile in tiles.values()])
+    if image_scale is None:
+        image_scale = tileset.MostCommonScalar([tile.Transform for tile in tiles.values()], [tile.ImagePath for tile in tiles.values()])
         
-    updated_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), imageScale, min_overlap=min_overlap))
+    updated_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), image_scale, min_overlap=min_overlap))
     
     removed_offset_IDs = []
     new_or_updated = []

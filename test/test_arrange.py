@@ -285,7 +285,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             (distinct_overlaps, new_or_updated_overlaps, removed_overlap_IDs) = arrange.GenerateTileOverlaps(tiles=initial_tiles,
                                                              existing_overlaps=last_pass_overlaps,
                                                              offset_epsilon=1.0,
-                                                             imageScale=imageScale,
+                                                             image_scale=imageScale,
                                                              min_overlap=min_overlap)
             
             arrange.ScoreTileOverlaps(distinct_overlaps)
@@ -456,7 +456,10 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #             
         return layout_obj
 
-    def ArrangeMosaic(self, mosaicFilePath, TilePyramidDir=None, downsample=None, 
+    def ArrangeMosaic(self, mosaicFilePath,
+                      TilePyramidDir=None,
+                      downsample=None, 
+                      openwindow=False,
                       max_relax_iterations=None,
                       max_relax_tension_cutoff=None):
  
@@ -492,7 +495,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
         timer.Start("ArrangeTiles " + TilesDir)
 
-        translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, 1.5,
+        translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, excess_scalar=1.5,
                                                              max_relax_iterations=max_relax_iterations / 10.0,
                                                              max_relax_tension_cutoff=max_relax_tension_cutoff)
 
@@ -503,26 +506,11 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         print("Original Quality Score: %g" % (original_score))
         print("Translate Quality Score: %g" % (translated_score))
         
-        second_translated_mosaic = translated_mosaic.ArrangeTilesWithTranslate(TilesDir, 
-                                                                               1.5,
-                                                                               max_relax_iterations=max_relax_iterations,
-                                                                               max_relax_tension_cutoff=max_relax_tension_cutoff)
-
-        timer.End("ArrangeTiles " + TilesDir, True)
-        
-        second_translated_score = second_translated_mosaic.QualityScore(TilesDir)
-        
-        print("Original Quality Score: %g" % (original_score))
-        print("Translate Quality Score: %g" % (translated_score))
-        print("Second Translate Quality Score: %g" % (second_translated_score))
-        
-        # self.assertLess(translated_score, original_score, "Quality score should improve after we run translate")
-                
         OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
         OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
 
-        second_translated_mosaic.SaveToMosaicFile(OutputDir)
-        self._ShowMosaic(second_translated_mosaic, OutputMosaicDir)
+        if openwindow:
+            self._ShowMosaic(translated_mosaic, OutputMosaicDir)
          
         
 #     def test_RC2_0197_Mosaic(self):
@@ -551,7 +539,11 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
            
     def test_RC2_0192_Smaller_Mosaic(self):
               
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic",
+                                 TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid",
+                                 downsample=4,
+                                 max_relax_iterations=150,
+                                 openwindow=True)
       
         print("All done")
         
