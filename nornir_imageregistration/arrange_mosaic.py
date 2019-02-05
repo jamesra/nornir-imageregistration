@@ -168,8 +168,15 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
                                                                            min_allowed_weight=minOffsetWeight,
                                                                            max_allowed_weight=maxOffsetWeight)
         
+        relax_iterations = max_relax_iterations
+        if iPass == 0:
+            relax_iterations = relax_iterations // 5
+            if relax_iterations < 10:
+                relax_iterations = max_relax_iterations // 2
+        
+        
         relaxed_layout = nornir_imageregistration.layout.RelaxLayout(scaled_translated_layout,
-                                                                     max_tension_cutoff=max_relax_tension_cutoff,
+                                                                     max_tension_cutoff=relax_iterations,
                                                                      max_iter=max_relax_iterations)
         
         relaxed_layout.UpdateTileTransforms(tiles)
