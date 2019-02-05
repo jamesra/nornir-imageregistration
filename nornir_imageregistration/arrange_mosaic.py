@@ -276,7 +276,7 @@ def ScoreTileOverlaps(tile_overlaps):
     tile_feature_score_list = []
     
     tasks = []
-    pool = nornir_pools.GetGlobalThreadPool()
+    pool = nornir_pools.GetGlobalLocalMachinePool()
     
     for tile_ID in list(tile_to_overlaps_dict.keys()):
         tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
