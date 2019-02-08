@@ -21,7 +21,7 @@ from . import setup_imagetest
 
 
 def ShowComparison(*args, **kwargs):
-    return core.ShowGrayscale(*args, **kwargs)
+    return nornir_imageregistration.ShowGrayscale(*args, **kwargs)
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
 

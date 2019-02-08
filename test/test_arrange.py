@@ -176,7 +176,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             if title is None:
                 title = "A mosaic with no tiles out of place"
 
-            self.assertTrue(core.ShowGrayscale(assembledImage, title=title, PassFail=True))
+            self.assertTrue(nornir_imageregistration.ShowGrayscale(assembledImage, title=title, PassFail=True))
 
 
     def __CheckNoOffsetsToSelf(self, layout):
@@ -543,7 +543,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
                                  TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid",
                                  downsample=4,
                                  max_relax_iterations=150,
-                                 openwindow=True)
+                                 openwindow=False)
       
         print("All done")
         

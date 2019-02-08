@@ -12,15 +12,12 @@ import PIL
 from scipy import stats
 from scipy.misc import imsave
 
+import nornir_imageregistration
 import nornir_imageregistration.transforms.utils as tutils
 import nornir_shared.images
 #import nornir_pools as pools
 import numpy as np
-
-from . import core
-from . import core
-
-
+   
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 class ShadeCorrectionTypes(object):
@@ -37,13 +34,13 @@ def __DetermineTransformScale(transform, imageSize):
     width = transform.MappedBoundingBox.Width
     height = transform.MappedBoundingBox.Height
 
-    if core.ApproxEqual(imageSize[0], height, epsilon=1.1) and core.ApproxEqual(imageSize[1], width, epsilon=1.1):
+    if nornir_imageregistration.ApproxEqual(imageSize[0], height, epsilon=1.1) and nornir_imageregistration.ApproxEqual(imageSize[1], width, epsilon=1.1):
         return 1.0
     else:
         heightScale = (imageSize[0] / height)
         widthScale = (imageSize[1] / width)
 
-        if(core.ApproxEqual(heightScale, widthScale)):
+        if(nornir_imageregistration.ApproxEqual(heightScale, widthScale)):
             return heightScale
         else:
             return None
@@ -84,11 +81,11 @@ def __CompositeTiles(imagepaths, func):
 
     stack = copy.copy(imagepaths)
 
-    CompositeImage = core.LoadImage(stack.pop())
+    CompositeImage = nornir_imageregistration.LoadImage(stack.pop())
 
     while len(stack) > 0:
 
-        imageA = core.LoadImage(stack.pop())
+        imageA = nornir_imageregistration.LoadImage(stack.pop())
         CompositeImage = func(CompositeImage, imageA)
 
         del imageA
@@ -118,12 +115,12 @@ def __CalculateDarkfieldShadeImage(imagepaths):
      return ZerodCorrectionImage
 
 
-def CalculateShadeImage(imagepaths, type=None):
+def CalculateShadeImage(imagepaths, correction_type=None):
 
     # Find the min or max of the tiles depending on type
-    if type == ShadeCorrectionTypes.BRIGHTFIELD:
+    if correction_type == ShadeCorrectionTypes.BRIGHTFIELD:
        return __CalculateBrightfieldShadeImage(imagepaths)
-    elif type == ShadeCorrectionTypes.DARKFIELD:
+    elif correction_type == ShadeCorrectionTypes.DARKFIELD:
        return __CalculateDarkfieldShadeImage(imagepaths)
 
     return None
@@ -142,7 +139,7 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
     # imagescalar[np.isinf(imagescalar)] = 1.0
 
     for imagepath in imagepaths:
-        image = core.LoadImage(imagepath)
+        image = nornir_imageregistration.LoadImage(imagepath)
 
         imageFilename = os.path.basename(imagepath)
         outputFilename = os.path.join(outputpath, imageFilename)
@@ -164,7 +161,7 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
         correctedimage[correctedimage > 1.0] = 1.0
         correctedimage[correctedimage < 0] = 0
 
-        core.SaveImage(outputFilename, correctedimage)
+        nornir_imageregistration.SaveImage(outputFilename, correctedimage)
 
         del image
         del correctedimage
@@ -179,13 +176,13 @@ def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
     outputPaths = []
 
     for imagepath in imagepaths:
-        image = core.LoadImage(imagepath)
+        image = nornir_imageregistration.LoadImage(imagepath)
 
         imageFilename = os.path.basename(imagepath)
         outputFilename = os.path.join(outputpath, imageFilename)
 
         correctedimage = image - shadeimage
-        core.SaveImage(outputFilename, correctedimage)
+        nornir_imageregistration.SaveImage(outputFilename, correctedimage)
 
         outputPaths.append(outputFilename)
 
@@ -195,17 +192,17 @@ def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
     return outputPaths
 
 
-def ShadeCorrect(imagepaths, shadeimagepath, outputpath, type=None):
+def ShadeCorrect(imagepaths, shadeimagepath, outputpath, correction_type=None):
 
     shadeimage = None
     if isinstance(shadeimagepath, str):
-        shadeimage = core.LoadImage(shadeimagepath)
+        shadeimage = nornir_imageregistration.LoadImage(shadeimagepath)
     elif isinstance(shadeimagepath, np.ndarray):
         shadeimage = shadeimagepath
 
-    if type == ShadeCorrectionTypes.BRIGHTFIELD:
+    if correction_type == ShadeCorrectionTypes.BRIGHTFIELD:
         return __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath)
-    elif type == ShadeCorrectionTypes.DARKFIELD:
+    elif correction_type == ShadeCorrectionTypes.DARKFIELD:
         return __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath)
 
 if __name__ == '__main__':

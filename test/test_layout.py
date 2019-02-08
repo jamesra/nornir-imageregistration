@@ -11,6 +11,7 @@ import nornir_pools
 import nornir_shared.plot
 import nornir_shared.plot as plot
 import numpy as np
+import os
 
 from . import setup_imagetest
 from . import test_arrange

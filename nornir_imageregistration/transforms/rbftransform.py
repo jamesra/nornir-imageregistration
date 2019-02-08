@@ -197,7 +197,6 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             p = Points[list(range((iPointA + 1), NumPts))]
             dList = scipy.spatial.distance.cdist([Points[iPointA]], p)
 
-
             valueList = numpy.power(dList, 2)
             if len(dList) > 1:
                 assert(numpy.min(dList) > 0) # "Cannot have duplicate points in transform"

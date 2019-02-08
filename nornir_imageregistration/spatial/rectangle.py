@@ -237,7 +237,7 @@ class Rectangle(object):
     def __delslice__(self, i, j, sequence):
         raise Exception("Spatial objects should not have elements deleted from the array")
     
-    def __str__(self):
+    def __repr__(self):
         return "x:{0}g y:{1}g w:{2}g h:{3}g".format(self.BottomLeft[1], self.BottomLeft[0], self.Width, self.Height)
 
     def __init__(self, bounds):
@@ -260,9 +260,9 @@ class Rectangle(object):
         return 
     
     def __getstate__(self):
-        dict = {}
-        dict['_bounds'] = self._bounds 
-        return dict
+        d = {}
+        d['_bounds'] = self._bounds 
+        return d
 
     def __setstate__(self, state):
         self.__dict__.update(state)

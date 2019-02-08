@@ -34,7 +34,7 @@ class TestTiles(setup_imagetest.ImageTestBase):
 
         nir.core.SaveImage(shadedImageV2Path, shadedImageV2)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath, type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [originalImage, shadedImage, shadingMask]
 
@@ -66,7 +66,7 @@ class TestTiles(setup_imagetest.ImageTestBase):
         shadedImage = nir.core.LoadImage(ShadedImagePath)
         shadingMask = nir.core.LoadImage(ShadingReferencePath)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath, type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [shadedImage, shadingMask]
 

@@ -112,7 +112,7 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
 def _ConvertParamsToImageList(param):
     output=None
     if isinstance(param, str):
-        output = ImageParamToImageArray(param)
+        output = nornir_imageregistration.ImageParamToImageArray(param)
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, collections.Iterable):

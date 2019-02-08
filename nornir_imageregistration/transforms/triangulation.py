@@ -262,14 +262,14 @@ class Triangulation(Base):
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = scipy.interpolate.LinearNDInterpolator(self.warpedtri, self.TargetPoints)
+            self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
 
         return self._ForwardInterpolator
 
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            self._InverseInterpolator = scipy.interpolate.LinearNDInterpolator(self.fixedtri, self.SourcePoints)
+            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
 
@@ -399,15 +399,15 @@ class Triangulation(Base):
 
         MPool = nornir_pools.GetGlobalMultithreadingPool()
         TPool = nornir_pools.GetGlobalThreadPool()
-        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", Delaunay, self.TargetPoints)
-        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", Delaunay, self.SourcePoints)
+        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", scipy.spatial.Delaunay, self.TargetPoints)
+        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", scipy.spatial.Delaunay, self.SourcePoints)
 
         # Cannot pickle KDTree, so use Python's thread pool
 
-        FixedKDTask = TPool.add_task("Fixed KDTree", cKDTree, self.TargetPoints)
+        FixedKDTask = TPool.add_task("Fixed KDTree", scipy.spatial.cKDTree, self.TargetPoints)
         # WarpedKDTask = TPool.add_task("Warped KDTree", KDTree, self.SourcePoints)
 
-        self._WarpedKDTree = cKDTree(self.SourcePoints)
+        self._WarpedKDTree = scipy.spatial.cKDTree(self.SourcePoints)
 
         # MPool.wait_completion()
 

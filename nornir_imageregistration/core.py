@@ -200,10 +200,10 @@ def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
     
 def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
     img = Image.open(InFile)
-    dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
+    dims = np.asarray(img.size).astype(dtype=np.float32)
     
     desired_dims = dims * Scalar
-    desired_dims = numpy.around(desired_dims).astype(dtype=numpy.int64)
+    desired_dims = np.around(desired_dims).astype(dtype=np.int64)
     
     resampler = Image.BILINEAR
     if Scalar < 1.0:
@@ -366,17 +366,17 @@ def CreateTemporaryReadonlyMemmapFile(npArray):
     return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
 
 
-def GenRandomData(height, width, mean, standardDev, min, max):
+def GenRandomData(height, width, mean, standardDev, min_val, max_val):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
     image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
 
-    if mean - (standardDev * 2) < min:
-        image[image < min] = min
+    if mean - (standardDev * 2) < min_val:
+        image[image < min_val] = min_val
         
-    if mean + (standardDev * 2) > max:
-        image[image > max] = max 
+    if mean + (standardDev * 2) > max_val:
+        image[image > max_val] = max_val 
         
     return image
 
@@ -582,6 +582,9 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset
     :return: (iCol,iRow, tile_image)
     ''' 
     grid_shape = TileGridShape(source_image.shape, tile_size)
+    
+    if coord_offset is None:
+        coord_offset = (0,0)
         
     (required_shape) = grid_shape * tile_size 
     
@@ -868,8 +871,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     #--------------------------------
 
-    FFTFixed = fftpack.rfft2(FixedImage - numpy.mean(FixedImage.flat))
-    FFTMoving = fftpack.rfft2(MovingImage - numpy.mean(MovingImage.flat))
+    FFTFixed = fftpack.rfft2(FixedImage - np.mean(FixedImage.flat))
+    FFTMoving = fftpack.rfft2(MovingImage - np.mean(MovingImage.flat))
     
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True) 
     
@@ -936,7 +939,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=0.995):
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     #CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-    ThresholdImage = numpy.array(image)
+    ThresholdImage = np.asarray(image)
 
     if OverlapMask is not None:
         CutoffValue = np.percentile(image[OverlapMask], q=Cutoff*100.0 )

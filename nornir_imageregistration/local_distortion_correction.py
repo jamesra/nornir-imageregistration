@@ -32,11 +32,6 @@ class DistortionCorrection:
     def __init__(self):
         self.PointsForTile = {}
 
-          
-def CreateDisplacementGridForTile(tile):
-    
-    grid_dim = core.TileGridShape(overlapping_rect_A.Size, subregion_shape)
-    
     
 def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     '''

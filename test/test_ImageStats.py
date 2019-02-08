@@ -12,7 +12,6 @@ from nornir_imageregistration import im_histogram_parser
 from nornir_imageregistration import image_stats
 import nornir_imageregistration
 
-import nornir_imageregistration.core as core
 import nornir_pools as pools
 import nornir_shared.histogram as histogram
 import nornir_shared.plot as plot
