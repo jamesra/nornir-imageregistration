@@ -27,13 +27,12 @@ Rotated 90 Degrees::
 import unittest
 import os
 
-from  nornir_imageregistration.alignment_record import *
+import nornir_imageregistration 
 from nornir_imageregistration.files.stosfile import StosFile
 from scipy import pi
 import test.setup_imagetest
+import numpy as np
 
-import nornir_imageregistration.core as core
-import nornir_imageregistration.transforms.factory as factory
 
 from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck
  
@@ -45,7 +44,7 @@ import nornir_imageregistration.transforms.factory as factory
 class TestAlignmentRecord(unittest.TestCase):
 
     def testIdentity(self):
-        record = AlignmentRecord((0, 0), 100, 0)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0)
         self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -63,7 +62,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[0, 0]], [[0, 0]])
 
     def testIdentityFlipped(self):
-        record = AlignmentRecord((0, 0), 100, 0, True)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0, True)
         self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -81,7 +80,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[0, 0]], [[9, 0]])
 
     def testRotation(self):
-        record = AlignmentRecord((0, 0), 100, 90)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -99,7 +98,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[0, 0]], [[9, 0]])
 
     def testRotationFlipped(self):
-        record = AlignmentRecord((0, 0), 100, 90, True)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 90, True)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -118,7 +117,7 @@ class TestAlignmentRecord(unittest.TestCase):
 
     def testTranslate(self):
         peak = [3, 1]
-        record = AlignmentRecord(peak, 100, 0)
+        record = nornir_imageregistration.AlignmentRecord(peak, 100, 0)
 
         # Get the corners for a 10,10  translated 3x, 1y
         predictedArray = np.array([[3, 1],
@@ -137,7 +136,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[4.5, 4.5]], [[7.5, 5.5]])
 
     def testAlignmentRecord(self):
-        record = AlignmentRecord((2.5, 0), 100, 90)
+        record = nornir_imageregistration.AlignmentRecord((2.5, 0), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -150,7 +149,7 @@ class TestAlignmentRecord(unittest.TestCase):
         Corners = record.GetTransformedCornerPoints([10, 10])
         self.assertTrue((Corners == predictedArray).all())
 
-        record = AlignmentRecord((-2.5, 2.5), 100, 90)
+        record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
@@ -167,7 +166,7 @@ class TestAlignmentRecord(unittest.TestCase):
     def testAlignmentTransformSizeMismatch(self):
         '''An alignment record where the fixed and warped images are differenct sizes'''
 
-        record = AlignmentRecord((0, 0), 100, 0)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0)
 
         transform = record.ToTransform([100, 100], [10, 10])
 
@@ -182,7 +181,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[7.5, 7.5]], [[52.5, 32.5]])
 
     def testAlignmentTransformSizeMismatchWithRotation(self):
-        record = AlignmentRecord((0, 0), 100, 90)
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         transform = record.ToTransform([100, 100], [10, 10])
@@ -192,7 +191,7 @@ class TestAlignmentRecord(unittest.TestCase):
         TransformCheck(self, transform, [[7.5, 7.5]], [[46.5, 52.5]])
 
     def testAlignmentTransformTranslate(self):
-        record = AlignmentRecord((1, 1), 100, 0)
+        record = nornir_imageregistration.AlignmentRecord((1, 1), 100, 0)
 
         transform = record.ToTransform([10, 10], [10, 10])
 
@@ -212,13 +211,13 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         FixedSize = (100, 1000)
         WarpedSize = (10, 10)
 
-        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0)
+        arecord = nornir_imageregistration.AlignmentRecord(peak=(0, 0), weight=100, angle=0)
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 
-        self.assertEqual(FixedSize[0], core.GetImageSize(FixedImagePath)[0])
-        self.assertEqual(FixedSize[1], core.GetImageSize(FixedImagePath)[1])
-        self.assertEqual(WarpedSize[0], core.GetImageSize(WarpedImagePath)[0])
-        self.assertEqual(WarpedSize[1], core.GetImageSize(WarpedImagePath)[1])
+        self.assertEqual(FixedSize[0], nornir_imageregistration.GetImageSize(FixedImagePath)[0])
+        self.assertEqual(FixedSize[1], nornir_imageregistration.GetImageSize(FixedImagePath)[1])
+        self.assertEqual(WarpedSize[0], nornir_imageregistration.GetImageSize(WarpedImagePath)[0])
+        self.assertEqual(WarpedSize[1], nornir_imageregistration.GetImageSize(WarpedImagePath)[1])
 
         TransformCheck(self, alignmentTransform, [[0, 0]], [[45, 495]])
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
@@ -232,7 +231,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         loadedStosObj = StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
-        loadedTransform = factory.LoadTransform(loadedStosObj.Transform)
+        loadedTransform = nornir_imageregistration.transforms.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
         self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
@@ -249,10 +248,10 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (20, 5)
-        arecord = AlignmentRecord(peak, weight=100, angle=0)
+        arecord = nornir_imageregistration.AlignmentRecord(peak, weight=100, angle=0)
 
-        FixedSize = core.GetImageSize(FixedImagePath)
-        WarpedSize = core.GetImageSize(WarpedImagePath)
+        FixedSize = nornir_imageregistration.GetImageSize(FixedImagePath)
+        WarpedSize = nornir_imageregistration.GetImageSize(WarpedImagePath)
 
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 
@@ -267,7 +266,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         loadedStosObj = StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
-        loadedTransform = factory.LoadTransform(loadedStosObj.Transform)
+        loadedTransform = nornir_imageregistration.transforms.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
         self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")

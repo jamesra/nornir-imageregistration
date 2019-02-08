@@ -99,7 +99,7 @@ def Execute(ExecArgs=None):
 
     mosaic.TranslateToZeroOrigin()
 
-    (mosaicImage, mosaicMask) = mosaic.AssembleTiles(Args.tilepath)
+    (mosaicImage, mosaicMask) = mosaic.AssembleImage(Args.tilepath)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'

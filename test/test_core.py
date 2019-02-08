@@ -9,7 +9,7 @@ import unittest
 
 from pylab import *
 
-import nornir_imageregistration.core as core
+import nornir_imageregistration
 import nornir_imageregistration.stos_brute as stos_brute
 
 from . import setup_imagetest
@@ -35,7 +35,7 @@ class Test(setup_imagetest.ImageTestBase):
     def __CheckRangeForPowerOfTwo(self, overlap):
 
         for v in range(2, 129):
-            newDim = core.NearestPowerOfTwoWithOverlap(v, overlap=overlap)
+            newDim = nornir_imageregistration.NearestPowerOfTwoWithOverlap(v, overlap=overlap)
 
             logOriginalDim = math.log(v, 2)
             logNewDim = math.log(newDim, 2)
@@ -52,54 +52,38 @@ class Test(setup_imagetest.ImageTestBase):
 
     def testROIRange(self):
 
-        r = core.ROIRange(0, 16, 32)
+        r = nornir_imageregistration.ROIRange(0, 16, 32)
         self.assertEqual(r[0], 0)
         self.assertEqual(r[-1], 15)
         self.assertEqual(len(r), 16)
 
-        r = core.ROIRange(-3, 16, 32)
+        r = nornir_imageregistration.ROIRange(-3, 16, 32)
         self.assertEqual(r[0], 0)
         self.assertEqual(r[-1], 15)
         self.assertEqual(len(r), 16)
 
-        r = core.ROIRange(24, 16, 32)
+        r = nornir_imageregistration.ROIRange(24, 16, 32)
         self.assertEqual(r[0], 16)
         self.assertEqual(r[-1], 31)
         self.assertEqual(len(r), 16)
 
-        r = core.ROIRange(24, 16, 5)
+        r = nornir_imageregistration.ROIRange(24, 16, 5)
         self.assertIsNone(r)
-
-    def testShowGrayscale(self):
-
-        imageA = np.random.rand(64, 64)
-        imageB = np.random.rand(64, 64)
-
-        self.assertFalse(core.ShowGrayscale(imageA, title="Ensure the FAIL button works by clicking it now, select Pass button for all other tests", PassFail=True))
-
-        self.assertTrue(core.ShowGrayscale(imageA, title="A single image with a title followed by a single image with no title", PassFail=True))
-        self.assertTrue(core.ShowGrayscale(imageA, title=None, PassFail=True))
-
-        self.assertTrue(core.ShowGrayscale([imageA], title="A single image in a list with a title followed by a single image with no title", PassFail=True))
-        self.assertTrue(core.ShowGrayscale([imageA], title=None, PassFail=True))
-
-        self.assertTrue(core.ShowGrayscale([imageA, imageB], title="Two images in a list with a title, followed by two images with no title", PassFail=True))
-        self.assertTrue(core.ShowGrayscale([imageA, imageB], title=None, PassFail=True))
 
 
 #    def test_SaveImageJPeg2000(self):
 #        
 #         image_full_path = self.GetImagePath('0162_ds16.png')
-#         image = core.LoadImage(image_full_path)
+#         image = nornir_imageregistration.LoadImage(image_full_path)
 #         
 #         jpeg2000_full_path = os.path.join(self.TestOutputPath, '0162_ds16.jp2')
 # 
-#         tile_dims = core.TileGridShape(image, (512,512))        
-#         image_tiles = core.ImageToTiles(image, (512, 512))
+#         tile_dims = nornir_imageregistration.TileGridShape(image, (512,512))        
+#         image_tiles = nornir_imageregistration.ImageToTiles(image, (512, 512))
 #         
 #         for iY in range(0,tile_dims[0]):
 #             for iX in range(0,tile_dims[1]):
-#                 core.SaveImage_JPeg2000_Tile(jpeg2000_full_path, image_tiles[iY,iX], tile_coord=(iX,iY), tile_dim=None)
+#                 nornir_imageregistration.SaveImage_JPeg2000_Tile(jpeg2000_full_path, image_tiles[iY,iX], tile_coord=(iX,iY), tile_dim=None)
 #         
 #         self.assertTrue(os.path.exists(jpeg2000_full_path), "Jpeg 2000 file does not exist")
 
@@ -114,11 +98,11 @@ class Test(setup_imagetest.ImageTestBase):
             image[iy, :] = row_fill
 
         cropsize = 4
-        cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, 0, 0, cropsize, cropsize)
         for i in range(0, cropsize):
             self.assertEqual(cropped[i, i], i + 1, "cropped image not correct")
 
-        cropped = core.CropImage(image, -1, -1, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, -1, -1, cropsize, cropsize)
         for i in range(0, cropsize):
             testVal = i
             if testVal < 0:
@@ -127,7 +111,7 @@ class Test(setup_imagetest.ImageTestBase):
             self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
 
         cropsize = 20
-        cropped = core.CropImage(image, 0, 0, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, 0, 0, cropsize, cropsize)
         for i in range(0, cropsize):
             testVal = i + 1
             if testVal < 0:
@@ -139,7 +123,7 @@ class Test(setup_imagetest.ImageTestBase):
             self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
 
         cropsize = 20
-        cropped = core.CropImage(image, -1, -1, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, -1, -1, cropsize, cropsize)
         for i in range(0, cropsize):
             testVal = i
             if testVal < 0:
@@ -152,7 +136,7 @@ class Test(setup_imagetest.ImageTestBase):
 
 
         cropsize = 17
-        cropped = core.CropImage(image, 1, 1, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, 1, 1, cropsize, cropsize)
         for i in range(0, cropsize):
             testVal = i + 2
             if testVal < 0:
@@ -164,7 +148,7 @@ class Test(setup_imagetest.ImageTestBase):
             self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
 
         cropsize = 8
-        cropped = core.CropImage(image, 1, 0, cropsize, 16)
+        cropped = nornir_imageregistration.CropImage(image, 1, 0, cropsize, 16)
         for i in range(0, cropsize):
             testVal = i + 2
             if testVal < 0:
@@ -177,15 +161,15 @@ class Test(setup_imagetest.ImageTestBase):
             
         cropsize = image_dim[0]
         constant_value = 3
-        cropped = core.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize, cval=constant_value)
+        cropped = nornir_imageregistration.CropImage(image, -cropsize, image_dim[0], cropsize, cropsize, cval=constant_value)
         for i in range(0, cropsize):
             self.assertEqual(cropped[i, i], constant_value, "Cropped region outside original image should use cval")
             
-        cropped = core.CropImage(image, -(cropsize / 2.0), -(cropsize / 2.0), cropsize, cropsize, cval='random')
+        cropped = nornir_imageregistration.CropImage(image, -(cropsize / 2.0), -(cropsize / 2.0), cropsize, cropsize, cval='random')
         for i in range(0, cropsize):
             self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
         
-        self.assertTrue(core.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.", PassFail=True))
+        self.assertTrue(nornir_imageregistration.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.", PassFail=True))
             
     
     def testImageToTiles(self):
@@ -193,9 +177,8 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
-        tiles = core.ImageToTiles(image, tile_size=(256, 512))
-        
-        self.assertTrue(core.ShowGrayscale(list(tiles.values()), "Expecting 512 wide x 256 tall tiles", PassFail=True))
+        tiles = nornir_imageregistration.ImageToTiles(image, tile_size=(256, 512))
+        self.assertTrue(nornir_imageregistration.ShowGrayscale(list(tiles.values()), "Expecting 512 wide x 256 tall tiles", PassFail=True))
         
 
     def testReplaceImageExtramaWithNoise(self):
@@ -204,7 +187,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
-        updatedImage = core.ReplaceImageExtramaWithNoise(image)
+        updatedImage = nornir_imageregistration.ReplaceImageExtramaWithNoise(image)
         self.assertIsNotNone(updatedImage)
         self.assertFalse((image == updatedImage).all())
 
@@ -222,8 +205,8 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[256][256] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask, Copy=True)
-        # core.ShowGrayscale(updatedImage)
+        updatedImage = nornir_imageregistration.RandomNoiseMask(image, mask, Copy=True)
+        # nornir_imageregistration.ShowGrayscale(updatedImage)
 
         self.assertIsNotNone(updatedImage)
         self.assertNotEqual(updatedImage[0][0], image[0][0], "Masked off pixel should not be the same as input image value after the test")
@@ -244,9 +227,9 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertTrue(mask[0][0] == 0, "The mask pixel we are going to test is not masked, test is broken")
         self.assertFalse(mask[32][32] == 0, "The unmasked pixel we are going to test is  masked, test is broken")
 
-        updatedImage = core.RandomNoiseMask(image, mask, Copy=True)
+        updatedImage = nornir_imageregistration.RandomNoiseMask(image, mask, Copy=True)
 
-        # core.ShowGrayscale(updatedImage)
+        # nornir_imageregistration.ShowGrayscale(updatedImage)
         self.assertIsNotNone(updatedImage)
         self.assertNotEqual(updatedImage[0][0], image[0][0], "Masked off pixel should not be the same as input image value after the test")
         self.assertEqual(updatedImage[32][32], image[32][32], "Unmasked pixel should equal input image")
@@ -258,9 +241,9 @@ class Test(setup_imagetest.ImageTestBase):
 #
 #        image = imread(self.FixedImagePath)
 #
-#        paddedimage = core.PadImageForPhaseCorrelation(image)
+#        paddedimage = nornir_imageregistration.PadImageForPhaseCorrelation(image)
 #
-#        core.ShowGrayscale(paddedimage)
+#        nornir_imageregistration.ShowGrayscale(paddedimage)
 
 
 if __name__ == "__main__":

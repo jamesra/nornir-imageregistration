@@ -30,7 +30,7 @@ DistanceImageCache = {}
 
 # TODO: Use atexit to delete the temporary files
 # TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
-use_memmap = False
+use_memmap = True
 nextNumpyMemMapFilenameIndex = 0
 
 def GetProcessAndThreadUniqueString():
@@ -353,7 +353,7 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
 
 def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     '''
-
+    Generate an image of the FixedRegion.
     :param tuple FixedRegion: (MinX, MinY, Width, Height)
 
     '''
@@ -370,8 +370,12 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     fullImage = None
 
     if not FixedRegion is None:
-        fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
-        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1], requiredScale)
+        if isinstance(FixedRegion, spatial.Rectangle):
+            fixedRect = FixedRegion
+        else: 
+            fixedRect = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
+            
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(fixedRect.Height, fixedRect.Width, requiredScale)
     else:
         (fullImage, fullImageZbuffer) = __CreateOutputBufferForTransforms(transforms, requiredScale)
 
@@ -554,6 +558,9 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
        :param array FixedRegion: [MinY MinX MaxY MaxX] If specified only the specified region is transformed.  Otherwise transform the entire image.'''
 
     if not FixedRegion is None:
+        if isinstance(FixedRegion, nornir_imageregistration.Rectangle):
+            FixedRegion = list(FixedRegion.ToTuple())
+            
         spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
 
     if not os.path.exists(imagefullpath):

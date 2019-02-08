@@ -13,6 +13,7 @@ from scipy import stats
 from scipy.misc import imsave
 
 import nornir_imageregistration.transforms.utils as tutils
+import nornir_shared.images
 #import nornir_pools as pools
 import numpy as np
 
@@ -58,7 +59,7 @@ def MostCommonScalar(transforms, imagepaths):
         imagefullpath = imagepaths[i]
 
         try:
-            size = core.GetImageSize(imagefullpath)
+            size = nornir_shared.images.GetImageSize(imagefullpath)
         except IOError:
             continue 
         

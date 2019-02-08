@@ -165,7 +165,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
     def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True, title=None):
 
-        (assembledImage, mask) = mosaic.AssembleTiles(tilesPath=None, usecluster=usecluster)
+        (assembledImage, mask) = mosaic.AssembleImage(tilesPath=None, usecluster=usecluster)
         
         if not mosaic_path is None:
             pool = nornir_pools.GetGlobalThreadPool()

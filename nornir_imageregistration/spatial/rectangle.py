@@ -63,18 +63,10 @@ class RectangleSet():
         
         return (x_sweep_array, y_sweep_array)
     
-    
-    
-            
-    
     def __init__(self, rects_array):    
-        self._rects_array = rects_array  # np.sort(rects_array, order=('MinX', 'MinY'))
+        self._rects_array = rects_array
         
         (self.x_sweep_array, self.y_sweep_array) = RectangleSet._create_sweep_arrays(self._rects_array) 
-        # self._minx_sorted = np.sort(self._rects_array, order=('MinX', 'MaxX'))
-        # self._miny_sorted = np.sort(self._rects_array, order=('MinY', 'MaxY'))
-        # self._maxx_sorted = np.sort(self._rects_array, order=('MaxX', 'MinX'))
-        # self._maxy_sorted = np.sort(self._rects_array, order=('MaxY', 'MinY'))
     
     @classmethod
     def Create(cls, rects):
@@ -156,6 +148,7 @@ class RectangleSet():
                 for YieldID in IDsToYield:
                     yield (YieldID, ActiveSet.copy())
                 IDsToYield = []
+            
                          
     def __str__(self):
         return str(self._rects_array)
@@ -212,6 +205,14 @@ class Rectangle(object):
         '''
         
         return np.asarray([self.Height, self.Width], np.float64)
+    
+    @property
+    def shape(self):
+        '''
+        The [height, width] of the rectangle
+        '''
+        
+        return np.ceil(np.asarray([self.Height, self.Width])).astype(np.int64)
     
     @property
     def Size(self):

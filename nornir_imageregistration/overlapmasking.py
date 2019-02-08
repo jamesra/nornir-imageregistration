@@ -5,7 +5,6 @@ Created on Sep 14, 2018
 '''
 
 import numpy as np
-from nornir_imageregistration.core import ShowGrayscale
 from nornir_imageregistration.spatial import Rectangle
 
 #Collection of masks we have already calculated

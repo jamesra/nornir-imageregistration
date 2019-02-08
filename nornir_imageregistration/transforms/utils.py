@@ -102,13 +102,20 @@ def IsOriginAtZero(transforms):
 
 
 def TranslateToZeroOrigin(transforms):
-    '''Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.'''
-    (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
+    '''
+    Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.
+    :return: A Rectangle object describing the new fixed space bounding box
+    :rtype: Rectangle
+    '''
+    bbox = FixedBoundingBox(transforms)
 
     for t in transforms:
-        t.TranslateFixed((-minY, -minX))
+        t.TranslateFixed(-bbox.BottomLeft)
+        
+    translated_bbox = nornir_imageregistration.Rectangle.translate(bbox, -bbox.BottomLeft)
+    assert(np.array_equal(translated_bbox.BottomLeft, np.asarray((0,0)))) 
 
-    return True
+    return translated_bbox
 
 
 def FixedBoundingBoxWidth(transforms):

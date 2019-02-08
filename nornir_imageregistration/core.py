@@ -2,7 +2,6 @@
 scipy image arrays are indexed [y,x]
 '''
 
-import collections
 import ctypes
 import logging
 import math
@@ -11,16 +10,13 @@ import os
 import tempfile
 
 from PIL import Image
-import nornir_imageregistration
-import numpy.fft
 import scipy.misc
 import scipy.ndimage.measurements
-import scipy.stats
 
+import nornir_imageregistration
 import nornir_shared.images
  
 import matplotlib.pyplot as plt
-plt.ioff()
 
 import numpy as np
 import numpy.fft.fftpack as fftpack
@@ -148,130 +144,7 @@ def ScalarForMaxDimension(max_dim, shapes):
 def ReduceImage(image, scalar):
     return interpolation.zoom(image, scalar)
 
-def _GridLayoutDims(imagelist):
-    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
-    '''
 
-    numImages = len(imagelist)
-    width = math.ceil(math.sqrt(numImages))
-    height = math.ceil(numImages / width)
-
-    if height > width:
-        tempH = height
-        height = width
-        height = tempH
-
-    return (int(height), int(width))
-
-def ShowGrayscale(imageList, title=None,PassFail=False):
-    '''
-    :param list imageList: A list or single ndimage to be displayed with imshow
-    :param str title: Informative title for the figure, for example expected test results
-    '''
-    from matplotlib.widgets import Button
- 
-    def set_title_for_single_image(title):
-        if not title is None:
-            plt.title(title)
-        return 
-
-    def set_title_for_multi_image(fig, title):
-        if not title is None:
-            fig.suptitle(title)
-        return
-
-    class PassFailInput(object):
-        
-        def __init__(self, fig):
-            self.Pass = None
-            self.fig = fig
-            
-
-        def OnPassButton(self, event):
-            self.Pass = True   
-            return
-
-        def OnFailButton(self, event):
-            self.Pass = False 
-            return
-                
-    fig = None
-    axes = None
-    
-    if isinstance(imageList, str):
-        imageList = ImageParamToImageArray(imageList)
-
-    if isinstance(imageList, np.ndarray):
-        imageList = _Image_To_Uint8(imageList)
-        fig, ax = plt.subplots()
-        ax.imshow(imageList, cmap=plt.gray())
-        if not title is None:
-            ax.set_title(title)
-            
-    elif isinstance(imageList, collections.Iterable):
-        for (i, img) in enumerate(imageList):
-            if isinstance(img, str):
-                img = ImageParamToImageArray(img)
-                
-            imageList[i] = _Image_To_Uint8(img)
-            
-        if len(imageList) == 1:
-            fig, ax = plt.subplots()
-            ax.imshow(imageList[0], cmap=plt.gray())
-            if not title is None:
-                ax.set_title(title)
-        else: 
-            height, width = _GridLayoutDims(imageList)
-            fig, axes = plt.subplots(height, width)
-            set_title_for_multi_image(fig, title)
-
-            for i, image in enumerate(imageList):
-                # fig = figure()
-                if isinstance(image, np.ndarray):
-                    # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
-                    iRow = i // width
-                    iCol = (i - (iRow * width)) % width
-
-                    print("Row %d Col %d" % (iRow, iCol))
-
-                    if height > 1:
-                        ax = axes[iRow, iCol ]
-                    else:
-                        ax = axes[iCol]
-
-                    ax.imshow(image, cmap=plt.gray(), figure=fig)  
-    else:
-        return
-
-    callback = PassFailInput(fig)
-    
-    fig.tight_layout()
-
-    if PassFail == True:
-        axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
-        axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
-
-        bnext = Button(axnext, 'Pass', color='#00FF80')
-        bnext.on_clicked(callback.OnPassButton)
-        bprev = Button(axprev, 'Fail', color='#FF0000')
-        bprev.on_clicked(callback.OnFailButton)
-        #plt.tight_layout(pad=1.0)  
-        fig.show()
-        
-        while callback.Pass is None:
-            fig.waitforbuttonpress()
-            
-        plt.close(fig)
-
-    else:
-        #plt.tight_layout(pad=1.0)  
-        fig.show()
-    # Do not call clf or we get two windows on the next call 
-    # plt.clf()
- 
-    fig = None
-
-    return callback.Pass
 
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
@@ -674,6 +547,9 @@ def NormalizeImage(image):
 def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''
     
+    if isinstance(source_image_shape, nornir_imageregistration.Rectangle):
+        source_image_shape = source_image_shape.shape
+    
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
     else:
@@ -697,36 +573,50 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid  
 
 
-def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
+def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset=None, cval=0):
     '''An iterator generating all tiles for an image
     :param array tile_size: Shape of each tile
     :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
     ''' 
     grid_shape = TileGridShape(source_image.shape, tile_size)
-    
+        
     (required_shape) = grid_shape * tile_size 
     
-    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), cval=0)
+    source_image_padded = None
+    if not np.array_equal(source_image.shape, required_shape):
+        source_image_padded = CropImage(source_image,
+                                        Xo=0, Yo=0,
+                                        Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])),
+                                        cval=0)
+    else:
+        source_image_padded = source_image
+        
+    #nornir_imageregistration.ShowGrayscale(source_image_padded)
     
     # Build the output dictionary
     StartY = 0 
     EndY = tile_size[0]
     
-    for iRow in range(0, int(grid_shape[0])):
+    for iRow in range(grid_shape[0]):
         
         StartX = 0
         EndX = tile_size[1]
     
-        for iCol in range(0, int(grid_shape[1])):
-            yield (iRow, iCol, source_image_padded[StartY:EndY, StartX:EndX])
+        for iCol in range(grid_shape[1]):
+            t = (iRow + coord_offset[0], iCol + coord_offset[1], source_image_padded[StartY:EndY, StartX:EndX])
+            #nornir_imageregistration.ShowGrayscale(tile)
+            (yield t)
         
             StartX += tile_size[1]
             EndX += tile_size[1]    
         
         StartY += tile_size[0]
         EndY += tile_size[0]
+        
+    return
         
 
 def GetImageTile(source_image, iRow, iCol, tile_size):
@@ -780,7 +670,7 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
          
         # Bit of a backward convention here.
         # Need to use float64 so that sum does not return an infinite value
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=np.float64)
          
         if(ImageMedian is None):
             ImageMedian = np.median(UnmaskedImage1D.compressed())
