@@ -321,9 +321,11 @@ def __MaxZBufferValue(dtype):
 
 
 def EmptyDistanceBuffer(shape, dtype=np.float16):
+    global use_memmap
+    
     fullImageZbuffer = None
     
-    if use_memmap:
+    if False: #use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (shape[0], shape[1], GetProcessAndThreadUniqueString()))
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
         fullImageZbuffer[:] = __MaxZBufferValue(dtype)
@@ -334,33 +336,33 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
         fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
     
     return fullImageZbuffer
-
-def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
-    '''Create output images using the passed rectangle
-    :param tuple rectangle: (minY, minX, maxY, maxX)
-    :return: (fullImage, ZBuffer)
-    '''
-    fullImage = None
-    fixed_bounding_box = tutils.FixedBoundingBox(transforms)
-    (maxY, maxX) = fixed_bounding_box.shape
-    fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
-
-    if use_memmap:
-        try:
-            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
-            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
-            fullImage[:] = 0
-            fullImage.flush()
-            del fullImage
-            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='r+', shape=fullImage_shape)
-        except: 
-            prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
-            raise 
-    else:
-        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
-
-    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
-    return (fullImage, fullImageZbuffer)
+# 
+# def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
+#     '''Create output images using the passed rectangle
+#     :param tuple rectangle: (minY, minX, maxY, maxX)
+#     :return: (fullImage, ZBuffer)
+#     '''
+#     fullImage = None
+#     fixed_bounding_box = tutils.FixedBoundingBox(transforms)
+#     (maxY, maxX) = fixed_bounding_box.shape
+#     fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
+# 
+#     if use_memmap:
+#         try:
+#             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
+#             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+#             fullImage[:] = 0
+#             fullImage.flush()
+#             del fullImage
+#             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='r+', shape=fullImage_shape)
+#         except: 
+#             prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
+#             raise 
+#     else:
+#         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+# 
+#     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
+#     return (fullImage, fullImageZbuffer)
 
 
 def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
@@ -370,7 +372,7 @@ def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
     fullImage = None
     fullImage_shape = (int(Height), int(Width)) #(int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
 
-    if use_memmap:
+    if False: #use_memmap:
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             # print("Open %s" % (fullimage_array_path))
