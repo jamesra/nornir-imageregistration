@@ -100,7 +100,7 @@ class TransformedImageData(object):
     @property
     def tempfiledir(self):
         if self._tempdir is None:
-            self._tempdir = tempfile.mkdtemp("TransformedImageData")
+            self._tempdir = tempfile.mkdtemp("_TransformedImageData")
             
         return self._tempdir
 
@@ -155,14 +155,23 @@ class TransformedImageData(object):
         self._transformScale = None
         self._transform = None
         
-        if not self._centerDistanceImage_path is None:
-            os.remove(self._centerDistanceImage_path)
+        try:
+            if not self._centerDistanceImage_path is None:
+                os.remove(self._centerDistanceImage_path)
+        except IOError:
+            pass
             
-        if not self._image_path is None:
-            os.remove(self._image_path)
+        try:
+            if not self._image_path is None:
+                os.remove(self._image_path)
+        except IOError:
+            pass
             
-        # if not self._tempdir is None:
-        #    os.remove(self._tempdir)
+        try:
+            if not self._tempdir is None:
+                os.remove(self._tempdir)
+        except IOError:
+            pass
          
 
     def __init__(self, errorMsg=None):
