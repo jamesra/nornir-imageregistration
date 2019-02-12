@@ -437,7 +437,7 @@ def SaveImage(ImageFullPath, image, **kwargs):
         im = Image.fromarray(Uint8_image)
         
         if ext == '.png':
-            im.save(ImageFullPath, compress_level=0)
+            im.save(ImageFullPath, **kwargs)
         else:
             im.save(ImageFullPath)
 

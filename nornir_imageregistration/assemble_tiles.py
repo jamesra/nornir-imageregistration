@@ -113,7 +113,7 @@ class TransformedImageData(object):
         o._image_path = None
         o._centerDistanceImage_path = None
         o._transformScale = scale
-        o._transform = transform
+        #o._transform = transform
         
         if not SingleThreadedInvoke:
             o.ConvertToMemmapIfLarge()
@@ -142,7 +142,7 @@ class TransformedImageData(object):
         tempfilename = os.path.join(self.tempfiledir, name + '.dat')
         memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
         np.copyto(memmapped_image, image)
-        print("Write %s" % tempfilename)
+        #print("Write %s" % tempfilename)
         
         del memmapped_image
         return tempfilename
@@ -155,22 +155,28 @@ class TransformedImageData(object):
         self._transformScale = None
         self._transform = None
         
+        pool = nornir_pools.GetGlobalThreadPool()
+        pool.add_task(self._image_path, TransformedImageData._RemoveTempFiles, self._centerDistanceImage_path, self._image_path, self._tempdir)
+        
+        
+    @staticmethod
+    def _RemoveTempFiles(_centerDistanceImage_path, _image_path, _tempdir):
         try:
-            if not self._centerDistanceImage_path is None:
-                os.remove(self._centerDistanceImage_path)
-        except IOError:
+            if not _centerDistanceImage_path is None:
+                os.remove(_centerDistanceImage_path)
+        except IOError as E:
             pass
             
         try:
-            if not self._image_path is None:
-                os.remove(self._image_path)
-        except IOError:
+            if not _image_path is None:
+                os.remove(_image_path)
+        except IOError as E:
             pass
             
         try:
-            if not self._tempdir is None:
-                os.remove(self._tempdir)
-        except IOError:
+            if not _tempdir is None:
+                os.rmdir(_tempdir)
+        except IOError as E:
             pass
          
 
@@ -272,9 +278,7 @@ def CreateDistanceImage2(shape, dtype=None):
     #TODO, this has some obvious optimizations available
     if dtype is None:
         dtype = np.float32
-        
-    output = np.zeros(shape, dtype=dtype)
-
+          
     #center = [shape[0] / 2.0, shape[1] / 2.0]
     shape = np.asarray(shape, dtype=np.int64)
     is_odd_shape = np.fmod(shape, 2) > 0
@@ -627,7 +631,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
 
     logger.info('Assemble complete')
     
-    if use_memmap:
+    if isinstance(fullImage, np.memmap):
         fullImage.flush()
 
     return (fullImage, mask)
