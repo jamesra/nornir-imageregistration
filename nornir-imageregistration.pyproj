@@ -1,0 +1,193 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{018901b6-d5a2-41ce-8980-7c24e28d8480}</ProjectGuid>
+    <ProjectHome />
+    <StartupFile>ez_setup.py</StartupFile>
+    <SearchPath>nornir_imageregistration\</SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <InterpreterId>{9a7a9026-48c1-4688-9d5d-e5699d47d074}</InterpreterId>
+    <InterpreterVersion>3.4</InterpreterVersion>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <LaunchProvider>Standard Python launcher</LaunchProvider>
+    <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
+  <ItemGroup>
+    <Compile Include="ez_setup.py" />
+    <Compile Include="nornir_imageregistration\spatial\boundingbox.py" />
+    <Compile Include="setup.py" />
+    <Compile Include="nornir_imageregistration\alignment_record.py" />
+    <Compile Include="nornir_imageregistration\arrange_mosaic.py" />
+    <Compile Include="nornir_imageregistration\assemble.py" />
+    <Compile Include="nornir_imageregistration\assemble_tiles.py" />
+    <Compile Include="nornir_imageregistration\core.py" />
+    <Compile Include="nornir_imageregistration\enum.py" />
+    <Compile Include="nornir_imageregistration\fftw_manager.py" />
+    <Compile Include="nornir_imageregistration\image.py" />
+    <Compile Include="nornir_imageregistration\image_stats.py" />
+    <Compile Include="nornir_imageregistration\im_histogram_parser.py" />
+    <Compile Include="nornir_imageregistration\layout.py" />
+    <Compile Include="nornir_imageregistration\mosaic.py" />
+    <Compile Include="nornir_imageregistration\stos_brute.py" />
+    <Compile Include="nornir_imageregistration\tile.py" />
+    <Compile Include="nornir_imageregistration\tiles.py" />
+    <Compile Include="nornir_imageregistration\volume.py" />
+    <Compile Include="nornir_imageregistration\__init__.py" />
+    <Content Include="nornir_imageregistration.egg-info\dependency_links.txt" />
+    <Content Include="nornir_imageregistration.egg-info\requires.txt" />
+    <Content Include="nornir_imageregistration.egg-info\SOURCES.txt" />
+    <Content Include="nornir_imageregistration.egg-info\top_level.txt" />
+    <Compile Include="scripts\nornir-addtransforms.py" />
+    <Compile Include="scripts\nornir-assemble.py" />
+    <Compile Include="scripts\nornir-slicetomosaic.py" />
+    <Compile Include="scripts\nornir-stos-brute.py" />
+    <Compile Include="test\setup_imagetest.py" />
+    <Compile Include="test\test_arrange.py" />
+    <Compile Include="test\test_assemble.py" />
+    <Compile Include="test\test_assemble_tiles.py" />
+    <Compile Include="test\test_core.py" />
+    <Compile Include="test\test_ImageAlign.py" />
+    <Compile Include="test\test_ImageStats.py" />
+    <Compile Include="test\test_SliceToSliceBrute.py" />
+    <Compile Include="test\test_tiles.py" />
+    <Compile Include="test\test_volume.py" />
+    <Compile Include="test\__init__.py" />
+    <Compile Include="build\scripts-2.7\nornir-addtransforms.py" />
+    <Compile Include="build\scripts-2.7\nornir-assemble.py" />
+    <Compile Include="build\scripts-2.7\nornir-slicetomosaic.py" />
+    <Compile Include="build\scripts-2.7\nornir-stos-brute.py" />
+    <Compile Include="build\scripts-2.7\nornir_addtransforms.py" />
+    <Compile Include="build\lib\nornir_imageregistration\alignment_record.py" />
+    <Compile Include="build\lib\nornir_imageregistration\align_tiles.py" />
+    <Compile Include="build\lib\nornir_imageregistration\arrange_mosaic.py" />
+    <Compile Include="build\lib\nornir_imageregistration\assemble.py" />
+    <Compile Include="build\lib\nornir_imageregistration\assemble_tiles.py" />
+    <Compile Include="build\lib\nornir_imageregistration\axisalignedboundingboxes.py" />
+    <Compile Include="build\lib\nornir_imageregistration\core.py" />
+    <Compile Include="build\lib\nornir_imageregistration\enum.py" />
+    <Compile Include="build\lib\nornir_imageregistration\fftw_manager.py" />
+    <Compile Include="build\lib\nornir_imageregistration\image.py" />
+    <Compile Include="build\lib\nornir_imageregistration\image_stats.py" />
+    <Compile Include="build\lib\nornir_imageregistration\im_histogram_parser.py" />
+    <Compile Include="build\lib\nornir_imageregistration\interval.py" />
+    <Compile Include="build\lib\nornir_imageregistration\layout.py" />
+    <Compile Include="build\lib\nornir_imageregistration\mosaic.py" />
+    <Compile Include="build\lib\nornir_imageregistration\refine_alignment.py" />
+    <Compile Include="build\lib\nornir_imageregistration\segmentation.py" />
+    <Compile Include="build\lib\nornir_imageregistration\stos_brute.py" />
+    <Compile Include="build\lib\nornir_imageregistration\tile.py" />
+    <Compile Include="build\lib\nornir_imageregistration\tiles.py" />
+    <Compile Include="build\lib\nornir_imageregistration\volume.py" />
+    <Compile Include="build\lib\nornir_imageregistration\__init__.py" />
+    <Compile Include="build\lib\test\setup_imagetest.py" />
+    <Compile Include="build\lib\test\test_arrange.py" />
+    <Compile Include="build\lib\test\test_assemble.py" />
+    <Compile Include="build\lib\test\test_assemble_tiles.py" />
+    <Compile Include="build\lib\test\test_core.py" />
+    <Compile Include="build\lib\test\test_ImageAlign.py" />
+    <Compile Include="build\lib\test\test_ImageStats.py" />
+    <Compile Include="build\lib\test\test_segmentation.py" />
+    <Compile Include="build\lib\test\test_SliceToSliceBrute.py" />
+    <Compile Include="build\lib\test\test_tiles.py" />
+    <Compile Include="build\lib\test\test_volume.py" />
+    <Compile Include="build\lib\test\__init__.py" />
+    <Compile Include="build\lib\nornir_imageregistration\files\mosaicfile.py" />
+    <Compile Include="build\lib\nornir_imageregistration\files\stosfile.py" />
+    <Compile Include="build\lib\nornir_imageregistration\files\__init__.py" />
+    <Compile Include="build\lib\nornir_imageregistration\geometry\rectangle.py" />
+    <Compile Include="build\lib\nornir_imageregistration\geometry\__init__.py" />
+    <Compile Include="build\lib\nornir_imageregistration\io\mosaicfile.py" />
+    <Compile Include="build\lib\nornir_imageregistration\io\stosfile.py" />
+    <Compile Include="build\lib\nornir_imageregistration\io\__init__.py" />
+    <Compile Include="build\lib\nornir_imageregistration\spatial\index.py" />
+    <Compile Include="build\lib\nornir_imageregistration\spatial\indicies.py" />
+    <Compile Include="build\lib\nornir_imageregistration\spatial\point.py" />
+    <Compile Include="build\lib\nornir_imageregistration\spatial\rectangle.py" />
+    <Compile Include="build\lib\nornir_imageregistration\spatial\__init__.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\base.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\factory.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\meshwithrbffallback.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\rbftransform.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\registrationtree.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\transformbase.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\triangulation.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\utils.py" />
+    <Compile Include="build\lib\nornir_imageregistration\transforms\__init__.py" />
+    <Compile Include="build\lib\test\spatial\test_rectangle.py" />
+    <Compile Include="build\lib\test\spatial\__init__.py" />
+    <Compile Include="build\lib\test\Transforms\test_AlignmentRecord.py" />
+    <Compile Include="build\lib\test\Transforms\test_factory.py" />
+    <Compile Include="build\lib\test\Transforms\test_registrationtree.py" />
+    <Compile Include="build\lib\test\Transforms\test_Transforms.py" />
+    <Compile Include="build\lib\test\Transforms\__init__.py" />
+    <Compile Include="nornir_imageregistration\files\mosaicfile.py" />
+    <Compile Include="nornir_imageregistration\files\stosfile.py" />
+    <Compile Include="nornir_imageregistration\files\__init__.py" />
+    <Compile Include="nornir_imageregistration\spatial\index.py" />
+    <Compile Include="nornir_imageregistration\spatial\indicies.py" />
+    <Compile Include="nornir_imageregistration\spatial\point.py" />
+    <Compile Include="nornir_imageregistration\spatial\rectangle.py" />
+    <Compile Include="nornir_imageregistration\spatial\__init__.py" />
+    <Compile Include="nornir_imageregistration\transforms\base.py" />
+    <Compile Include="nornir_imageregistration\transforms\factory.py" />
+    <Compile Include="nornir_imageregistration\transforms\meshwithrbffallback.py" />
+    <Compile Include="nornir_imageregistration\transforms\rbftransform.py" />
+    <Compile Include="nornir_imageregistration\transforms\registrationtree.py" />
+    <Compile Include="nornir_imageregistration\transforms\triangulation.py" />
+    <Compile Include="nornir_imageregistration\transforms\utils.py" />
+    <Compile Include="nornir_imageregistration\transforms\__init__.py" />
+    <Compile Include="test\spatial\test_rectangle.py" />
+    <Compile Include="test\spatial\__init__.py" />
+    <Compile Include="test\Transforms\test_AlignmentRecord.py" />
+    <Compile Include="test\Transforms\test_factory.py" />
+    <Compile Include="test\Transforms\test_registrationtree.py" />
+    <Compile Include="test\Transforms\test_Transforms.py" />
+    <Compile Include="test\Transforms\__init__.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="build\" />
+    <Folder Include="build\lib\" />
+    <Folder Include="build\lib\nornir_imageregistration" />
+    <Folder Include="build\lib\nornir_imageregistration\files" />
+    <Folder Include="build\lib\nornir_imageregistration\geometry" />
+    <Folder Include="build\lib\nornir_imageregistration\io" />
+    <Folder Include="build\lib\nornir_imageregistration\spatial" />
+    <Folder Include="build\lib\nornir_imageregistration\transforms" />
+    <Folder Include="build\lib\test" />
+    <Folder Include="build\lib\test\spatial" />
+    <Folder Include="build\lib\test\Transforms" />
+    <Folder Include="build\scripts-2.7" />
+    <Folder Include="nornir_imageregistration" />
+    <Folder Include="nornir_imageregistration.egg-info" />
+    <Folder Include="nornir_imageregistration\files" />
+    <Folder Include="nornir_imageregistration\spatial" />
+    <Folder Include="nornir_imageregistration\transforms" />
+    <Folder Include="scripts" />
+    <Folder Include="test" />
+    <Folder Include="test\spatial" />
+    <Folder Include="test\Transforms" />
+  </ItemGroup>
+  <ItemGroup>
+    <InterpreterReference Include="{9a7a9026-48c1-4688-9d5d-e5699d47d074}\2.7" />
+    <InterpreterReference Include="{9a7a9026-48c1-4688-9d5d-e5699d47d074}\3.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\nornir-pools\nornir-pools.pyproj">
+      <Name>nornir-pools</Name>
+      <Project>{5dc0b342-648c-4512-a74c-1141083c728c}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\nornir-shared\nornir-shared.pyproj">
+      <Name>nornir-shared</Name>
+      <Project>{3431fa39-f48d-41e7-8d56-e1947108a32f}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
+</Project>
