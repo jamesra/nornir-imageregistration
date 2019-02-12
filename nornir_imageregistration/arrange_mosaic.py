@@ -506,7 +506,7 @@ def __get_overlapping_image(image, overlapping_rect, excess_scalar, cval=None):
     if cval is None:
         cval = 'random'
     
-    scaled_rect = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.scale(overlapping_rect, excess_scalar))
+    scaled_rect = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.scale_on_center(overlapping_rect, excess_scalar))
     return nornir_imageregistration.CropImage(image, Xo=int(scaled_rect.BottomLeft[1]), Yo=int(scaled_rect.BottomLeft[0]), Width=int(scaled_rect.Width), Height=int(scaled_rect.Height), cval=cval)
     
     # return nornir_imageregistration.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)

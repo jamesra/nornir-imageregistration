@@ -409,11 +409,11 @@ def _Image_To_Uint8(image):
         return image
     
     if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
-        if image.max() <= 1:
-            image = image * 255.0
-        else:
-            image /= image.max()
-            image = image * 255.0
+        iMax = image.max()
+        if iMax > 1:
+            image /= iMax
+        
+        image = image * 255.0
 
     if image.dtype == np.bool:
         image = image.astype(np.uint8) * 255

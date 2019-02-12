@@ -53,7 +53,7 @@ class Test(unittest.TestCase):
     def testScale(self):
         
         rect = self.ARects["A1"]
-        scaled_rect = spatial.Rectangle.scale(rect, 2)
+        scaled_rect = spatial.Rectangle.scale_on_center(rect, 2)
         
         self.assertTrue(np.allclose(rect.Center, scaled_rect.Center), "Scaled rectangle should have the same center")
         self.assertTrue(np.allclose(rect.Area, scaled_rect.Area / 4), "Scaled rectangle should have quadruple the area")

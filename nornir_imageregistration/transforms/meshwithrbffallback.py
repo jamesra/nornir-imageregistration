@@ -24,6 +24,16 @@ class MeshWithRBFFallback(triangulation.Triangulation):
     '''
     classdocs
     '''
+    
+    def __getstate__(self):
+        
+        odict = super(MeshWithRBFFallback, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(MeshWithRBFFallback, self).__setstate__(dictionary)
 
     @property
     def ReverseRBFInstance(self):
@@ -148,7 +158,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         '''
         Constructor
         '''
-        super(MeshWithRBFFallback, self).__init__(pointpairs);
+        super(MeshWithRBFFallback, self).__init__(pointpairs)
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None

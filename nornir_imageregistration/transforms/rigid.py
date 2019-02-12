@@ -21,6 +21,24 @@ class RigidNoRotation(base.Base):
         self.source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_rotation_center)
         self.angle = angle
         
+    def __getstate__(self):
+        odict = {}
+        odict['angle'] = self.angle
+        odict['target_offset'] = (self.target_offset[0], self.target_offset[1])
+        odict['source_space_center_of_rotation'] = (self.source_space_center_of_rotation[0],
+                                                    self.source_space_center_of_rotation[1])
+
+        return odict
+
+    def __setstate__(self, dictionary):
+        self.__dict__.update(dictionary)
+        
+        self.target_offset = nornir_imageregistration.EnsurePointsAre2DNumpyArray(self.target_offset)
+        self.source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre2DNumpyArray(self.source_space_center_of_rotation)
+        
+        self.OnChangeEventListeners = []
+        self.OnTransformChanged()
+        
     @classmethod
     def Load(cls, TransformString):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
@@ -55,6 +73,13 @@ class Rigid(RigidNoRotation):
     '''
     Applies a rotation+translation transform
     '''
+    def __getstate__(self):
+        return super(Rigid, self).__getstate__()
+    
+    def __setstate__(self, dictionary):
+        super(Rigid, self).__setstate__(dictionary)
+        self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
+        self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
     
     def __init__(self, target_offset, source_rotation_center, angle):
         '''

@@ -17,7 +17,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.images as images
 
-from . import setup_imagetest
+import setup_imagetest
 
 
 def ShowComparison(*args, **kwargs):

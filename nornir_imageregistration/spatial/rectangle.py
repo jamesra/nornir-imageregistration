@@ -275,6 +275,9 @@ class Rectangle(object):
                 self._bounds[iRect.MinX],
                 self._bounds[iRect.MaxY],
                 self._bounds[iRect.MaxX])
+        
+    def copy(self):
+        return Rectangle.CreateFromBounds(self._bounds.copy())
 
     @classmethod
     def Union(cls, A, B):
@@ -295,6 +298,31 @@ class Rectangle(object):
         maxX = max((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
         maxY = max((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
 
+        return Rectangle.CreateFromBounds((minY, minX, maxY, maxX))
+    
+    @classmethod
+    def Intersect(cls, A, B):
+        '''
+        Returns the intersection of two triangles
+        :param other: Either a 2D array for a point, a 4D array for a rectangle, or a rectangle object
+        :rtype: Rectangle
+        :returns: The rectangle describing the bounding box of both shapes
+        ''' 
+
+        A = Rectangle.PrimitiveToRectange(A)
+        B = Rectangle.PrimitiveToRectange(B)
+
+        if not cls.contains(A, B):
+            return None
+
+        minX = max((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
+        minY = max((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
+        maxX = min((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
+        maxY = min((A.BoundingBox[iRect.MaxY], B.BoundingBox[iRect.MaxY]))
+        
+        if minX > maxX or minY > maxY:
+            return None
+        
         return Rectangle.CreateFromBounds((minY, minX, maxY, maxX))
 
     @classmethod
@@ -444,13 +472,21 @@ class Rectangle(object):
         
     
     @classmethod
-    def scale(cls, A, scale):
+    def scale_on_center(cls, A, scale):
         '''
         Return a rectangle with the same center, but scaled in total area
         '''
         
         new_size = A.Size * scale
         return cls.change_area(A, new_size)
+    
+    @classmethod
+    def scale_on_origin(cls, A, scale):
+        '''
+        Return a rectangle scaled in total area relative to the (0,0) origin
+        '''
+        
+        return cls.CreateFromBounds(A.BoundingBox * scale)
     
     @classmethod
     def change_area(cls, A, new_size):
