@@ -307,7 +307,7 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
     if len(score_list) == 0:
         return 0
     elif len(score_list) == 1:
-        return score_list[1]
+        return score_list[0]
     else:
         val = numpy.percentile(score_list, q=feature_coverage_percent)
      
