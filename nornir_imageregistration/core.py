@@ -22,6 +22,9 @@ import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
 
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
+
 # from memory_profiler import profile
 
 class memmap_metadata(object):
