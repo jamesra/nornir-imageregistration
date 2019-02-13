@@ -282,11 +282,14 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         translated_layout = None
         
         for iPass in range(0,5):
-            (distinct_overlaps, new_or_updated_overlaps, removed_overlap_IDs) = arrange.GenerateTileOverlaps(tiles=initial_tiles,
+            (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs) = arrange.GenerateTileOverlaps(tiles=initial_tiles,
                                                              existing_overlaps=last_pass_overlaps,
                                                              offset_epsilon=1.0,
                                                              image_scale=imageScale,
                                                              min_overlap=min_overlap)
+            
+            new_or_updated_overlaps = list(new_overlaps)
+            new_or_updated_overlaps.extend(updated_overlaps)
             
             arrange.ScoreTileOverlaps(distinct_overlaps)
             

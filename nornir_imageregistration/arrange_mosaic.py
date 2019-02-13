@@ -101,7 +101,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
 
 def TranslateTiles2(transforms, imagepaths, excess_scalar,
                     feature_score_threshold=None, image_scale=None,
-                    min_translate_iterations=None,
+                    min_translate_iterations=None, offset_acceptance_threshold=None,
                     max_relax_iterations=None, max_relax_tension_cutoff=None,
                     min_overlap=None):
     '''
@@ -126,9 +126,12 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
     if feature_score_threshold is None:
         feature_score_threshold = 0.035
         
+    if offset_acceptance_threshold is None:
+        offset_acceptance_threshold = 1.0
+        
     if min_translate_iterations is None:
         min_translate_iterations = 5
-        
+         
     if image_scale is None:
         image_scale = tileset.MostCommonScalar(transforms, imagepaths)
 
@@ -140,10 +143,13 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
     last_pass_overlaps = None
     translated_layout = None
     iPass = min_translate_iterations
+    
+    max_passes = min_translate_iterations * 4
+    pass_count = 0
     while iPass >= 0:
         (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs) = GenerateTileOverlaps(tiles=tiles,
                                                              existing_overlaps=last_pass_overlaps,
-                                                             offset_epsilon=1.0,
+                                                             offset_epsilon=offset_acceptance_threshold,
                                                              image_scale=image_scale,
                                                              min_overlap=min_overlap)
         
@@ -154,7 +160,7 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
             break
         
         #If we added or remove tile overlaps then reset loop counter
-        if len(new_overlaps) > 0 or len(removed_overlap_IDs) > 0:
+        if len(new_overlaps) > 0 or len(removed_overlap_IDs) > 0 and pass_count < max_passes:
             iPass = min_translate_iterations
         
         ScoreTileOverlaps(distinct_overlaps)
@@ -199,6 +205,7 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
             tnode.Position = node.Position
             
         iPass = iPass - 1
+        pass_count = pass_count + 1
     
     # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 

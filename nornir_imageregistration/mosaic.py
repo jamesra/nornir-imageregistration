@@ -202,6 +202,8 @@ class Mosaic(object):
                                    excess_scalar=1.5,
                                    min_overlap=None,
                                    feature_score_threshold=None,
+                                   min_translate_iterations=None,
+                                   offset_acceptance_threshold=None,
                                    max_relax_iterations=None,
                                    max_relax_tension_cutoff=None):
         
@@ -211,6 +213,8 @@ class Mosaic(object):
                                                  excess_scalar=excess_scalar,
                                                  feature_score_threshold=feature_score_threshold,
                                                  image_scale=image_scale,
+                                                 min_translate_iterations=min_translate_iterations,
+                                                 offset_acceptance_threshold=offset_acceptance_threshold,
                                                  max_relax_iterations=max_relax_iterations,
                                                  max_relax_tension_cutoff=max_relax_tension_cutoff,
                                                  min_overlap=min_overlap)
