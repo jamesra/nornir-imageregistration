@@ -20,7 +20,7 @@ import nornir_imageregistration.transforms.factory as tfactory
 from nornir_shared.tasktimer import TaskTimer
 import numpy as np
 
-import setup_imagetest
+from . import  setup_imagetest
 
 
 # from pylab import *
@@ -83,8 +83,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
             outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
 
-            core.SaveImage(outputImagePath, mosaicImage)
-            core.SaveImage(outputImageMaskPath, mask)
+            core.SaveImage(outputImagePath, mosaicImage, optimize=True)
+            core.SaveImage(outputImageMaskPath, mask, optimize=True)
             self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
             outputMask = core.LoadImage(outputImageMaskPath)

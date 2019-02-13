@@ -515,7 +515,7 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
     # fullImage[fullImage > 1.0] = 1.0
     
-    if use_memmap:
+    if isinstance(fullImage, np.memmap):
         fullImage.flush()
 
     return (fullImage, mask)

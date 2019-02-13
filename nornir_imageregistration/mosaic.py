@@ -327,12 +327,15 @@ class Mosaic(object):
                                                usecluster=usecluster,
                                                requiredScale=requiredScale)
 
+            del _mask
+            
             (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
                                                                        tile_size=tile_dims,
                                                                        grid_shape=working_image_grid_dims,
                                                                        coord_offset=(0, iColumn)))
         
-                
+            del working_image
+            
             iColumn += working_image_grid_dims[1]
           
         return

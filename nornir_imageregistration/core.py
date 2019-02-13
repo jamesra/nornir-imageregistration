@@ -411,9 +411,9 @@ def _Image_To_Uint8(image):
     if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
         iMax = image.max()
         if iMax > 1:
-            image /= iMax
-        
-        image = image * 255.0
+            image *= (255.0 / iMax)
+        else:
+            image *= 255.0
 
     if image.dtype == np.bool:
         image = image.astype(np.uint8) * 255
@@ -421,6 +421,17 @@ def _Image_To_Uint8(image):
         image = image.astype(np.uint8)
 
     return image
+
+
+def OneBit_img_from_bool_array(data):
+    '''
+    Covers for pillow bug with bit images
+    https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
+    '''
+    assert(data.dtype == np.bool)
+    size = data.shape[::-1]
+    databytes = np.packbits(data, axis=1)
+    return Image.frombytes(mode='1', size=size, data=databytes)
 
 def SaveImage(ImageFullPath, image, **kwargs):
     '''Saves the image as greyscale with no contrast-stretching'''
@@ -431,15 +442,19 @@ def SaveImage(ImageFullPath, image, **kwargs):
     elif ext == '.npy':
         np.save(ImageFullPath, image)
     else:
-        Uint8_image = _Image_To_Uint8(image)
-        del image
-
-        im = Image.fromarray(Uint8_image)
-        
-        if ext == '.png':
-            im.save(ImageFullPath, **kwargs)
+        if image.dtype == np.bool:
+            #Covers for pillow bug with bit images
+            #https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
+            #im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
+            im = OneBit_img_from_bool_array(image)  
         else:
-            im.save(ImageFullPath)
+            Uint8_image = _Image_To_Uint8(image)
+            del image
+            im = Image.fromarray(Uint8_image, mode="L")
+        
+        im.save(ImageFullPath, **kwargs)
+    
+    return 
 
 def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     '''Saves the image as greyscale with no contrast-stretching'''
