@@ -199,7 +199,7 @@ class Mosaic(object):
 
     def ArrangeTilesWithTranslate(self, tiles_path,
                                    image_scale=None,
-                                   excess_scalar=1.5,
+                                   excess_scalar=None,
                                    min_overlap=None,
                                    feature_score_threshold=None,
                                    min_translate_iterations=None,

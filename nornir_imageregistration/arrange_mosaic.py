@@ -99,7 +99,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, tiles)
 
 
-def TranslateTiles2(transforms, imagepaths, excess_scalar,
+def TranslateTiles2(transforms, imagepaths, excess_scalar=None,
                     feature_score_threshold=None, image_scale=None,
                     min_translate_iterations=None, offset_acceptance_threshold=None,
                     max_relax_iterations=None, max_relax_tension_cutoff=None,
@@ -108,7 +108,7 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
     :param list transforms: list of transforms for tiles
     :param list imagepaths: list of paths to tile images, must be same length as transforms list
-    :param float excess_scalar: How much additional area should we pad the overlapping regions with.
+    :param float excess_scalar: How much additional area should we pad the overlapping regions with.  Increase this value if you don't trust the stage.
     :param float feature_score_threshold: The minimum average power spectral density per pixel measurement required to believe there is enough texture in overlapping regions for registration algorithms 
     :param float imageScale: The downsampling of the images in imagepaths.  If None then this is calculated based on the difference in the transform and the image file dimensions
     :param int max_relax_iterations: Maximum number of iterations in the relax stage
@@ -131,6 +131,9 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
         
     if min_translate_iterations is None:
         min_translate_iterations = 5
+        
+    if excess_scalar is None:
+        excess_scalar = 1.0
          
     if image_scale is None:
         image_scale = tileset.MostCommonScalar(transforms, imagepaths)
@@ -176,7 +179,11 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
             if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
                 filtered_overlaps_needing_offsets.append(overlap)
 
-        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar,
+        excess_scalar_this_pass = excess_scalar
+        if iPass == min_translate_iterations:
+            excess_scalar_this_pass = excess_scalar * 2
+            
+        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar_this_pass,
                                              imageScale=image_scale,
                                              existing_layout=translated_layout)
         
