@@ -101,6 +101,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
 
 def TranslateTiles2(transforms, imagepaths, excess_scalar,
                     feature_score_threshold=None, image_scale=None,
+                    min_translate_iterations=None,
                     max_relax_iterations=None, max_relax_tension_cutoff=None,
                     min_overlap=None):
     '''
@@ -125,6 +126,9 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
     if feature_score_threshold is None:
         feature_score_threshold = 0.035
         
+    if min_translate_iterations is None:
+        min_translate_iterations = 5
+        
     if image_scale is None:
         image_scale = tileset.MostCommonScalar(transforms, imagepaths)
 
@@ -135,16 +139,23 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
     
     last_pass_overlaps = None
     translated_layout = None
-    for iPass in range(0,5):
-        (distinct_overlaps, new_or_updated_overlaps, removed_overlap_IDs) = GenerateTileOverlaps(tiles=tiles,
+    iPass = min_translate_iterations
+    while iPass >= 0:
+        (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs) = GenerateTileOverlaps(tiles=tiles,
                                                              existing_overlaps=last_pass_overlaps,
                                                              offset_epsilon=1.0,
                                                              image_scale=image_scale,
                                                              min_overlap=min_overlap)
         
+        new_or_updated_overlaps = list(new_overlaps)
+        new_or_updated_overlaps.extend(updated_overlaps)
         #If there is nothing to update we are done
         if len(new_or_updated_overlaps) == 0:
-            break 
+            break
+        
+        #If we added or remove tile overlaps then reset loop counter
+        if len(new_overlaps) > 0 or len(removed_overlap_IDs) > 0:
+            iPass = min_translate_iterations
         
         ScoreTileOverlaps(distinct_overlaps)
         
@@ -169,7 +180,7 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
                                                                            max_allowed_weight=maxOffsetWeight)
         
         relax_iterations = max_relax_iterations
-        if iPass == 0:
+        if iPass == min_translate_iterations:
             relax_iterations = relax_iterations // 5
             if relax_iterations < 10:
                 relax_iterations = max_relax_iterations // 2
@@ -186,6 +197,8 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar,
         for ID,node in relaxed_layout.nodes.items():
             tnode = translated_layout.nodes[ID]
             tnode.Position = node.Position
+            
+        iPass = iPass - 1
     
     # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 
@@ -210,10 +223,12 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
     if image_scale is None:
         image_scale = tileset.MostCommonScalar([tile.Transform for tile in tiles.values()], [tile.ImagePath for tile in tiles.values()])
         
-    updated_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), image_scale, min_overlap=min_overlap))
+    changed_overlaps = list(nornir_imageregistration.tile.CreateTileOverlaps(list(tiles.values()), image_scale, min_overlap=min_overlap))
     
     removed_offset_IDs = []
-    new_or_updated = []
+    new_overlaps = []
+    updated_overlaps = []
+    #new_or_updated = []
     
     #Iterate the current set of overlaps and determine if:
     #1. The overlap is new and should be included  
@@ -224,11 +239,11 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
     num_similiar = 0
     
     if existing_overlaps is None:
-        new_or_updated.extend(updated_overlaps)
-        num_new = len(updated_overlaps)
+        new_overlaps.extend(changed_overlaps)
+        num_new = len(changed_overlaps)
     else:
         existing_dict = {o.ID: o for o in existing_overlaps} 
-        updated_dict = {o.ID: o for o in updated_overlaps} 
+        updated_dict = {o.ID: o for o in changed_overlaps} 
          
         #Remove overlaps that no longer exist so they aren't considered later
         for overlap in existing_overlaps:
@@ -239,9 +254,10 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
                 print("Removing overlap {0}".format(str(overlap)))
                 removed_offset_IDs.append(overlap.ID)
  
-        for updated in updated_overlaps:
+        for updated in changed_overlaps:
             if not updated.ID in existing_dict:
-                new_or_updated.append(updated)
+                #new_or_updated.append(updated)
+                new_overlaps.append(updated)
                 num_new = num_new + 1
                 print("New overlap {0}".format(str(updated)))
             else:
@@ -257,7 +273,7 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
                     updated.feature_scores = existing.feature_scores
                     num_similiar += 1
                 else:
-                    new_or_updated.append(updated)
+                    updated_overlaps.append(updated)
                     num_different += 1
     
     print("\n")
@@ -268,7 +284,7 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon = 1.0, im
     print("{0} overlaps removed".format(len(removed_offset_IDs)))
     print("\n")
         
-    return (updated_overlaps, new_or_updated, removed_offset_IDs)
+    return (changed_overlaps, new_overlaps, updated_overlaps, removed_offset_IDs)
 
 
 def ScoreTileOverlaps(tile_overlaps):
