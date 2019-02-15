@@ -15,12 +15,14 @@ import scipy.ndimage.measurements
 
 import nornir_imageregistration
 import nornir_shared.images
+import nornir_shared.prettyoutput as prettyoutput
  
 import matplotlib.pyplot as plt
 
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+
 
 #Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -494,14 +496,18 @@ def _LoadImageByExtension(ImageFullPath, bpp=8):
     (root, ext) = os.path.splitext(ImageFullPath)
     
     image = None
-    if ext == '.npy':
-        image = np.load(ImageFullPath, 'c') 
-    else:
-        image = plt.imread(ImageFullPath)
-        if bpp == 1:
-            image = image.astype(np.bool)
+    try:
+        if ext == '.npy':
+            image = np.load(ImageFullPath, 'c') 
         else:
-            image = ForceGrayscale(image)
+            image = plt.imread(ImageFullPath)
+            if bpp == 1:
+                image = image.astype(np.bool)
+            else:
+                image = ForceGrayscale(image)
+    except Exception as E:
+        prettyoutput.LogErr("Unable to load image {0}".format(ImageFullPath))
+        raise E
         
     return image
 
