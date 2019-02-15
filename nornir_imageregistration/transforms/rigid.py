@@ -142,3 +142,6 @@ class Rigid(RigidNoRotation):
         
         output_points = rotated_points + self.source_space_center_of_rotation
         return np.asarray(output_points)
+    
+    def __repr__(self):
+        return super(Rigid, self).__repr__()

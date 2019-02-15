@@ -187,6 +187,11 @@ def _DisplayImageList2D(input_params, grid_dims, title=None):
 
     for iRow, row_list in enumerate(input_params):
         
+        if isinstance(row_list, np.ndarray):
+            ax = axes[iRow, 0]
+            ax.imshow(row_list, cmap=plt.gray(), figure=fig)
+            continue 
+        
         for iCol, image in enumerate(row_list):
             #print("Row %d Col %d" % (iRow, iCol))
 
