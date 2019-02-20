@@ -23,7 +23,7 @@ import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 
-import nornir_imageregistration.core
+import nornir_imageregistration
 import nornir_imageregistration.im_histogram_parser  
 from numpy import int32
 import matplotlib.pyplot as plt
@@ -111,8 +111,9 @@ class ImageStats():
 #             pass
         
         obj = ImageStats()
-        if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
-            image = image.astype(dtype=numpy.float64)
+        image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
+        #if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
+        #    image = image.astype(dtype=numpy.float64)
             
         flatImage = image.flat 
         obj._median = numpy.median(flatImage)
@@ -516,11 +517,12 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
 def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None, MinVal=None, MaxVal=None):
     '''Return the histogram of an image'''
 
-    img = Image.open(filename, mode='r')
-    img_I = img.convert("I")
-    Im = numpy.asarray(img_I)
-    # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
-     
+    Im = None
+    with Image.open(filename, mode='r') as img:
+        img_I = img.convert("I")
+        Im = numpy.asarray(img_I)
+        # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
+         
     (Height, Width) = Im.shape
     NumPixels = Width * Height
     

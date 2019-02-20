@@ -39,6 +39,7 @@ import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.image_stats as image_stats
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.views as views
+import nornir_imageregistration.local_distortion_correction as local_distortion_correction
 
 from nornir_imageregistration.spatial.indicies import *
 from nornir_imageregistration.tileset import ShadeCorrectionTypes
@@ -57,7 +58,21 @@ import numpy as np
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
+def ParamToDtype(param):
+    dtype = param
+    if hasattr(param, 'dtype'):
+        dtype = param.dtype
+        
+    return dtype
 
+def IsFloatArray(param):
+    return np.issubdtype(ParamToDtype(param), np.floating) 
+
+def IsIntArray(param):
+    return np.issubdtype(ParamToDtype(param), np.integer)
+
+def ImageBpp(param): 
+    return int(ParamToDtype(param).itemsize * 8)
 
 def EnsurePointsAre2DNumpyArray(points):
     if not isinstance(points, np.ndarray):
@@ -67,7 +82,6 @@ def EnsurePointsAre2DNumpyArray(points):
         points = np.resize(points, (1, 2))
 
     return points
-
 
 def EnsurePointsAre4xN_NumpyArray(points):
     if not isinstance(points, np.ndarray):
@@ -80,6 +94,8 @@ def EnsurePointsAre4xN_NumpyArray(points):
         raise ValueError("There are not 4 columns in the corrected array")
 
     return points
+
+
     
     
 __all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']
