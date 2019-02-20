@@ -697,9 +697,13 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
 def __AlignmentScoreRemote(A_Filename, B_Filename, overlapping_rect_A, overlapping_rect_B):
     '''Returns the difference between the images'''
     
-    try:
-        OverlappingRegionA = __get_overlapping_image(A_Filename, overlapping_rect_A, excess_scalar=1.0)
-        OverlappingRegionB = __get_overlapping_image(B_Filename, overlapping_rect_B, excess_scalar=1.0)
+    try: 
+        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename, dtype=np.float16),
+                                                     overlapping_rect_A,
+                                                     excess_scalar=1.0)
+        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename, dtype=np.float16),
+                                                     overlapping_rect_B,
+                                                     excess_scalar=1.0)
         
         #If the entire region is a solid color, then return the maximum score possible
         if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \

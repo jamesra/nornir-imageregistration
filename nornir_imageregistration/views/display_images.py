@@ -4,6 +4,7 @@ import collections
 import nornir_imageregistration
 import numpy as np
 import math
+import matplotlib.colors 
 
 def ShowGrayscale(input_params, title=None,PassFail=False):
     '''
@@ -74,7 +75,7 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
                     else:
                         ax = axes[iCol]
 
-                    ax.imshow(image, cmap=plt.gray(), figure=fig)  
+                    ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
     else:
         return
 
@@ -155,7 +156,7 @@ def _ImageList1DGridDims(imagelist):
 
 def _DisplayImageSingle(input_param, title=None):
     fig, ax = plt.subplots()
-    ax.imshow(input_param, cmap=plt.gray())
+    ax.imshow(input_param, cmap=plt.gray(), aspect='equal', norm=matplotlib.colors.NoNorm())
     if not title is None:
         ax.set_title(title)
     
@@ -177,7 +178,7 @@ def _DisplayImageList1D(input_params, title=None):
         else:
             ax = axes[iCol]
 
-        ax.imshow(image, cmap=plt.gray(), figure=fig)   
+        ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())   
             
     return (fig, axes)
     
@@ -200,7 +201,7 @@ def _DisplayImageList2D(input_params, grid_dims, title=None):
             else:
                 ax = axes[iCol]
 
-            ax.imshow(image, cmap=plt.gray(), figure=fig)    
+            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())    
     
     return (fig, axes)
     
