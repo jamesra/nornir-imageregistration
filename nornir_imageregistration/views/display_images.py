@@ -113,7 +113,8 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
 def _ConvertParamsToImageList(param):
     output=None
     if isinstance(param, str):
-        output = nornir_imageregistration.ImageParamToImageArray(param)
+        loaded_image = nornir_imageregistration.ImageParamToImageArray(param)
+        output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, collections.Iterable):
@@ -190,7 +191,7 @@ def _DisplayImageList2D(input_params, grid_dims, title=None):
         
         if isinstance(row_list, np.ndarray):
             ax = axes[iRow, 0]
-            ax.imshow(row_list, cmap=plt.gray(), figure=fig)
+            ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
             continue 
         
         for iCol, image in enumerate(row_list):
