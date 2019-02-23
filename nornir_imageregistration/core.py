@@ -276,11 +276,13 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
             min_val = 0
             
         if max_val is None:
-            max_val = 1 << Bpp
+            max_val = max_possible_val
         
         max_minus_min = max_val - min_val
         image = image - min_val
         image = image / (max_minus_min / max_possible_val)
+        
+        np.clip(image, a_min=0, a_max=max_possible_val, out=image)
         
         if nornir_imageregistration.IsIntArray(original_dtype) == True:
             image = image.astype(original_dtype)
@@ -352,7 +354,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, Bpp=None, O
         if(MinMax[0] > MinMax[1]):
             raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDict")
      
-    pool = nornir_pools.GetGlobalThreadPool()
+    pool = nornir_pools.GetGlobalLocalMachinePool()
     tasks = []
     
     for (input_image, output_image) in ImagesToConvertDict.items():
