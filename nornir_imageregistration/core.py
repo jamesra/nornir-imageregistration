@@ -744,7 +744,8 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                         (im_min_val, im_max_val) = im.getextrema()
                         max_val = im_max_val
                     
-                    image = image / max_val
+                    if max_val > 0:
+                        image = image / max_val
                                       
                 im.close()
                 

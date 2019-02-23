@@ -241,18 +241,6 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
     return
 
-def distFunc(i, j):
-    print((str(i) + ", " + str(j)))
-    a = np.array(i, dtype=np.float)
-    a = a * a
-    b = np.array(j, dtype=np.float)
-    b = b * b
-    c = a + b
-    c = np.sqrt(c)
-    return c
-    # return scipy.spatial.distance.cdist(np.dstack((i, j)), np.array([[5.0], [5.0]], dtype=np.float))
-
-
     
 def CreateDistanceImage(shape, dtype=None):
 
@@ -412,9 +400,9 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     if os.path.exists(distance_array_path):
         # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
         try:
-            if use_memmap:
-                distanceImage = np.load(distance_array_path, mmap_mode='r')
-            else:
+#             if use_memmap:
+#                 distanceImage = np.load(distance_array_path, mmap_mode='r')
+#             else:
                 distanceImage = np.load(distance_array_path)
         except:
             print("Unable to load distance_image %s" % (distance_array_path))
@@ -701,7 +689,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
     #   transform = triangulation.Triangulation(transform.points)
 
-    warpedImage = nornir_imageregistration.ImageParamToImageArray(imagefullpath)
+    warpedImage = nornir_imageregistration.ImageParamToImageArray(imagefullpath, dtype=np.float32)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
     transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
