@@ -248,16 +248,19 @@ def ResizeImage(image, scalar):
 def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Invert=False, MinMax=None, Gamma=None):
     '''Converts a single image according to the passed parameters using Numpy'''
     
-    
     image = ImageParamToImageArray(input_image_param)
     original_dtype = image.dtype
     Bpp = nornir_imageregistration.ImageBpp(original_dtype)
     
     assert(Bpp is not None)
-    max_possible_val = (1 << Bpp) - 1
+    max_possible_int_val = (1 << Bpp) - 1
+    max_possible_float_val = 1.0
     
-    if nornir_imageregistration.IsFloatArray(original_dtype):
-        max_possible_val = 1
+    NeedsClip = False
+    
+    #After lots of pain it is simplest to ensure all images are represented by floats before operating on them
+    if nornir_imageregistration.IsIntArray(original_dtype): 
+        image = image.astype(np.float32) / max_possible_int_val  
       
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -269,41 +272,38 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
         (min_val, max_val) = MinMax    
         
         if nornir_imageregistration.IsIntArray(original_dtype) == True:
-            min_val = int(min_val)
-            max_val = int(max_val)    
+            min_val = min_val / max_possible_int_val
+            max_val = max_val / max_possible_int_val   
         
         if min_val is None:
             min_val = 0
             
         if max_val is None:
-            max_val = max_possible_val
+            max_val = 1.0
         
         max_minus_min = max_val - min_val
         image = image - min_val
-        image = image / (max_minus_min / max_possible_val)
+        image = image / max_minus_min
+            
+        NeedsClip = True
         
-        np.clip(image, a_min=0, a_max=max_possible_val, out=image)
-        
-        if nornir_imageregistration.IsIntArray(original_dtype) == True:
-            image = image.astype(original_dtype)
-    
     if Gamma is None:
         Gamma = 1.0
         
     if Gamma != 1.0:
-        if nornir_imageregistration.IsIntArray(original_dtype) == True:
-            image = image / max_possible_val
-            
-        image = np.float_power(image, 1.0 / Gamma)
+        image = np.float_power(image, 1.0 / Gamma, where=image >= 0)
+        NeedsClip = True
+        
+    if NeedsClip:
         np.clip(image, a_min=0, a_max=1.0, out=image)
-        
-        if nornir_imageregistration.IsIntArray(original_dtype) == True:
-            image = image * max_possible_val
-        
-        image = image.astype(original_dtype)
          
     if Invert is not None and Invert:  
-        image = max_possible_val - image
+        image = 1.0 - image
+        
+    if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            image = image * max_possible_int_val
+        
+    image = image.astype(original_dtype)
             
     return image
 
