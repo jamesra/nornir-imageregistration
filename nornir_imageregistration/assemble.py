@@ -203,9 +203,8 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     
     outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     
-    #Scipy's interpolation can somehow infer values slightly outside the source data's range.  We clip the result to fit in the original range of values 
-    outputImage[outputImage > subroi_warpedImage.max()] = subroi_warpedImage.max()
-    outputImage[outputImage < subroi_warpedImage.min()] = subroi_warpedImage.min()
+    #Scipy's interpolation can somehow infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
+    np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
     
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
