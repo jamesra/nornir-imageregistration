@@ -148,6 +148,10 @@ class ImageTestBase(TestBase):
 
     def GetImagePath(self, ImageFilename):
         return os.path.join(self.ImportedDataPath, ImageFilename)
+    
+    @property
+    def TestOutputPath(self):
+        return os.path.join(super(ImageTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Images")

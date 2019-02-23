@@ -45,7 +45,10 @@ class Base(object):
             for func in self.OnChangeEventListeners:
                 tlist.append(Pool.add_task("OnTransformChanged calling " + str(func), func))
     
-            Pool.wait_completion()
+            #Call wait on all tasks so we see exceptions
+            while len(tlist) > 0:
+                t = tlist.pop(0)
+                t.wait()
         else:
             for func in self.OnChangeEventListeners:
                 func()

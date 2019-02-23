@@ -59,16 +59,25 @@ import numpy as np
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 def ParamToDtype(param):
+    if param is None:
+        raise ValueError("'None' cannot be converted to a dtype")
+    
     dtype = param
-    if hasattr(param, 'dtype'):
-        dtype = param.dtype
+    if isinstance(dtype, np.ndarray) or isinstance(dtype, np.nditer):
+        return param.dtype    
         
     return dtype
 
 def IsFloatArray(param):
+    if param is None:
+        return False
+    
     return np.issubdtype(ParamToDtype(param), np.floating) 
 
 def IsIntArray(param):
+    if param is None:
+        return False
+    
     return np.issubdtype(ParamToDtype(param), np.integer)
 
 def ImageBpp(param): 

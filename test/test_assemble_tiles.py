@@ -20,7 +20,7 @@ import nornir_imageregistration.transforms.factory as tfactory
 from nornir_shared.tasktimer import TaskTimer
 import numpy as np
 
-from . import  setup_imagetest
+import setup_imagetest
 
 
 # from pylab import *

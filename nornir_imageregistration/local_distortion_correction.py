@@ -252,8 +252,8 @@ def RefineStosFile(InputStos, OutputStosPath,
     
     stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(InputStos.Transform, 1)
     
-    target_image = nornir_imageregistration.ImageParamToImageArray(InputStos.ControlImageFullPath)
-    source_image = nornir_imageregistration.ImageParamToImageArray(InputStos.MappedImageFullPath)
+    target_image = nornir_imageregistration.ImageParamToImageArray(InputStos.ControlImageFullPath, np.float32)
+    source_image = nornir_imageregistration.ImageParamToImageArray(InputStos.MappedImageFullPath, np.float32)
     target_mask = None
     source_mask = None
     
@@ -517,8 +517,8 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     grid_spacing = np.asarray(grid_spacing, np.int32)
     cell_size = np.asarray(cell_size, np.int32)
         
-    target_image = nornir_imageregistration.ImageParamToImageArray(target_image)
-    source_image = nornir_imageregistration.ImageParamToImageArray(source_image)
+    target_image = nornir_imageregistration.ImageParamToImageArray(target_image, np.float32)
+    source_image = nornir_imageregistration.ImageParamToImageArray(source_image, np.float32)
     
     if target_mask is not None:
         target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
@@ -594,6 +594,7 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
 #         coords = coords[valid, :]
     
     pool = nornir_pools.GetGlobalMultithreadingPool()
+    #pool = nornir_pools.GetGlobalSerialPool()
     tasks = list()
     alignment_records = list()
     
@@ -789,15 +790,23 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
     FixedRectangle = nornir_imageregistration.Rectangle.SafeRound(FixedRectangle)
     FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea)
     
+    rigid_transforms = nornir_imageregistration.local_distortion_correction.ApproximateRigidTransform(input_transform=transform,
+                                                                                                      target_points=controlpoint)
+    
     # Pull image subregions 
+    rigid_warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(rigid_transforms[0],
+                            fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
+    
     warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
                             fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
 
     fixedImageROI = nornir_imageregistration.core.CropImage(fixedImage.copy(), FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
+     
+    fixedImageROI.setflags(write=False)
 
-    # nornir_imageregistration.core.ShowGrayscale([fixedImageROI, warpedImageROI])
+    #nornir_imageregistration.ShowGrayscale(([fixedImageROI, warpedImageROI],[fixedImageROI - warpedImageROI,]))
 
-    # pool = Pools.GetGlobalMultithreadingPool()
+    pool = nornir_pools.GetGlobalThreadPool()
 
     # task = pool.add_task("AttemptAlignPoint", core.FindOffset, fixedImageROI, warpedImageROI, MinOverlap = 0.2)
     # apoint = task.wait_return()
@@ -806,33 +815,53 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
     
     # core.ShowGrayscale([fixedImageROI, warpedImageROI])
     
-    apoint = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(fixedImageROI, warpedImageROI, AngleSearchRange=anglesToSearch, MinOverlap=0.25, SingleThread=True, Cluster=False, TestFlip=False)
+    t = pool.add_task("Rigid align point {0},{1}".format(controlpoint[1],controlpoint[0]),
+                        nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
+                        fixedImageROI, rigid_warpedImageROI,
+                        AngleSearchRange=anglesToSearch,
+                        MinOverlap=0.25, SingleThread=True,
+                        Cluster=False, TestFlip=False)
+#     rigid_apoint = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(fixedImageROI, rigid_warpedImageROI,
+#                                                                         AngleSearchRange=anglesToSearch,
+#                                                                         MinOverlap=0.25, SingleThread=True,
+#                                                                         Cluster=False, TestFlip=False)
+    
+    apoint = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(fixedImageROI, warpedImageROI,
+                                                                        AngleSearchRange=anglesToSearch,
+                                                                        MinOverlap=0.25, SingleThread=True,
+                                                                        Cluster=False, TestFlip=False)
+    
+    rigid_apoint = t.wait_return()
  
-    # print("Auto-translate result: " + str(apoint))
-    return apoint
+    if rigid_apoint.weight > apoint.weight:
+        return rigid_apoint
+    else:
+        # print("Auto-translate result: " + str(apoint))
+        return apoint
 
 def ApproximateRigidTransform(input_transform, target_points):
     '''
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     '''
-    numPoints = target_points.shape[0]
-    
+
     target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
+    
+    numPoints = target_points.shape[0]
 
     source_points = input_transform.InverseTransform(target_points)
-    
+      
     #Offset the target points by 1, and find the angle between the source points
     offset = np.array([0,1]) 
-    offset_target_points = target_points + offset
+    offset_source_points = source_points + offset
     
     offsets = np.tile(offset, (numPoints,1))
     origins = np.tile(np.array([0,0]), (numPoints,1))
     
-    offset_source_points = input_transform.InverseTransform(offset_target_points)
+    offset_target_points = input_transform.Transform(offset_source_points)
     
-    source_delta = offset_source_points - source_points
+    target_delta = offset_target_points - target_points
     
-    angles = nornir_imageregistration.ArcAngle(origins, offsets, source_delta)
+    angles = -nornir_imageregistration.ArcAngle(origins, offsets, target_delta)
     
     target_offsets = target_points - source_points  
     
@@ -863,9 +892,9 @@ def StartAttemptAlignPoint(pool, taskname, transform,
     targetImageROI = nornir_imageregistration.CropImage(targetImage, FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
 
     #Just ignore pure color regions
-    if np.all(sourceImageROI == sourceImageROI[0]):
+    if np.all(sourceImageROI == sourceImageROI[0][0]):
         return None
-    if np.all(targetImageROI == targetImageROI[0]):
+    if np.all(targetImageROI == targetImageROI[0][0]):
         return None
     
     # nornir_imageregistration.core.ShowGrayscale([targetImageROI, sourceImageROI])

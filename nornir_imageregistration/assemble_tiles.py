@@ -44,7 +44,7 @@ class TransformedImageData(object):
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
     '''
 
-    memmap_threshold = 500 * 500
+    memmap_threshold = 64 * 64
 #     
 #     def __getstate__(self):
 #         odict = {} 
@@ -72,7 +72,7 @@ class TransformedImageData(object):
             if self._image_path is None:
                 return None 
              
-            self._image = np.memmap(self._image_path, mode='c', shape=self._image_shape, dtype=self._image_dtype)
+            self._image = np.load(self._image_path, mmap_mode='r')  #np.memmap(self._image_path, mode='c', shape=self._image_shape, dtype=self._image_dtype)
             
         return self._image
     
@@ -81,7 +81,8 @@ class TransformedImageData(object):
         if self._centerDistanceImage is None:
             if self._centerDistanceImage_path is None:
                 return None
-            self._centerDistanceImage = np.memmap(self._centerDistanceImage_path, mode='c', shape=self._centerDistanceImage_shape, dtype=self._centerDistance_dtype)
+            
+            self._centerDistanceImage = np.load(self._centerDistanceImage_path, mmap_mode='r') #np.memmap(self._centerDistanceImage_path, mode='c', shape=self._centerDistanceImage_shape, dtype=self._centerDistance_dtype)
             
         return self._centerDistanceImage
 
@@ -123,14 +124,14 @@ class TransformedImageData(object):
     def ConvertToMemmapIfLarge(self): 
         if np.prod(self._image.shape) > TransformedImageData.memmap_threshold:
             self._image_path = self.CreateMemoryMappedFilesForImage("Image", self._image)
-            self._image_shape = self._image.shape
-            self._image_dtype = self._image.dtype
+            #self._image_shape = self._image.shape
+            #self._image_dtype = self._image.dtype
             self._image = None
             
         if np.prod(self._centerDistanceImage.shape) > TransformedImageData.memmap_threshold:
             self._centerDistanceImage_path = self.CreateMemoryMappedFilesForImage("Distance", self._centerDistanceImage)
-            self._centerDistanceImage_shape = self._centerDistanceImage.shape
-            self._centerDistance_dtype = self._centerDistanceImage.dtype
+            #self._centerDistanceImage_shape = self._centerDistanceImage.shape
+            #self._centerDistance_dtype = self._centerDistanceImage.dtype
             self._centerDistanceImage = None
             
         return
@@ -139,12 +140,13 @@ class TransformedImageData(object):
         if image is None:
             return None 
         
-        tempfilename = os.path.join(self.tempfiledir, name + '.dat')
-        memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
-        np.copyto(memmapped_image, image)
+        tempfilename = os.path.join(self.tempfiledir, name + '.npy')
+        np.save(tempfilename, image)
+        #memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
+        #np.copyto(memmapped_image, image)
         #print("Write %s" % tempfilename)
         
-        del memmapped_image
+        #del memmapped_image
         return tempfilename
 
 
@@ -155,8 +157,9 @@ class TransformedImageData(object):
         self._transformScale = None
         self._transform = None
         
-        pool = nornir_pools.GetGlobalThreadPool()
-        pool.add_task(self._image_path, TransformedImageData._RemoveTempFiles, self._centerDistanceImage_path, self._image_path, self._tempdir)
+        if not self._centerDistanceImage_path is None or not self._image_path is None:
+            pool = nornir_pools.GetGlobalThreadPool()
+            pool.add_task(self._image_path, TransformedImageData._RemoveTempFiles, self._centerDistanceImage_path, self._image_path, self._tempdir)
         
         
     @staticmethod
@@ -189,10 +192,10 @@ class TransformedImageData(object):
         self._image_path = None
         self._centerDistanceImage_path = None
         self._tempdir = None
-        self._image_shape = None
-        self._centerDistanceImage_shape = None
-        self._image_dtype = None
-        self._centerDistance_dtype = None
+        #self._image_shape = None
+        #self._centerDistanceImage_shape = None
+        #self._image_dtype = None
+        #self._centerDistance_dtype = None
 
 def CompositeImage(FullImage, SubImage, offset):
 
@@ -758,7 +761,11 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     del warpedImage
     del distanceImage
 
-    return TransformedImageData.Create(fixedImage.astype(np.float16), centerDistanceImage.astype(np.float16), transform, transformScale, SingleThreadedInvoke=SingleThreadedInvoke)
+    return TransformedImageData.Create(fixedImage.astype(np.float16),
+                                       centerDistanceImage.astype(np.float16),
+                                       transform,
+                                       transformScale,
+                                       SingleThreadedInvoke=SingleThreadedInvoke)
 
 if __name__ == '__main__':
     pass

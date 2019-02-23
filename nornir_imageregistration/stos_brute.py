@@ -37,13 +37,13 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = core.LoadImage(FixedImageInput, FixedImageMaskPath)
+        imFixed = core.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = core.LoadImage(WarpedImageInput, WarpedImageMaskPath)
+        imWarped = core.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
     else:
         imWarped = WarpedImageInput
 
@@ -98,8 +98,9 @@ def SliceToSliceBruteForce(FixedImageInput,
 def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = core.ImageParamToImageArray(imFixed)
-    imWarped = core.ImageParamToImageArray(imWarped)
+    imFixed = core.ImageParamToImageArray(imFixed, dtype=np.float32)
+    imWarped = core.ImageParamToImageArray(imWarped, dtype=np.float32)
+
 
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
@@ -186,7 +187,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
     Cluster = False
     
-    if len(AngleList) == 0:
+    if len(AngleList) <= 1:
         SingleThread = True
 
     if not SingleThread:

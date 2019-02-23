@@ -9,13 +9,13 @@ import unittest
 
 from pylab import *
 
+import nornir_shared.images
 import nornir_imageregistration
 import nornir_imageregistration.stos_brute as stos_brute
 
 from . import setup_imagetest
 
-
-class Test(setup_imagetest.ImageTestBase):
+class TestCore(setup_imagetest.ImageTestBase):
 
 
 #    def testSciPyRavel(self):
@@ -169,17 +169,18 @@ class Test(setup_imagetest.ImageTestBase):
         for i in range(0, cropsize):
             self.assertGreaterEqual(cropped[i, i], 0, "Cropped region outside original image should use random value")
         
+        cropped = cropped / cropped.max()
         self.assertTrue(nornir_imageregistration.ShowGrayscale(cropped, title="The bottom left quadrant is a gradient.  The remainder is random noise.", PassFail=True))
             
     
     def testImageToTiles(self):
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
-
-        image = imread(self.FixedImagePath)
-        tiles = nornir_imageregistration.ImageToTiles(image, tile_size=(256, 512))
+ 
+        tiles = nornir_imageregistration.ImageToTiles(self.FixedImagePath, tile_size=(256, 512))
         self.assertTrue(nornir_imageregistration.ShowGrayscale(list(tiles.values()), "Expecting 512 wide x 256 tall tiles", PassFail=True))
         
+ 
 
     def testReplaceImageExtramaWithNoise(self):
 

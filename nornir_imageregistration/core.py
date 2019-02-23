@@ -13,6 +13,7 @@ from PIL import Image
 import scipy.misc
 import scipy.ndimage.measurements
 
+import nornir_pools
 import nornir_imageregistration
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
@@ -117,10 +118,7 @@ def ImageParamToImageArray(imageparam, dtype=None):
             image = imageparam.astype(dtype=dtype)
             
     elif isinstance(imageparam, str):
-        image = LoadImage(imageparam)
-        
-        if dtype is not None:
-            image = image.astype(dtype=dtype)
+        image = LoadImage(imageparam, dtype=dtype)
                                  
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:
@@ -247,10 +245,154 @@ def ResizeImage(image, scalar):
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
 
 
-def ChangeImageDownsample(image, input_downsample, output_downsample):
-    scale_factor = int(input_downsample) / output_downsample
-    desired_size = scipy.array(image.shape) * scale_factor
-    return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
+def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Invert=False, MinMax=None, Gamma=None):
+    '''Converts a single image according to the passed parameters using Numpy'''
+    
+    
+    image = ImageParamToImageArray(input_image_param)
+    original_dtype = image.dtype
+    Bpp = nornir_imageregistration.ImageBpp(original_dtype)
+    
+    assert(Bpp is not None)
+    max_possible_val = (1 << Bpp) - 1
+    
+    if nornir_imageregistration.IsFloatArray(original_dtype):
+        max_possible_val = 1
+      
+    if Flip is not None and Flip:
+        image = np.flipud(image)
+        
+    if Flop is not None and Flop: 
+        image = np.fliplr(image)
+        
+    if MinMax is not None:
+        (min_val, max_val) = MinMax    
+        
+        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            min_val = int(min_val)
+            max_val = int(max_val)    
+        
+        if min_val is None:
+            min_val = 0
+            
+        if max_val is None:
+            max_val = 1 << Bpp
+        
+        max_minus_min = max_val - min_val
+        image = image - min_val
+        image = image / (max_minus_min / max_possible_val)
+        
+        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            image = image.astype(original_dtype)
+    
+    if Gamma is None:
+        Gamma = 1.0
+        
+    if Gamma != 1.0:
+        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            image = image / max_possible_val
+            
+        image = np.float_power(image, 1.0 / Gamma)
+        np.clip(image, a_min=0, a_max=1.0, out=image)
+        
+        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            image = image * max_possible_val
+        
+        image = image.astype(original_dtype)
+         
+    if Invert is not None and Invert:  
+        image = max_possible_val - image
+            
+    return image
+
+def  _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, MinMax=None, Gamma=None):
+        
+    image = _ConvertSingleImage(input_image_param, 
+                                Flip=Flip, 
+                                Flop=Flop,
+                                Bpp=InputBpp, 
+                                Invert=Invert,
+                                MinMax=MinMax,
+                                Gamma=Gamma)
+    
+    if OutputBpp is None:
+        OutputBpp = InputBpp
+    
+    (_, ext) = os.path.splitext(output_filename)
+    if ext.lower() == '.png':
+        nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp, optimize=True)
+    else:
+        nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp)
+    return
+
+def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, Bpp=None, OutputBpp=None, Invert=False, bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
+    '''
+    The key and value in the dictionary have the full path of an image to convert.
+    MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
+    RightLeftShift is a tuple containing a right then left then return to center shift which should be done to remove useless bits from the data
+    I do not use an and because I do not calculate ImageMagick's quantum size yet.
+    Every image must share the same colorspace
+     
+    :return: True if images were converted
+    :rtype: bool 
+    '''
+
+    if len(ImagesToConvertDict) == 0:
+        return False
+    
+    if Bpp is None:
+        for k in ImagesToConvertDict.keys():
+            if os.path.exists(k):
+                Bpp = nornir_shared.images.GetImageBpp(k)
+                break
+    
+    prettyoutput.CurseString('Stage', "ConvertImagesInDict")
+    
+    if MinMax is not None:
+        if(MinMax[0] > MinMax[1]):
+            raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDict")
+     
+    pool = nornir_pools.GetGlobalThreadPool()
+    tasks = []
+    
+    for (input_image, output_image) in ImagesToConvertDict.items():
+        task = pool.add_task("{0} -> {1}".format(input_image, output_image), 
+                      _ConvertSingleImageToFile,
+                      input_image_param=input_image,
+                      output_filename=output_image,
+                      Flip=Flip,
+                      Flop=Flop,
+                      InputBpp=Bpp,
+                      OutputBpp=OutputBpp,
+                      Invert=Invert,
+                      MinMax=MinMax,
+                      Gamma=Gamma)
+        tasks.append(task)
+        
+    while len(tasks) > 0:
+        t = tasks.pop(0)
+        try:
+            t.wait()
+        except Exception as e:
+            prettyoutput.LogErr("Failed to convert " + t.name)
+              
+    if bDeleteOriginal:
+        for (input_image, output_image) in ImagesToConvertDict.items():
+            if input_image != output_image:
+                pool.add_task("Delete {0}".format(input_image), os.remove, input_image)
+                      
+        while len(tasks) > 0:
+            t = tasks.pop(0)
+            try:
+                t.wait()
+            except OSError as e:
+                prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
+                pass
+            except IOError as e:
+                prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
+                pass
+            
+    del tasks
 
 def CropImageRect(imageparam, bounding_rect, cval=None):
     return CropImage(imageparam, Xo=int(bounding_rect[1]), Yo=int(bounding_rect[0]), Width=int(bounding_rect.Width), Height=int(bounding_rect.Height), cval=cval)
@@ -413,17 +555,22 @@ def _Image_To_Uint8(image):
     if image.dtype == np.uint8:
         return image
     
-    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
-        iMax = image.max()
-        if iMax > 1:
-            image *= (255.0 / iMax)
-        else:
-            image *= 255.0
-
-    if image.dtype == np.bool:
+    elif image.dtype == np.bool:
         image = image.astype(np.uint8) * 255
-    else:
-        image = image.astype(np.uint8)
+        
+    elif nornir_imageregistration.IsFloatArray(image.dtype):
+        iMax = image.max()
+        if iMax <= 1:
+            image *= 255.0
+        else:
+            pass
+            #image = #(255.0 / iMax)
+    elif nornir_imageregistration.IsIntArray(image.dtype):
+        iMax = image.max()
+        if iMax > 255:
+            image = image / (iMax / 255.0)
+            
+    image = image.astype(np.uint8)
 
     return image
 
@@ -434,13 +581,53 @@ def OneBit_img_from_bool_array(data):
     https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
     '''
     assert(data.dtype == np.bool)
+    size = data.shape[::-1]  
+    return Image.frombytes(mode='1', size=size, data=np.packbits(data, axis=1))
+
+def uint16_img_from_uint16_array(data):
+    '''
+    Covers for pillow bug with bit images
+    https://github.com/python-pillow/Pillow/issues/2970
+    '''
+    assert(nornir_imageregistration.IsIntArray(data))
+    
     size = data.shape[::-1]
-    databytes = np.packbits(data, axis=1)
-    return Image.frombytes(mode='1', size=size, data=databytes)
+    img = Image.new("I", size=data.T.shape)
+    img.frombytes(data.tobytes(), 'raw', 'I;16')
+    return img
 
-def SaveImage(ImageFullPath, image, **kwargs):
-    '''Saves the image as greyscale with no contrast-stretching'''
+def uint16_img_from_float_array(image):
+    '''
+    Covers for pillow bug with bit images
+    https://github.com/python-pillow/Pillow/issues/2970
+    '''
+    assert(nornir_imageregistration.IsFloatArray(image))
+    iMax = image.max()
+    if iMax <= 1:
+        image = image * (1 << 16) - 1 
+    else:
+        pass
+        
+    return image.astype(np.uint16)
 
+def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
+    '''Saves the image as greyscale with no contrast-stretching
+    :param str ImageFullPath: The filename to save
+    :param ndarray image: The image data to save
+    :param int bpp: The bit depth to save, if the image data bpp is higher than this value it will be reduced.  Otherwise only the bpp required to preserve the image data will be used. (8-bit data will not be upsampled to 16-bit)
+    '''
+    
+    if bpp is None:
+        bpp = nornir_imageregistration.ImageBpp(image)
+        if bpp > 16:
+            prettyoutput.LogErr("Saving image at 32 bits-per-pixel, check SaveImageParameters for efficiency:\n{0}".format(ImageFullPath))
+                
+    if bpp > 8:
+        #Ensure we even have the data to bother saving a higher bit depth
+        detected_bpp = nornir_imageregistration.ImageBpp(image) 
+        if nornir_imageregistration.ImageBpp(image) < bpp:
+            bpp = detected_bpp
+        
     (root, ext) = os.path.splitext(ImageFullPath)
     if ext == '.jp2':
         SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
@@ -452,11 +639,25 @@ def SaveImage(ImageFullPath, image, **kwargs):
             #https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
             #im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
             im = OneBit_img_from_bool_array(image)  
-        else:
+        elif bpp == 8:
             Uint8_image = _Image_To_Uint8(image)
             del image
             im = Image.fromarray(Uint8_image, mode="L")
-        
+        elif nornir_imageregistration.IsFloatArray(image): 
+            if image.dtype == np.float16:
+                image = image.astype(np.float32)
+                
+            im = Image.fromarray(image) 
+            im = im.convert('I')
+        else:
+            if bpp == 16:
+                if ext.lower() == '.png':
+                    im = uint16_img_from_uint16_array(image)
+                else:
+                    im = Image.fromarray(image, mode="I;{0}".format(bpp))
+            else:
+                im = Image.fromarray(image, mode="I".format(bpp))
+            
         im.save(ImageFullPath, **kwargs)
     
     return 
@@ -492,27 +693,67 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 #     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
 #     
 
-def _LoadImageByExtension(ImageFullPath, bpp=8):
+def _LoadImageByExtension(ImageFullPath, dtype):
+    '''
+    Loads an image file and returns an ndarray of dtype
+    :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide. 
+    '''
     (root, ext) = os.path.splitext(ImageFullPath)
     
     image = None
     try:
         if ext == '.npy':
-            image = np.load(ImageFullPath, 'c') 
+            image = np.load(ImageFullPath, 'c').astype(dtype)
         else:
-            image = plt.imread(ImageFullPath)
-            if bpp == 1:
-                image = image.astype(np.bool)
-            else:
-                image = ForceGrayscale(image)
-    except Exception as E:
+            #image = plt.imread(ImageFullPath)
+            with Image.open(ImageFullPath) as im:
+                
+                image = np.array(im)
+                probable_bpp = nornir_imageregistration.ImageBpp(image)
+                 
+                if dtype is not None:
+                    image = image.astype(dtype)
+                else:
+                    #Reduce to smallest integer type that can hold the data
+                    if im.mode[0] == 'I' and (np.issubdtype(image.dtype, np.int32) or np.issubdtype(image.dtype, np.uint32)):
+                        (min_val, max_val) = im.getextrema()
+                        smallest_dtype = np.uint32
+                        if max_val <= 65535:
+                            smallest_dtype = np.uint16
+                        if max_val <= 255:
+                            smallest_dtype = np.uint8
+                            
+                        image = image.astype(smallest_dtype)
+                        
+                    dtype = image.dtype
+                
+                #Ensure data is in the range 0 to 1 for floating types
+                if nornir_imageregistration.IsFloatArray(dtype):
+                    
+                    if im.mode[0] == 'F':
+                        (im_min_val, im_max_val) = im.getextrema()
+                        if im_max_val <= 1.0:
+                            return image
+                
+                    max_val = None
+                    if probable_bpp < 32:
+                        max_val = (1 << probable_bpp - 1)
+                    else:
+                        (im_min_val, im_max_val) = im.getextrema()
+                        max_val = im_max_val
+                    
+                    image = image / max_val
+                                      
+                im.close()
+                
+    except IOError as E:
         prettyoutput.LogErr("Unable to load image {0}".format(ImageFullPath))
         raise E
         
     return image
 
 # @profile
-def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
+def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=None):
 
     '''
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
@@ -526,11 +767,11 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     if(not os.path.isfile(ImageFullPath)): 
         logger = logging.getLogger(__name__)
         logger.error('File does not exist: ' + ImageFullPath)
-        raise IOError("Unable to load image: %s" % (imagefullpath))
-    
+        raise IOError("Unable to load image: %s" % (ImageFullPath))
+        
     (root, ext) = os.path.splitext(ImageFullPath)
     
-    image = _LoadImageByExtension(ImageFullPath) 
+    image = _LoadImageByExtension(ImageFullPath, dtype) 
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)
@@ -544,7 +785,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
             logger = logging.getLogger(__name__)
             logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
-            image_mask = _LoadImageByExtension(ImageMaskFullPath, bpp=1)
+            image_mask = _LoadImageByExtension(ImageMaskFullPath, np.bool)
             if not MaxDimension is None:
                 scalar = ScalarForMaxDimension(MaxDimension, image_mask.shape)
                 if scalar < 1.0:
@@ -605,6 +846,8 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
     ''' 
+    source_image = ImageParamToImageArray(source_image)
+    
     grid_shape = TileGridShape(source_image.shape, tile_size)
     
     if coord_offset is None:
