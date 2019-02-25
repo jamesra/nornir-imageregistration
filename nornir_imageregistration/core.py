@@ -739,7 +739,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                 
                     max_val = None
                     if probable_bpp < 32:
-                        max_val = (1 << probable_bpp - 1)
+                        max_val = (1 << probable_bpp) - 1
                     else:
                         (im_min_val, im_max_val) = im.getextrema()
                         max_val = im_max_val
