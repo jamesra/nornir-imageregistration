@@ -466,8 +466,8 @@ def RefineTransform(stosTransform,
             ComparisonImage = np.abs(Delta)
             ComparisonImage = ComparisonImage / ComparisonImage.max()
              
-            nornir_imageregistration.SaveImage(os.path.join(outputDir, 'delta_pass{0}.png'.format(i)), ComparisonImage)
-            nornir_imageregistration.SaveImage(os.path.join(outputDir, 'image_pass{0}.png'.format(i)), warpedToFixedImage)
+            nornir_imageregistration.SaveImage(os.path.join(outputDir, 'delta_pass{0}.png'.format(i)), ComparisonImage, bpp=8)
+            nornir_imageregistration.SaveImage(os.path.join(outputDir, 'image_pass{0}.png'.format(i)), warpedToFixedImage, bpp=8)
             
         i = i + 1
         

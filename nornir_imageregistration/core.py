@@ -563,7 +563,7 @@ def _Image_To_Uint8(image):
     elif nornir_imageregistration.IsFloatArray(image.dtype):
         iMax = image.max()
         if iMax <= 1:
-            image *= 255.0
+            image = image * 255.0
         else:
             pass
             #image = #(255.0 / iMax)
@@ -582,9 +582,13 @@ def OneBit_img_from_bool_array(data):
     Covers for pillow bug with bit images
     https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
     '''
-    assert(data.dtype == np.bool)
-    size = data.shape[::-1]  
-    return Image.frombytes(mode='1', size=size, data=np.packbits(data, axis=1))
+    size = data.shape[::-1]
+    
+    if(data.dtype == np.bool):
+        return Image.frombytes(mode='1', size=size, data=np.packbits(data, axis=1))
+    else:
+        return Image.frombytes(mode='1', size=size, data=np.packbits(data > 0, axis=1))
+        
 
 def uint16_img_from_uint16_array(data):
     '''
@@ -636,7 +640,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
     elif ext == '.npy':
         np.save(ImageFullPath, image)
     else:
-        if image.dtype == np.bool:
+        if image.dtype == np.bool or bpp == 1:
             #Covers for pillow bug with bit images
             #https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
             #im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
@@ -649,7 +653,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             if image.dtype == np.float16:
                 image = image.astype(np.float32)
                 
-            im = Image.fromarray(image) 
+            im = Image.fromarray(image * ((1 << bpp)-1)) 
             im = im.convert('I')
         else:
             if bpp == 16:
