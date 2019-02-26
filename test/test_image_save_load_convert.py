@@ -129,10 +129,11 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         self.RunConvertImageTest(self.FixedImagePath)
     
     def test_16Bit_ConvertImage(self):
-        self.FixedImagePath = os.path.join(self.ImportedDataPath,'16-bit', "10000.tif")
-        
-        output_path = os.path.join(self.TestOutputPath,  '10000_converted.tif')
-        
+        filename = '10001_RPC2_590.tif'
+        self.FixedImagePath = os.path.join(self.ImportedDataPath,'16-bit', filename)
+        basename = os.path.basename(filename)
+        output_path = os.path.join(self.TestOutputPath,  basename + '_converted.tif')
+                
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input: {0}".format(self.FixedImagePath))
         output = self.RunConvertImageTest(self.FixedImagePath)
         
