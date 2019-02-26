@@ -83,8 +83,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
             outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
 
-            core.SaveImage(outputImagePath, mosaicImage, optimize=True)
-            core.SaveImage(outputImageMaskPath, mask, optimize=True)
+            core.SaveImage(outputImagePath, mosaicImage)
+            core.SaveImage(outputImageMaskPath, mask)
             self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
             outputMask = core.LoadImage(outputImageMaskPath)
