@@ -389,7 +389,7 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     return sum(StdDevList)
 
 
-def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
+def Histogram(filenames, Bpp=None, Scale=None, **kwargs):
     '''Returns a single histogram built by combining histograms of all images
        If scale is not none the images are scaled before the histogram is collected'''
 
@@ -424,22 +424,13 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
 #             task = pool.add_task(f, __HistogramFilePillow__,f, Bpp=Bpp, Scale=Scale)
 #             #task = __HistogramFileImageMagick__(f, ProcPool=pool, Bpp=Bpp, Scale=Scale)
         FilenameToTask[f] = task
-
-    # maxVal = (1 << Bpp) - 1
-
-    if numBins is None:
-        numBins = 256
-        if Bpp > 8:
-            numBins = 2048
-    else:
-        assert(isinstance(numBins, int))
-
+        
     pool.wait_completion()
 
-    OutputMap = {}
     minVal = None
     maxVal = None
     histlist = []
+    numBins = None
     for f in list(FilenameToTask.keys()):
         task = FilenameToTask[f]
         try:
@@ -534,12 +525,14 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
             Bpp = images.GetImageBpp(filename)
         
         assert(isinstance(Bpp, int))
-        MaxVal = 1 << Bpp
+        MaxVal = (1 << Bpp) - 1
         
     if numBins is None:
         numBins = MaxVal - MinVal
     else:
         assert(isinstance(numBins, int))
+        if numBins > (MaxVal - MinVal):
+            numBins = MaxVal - MinVal
          
     # if(not Scale is None):
     #    if(Scale != 1.0):
