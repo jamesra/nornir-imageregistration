@@ -403,7 +403,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
         return dict()
 
     if Bpp is None:
-        Bpp = images.GetImageBpp(listfilenames[0])
+        Bpp = nornir_shared.images.GetImageBpp(listfilenames[0])
         
     assert isinstance(listfilenames, list)
 
@@ -430,7 +430,7 @@ def Histogram(filenames, Bpp=None, Scale=None, numBins=None, **kwargs):
     if numBins is None:
         numBins = 256
         if Bpp > 8:
-            numBins = 1024
+            numBins = 2048
     else:
         assert(isinstance(numBins, int))
 
