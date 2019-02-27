@@ -20,7 +20,7 @@ def TransformToIRToolsString(transformObj, bounds=None):
     if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
         return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=bounds)
     if isinstance(transformObj, nornir_imageregistration.transforms.Rigid):
-        return Transform.ToITKString()
+        return transformObj.ToITKString()
     else:
         return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
@@ -48,7 +48,7 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
     
-    template = " %(cx)g %(cy)g"
+    template = " %(cx).3f %(cy).3f"
 
     NumAdded = int(0)
     for CY, CX, MY, MX in Transform.points:
@@ -76,7 +76,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
-    template = " %(mx)f %(my)f %(cx)g %(cy)g"
+    template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
 
     width = right - left
     height = top - bottom

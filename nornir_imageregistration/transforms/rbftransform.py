@@ -197,12 +197,15 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             p = Points[list(range((iPointA + 1), NumPts))]
             dList = scipy.spatial.distance.cdist([Points[iPointA]], p)
 
+            dList = dList.ravel()
+            if dList.shape[0] >= 1:
+                if numpy.min(dList) <= 0:
+                    raise ValueError("Cannot have duplicate points in transform")
+                
             valueList = numpy.power(dList, 2)
-            if len(dList) > 1:
-                assert(numpy.min(dList) > 0) # "Cannot have duplicate points in transform"
                 
             valueList = numpy.multiply(valueList, numpy.log(dList))
-            valueList = valueList.ravel()
+            #valueList = valueList.ravel()
 
             BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
             BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
