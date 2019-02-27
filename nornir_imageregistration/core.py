@@ -430,6 +430,12 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
     
+    if Width < 0:
+        raise ValueError("Negative dimensions are not allowed")
+    
+    if Height < 0:
+        raise ValueError("Negative dimensions are not allowed")
+    
     image_rectangle = nornir_imageregistration.Rectangle([0, 0, image.shape[0], image.shape[1]])
     crop_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
     

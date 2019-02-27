@@ -151,11 +151,22 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
         maxCoord[1] = input_image.shape[1]
         if minCoord[1] > maxCoord[1]:
             minCoord[1] = maxCoord[1]
+            
+    if maxCoord[0] < 0:
+        maxCoord[0] = 0
+        
+    if maxCoord[1] < 0:
+        maxCoord[1] = 0
         
     Width = int(maxCoord[1] - minCoord[1])
     Height = int(maxCoord[0] - minCoord[0])
+    
+    if Width < 0:
+        Width = 0
+    if Height < 0:
+        Height = 0
 
-    cropped_image = nornir_imageregistration.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=int(maxCoord[1] - minCoord[1]), Height=int(maxCoord[0] - minCoord[0]), cval=cval)
+    cropped_image = nornir_imageregistration.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=Width, Height=Height, cval=cval)
     translated_coordinates = coordinates - minCoord
     
     return (cropped_image, translated_coordinates)
