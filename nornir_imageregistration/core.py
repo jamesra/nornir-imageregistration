@@ -526,13 +526,8 @@ def GenRandomData(height, width, mean, standardDev, min_val, max_val):
     Generate random data of shape with the specified mean and standard deviation
     '''
     image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
-
-    if mean - (standardDev * 2) < min_val:
-        image[image < min_val] = min_val
-        
-    if mean + (standardDev * 2) > max_val:
-        image[image > max_val] = max_val 
-        
+    
+    np.clip(image, a_min=min_val, a_max=max_val, out=image)        
     return image
 
 
@@ -628,7 +623,10 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
     :param ndarray image: The image data to save
     :param int bpp: The bit depth to save, if the image data bpp is higher than this value it will be reduced.  Otherwise only the bpp required to preserve the image data will be used. (8-bit data will not be upsampled to 16-bit)
     '''
-    
+    dirname = os.path.dirname(ImageFullPath)
+    if dirname is not None and len(dirname) > 0:
+        os.makedirs(dirname, exist_ok=True)
+            
     if bpp is None:
         bpp = nornir_imageregistration.ImageBpp(image)
         if bpp > 16:
@@ -669,7 +667,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
                     im = Image.fromarray(image, mode="I;{0}".format(bpp))
             else:
                 im = Image.fromarray(image, mode="I".format(bpp))
-            
+        
         im.save(ImageFullPath, **kwargs)
     
     return 
@@ -1194,9 +1192,18 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     conjFFTFixed *= FFTMoving
     
     if delete_input:
-        del FFTMoving   
+        del FFTMoving
+        
+    abs_conjFFTFixed = np.absolute(conjFFTFixed)
+    #if np.any(abs_conjFFTFixed == 0):
+        #raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
+        
+    
+    mask = abs_conjFFTFixed > 0    
 
-    conjFFTFixed /= np.absolute(conjFFTFixed)  # Numerator / Divisor
+    conjFFTFixed[mask] /= abs_conjFFTFixed[mask]  # Numerator / Divisor
+    
+    
 
     CorrelationImage = np.real(fftpack.irfft2(conjFFTFixed))
     del conjFFTFixed
