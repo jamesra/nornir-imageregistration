@@ -55,13 +55,13 @@ def AddStosTransforms(A_To_B, B_To_C, EnrichTolerance):
 class StosFile(object):
     """description of class"""
     
-    @classmethod
-    def FileHasMasks(cls, path):
+    @staticmethod
+    def FileHasMasks(path):
         stosObj = StosFile.Load(path)
         return stosObj.HasMasks
 
-    @classmethod
-    def LoadChecksum(cls, path):
+    @staticmethod
+    def LoadChecksum(path):
         assert(os.path.exists(path))
         stosObj = StosFile.Load(path)
         return stosObj.Checksum
@@ -299,8 +299,8 @@ class StosFile(object):
 
         return [mappedSection, controlSection, Channel, Filter, Source, Downsample]
 
-    @classmethod
-    def Create(cls, controlImageFullPath, mappedImageFullPath, Transform, controlMaskFullPath=None, mappedMaskFullPath=None):
+    @staticmethod
+    def Create(controlImageFullPath, mappedImageFullPath, Transform, controlMaskFullPath=None, mappedMaskFullPath=None):
         stosObj = StosFile()
         stosObj.ControlImageFullPath = controlImageFullPath
         stosObj.MappedImageFullPath = mappedImageFullPath
@@ -312,11 +312,11 @@ class StosFile(object):
 
         return stosObj
 
-    @classmethod
-    def Load(cls, filename):
+    @staticmethod
+    def Load(filename):
         if not os.path.exists(filename):
             PrettyOutput.Log("Stos file not found: " + filename)
-            return
+            return None
 
         obj = StosFile()
 
@@ -350,8 +350,8 @@ class StosFile(object):
 
         return obj
 
-    @classmethod
-    def IsValid(cls, filename):
+    @staticmethod
+    def IsValid(filename):
         '''#If stos-grid completely fails it uses the maximum float value for each data point.  This function loads the transform and ensures it is valid'''
 
         if not os.path.exists(filename):
@@ -426,7 +426,8 @@ class StosFile(object):
         OutLines.append(ControlDimStr)
         OutLines.append(MappedDimStr)
 
-        OutLines.append(StosFile.CompressedTransformString(self.Transform))
+        #OutLines.append(StosFile.CompressedTransformString(self.Transform))
+        OutLines.append(self.Transform)
 
         if AddMasks and (not (self.ControlMaskName is None or self.MappedMaskName is None)):
             OutLines.append('two_user_supplied_masks:')
@@ -443,9 +444,11 @@ class StosFile(object):
         OutFile.close()
 
 
-    @classmethod
-    def CompressedTransformString(cls, transform):
-        '''Given a list of parts builds a string where numbers are represented by the %g format'''
+    @staticmethod
+    def CompressedTransformString(transform):
+        '''Given a list of parts builds a string where numbers are represented by the %g format
+           This is no longer used when saving stos files because each transform needs a different level of precision.  However it is useful when computing checksums
+        '''
         parts = None
         if isinstance(transform, str):
             parts = transform.split()
@@ -456,7 +459,7 @@ class StosFile(object):
         for part in parts:
             try:
                 floatVal = float(part)
-                outputString += "%g " % floatVal
+                outputString += "%.4f " % floatVal
             except:
                 outputString += part + " "
 
@@ -464,15 +467,15 @@ class StosFile(object):
         outputString += "\n"
         return outputString
 
-    @classmethod
-    def __GetImageDimsArray(cls, ImageFullPath):
+    @staticmethod
+    def __GetImageDimsArray(ImageFullPath):
         '''Return a string compatible with the ITK .stos file image dimension entries'''
 
         [ImageHeight, ImageWidth] = nornir_imageregistration.core.GetImageSize(ImageFullPath)
         return [1.0, 1.0, ImageWidth, ImageHeight]
 
-    @classmethod
-    def __GetImageDimString(cls, ImageDimArray):
+    @staticmethod
+    def __GetImageDimString(ImageDimArray):
         ImageDimTemplate = "%(left)g %(bottom)g %(width)d %(height)d"
         DimStr = ImageDimTemplate % {'left' : ImageDimArray[0],
                                             'bottom' : ImageDimArray[1],

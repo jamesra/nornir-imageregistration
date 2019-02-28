@@ -6,24 +6,14 @@ Created on Apr 7, 2015
 This module performs local distortions of images to refine alignments of mosaics and sections
 '''
 
-import nornir_imageregistration
-
-import nornir_imageregistration.core as core
-import nornir_imageregistration.spatial as spatial
-import nornir_imageregistration.tile as tile
-import nornir_imageregistration.tileset as tileset
-import nornir_imageregistration.stos_brute
-import nornir_imageregistration.transforms
-import nornir_imageregistration.views as views
-from nornir_imageregistration.transforms.triangulation import Triangulation
-import nornir_imageregistration.grid_subdivision
 import nornir_pools
-import nornir_shared.histogram
-import nornir_shared.plot as plot
+import nornir_imageregistration
+import nornir_imageregistration.views.grid_data
+
+from nornir_imageregistration.transforms.triangulation import Triangulation
+
 
 import numpy as np
-from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord 
-from numpy import histogram
 import os
 
 
@@ -48,7 +38,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     if subregion_shape is None:
         subregion_shape = np.array([128, 128])
         
-    downsample = 1.0 / imageScale
+    #downsample = 1.0 / imageScale
     
     tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
     list_tiles = list(tiles.values())
@@ -56,13 +46,13 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     tasks = list()
     
     if imageScale is None:
-        imageScale = tileset.MostCommonScalar(transforms, imagepaths)
+        imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms, imagepaths)
     
     layout = nornir_imageregistration.layout.Layout()
     for t in list_tiles:
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
              
-    for A, B in tile.IterateOverlappingTiles(list_tiles, minOverlap=0.03):
+    for A, B in nornir_imageregistration.IterateOverlappingTiles(list_tiles, minOverlap=0.03):
         # OK... add some small neighborhoods and register those...
         (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
 #          
@@ -84,7 +74,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
 
     for t in tasks:
         try:
-            (point_pairs, net_offset) = t.wait_return()
+            (point_pairs, _) = t.wait_return()
         except Exception as e:
             print("Could not register %d -> %d" % (t.A.ID, t.B.ID))
             print("%s" % str(e))
@@ -115,13 +105,13 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
         
     downsample = 1.0 / imageScale
         
-    grid_dim = core.TileGridShape(overlapping_rect_A.Size, subregion_shape)
+    grid_dim = nornir_imageregistration.TileGridShape(overlapping_rect_A.Size, subregion_shape)
     
-    # overlapping_rect_A = spatial.Rectangle.change_area(overlapping_rect_A, grid_dim * subregion_shape)
-    # overlapping_rect_B = spatial.Rectangle.change_area(overlapping_rect_B, grid_dim * subregion_shape)
+    # overlapping_rect_A = nornir_imageregistration.Rectangle.change_area(overlapping_rect_A, grid_dim * subregion_shape)
+    # overlapping_rect_B = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B, grid_dim * subregion_shape)
         
-    overlapping_rect = spatial.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
-    overlapping_rect = spatial.Rectangle.change_area(overlapping_rect, grid_dim * subregion_shape * downsample)
+    overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
+    overlapping_rect = nornir_imageregistration.Rectangle.change_area(overlapping_rect, grid_dim * subregion_shape * downsample)
         
     ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=A.Transform, imagefullpath=A.ImagePath, distanceImage=None, requiredScale=imageScale, FixedRegion=overlapping_rect.ToArray())
     BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=B.Transform, imagefullpath=B.ImagePath, distanceImage=None, requiredScale=imageScale, FixedRegion=overlapping_rect.ToArray())
@@ -130,17 +120,17 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
     # OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A,excess_scalar=1.0)
     # OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B,excess_scalar=1.0)
-    A_image = core.RandomNoiseMask(ATransformedImageData.image, ATransformedImageData.centerDistanceImage < np.finfo(ATransformedImageData.centerDistanceImage.dtype).max, Copy=True)
-    B_image = core.RandomNoiseMask(BTransformedImageData.image, BTransformedImageData.centerDistanceImage < np.finfo(BTransformedImageData.centerDistanceImage.dtype).max, Copy=True)
+    A_image = nornir_imageregistration.RandomNoiseMask(ATransformedImageData.image, ATransformedImageData.centerDistanceImage < np.finfo(ATransformedImageData.centerDistanceImage.dtype).max, Copy=True)
+    B_image = nornir_imageregistration.RandomNoiseMask(BTransformedImageData.image, BTransformedImageData.centerDistanceImage < np.finfo(BTransformedImageData.centerDistanceImage.dtype).max, Copy=True)
     
     # OK, create tiles from the overlapping regions
-    # A_image = core.ReplaceImageExtramaWithNoise(ATransformedImageData.image)
-    # B_image = core.ReplaceImageExtramaWithNoise(BTransformedImageData.image)
-    # core.ShowGrayscale([A_image,B_image])
-    A_tiles = core.ImageToTiles(A_image, subregion_shape, cval='random')
-    B_tiles = core.ImageToTiles(B_image, subregion_shape, cval='random')
+    # A_image = nornir_imageregistration.ReplaceImageExtramaWithNoise(ATransformedImageData.image)
+    # B_image = nornir_imageregistration.ReplaceImageExtramaWithNoise(BTransformedImageData.image)
+    # nornir_imageregistration.ShowGrayscale([A_image,B_image])
+    A_tiles = nornir_imageregistration.ImageToTiles(A_image, subregion_shape, cval='random')
+    B_tiles = nornir_imageregistration.ImageToTiles(B_image, subregion_shape, cval='random')
     
-    # grid_dim = core.TileGridShape(ATransformedImageData.image.shape, subregion_shape)
+    # grid_dim = nornir_imageregistration.TileGridShape(ATransformedImageData.image.shape, subregion_shape)
     
     refine_dtype = np.dtype([('SourceY', 'f4'),
                            ('SourceX', 'f4'),
@@ -167,7 +157,7 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
                 continue 
             
             try:
-                record = core.FindOffset(A_tiles[iRow, iCol], B_tiles[iRow, iCol], FFT_Required=True)
+                record = nornir_imageregistration.FindOffset(A_tiles[iRow, iCol], B_tiles[iRow, iCol], FFT_Required=True)
             except:
                 net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
                 point_pairs[iRow, iCol] = np.array((source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0], 0 + global_offset[1], 0, 0), dtype=refine_dtype)
@@ -252,16 +242,16 @@ def RefineStosFile(InputStos, OutputStosPath,
     
     stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(InputStos.Transform, 1)
     
-    target_image = nornir_imageregistration.ImageParamToImageArray(InputStos.ControlImageFullPath, np.float32)
-    source_image = nornir_imageregistration.ImageParamToImageArray(InputStos.MappedImageFullPath, np.float32)
+    target_image = nornir_imageregistration.ImageParamToImageArray(InputStos.ControlImageFullPath, dtype=np.float32)
+    source_image = nornir_imageregistration.ImageParamToImageArray(InputStos.MappedImageFullPath, dtype=np.float32)
     target_mask = None
     source_mask = None
     
     if InputStos.ControlMaskFullPath is not None:
-        target_mask = core.ImageParamToImageArray(InputStos.ControlMaskFullPath, dtype=np.bool)
+        target_mask = nornir_imageregistration.ImageParamToImageArray(InputStos.ControlMaskFullPath, dtype=np.bool)
         
     if InputStos.MappedMaskFullPath is not None:
-        source_mask = core.ImageParamToImageArray(InputStos.MappedMaskFullPath, dtype=np.bool)
+        source_mask = nornir_imageregistration.ImageParamToImageArray(InputStos.MappedMaskFullPath, dtype=np.bool)
     
     output_transform = RefineTransform(stosTransform,
                                         target_image,
@@ -278,7 +268,7 @@ def RefineStosFile(InputStos, OutputStosPath,
                                         SavePlots=SavePlots,
                                         outputDir=outputDir)
     
-    InputStos.Transform = _ConvertTransformToGridTransform(output_transform,
+    InputStos.Transform = ConvertTransformToGridTransform(output_transform,
                                                            source_image_shape=source_image.shape, 
                                                            cell_size=cell_size, 
                                                            grid_spacing=grid_spacing)
@@ -345,23 +335,21 @@ def RefineTransform(stosTransform,
     cell_size = np.asarray(cell_size, dtype=np.int32) * 2.0  # Double size of cell area for first pass only
     grid_spacing = np.asarray(grid_spacing, dtype=np.int32)
           
-    target_image = nornir_imageregistration.ImageParamToImageArray(target_image)
-    source_image = nornir_imageregistration.ImageParamToImageArray(source_image)
-    target_mask = None
-    source_mask = None
+    target_image = nornir_imageregistration.ImageParamToImageArray(target_image, dtype=np.float32)
+    source_image = nornir_imageregistration.ImageParamToImageArray(source_image, dtype=np.float32)
     
     if target_mask is not None:
-        target_mask = core.ImageParamToImageArray(target_mask, dtype=np.bool)
+        target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
         
     if source_mask is not None:
-        source_mask = core.ImageParamToImageArray(source_mask, dtype=np.bool)
+        source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
 
     final_pass = False  # True if this is the last iteration the loop will perform
     final_pass_angles = np.linspace(-7.5, 7.5, 11)  # The last registration we perform on a cell is a bit more thorough
      
     finalized_points = {}
       
-    CutoffPercentilePerIteration = 10
+    CutoffPercentilePerIteration = 10.0
     
     i = 1
     
@@ -396,13 +384,13 @@ def RefineTransform(stosTransform,
             
         if SavePlots:
             histogram_filename = os.path.join(outputDir, 'weight_histogram_pass{0}.png'.format(i))
-            views.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile / 100.0)
+            nornir_imageregistration.views.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile / 100.0)
             vector_field_filename = os.path.join(outputDir, 'Vector_field_pass{0}.png'.format(i))
-            views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
+            nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
                                                       ylim=(0, target_image.shape[1]),
                                                       xlim=(0, target_image.shape[0]))
             vector_field_filename = os.path.join(outputDir, 'Vector_field_pass_delta{0}.png'.format(i))
-            views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
+            nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
                                                       ylim=(0, target_image.shape[1]),
                                                       xlim=(0, target_image.shape[0]),
                                                       attrib='PSDDelta')
@@ -433,7 +421,7 @@ def RefineTransform(stosTransform,
             
             if refined_align_record.weight > record.weight:
                 oldPSDDelta = record.PSDDelta
-                record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
+                record = nornir_imageregistration.EnhancedAlignmentRecord(ID=record.ID,
                                                                              TargetPoint=record.TargetPoint,
                                                                              SourcePoint=record.SourcePoint,
                                                                              peak=refined_align_record.peak,
@@ -443,7 +431,7 @@ def RefineTransform(stosTransform,
                 record.PSDDelta =  oldPSDDelta
              
             # Create a record that is unmoving
-            finalized_points[key] = EnhancedAlignmentRecord(record.ID,
+            finalized_points[key] = nornir_imageregistration.EnhancedAlignmentRecord(record.ID,
                                                              TargetPoint=record.AdjustedTargetPoint,
                                                              SourcePoint=record.SourcePoint,
                                                              peak=np.asarray((0, 0), dtype=np.float32),
@@ -517,8 +505,8 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     grid_spacing = np.asarray(grid_spacing, np.int32)
     cell_size = np.asarray(cell_size, np.int32)
         
-    target_image = nornir_imageregistration.ImageParamToImageArray(target_image, np.float32)
-    source_image = nornir_imageregistration.ImageParamToImageArray(source_image, np.float32)
+    target_image = nornir_imageregistration.ImageParamToImageArray(target_image, dtype=np.float32)
+    source_image = nornir_imageregistration.ImageParamToImageArray(source_image, dtype=np.float32)
     
     if target_mask is not None:
         target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
@@ -528,19 +516,19 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
         source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
         source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask)
     
-#     shared_fixed_image  = core.npArrayToReadOnlySharedArray(target_image)
+#     shared_fixed_image  = nornir_imageregistration.npArrayToReadOnlySharedArray(target_image)
 #     shared_fixed_image.mode = 'r'
-#     shared_warped_image = core.npArrayToReadOnlySharedArray(source_image)
+#     shared_warped_image = nornir_imageregistration.npArrayToReadOnlySharedArray(source_image)
 #     shared_warped_image.mode = 'r'
     
     # Mark a grid along the fixed image, then find the points on the warped image
     
     # grid_data = nornir_imageregistration.grid_subdivision.CenteredGridRefinementCells(target_image.shape, cell_size)
-    grid_data = nornir_imageregistration.grid_subdivision.ITKGridDivision(target_image.shape,
+    grid_data = nornir_imageregistration.ITKGridDivision(source_image.shape,
                                                                           cell_size=cell_size,
                                                                           grid_spacing=grid_spacing)
     
-    # grid_dims = core.TileGridShape(target_image.shape, grid_spacing)
+    # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
     
     if angles_to_search is None:
         angles_to_search = [0]
@@ -556,13 +544,16 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     # Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
 #    overage = ((grid_dims * grid_spacing) - target_image.shape) / 2.0
 #    TargetPoints = np.round(TargetPoints - overage).astype(np.int64)
-    
     # TODO, ensure fixedPoints are within the bounds of target_image
     grid_data.FilterOutofBoundsSourcePoints(source_image.shape)
     grid_data.RemoveCellsUsingSourceImageMask(source_mask, 0.45)
+    #nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.SourcePoints, source_mask, OutputFilename=None)
+    
     grid_data.PopulateTargetPoints(Transform)
     grid_data.RemoveCellsUsingTargetImageMask(target_mask, 0.45)
-     # grid_data.ApplyWarpedImageMask(source_mask)
+    
+    #nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.TargetPoints, target_mask, OutputFilename=None)
+    # grid_data.ApplyWarpedImageMask(source_mask)
 #     valid_inbounds = np.logical_and(np.all(FixedPoi4nts >= np.asarray((0, 0)), 1), np.all(TargetPoints < target_mask.shape, 1))
 #     TargetPoints = TargetPoints[valid_inbounds, :]
 #     coords = coords[valid_inbounds, :]
@@ -594,7 +585,7 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
 #         coords = coords[valid, :]
     
     pool = nornir_pools.GetGlobalMultithreadingPool()
-    #pool = nornir_pools.GetGlobalSerialPool()
+    #pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
     
@@ -605,6 +596,7 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
         AlignTask = StartAttemptAlignPoint(pool,
                                            "Align %d,%d" % (coord[0], coord[1]),
                                            rigid_transforms[i],
+                                           #Transform,
                                            target_image,
                                            source_image,
                                            grid_data.TargetPoints[i, :],
@@ -639,7 +631,7 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     for t in tasks:
         arecord = t.wait_return()
         
-        erec = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=t.coord,
+        erec = nornir_imageregistration.EnhancedAlignmentRecord(ID=t.coord,
                                                                                  TargetPoint=grid_data.TargetPoints[t.ID],
                                                                                  SourcePoint=grid_data.SourcePoints[t.ID],
                                                                                  peak=arecord.peak,
@@ -715,7 +707,7 @@ def _PeakListToTransform(alignment_records, percentile=None):
     return T
 
 
-def _ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
+def ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the _RunRefineTwoImagesIteration function into a transform
     '''
@@ -723,7 +715,7 @@ def _ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=No
     if isinstance(Transform, str):
         Transform = nornir_imageregistration.transforms.factory.LoadTransform(Transform, 1)
     
-    grid_data = nornir_imageregistration.grid_subdivision.ITKGridDivision(source_image_shape, cell_size=cell_size, grid_spacing=grid_spacing, grid_dims=grid_dims)
+    grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size, grid_spacing=grid_spacing, grid_dims=grid_dims)
     grid_data.PopulateTargetPoints(Transform)
     
     PointPairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
@@ -800,7 +792,7 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
     warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
                             fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
 
-    fixedImageROI = nornir_imageregistration.core.CropImage(fixedImage.copy(), FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
+    fixedImageROI = nornir_imageregistration.CropImage(fixedImage.copy(), FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]), cval="random")
      
     fixedImageROI.setflags(write=False)
 
@@ -808,12 +800,12 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
 
     pool = nornir_pools.GetGlobalThreadPool()
 
-    # task = pool.add_task("AttemptAlignPoint", core.FindOffset, fixedImageROI, warpedImageROI, MinOverlap = 0.2)
+    # task = pool.add_task("AttemptAlignPoint", nornir_imageregistration.FindOffset, fixedImageROI, warpedImageROI, MinOverlap = 0.2)
     # apoint = task.wait_return()
-    # apoint = core.FindOffset(fixedImageROI, warpedImageROI, MinOverlap=0.2)
+    # apoint = nornir_imageregistration.FindOffset(fixedImageROI, warpedImageROI, MinOverlap=0.2)
     # nornir_imageregistration.ShowGrayscale([fixedImageROI, warpedImageROI], "Fixed <---> Warped")
     
-    # core.ShowGrayscale([fixedImageROI, warpedImageROI])
+    # nornir_imageregistration.ShowGrayscale([fixedImageROI, warpedImageROI])
     
     t = pool.add_task("Rigid align point {0},{1}".format(controlpoint[1],controlpoint[0]),
                         nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
@@ -857,15 +849,19 @@ def ApproximateRigidTransform(input_transform, target_points):
     offsets = np.tile(offset, (numPoints,1))
     origins = np.tile(np.array([0,0]), (numPoints,1))
     
+    recalculated_target_points = input_transform.Transform(source_points)
     offset_target_points = input_transform.Transform(offset_source_points)
     
-    target_delta = offset_target_points - target_points
+    target_delta = offset_target_points - recalculated_target_points
     
     angles = -nornir_imageregistration.ArcAngle(origins, offsets, target_delta)
     
     target_offsets = target_points - source_points  
     
-    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i], source_rotation_center=source_points[i], angle=angles[i]) for i in range(0,len(angles))]
+    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
+                                                                   source_rotation_center=source_points[i],
+                                                                   angle=angles[i]) 
+                        for i in range(0,len(angles))]
     
     return output_transforms
     
@@ -889,7 +885,10 @@ def StartAttemptAlignPoint(pool, taskname, transform,
     sourceImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
                             targetImage.shape, sourceImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
 
-    targetImageROI = nornir_imageregistration.CropImage(targetImage, FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]))
+    targetImageROI = nornir_imageregistration.CropImage(targetImage,
+                                                        FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0],
+                                                        int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]),
+                                                        cval="random")
 
     #Just ignore pure color regions
     if np.all(sourceImageROI == sourceImageROI[0][0]):
@@ -897,16 +896,16 @@ def StartAttemptAlignPoint(pool, taskname, transform,
     if np.all(targetImageROI == targetImageROI[0][0]):
         return None
     
-    # nornir_imageregistration.core.ShowGrayscale([targetImageROI, sourceImageROI])
+    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
 
     # pool = Pools.GetGlobalMultithreadingPool()
 
-    # task = pool.add_task("AttemptAlignPoint", core.FindOffset, targetImageROI, sourceImageROI, MinOverlap = 0.2)
+    # task = pool.add_task("AttemptAlignPoint", nornir_imageregistration.FindOffset, targetImageROI, sourceImageROI, MinOverlap = 0.2)
     # apoint = task.wait_return()
-    # apoint = core.FindOffset(targetImageROI, sourceImageROI, MinOverlap=0.2)
+    # apoint = nornir_imageregistration.FindOffset(targetImageROI, sourceImageROI, MinOverlap=0.2)
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI], "Fixed <---> Warped")
     
-    # core.ShowGrayscale([targetImageROI, sourceImageROI])
+    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
     
 #     nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
 #                         targetImageROI,
