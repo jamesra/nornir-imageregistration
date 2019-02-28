@@ -114,6 +114,9 @@ class MeshWithRBFFallback(triangulation.Triangulation):
                 BadPoints = points;
 
         BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32);
+        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
+            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+            
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints);
 
         TransformedPoints[InvalidIndicies] = FixedPoints;
