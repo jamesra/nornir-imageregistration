@@ -459,7 +459,7 @@ class StosFile(object):
         for part in parts:
             try:
                 floatVal = float(part)
-                outputString += "%.4f " % floatVal
+                outputString += "%g " % floatVal
             except:
                 outputString += part + " "
 
