@@ -12,8 +12,7 @@ from time import sleep
 
 import nornir_imageregistration
 from numpy.fft import fftshift
-
-import nornir_imageregistration.core as core
+ 
 import nornir_pools
 import numpy as np
 import scipy.ndimage.interpolation as interpolation
@@ -37,27 +36,27 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = core.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float16)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = core.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float16)
     else:
         imWarped = WarpedImageInput
 
     scalar = 1.0
     if not LargestDimension is None:
-        scalar = core.ScalarForMaxDimension(LargestDimension, [imFixed.shape, imWarped.shape])
+        scalar = nornir_imageregistration.ScalarForMaxDimension(LargestDimension, [imFixed.shape, imWarped.shape])
 
     if scalar < 1.0:
-        imFixed = core.ReduceImage(imFixed, scalar)
-        imWarped = core.ReduceImage(imWarped, scalar)
+        imFixed = nornir_imageregistration.ReduceImage(imFixed, scalar)
+        imWarped = nornir_imageregistration.ReduceImage(imWarped, scalar)
 
     # Replace extrema with noise
-    imFixed = core.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
-    imWarped = core.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
+    imFixed = nornir_imageregistration.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
+    imWarped = nornir_imageregistration.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
 
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
@@ -98,8 +97,8 @@ def SliceToSliceBruteForce(FixedImageInput,
 def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = core.ImageParamToImageArray(imFixed, dtype=np.float32)
-    imWarped = core.ImageParamToImageArray(imWarped, dtype=np.float32)
+    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed, dtype=np.float32)
+    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped, dtype=np.float32)
 
 
     # gc.set_debug(gc.DEBUG_LEAK)
@@ -117,13 +116,13 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
         OKToDelimWarped = True
 
 
-    RotatedWarped = core.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
+    RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 
     assert(RotatedWarped.shape[0] > 0)
     assert(RotatedWarped.shape[1] > 0)
 
     if not FixedImagePrePadded:
-        PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=MinOverlap)
+        PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=MinOverlap)
     else:
         PaddedFixed = imFixed
 
@@ -132,8 +131,8 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
     TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
     TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
 
-    PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
-    RotatedPaddedWarped = core.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
+    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
+    RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
 
     #if OKToDelimWarped:
     del imWarped
@@ -144,7 +143,7 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
 
     assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
 
-    CorrelationImage = core.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
+    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
     del PaddedFixed
     del RotatedPaddedWarped
@@ -156,7 +155,7 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
     # Timer.Start('Find Peak')
 
     OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
-    (peak, weight) = core.FindPeak(CorrelationImage, OverlapMask)
+    (peak, weight) = nornir_imageregistration.FindPeak(CorrelationImage, OverlapMask)
     del OverlapMask
 
     del CorrelationImage
@@ -210,19 +209,19 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 
-    PaddedFixed = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
+    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
 
     # Create a shared read-only memory map for the Padded fixed image
 
     if not (Cluster or SingleThread):
-        temp_padded_fixed_memmap = core.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
-        temp_shared_warp_memmap = core.CreateTemporaryReadonlyMemmapFile(imWarped)
+        temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
+        temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
 
         temp_padded_fixed_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
         temp_shared_warp_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
 
-        # SharedPaddedFixed = core.npArrayToReadOnlySharedArray(PaddedFixed)
-        # SharedWarped = core.npArrayToReadOnlySharedArray(imWarped)
+        # SharedPaddedFixed = nornir_imageregistration.npArrayToReadOnlySharedArray(PaddedFixed)
+        # SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
         SharedPaddedFixed = PaddedFixed

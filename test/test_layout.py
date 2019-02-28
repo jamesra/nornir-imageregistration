@@ -8,8 +8,8 @@ import unittest
 from nornir_imageregistration.layout import *
 
 import nornir_pools
-import nornir_shared.plot
-import nornir_shared.plot as plot
+import nornir_shared.plot 
+import nornir_imageregistration
 import numpy as np
 import os
 
@@ -31,12 +31,12 @@ class TestLayoutPosition(setup_imagetest.TestBase):
     def test_Basics(self):
         
         p_position = (0, 0)
-        p = LayoutPosition(1, p_position)
+        p = nornir_imageregistration.layout.LayoutPosition(1, p_position)
         self._CheckLayoutPositionCreate(p, 1, p_position)
         
         
         p2_position = (10, 10)
-        p2 = LayoutPosition(2, p2_position)
+        p2 = nornir_imageregistration.layout.LayoutPosition(2, p2_position)
         self._CheckLayoutPositionCreate(p2, 2, p2_position) 
         
         offset = np.array((5, 5))
@@ -51,7 +51,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         Create a cross of five positions that should perfectly cancel to produce an offset vector of zero for the center
         '''
         
-        spring_layout = Layout()
+        spring_layout = nornir_imageregistration.layout.Layout()
         
         positions = np.array([[0, 0],
                                 [10, 0],
@@ -80,7 +80,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         '''
         Same as test_cross, but position all of the points at the same location
         '''
-        spring_layout = Layout()
+        spring_layout = nornir_imageregistration.layout.Layout()
         
         positions = np.array([[0, 0],
                                 [10, 0],
@@ -106,7 +106,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         self.assertTrue(np.all(spring_layout.NetTensionVector(4) == np.array(positions[4, :])))
         
         # OK, try to relax the layout and see where the nodes land
-        displacements = Layout.RelaxNodes(spring_layout, vector_scalar=1.0)
+        displacements = nornir_imageregistration.layout.Layout.RelaxNodes(spring_layout, vector_scalar=1.0)
         
         self.assertTrue(np.all(spring_layout.NetTensionVector(0) == np.array([0, 0])))
         self.assertTrue(np.all(spring_layout.NetTensionVector(1) == np.array([0, 0])))
@@ -121,7 +121,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         self.assertTrue(np.all(spring_layout.GetPosition(4) == np.array(positions[4, :])))
         
         # Nothing should happen on the second pass
-        displacements = Layout.RelaxNodes(spring_layout)
+        displacements = nornir_imageregistration.layout.Layout.RelaxNodes(spring_layout)
         
         self.assertTrue(np.all(spring_layout.NetTensionVector(0) == np.array([0, 0])))
         self.assertTrue(np.all(spring_layout.NetTensionVector(1) == np.array([0, 0])))
@@ -178,7 +178,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         '''
         Three points on a line
         '''
-        spring_layout = Layout()
+        spring_layout = nornir_imageregistration.layout.Layout()
         
         positions = np.array([[0, 0],
                                 [10, 5],
@@ -216,7 +216,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         '''
         Three points on a line with inconsistent desired offsets and weights
         '''
-        spring_layout = Layout()
+        spring_layout = nornir_imageregistration.layout.Layout()
 
         positions = np.array([[0, 0],
                                 [10, 5],

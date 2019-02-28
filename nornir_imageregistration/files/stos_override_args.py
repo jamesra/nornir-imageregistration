@@ -5,7 +5,7 @@ Created on Oct 29, 2018
 '''
 
 import os
-import nornir_imageregistration.files
+import nornir_imageregistration
 
 class StosOverrideArgs(object):
     '''
