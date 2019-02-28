@@ -21,16 +21,16 @@ if __name__ == '__main__':
     
     #Starting with 1.3.4 Image Magick 7 is required
 
-    install_requires = ["nornir_pools>=1.3.3",
-                        "nornir_shared>=1.3.5",
+    install_requires = ["nornir_pools>=1.4",
+                        "nornir_shared>=1.4",
                         "numpy>=1.9.1",
                         "scipy>=0.13.2",
                         "matplotlib>=1.3.0",
                         "Pillow-SIMD>=5.3",
                         "six"]
 
-    dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.3.3",
-                        "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.3.3"]
+    dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.4",
+                        "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.4"]
 
     scripts = ['nornir-addtransforms = nornir_imageregistration.scripts.nornir_addtransforms:Execute',
                'nornir-assemble-tiles = nornir_imageregistration.scripts.nornir_assemble_tiles:Execute',
