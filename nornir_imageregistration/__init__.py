@@ -32,6 +32,7 @@ from nornir_imageregistration.overlapmasking import GetOverlapMask
 from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineStosFile, RefineTransform
 
 import nornir_imageregistration.files as files
+import nornir_imageregistration.stos_brute as stos_brute
 import nornir_imageregistration.tile as tile
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
@@ -39,6 +40,7 @@ import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.image_stats as image_stats
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.views as views
+import nornir_imageregistration.layout as layout
 import nornir_imageregistration.local_distortion_correction as local_distortion_correction
 
 from nornir_imageregistration.spatial.indicies import *
