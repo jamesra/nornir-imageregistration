@@ -202,21 +202,29 @@ def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
     nornir_imageregistration.SaveImage(OutFile, resized_image)
     
 def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
-    img = Image.open(InFile)
-    dims = np.asarray(img.size).astype(dtype=np.float32)
     
-    desired_dims = dims * Scalar
-    desired_dims = np.around(desired_dims).astype(dtype=np.int64)
+    resample = kwargs.pop('resample', None)
     
-    resampler = Image.BILINEAR
-    if Scalar < 1.0:
-        resampler = Image.BICUBIC
+    if resample is None:
+        resample = resample = Image.BILINEAR
+        if Scalar < 1.0:
+            resample = Image.LANCZOS
     
-    shrunk_img = img.resize(size=desired_dims, resample=resampler)
-    img.close()
-    
-    shrunk_img.save(OutFile, **kwargs)
-    shrunk_img.close()
+    with Image.open(InFile, mode='r') as img:
+        
+        dims = np.asarray(img.size).astype(dtype=np.float32)
+        desired_dims = dims * Scalar
+        desired_dims = np.around(desired_dims).astype(dtype=np.int64)
+         
+        shrunk_img = img.resize(size=desired_dims, resample=resample)
+        img.close()
+        del img
+        
+        shrunk_img.save(OutFile, **kwargs)
+        shrunk_img.close()
+        del shrunk_img
+        
+    return None
     
 
 # Shrinks the passed image file, return procedure handle of invoked command
@@ -232,7 +240,8 @@ def Shrink(InFile, OutFile, Scalar, **kwargs):
         _ShrinkNumpyImageFile(InFile, OutFile, Scalar, **kwargs)
     else:
         _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs)
-
+        
+        
 def ResizeImage(image, scalar):
     '''Change image size by scalar'''
     
