@@ -37,7 +37,7 @@ class GridDivisionBase(object):
         
     def PopulateTargetPoints(self, transform):
         if transform is not None:
-            self.TargetPoints = transform.Transform(self.SourcePoints).astype(np.int64)
+            self.TargetPoints = np.round(transform.Transform(self.SourcePoints),0).astype(np.int64)
             return self.TargetPoints 
         
     def RemoveMaskedPoints(self, mask):
