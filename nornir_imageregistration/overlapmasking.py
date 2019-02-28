@@ -73,7 +73,12 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
     :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
     :return: An mxn image mask, with 1 indicating allowed peak locations
     '''
-
+    if MinOverlap is None:
+        MinOverlap = 0.0
+        
+    if MaxOverlap is None:
+        MaxOverlap = 1.0
+        
     if MinOverlap >= MaxOverlap:
         raise ValueError("Minimum overlap must be less than maximum overlap")
 
