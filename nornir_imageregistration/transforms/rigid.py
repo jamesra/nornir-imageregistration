@@ -39,8 +39,8 @@ class RigidNoRotation(base.Base):
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
         
-    @classmethod
-    def Load(cls, TransformString):
+    @staticmethod
+    def Load(TransformString):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
     
     def ToITKString(self):
@@ -92,8 +92,8 @@ class Rigid(RigidNoRotation):
         self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
         self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
         
-    @classmethod
-    def Load(cls, TransformString):
+    @staticmethod
+    def Load(TransformString):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
     
     def ToITKString(self):
