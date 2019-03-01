@@ -39,7 +39,13 @@ class testHistogram(ImageStatsBase):
         maxVal = None;
         #Scale = 0.125
         Scale = 1
-        numBins = 2048
+        
+        numBins = None
+        
+        if Bpp == 8:
+            numBins = 256
+        else:
+            numBins = 2048
 
         self.assertTrue(os.path.exists(File), "Input image missing " + File)
 
@@ -137,13 +143,16 @@ class testHistogram(ImageStatsBase):
         histA_Scipy = self.HistogramFromFileSciPy(tileAFullPath)
         self.assertIsNotNone(histA_Scipy)
         self.assertEqual(histA_Scipy.MinValue, 0)
-        self.assertEqual(histA_Scipy.MaxValue, 1) 
+        self.assertEqual(histA_Scipy.MaxValue, 255) 
         
         histA = self.HistogramFromFileImageMagick(tileAFullPath)
         self.assertIsNotNone(histA)
         self.assertEqual(histA.MinValue, 0)
-        self.assertEqual(histA.MaxValue, 247)
+        self.assertEqual(histA.MaxValue, 255)
         self.SaveHistogram(histA, 'A')
+        
+        for i, binVal in enumerate(histA.Bins):
+            assert(binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i]))
         
         self.assertEqual(histA.MinValue, histA_Scipy.MinValue)
         self.assertEqual(histA.MaxValue, histA_Scipy.MaxValue)
@@ -151,16 +160,20 @@ class testHistogram(ImageStatsBase):
         histB_Scipy = self.HistogramFromFileSciPy(tileBFullPath);
         self.assertIsNotNone(histB_Scipy)
         self.assertEqual(histB_Scipy.MinValue, 0)
-        self.assertEqual(histB_Scipy.MaxValue, 1)
+        self.assertEqual(histB_Scipy.MaxValue, 255)
          
         # Can we add them together? 
 
         histB = self.HistogramFromFileImageMagick(tileBFullPath);
         self.assertIsNotNone(histB)
         self.assertEqual(histA.MinValue, 0)
-        self.assertEqual(histA.MaxValue, 247)
+        self.assertEqual(histA.MaxValue, 255)
         # Can we add them together?
         self.SaveHistogram(histB, 'B')
+        
+        for i, binVal in enumerate(histB.Bins):
+            assert(binVal == histB_Scipy.Bins[i], "Histogram B Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histB_Scipy.Bins[i]))
+        
         
         self.assertEqual(histB.MinValue, histB_Scipy.MinValue)
         self.assertEqual(histB.MaxValue, histB_Scipy.MaxValue)
@@ -168,6 +181,12 @@ class testHistogram(ImageStatsBase):
         HistogramComposite = image_stats.Histogram([tileAFullPath, tileBFullPath], Scale=0.125, Bpp=16);
         self.assertEqual(HistogramComposite.MinValue, min(histA.MinValue, histB.MinValue))
         self.assertEqual(HistogramComposite.MaxValue, max(histA.MaxValue, histB.MaxValue))
+        
+        TestComposite = histA
+        TestComposite.AddHistogram(histB_Scipy)
+        
+        for i, binVal in enumerate(TestComposite.Bins):
+            assert(binVal == HistogramComposite.Bins[i], "Composite Bin {0} has mismatched values {1} vs {2}".format(i, binVal, HistogramComposite.Bins[i]))
 
         # We know that histA has the lower value, so our first bin value should match
         self.assertEqual(HistogramComposite.Bins[0], histA.Bins[0])
