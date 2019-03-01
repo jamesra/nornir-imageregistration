@@ -36,13 +36,13 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float16)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float16)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
     else:
         imWarped = WarpedImageInput
 
