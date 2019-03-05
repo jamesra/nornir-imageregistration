@@ -554,7 +554,7 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
     # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     #In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
     [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range=[MinVal, MaxVal])
-    binWidth = (MaxVal - MinVal) // len(histogram_array)
+    binWidth = (MaxVal - MinVal) / len(histogram_array)
     assert(binWidth > 0)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
     
