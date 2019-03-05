@@ -212,7 +212,12 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         subroi_warpedImage = WarpedImage
     
-    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
+    #Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
+    warped_coords = np.around(warped_coords, 3)
+    
+    #TODO: Order appears to not matter so setting to zero may help
+    #outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
+    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=0, cval=cval)
     
     #Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
     np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
