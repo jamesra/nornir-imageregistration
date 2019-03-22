@@ -16,7 +16,7 @@ from .base import *
 import nornir_imageregistration 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
-from scipy.interpolate import griddata, LinearNDInterpolator 
+from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInterpolator
 import scipy.spatial
  
 import numpy as np 
@@ -193,8 +193,8 @@ class Triangulation(Base):
 
         return invalid_indicies
 
-    @classmethod
-    def RemoveDuplicates(cls, points):
+    @staticmethod
+    def RemoveDuplicates(points):
         '''Returns tuple of the array sorted on fixed x,y without duplicates'''
 
         (points, indicies) = utils.InvalidIndicies(points)
@@ -262,6 +262,7 @@ class Triangulation(Base):
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
+            #self._ForwardInterpolator = CloughTocher2DInterpolator(self.warpedtri, self.TargetPoints)
             self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
 
         return self._ForwardInterpolator
@@ -269,6 +270,7 @@ class Triangulation(Base):
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
+            #self._InverseInterpolator = CloughTocher2DInterpolator(self.fixedtri, self.SourcePoints)
             self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
