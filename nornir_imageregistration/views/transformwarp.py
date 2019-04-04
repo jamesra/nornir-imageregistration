@@ -61,13 +61,19 @@ class TransformWarpView:
     
         
         
-    def GenerateWarpImage(self, title=None, outputfullpath=None):
+    def GenerateWarpImage(self, title=None, outputfullpath=None, maxAngle=None):
         '''Generate a plot for the change in angles for verticies
         :param str outputfullpath: Filename to save, if None then display interactively
+        :param float maxAngle: The angle that maps to the highest value in the temperature map of the output.  Defaults to maximum angle found
         '''
         
-        #maxVal = numpy.max(list(map(numpy.max, self.angle_delta)))
-        maxVal = numpy.pi / 12.0 #Maximum angle change is 60
+        
+        if maxAngle is None:
+            maxAngle = numpy.max(list(map(numpy.max, self.angle_delta)))
+        else:
+            maxAngle = (maxAngle / 180) * numpy.pi
+             
+        #maxVal = numpy.pi / 12.0 #Maximum angle change is 60
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
         points = self.transform.SourcePoints
@@ -81,7 +87,7 @@ class TransformWarpView:
         ax1.set_aspect('equal')
         ax1.axis('off')
         #ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:,1], points[:,0], self.transform.WarpedTriangles, measurement, vmin=0, vmax=maxVal, shading='gouraud')
+        tpc = ax1.tripcolor(points[:,1], points[:,0], self.transform.WarpedTriangles, measurement, vmin=0, vmax=maxAngle, shading='gouraud')
 
         cbar = fig1.colorbar(tpc)
         cbar.set_label('Angle delta (radians)')
