@@ -50,7 +50,7 @@ class TransformedImageData(object):
 #         odict = {} 
 #         odict["_image"] = self._image
 #         odict["_centerDistanceImage"] = self._centerDistanceImage 
-#         odict["_transformScale"] = self._transformScale
+#         odict["_source_space_scale"] = self._source_space_scale
 #         odict["_transform"] = self._transform
 #         odict["_errmsg"] = self._errmsg
 #         odict["_image_path"] = self._image_path
@@ -87,8 +87,12 @@ class TransformedImageData(object):
         return self._centerDistanceImage
 
     @property
-    def transformScale(self):
-        return self._transformScale
+    def source_space_scale(self):
+        return self._source_space_scale
+    
+    @property
+    def target_space_scale(self):
+        return self._target_space_scale
 
     @property
     def transform(self):
@@ -106,14 +110,15 @@ class TransformedImageData(object):
         return self._tempdir
 
     @classmethod
-    def Create(cls, image, centerDistanceImage, transform, scale, SingleThreadedInvoke):
+    def Create(cls, image, centerDistanceImage, transform, source_space_scale, target_space_scale, SingleThreadedInvoke):
         o = TransformedImageData()
         o._image = image
         o._centerDistanceImage = centerDistanceImage
         
         o._image_path = None
         o._centerDistanceImage_path = None
-        o._transformScale = scale
+        o._source_space_scale = source_space_scale
+        o._target_space_scale = target_space_scale
         #o._transform = transform
         
         if not SingleThreadedInvoke:
@@ -154,7 +159,8 @@ class TransformedImageData(object):
         '''Sets attributes to None to encourage garbage collection'''
         self._image = None
         self._centerDistanceImage = None
-        self._transformScale = None
+        self._source_space_scale = None
+        self._target_space_scale = None
         self._transform = None
         
         if not self._centerDistanceImage_path is None or not self._image_path is None:
@@ -186,7 +192,8 @@ class TransformedImageData(object):
     def __init__(self, errorMsg=None):
         self._image = None
         self._centerDistanceImage = None
-        self._transformScale = None
+        self._source_space_scale = None
+        self._target_space_scale = None
         self._transform = None
         self._errmsg = errorMsg
         self._image_path = None
@@ -341,7 +348,7 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
     
     return fullImageZbuffer
 # 
-# def __CreateOutputBufferForTransforms(transforms, requiredScale=None):
+# def __CreateOutputBufferForTransforms(transforms, target_space_scale=None):
 #     '''Create output images using the passed rectangle
 #     :param tuple rectangle: (minY, minX, maxY, maxX)
 #     :return: (fullImage, ZBuffer)
@@ -349,7 +356,7 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
 #     fullImage = None
 #     fixed_bounding_box = tutils.FixedBoundingBox(transforms)
 #     (maxY, maxX) = fixed_bounding_box.shape
-#     fullImage_shape = (int(np.ceil(requiredScale * maxY)), int(np.ceil(requiredScale * maxX)))
+#     fullImage_shape = (int(np.ceil(target_space_scale * maxY)), int(np.ceil(target_space_scale * maxX)))
 # 
 #     if use_memmap:
 #         try:
@@ -369,12 +376,12 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
 #     return (fullImage, fullImageZbuffer)
 
 
-def __CreateOutputBufferForArea(Height, Width, requiredScale=None):
+def __CreateOutputBufferForArea(Height, Width, target_space_scale=None):
     '''Create output images using the passed width and height
     '''
     global use_memmap
     fullImage = None
-    fullImage_shape = (int(Height), int(Width)) #(int(np.ceil(requiredScale * Height)), int(np.ceil(requiredScale * Width)))
+    fullImage_shape = (int(Height), int(Width)) #(int(np.ceil(target_space_scale * Height)), int(np.ceil(target_space_scale * Width)))
 
     if False: #use_memmap:
         try:
@@ -437,59 +444,65 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
     return __GetOrCreateCachedDistanceImage(imageShape)
 
 
-def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
+def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=None, source_space_scale=None):
     '''
-    Generate an image of the FixedRegion.
-    :param tuple FixedRegion: (MinX, MinY, Width, Height)
-
+    Generate an image of the TargetRegion.
+    :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
+    :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
+    :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
+    4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
     '''
 
     assert(len(transforms) == len(imagepaths))
 
     # logger = logging.getLogger(__name__ + '.TilesToImage')
-
-    if requiredScale is None:
-        requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
+    if source_space_scale is None:
+        source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
 
     distanceImage = None 
     original_fixed_rect_floats = None
     
-    if not FixedRegion is None:
-        if isinstance(FixedRegion, spatial.Rectangle):
-            original_fixed_rect_floats = FixedRegion
+    if not TargetRegion is None:
+        if isinstance(TargetRegion, spatial.Rectangle):
+            original_fixed_rect_floats = TargetRegion
         else: 
-            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
+            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
     else:
         original_fixed_rect_floats = tutils.FixedBoundingBox(transforms)
         
-    scaled_fixedRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, requiredScale)
-    scaled_fixedRect = nornir_imageregistration.Rectangle.SafeRound(scaled_fixedRect)  
-    fixedRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_fixedRect, 1.0/requiredScale)
-
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_fixedRect.Height, scaled_fixedRect.Width, requiredScale)
+    scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
+    scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
+    targetRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale)
 
     for i, transform in enumerate(transforms): 
         regionToRender = None
         original_transform_fixed_rect = spatial.Rectangle(transform.FixedBoundingBox)
-        transform_fixed_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
+        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
         
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(fixedRect, transform_fixed_rect)
+        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
         if regionToRender is None:
             continue
         
         if regionToRender.Area == 0:
             continue 
         
-        scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, requiredScale)
+        scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
         scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
                       
         imagefullpath = imagepaths[i]
         
         distanceImage = __GetOrCreateDistanceImage(distanceImage, nornir_imageregistration.GetImageSize(imagefullpath))
         
-        transformedImageData = TransformTile(transform, imagefullpath, distanceImage, requiredScale=requiredScale, FixedRegion=regionToRender, SingleThreadedInvoke=True)
-
-        CompositeOffset = scaled_region_rendered.BottomLeft - scaled_fixedRect.BottomLeft
+        transformedImageData = TransformTile(transform, imagefullpath, distanceImage, target_space_scale=target_space_scale, TargetRegion=regionToRender, SingleThreadedInvoke=True)
+        if transformedImageData.image is None:
+            logger = logging.getLogger('TilesToImageParallel')
+            logger.error('Convert task failed: ' + str(transformedImageData))
+            if not transformedImageData.errormsg is None:
+                logger.error(transformedImageData.errormsg) 
+                continue
+        
+        CompositeOffset = scaled_region_rendered.BottomLeft - scaled_targetRect.BottomLeft
         CompositeOffset = CompositeOffset.astype(np.int64)
         
         CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
@@ -512,8 +525,13 @@ def TilesToImage(transforms, imagepaths, FixedRegion=None, requiredScale=None):
     return (fullImage, mask)
 
 
-def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale=None, pool=None):
-    '''Assembles a set of transforms and imagepaths to a single image using parallel techniques'''
+def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space_scale=None, source_space_scale=None, pool=None):
+    '''Assembles a set of transforms and imagepaths to a single image using parallel techniques.
+    :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
+    :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
+    :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
+    4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
+    '''
 
     assert(len(transforms) == len(imagepaths))
 
@@ -525,40 +543,40 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     # pool = nornir_pools.GetGlobalSerialPool()
 
     tasks = []
-    if requiredScale is None:
-        requiredScale = tiles.MostCommonScalar(transforms, imagepaths)
+    if source_space_scale is None:
+        source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
 
     distanceImage = None 
     original_fixed_rect_floats = None
     
-    if not FixedRegion is None:
-        if isinstance(FixedRegion, spatial.Rectangle):
-            original_fixed_rect_floats = FixedRegion
+    if not TargetRegion is None:
+        if isinstance(TargetRegion, spatial.Rectangle):
+            original_fixed_rect_floats = TargetRegion
         else: 
-            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((FixedRegion[0], FixedRegion[1]), (FixedRegion[2] - FixedRegion[0], FixedRegion[3] - FixedRegion[1]))
+            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
     else:
         original_fixed_rect_floats = tutils.FixedBoundingBox(transforms)
         
-    scaled_fixedRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, requiredScale)
-    scaled_fixedRect = nornir_imageregistration.Rectangle.SafeRound(scaled_fixedRect)  
-    fixedRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_fixedRect, 1.0/requiredScale)  
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_fixedRect.Height, scaled_fixedRect.Width, requiredScale)
+    scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
+    scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
+    targetRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale)
 
     CheckTaskInterval = 16
 
     for i, transform in enumerate(transforms):
         regionToRender = None
-        original_transform_fixed_rect = spatial.Rectangle(transform.FixedBoundingBox)
-        transform_fixed_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
+        original_transform_target_rect = spatial.Rectangle(transform.FixedBoundingBox)
+        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
         
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(fixedRect, transform_fixed_rect)
+        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
         if regionToRender is None:
             continue
         
         if regionToRender.Area == 0:
             continue 
         
-        scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, requiredScale)
+        scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
         scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
                       
         imagefullpath = imagepaths[i]
@@ -566,12 +584,12 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
         task = pool.add_task("TransformTile" + imagefullpath,
                               TransformTile, transform=transform, 
                               imagefullpath=imagefullpath, distanceImage=None,
-                              requiredScale=requiredScale, FixedRegion=regionToRender,
+                              target_space_scale=target_space_scale, TargetRegion=regionToRender,
                               SingleThreadedInvoke=False)
         task.transform = transform
         task.regionToRender = regionToRender
         task.scaled_region_rendered = scaled_region_rendered
-        task.transform_fixed_rect = transform_fixed_rect
+        task.transform_fixed_rect = transform_target_rect
         tasks.append(task)
 
         if not i % CheckTaskInterval == 0:
@@ -583,7 +601,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
                 t = tasks[iTask]
                 if t.iscompleted:
                     transformedImageData = t.wait_return()
-                    __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_fixedRect)
+                    __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_targetRect)
                     del transformedImageData 
                     del tasks[iTask]
                 
@@ -594,7 +612,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
     while len(tasks) > 0:
         t = tasks.pop(0)
         transformedImageData = t.wait_return()     
-        __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_fixedRect)
+        __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_targetRect)
         del transformedImageData
         del t
         
@@ -604,7 +622,7 @@ def TilesToImageParallel(transforms, imagepaths, FixedRegion=None, requiredScale
             t = tasks[iTask]
             if t.iscompleted:
                 transformedImageData = t.wait_return()
-                __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_fixedRect)
+                __AddTransformedTileTaskToComposite(t, transformedImageData, fullImage, fullImageZbuffer, scaled_targetRect)
                 del transformedImageData 
                 del tasks[iTask]
             
@@ -660,27 +678,27 @@ def __AddTransformedTileTaskToComposite(task, transformedImageData, fullImage, f
     return 
 
 
-def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=None, FixedRegion=None, SingleThreadedInvoke=False):
+def TransformTile(transform, imagefullpath, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
     '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
-       image for each pixel.  requiredScale is used when the image size does not match the image size encoded in the
+       image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 
        not be transformed.
        :param transform transform: Transformation used to map pixels from source image to output image
        :param str imagefullpath: Full path to the image on disk
        :param ndarray distanceImage: Optional pre-allocated array to contain the distance of each pixel from the center for use as a depth mask
-       :param float requiredScale: Optional pre-calculated scalar to apply to the transform.  If None the scale is calculated based on the difference
-                                   between input image size and the image size of the transform
-       :param array FixedRegion: [MinY MinX MaxY MaxX] If specified only the specified region is transformed.  Otherwise transform the entire image.'''
+       :param float target_space_scale: Optional pre-calculated scalar to apply to the transforms target space control points.  If None the scale is calculated based on the difference
+                                   between input image size and the image size of the transform. i.e.  If the source_space is downsampled by 4 then the target_space will be downsampled to match
+       :param array TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
 
-    FixedRegionRect = None
-    if not FixedRegion is None:
-        if isinstance(FixedRegion, nornir_imageregistration.Rectangle):
-            FixedRegionRect = FixedRegion.copy()
-            FixedRegion = list(FixedRegion.ToTuple())
+    TargetRegionRect = None
+    if not TargetRegion is None:
+        if isinstance(TargetRegion, nornir_imageregistration.Rectangle):
+            TargetRegionRect = TargetRegion.copy()
+            TargetRegion = list(TargetRegion.ToTuple())
         else:
-            FixedRegionRect = nornir_imageregistration.Rectangle.CreateFromBounds(FixedRegion)
+            TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromBounds(TargetRegion)
             
-        spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
+        spatial.RaiseValueErrorOnInvalidBounds(TargetRegion)
 
     if not os.path.exists(imagefullpath):
         return TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
@@ -690,54 +708,64 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     #   transform = triangulation.Triangulation(transform.points)
 
     warpedImage = nornir_imageregistration.ImageParamToImageArray(imagefullpath, dtype=np.float32)
+    warpedImage = nornir_imageregistration.ForceGrayscale(warpedImage)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
-    transformScale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
+    source_space_scale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
 
-    if not requiredScale is None:
-        if not nornir_imageregistration.ApproxEqual(transformScale, requiredScale):
-            return TransformedImageData(errorMsg="%g scale needed for %s is different than required scale %g used for mosaic" % (transformScale, imagefullpath, requiredScale))
-        
-        transformScale = requiredScale  # This is needed because we aren't specifying the size of the output tile like we should be
-
-    Scaled_FixedRegionRect = FixedRegionRect
-    if transformScale != 1.0:
-        scaledTransform = copy.deepcopy(transform)
-        scaledTransform.Scale(transformScale)
-        transform = scaledTransform
-
-        if not FixedRegion is None:
-            FixedRegion = np.array(FixedRegion) * transformScale
-            Scaled_FixedRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(FixedRegionRect, transformScale)
-            Scaled_FixedRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_FixedRegionRect)
+    if target_space_scale is None:
+        target_space_scale = source_space_scale
+     
+    Scaled_TargetRegionRect = TargetRegionRect
+    if source_space_scale == target_space_scale:
+        if source_space_scale != 1.0:
+            scaledTransform = copy.deepcopy(transform)
+            scaledTransform.Scale(source_space_scale)
+            transform = scaledTransform
+            
+    else:
+        if source_space_scale != 1.0:
+            scaledTransform = copy.deepcopy(transform)
+            scaledTransform.ScaleWarped(source_space_scale)
+            transform = scaledTransform
+     
+        if target_space_scale != 1.0:
+            scaledTransform = copy.deepcopy(transform)
+            scaledTransform.ScaleFixed(target_space_scale)
+            transform = scaledTransform
+            
+            if not TargetRegion is None:
+                TargetRegion = np.array(TargetRegion) * target_space_scale
+                Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(TargetRegionRect, target_space_scale)
+                Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
 
     (width, height, minX, minY) = (0, 0, 0, 0)
 
-    if FixedRegion is None:
+    if TargetRegion is None:
         if hasattr(transform, 'FixedBoundingBox'):
             width = transform.FixedBoundingBox.Width
             height = transform.FixedBoundingBox.Height
             
-            FixedRegionRect = transform.FixedBoundingBox
-            FixedRegionRect = nornir_imageregistration.Rectangle.SafeRound(FixedRegionRect)
-            Scaled_FixedRegionRect = FixedRegionRect
+            TargetRegionRect = transform.FixedBoundingBox
+            TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
+            Scaled_TargetRegionRect = TargetRegionRect
             
-            (minY, minX, maxY, maxX) = FixedRegionRect.ToTuple()
+            (minY, minX, maxY, maxX) = TargetRegionRect.ToTuple()
         else:
             width = warpedImage.shape[1]
             height = warpedImage.shape[0]
-            FixedRegionRect = nornir_imageregistration.CreateFromPointAndArea((0,0), warpedImage.shape)
-            Scaled_FixedRegionRect = FixedRegionRect
+            TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), warpedImage.shape)
+            Scaled_TargetRegionRect = TargetRegionRect
     else:
-        assert(len(FixedRegion) == 4)
-        (minY, minX, maxY, maxX) = Scaled_FixedRegionRect.ToTuple()
+        assert(len(TargetRegion) == 4)
+        (minY, minX, maxY, maxX) = Scaled_TargetRegionRect.ToTuple()
         height = maxY - minY
         width = maxX - minX
         
     height = np.ceil(height)
     width = np.ceil(width)
 
-    distanceImage = __GetOrCreateDistanceImage(distanceImage, warpedImage.shape)
+    distanceImage = __GetOrCreateDistanceImage(distanceImage, warpedImage.shape[0:2])
 
     (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform,
                                                                          (height, width),
@@ -752,7 +780,8 @@ def TransformTile(transform, imagefullpath, distanceImage=None, requiredScale=No
     return TransformedImageData.Create(fixedImage.astype(np.float16),
                                        centerDistanceImage.astype(np.float16),
                                        transform,
-                                       transformScale,
+                                       source_space_scale,
+                                       target_space_scale,
                                        SingleThreadedInvoke=SingleThreadedInvoke)
 
 if __name__ == '__main__':

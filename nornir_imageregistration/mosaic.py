@@ -231,12 +231,13 @@ class Mosaic(object):
         score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
         return score
 
-    def AssembleImage(self, tilesPath, FixedRegion=None, usecluster=False, requiredScale=None):
+    def AssembleImage(self, tilesPath, FixedRegion=None, usecluster=False, target_space_scale=None, source_space_scale=None):
         '''Create a single image of the mosaic for the requested region.
         :param str tilesPath: Directory containing tiles referenced in our transform
         :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
         :param boolean usecluster: Offload work to other threads or nodes if true
-        :param float requiredScale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
+        :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
+        :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         '''
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
@@ -252,20 +253,20 @@ class Mosaic(object):
          
         if usecluster and len(tilesPathList) > 1:
             cpool = nornir_pools.GetGlobalMultithreadingPool()
-            return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, TargetRegion=FixedRegion, target_space_scale=target_space_scale, source_space_scale=source_space_scale)
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(self._TransformsSortedByKey(), tilesPathList, FixedRegion=FixedRegion, requiredScale=requiredScale)
+            return at.TilesToImage(self._TransformsSortedByKey(), tilesPathList, TargetRegion=FixedRegion, target_space_scale=target_space_scale, source_space_scale=source_space_scale)
         
-    def GenerateOptimizedTiles(self, tilesPath, tile_dims=None,
-                               max_temp_image_area=None, usecluster=True,
-                               requiredScale=None):
-        '''Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
+    def GenerateOptimizedTiles(self, tilesPath, tile_dims=None, max_temp_image_area=None, usecluster=True, target_space_scale=None, source_space_scale=None):
+        '''
+        Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
         :param str tilesPath: Directory containing tiles referenced in our transform
         :param tuple tile_dims: Size of the optimized tiles
         :param max_image_dims: The maximum size of image we will assemble at any time.  Smaller values consume less memory, larger values run faster
         :param boolean usecluster: Offload work to other threads or nodes if true
-        :param float requiredScale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
+        :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
+        :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         '''
         
         # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes 
@@ -274,17 +275,20 @@ class Mosaic(object):
             
         tile_dims = np.asarray(tile_dims)
             
-        if requiredScale is None:
-            requiredScale = nornir_imageregistration.tileset.MostCommonScalar(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+        if source_space_scale is None:
+            source_space_scale = nornir_imageregistration.tileset.MostCommonScalar(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
             
-        scaled_tile_dims = tile_dims / requiredScale # tile_dims * ( 1 / requiredScale), The dimensions of the tile if assembled at full-resolution
+        if target_space_scale is None:
+            target_space_scale = source_space_scale
+            
+        scaled_tile_dims = tile_dims / target_space_scale # tile_dims * ( 1 / target_space_scale), The dimensions of the tile if assembled at full-resolution
         
         mosaic_fixed_bounding_box = self.FixedBoundingBox
         if not np.array_equal(mosaic_fixed_bounding_box.BottomLeft, np.asarray((0, 0))):
             self.TranslateToZeroOrigin()
             mosaic_fixed_bounding_box = self.FixedBoundingBox
             
-        grid_dims = nornir_imageregistration.TileGridShape(mosaic_fixed_bounding_box.shape * requiredScale,
+        grid_dims = nornir_imageregistration.TileGridShape(mosaic_fixed_bounding_box.shape * target_space_scale,
                                                            tile_size=tile_dims)
         
         # Lets build long vertical columns.  Figure out how many columns we can assemble at a time
@@ -329,8 +333,9 @@ class Mosaic(object):
             (working_image, _mask ) = self.AssembleImage(tilesPath=tilesPath,
                                                FixedRegion=fixed_region,
                                                usecluster=usecluster,
-                                               requiredScale=requiredScale)
-
+                                               target_space_scale=target_space_scale,
+                                               source_space_scale=source_space_scale)
+        
             del _mask
             
             (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,

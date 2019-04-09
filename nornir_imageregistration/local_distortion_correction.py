@@ -113,8 +113,8 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
     overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
     overlapping_rect = nornir_imageregistration.Rectangle.change_area(overlapping_rect, grid_dim * subregion_shape * downsample)
         
-    ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=A.Transform, imagefullpath=A.ImagePath, distanceImage=None, requiredScale=imageScale, FixedRegion=overlapping_rect.ToArray())
-    BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=B.Transform, imagefullpath=B.ImagePath, distanceImage=None, requiredScale=imageScale, FixedRegion=overlapping_rect.ToArray())
+    ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=A.Transform, imagefullpath=A.ImagePath, distanceImage=None, target_space_scale=imageScale, TargetRegion=overlapping_rect.ToArray())
+    BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=B.Transform, imagefullpath=B.ImagePath, distanceImage=None, target_space_scale=imageScale, TargetRegion=overlapping_rect.ToArray())
       
     # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results

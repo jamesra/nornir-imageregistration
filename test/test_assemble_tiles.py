@@ -128,7 +128,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         self.assertTrue(np.sum(np.abs(clustertileImage - tileImage).flat) < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
         self.assertTrue(np.all(clustertileMask == tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
-        result = at.TransformTile(transform, os.path.join(tilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=FixedRegion)
+        result = at.TransformTile(transform, os.path.join(tilesDir, imageKey), distanceImage=None, target_space_scale=None, TargetRegion=FixedRegion)
         self.assertEqual(result.image.shape, (ScaledFixedRegion[2] - ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1]))
 
         # core.ShowGrayscale([tileImage, result.image])
@@ -159,13 +159,13 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
         expectedScale = 1.0 / self.DownsampleFromTilePath(TilesDir)
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MaxY, MinX + 256))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MaxY, MinX + 256))
         self.assertEqual(result.image.shape, (np.ceil(transform.FixedBoundingBox.Height * expectedScale), np.ceil(256 * expectedScale)))
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY, MinX, MinY + 256, MaxX))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MinY + 256, MaxX))
         self.assertEqual(result.image.shape, (np.ceil(256 * expectedScale), np.ceil(transform.FixedBoundingBox.Width * expectedScale)))
 
-        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, requiredScale=None, FixedRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512))
+        result = at.TransformTile(transform, os.path.join(TilesDir, imageKey), distanceImage=None, target_space_scale=None, TargetRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512))
         self.assertEqual(result.image.shape, (np.ceil(512 * expectedScale), np.ceil(512 * expectedScale)))
 
     def CreateAssembleOptimizedTileTwo(self, mosaicFilePath, TilesDir, tile_dims=None, numColumnsPerPass=None):
@@ -200,12 +200,12 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         
         tiles = [[None for iCol in range(expected_grid_dims[1])] for iRow in range(expected_grid_dims[0])]#[[None] * expected_grid_dims[1]] * expected_grid_dims[0]
         tile_returned = np.zeros(expected_grid_dims, dtype=np.bool)
-        #out = list(mosaic.GenerateOptimizedTiles(tilesPath=TilesDir, tile_dims=tile_dims, usecluster=False, requiredScale=expectedScale))
+        #out = list(mosaic.GenerateOptimizedTiles(tilesPath=TilesDir, tile_dims=tile_dims, usecluster=False, target_space_scale=expectedScale))
         for t in mosaic.GenerateOptimizedTiles(tilesPath=TilesDir,
                                                tile_dims=tile_dims,
                                                usecluster=False,
                                                max_temp_image_area=max_temp_image_area,
-                                               requiredScale=expectedScale):
+                                               target_space_scale=expectedScale):
             (iRow, iCol, tile_image) = t
             assert(iCol < expected_grid_dims[1])
             assert(iRow < expected_grid_dims[0])
@@ -219,7 +219,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             # region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, tile_dims*(1/expectedScale))
                         
 #             (controlImage, mask) = mosaic.AssembleImage(tilesPath=TilesDir, FixedRegion=region,
-#                                                 usecluster=True, requiredScale=expectedScale)
+#                                                 usecluster=True, target_space_scale=expectedScale)
 #             self.assertTrue(np.array_equal(tile_image, controlImage))
             
             tiles[iRow][iCol] = tile_image
