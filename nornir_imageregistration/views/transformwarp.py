@@ -61,7 +61,7 @@ class TransformWarpView:
     
         
         
-    def GenerateWarpImage(self, title=None, outputfullpath=None, maxAngle=None):
+    def GenerateWarpImage(self, RenderToSourceSpace=True, title=None, outputfullpath=None, maxAngle=None):
         '''Generate a plot for the change in angles for verticies
         :param str outputfullpath: Filename to save, if None then display interactively
         :param float maxAngle: The angle that maps to the highest value in the temperature map of the output.  Defaults to maximum angle found
@@ -76,7 +76,10 @@ class TransformWarpView:
         #maxVal = numpy.pi / 12.0 #Maximum angle change is 60
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
-        points = self.transform.SourcePoints
+        if RenderToSourceSpace:
+            points = self.transform.SourcePoints
+        else:
+            points = self.transform.TargetPoints
 
         #plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], self.transform.FixedTriangles)
 
