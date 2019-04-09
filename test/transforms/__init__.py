@@ -3,27 +3,29 @@ __all__ = ['ForwardTransformCheck', 'TransformCheck', 'NearestFixedCheck', 'Near
 
 import numpy as np
 
+__transform_tolerance = 1e-5
+
 def ForwardTransformCheck(test, transform, warpedPoint, fixedPoint):
         '''Ensures that a point can map to its expected transformed position and back again'''
         fp = transform.Transform(warpedPoint)
-        np.testing.assert_allclose(fp, fixedPoint, atol=1e-6, rtol=0)
+        np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
 
 def TransformCheck(test, transform, warpedPoint, fixedPoint):
         '''Ensures that a point can map to its expected transformed position and back again'''
         fp = transform.Transform(warpedPoint)
-        np.testing.assert_allclose(fp, fixedPoint, atol=1e-6, rtol=0)
+        np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
         wp = transform.InverseTransform(fp)
-        np.testing.assert_allclose(wp, warpedPoint, atol=1e-6, rtol=0)
+        np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
 
 def NearestFixedCheck(test, transform, fixedPoints, testPoints):
         '''Ensures that the nearest fixed point can be found for a test point'''
         distance, index = transform.NearestFixedPoint(testPoints)
-        np.testing.assert_allclose(transform.TargetPoints[index,:], fixedPoints, atol=1e-6, rtol=0)
+        np.testing.assert_allclose(transform.TargetPoints[index,:], fixedPoints, atol=__transform_tolerance, rtol=0)
 
 def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
         '''Ensures that the nearest warped point can be found for a test point'''
         distance, index = transform.NearestWarpedPoint(testPoints)
-        np.testing.assert_allclose(transform.SourcePoints[index,:], warpedPoints, atol=1e-6, rtol=0)
+        np.testing.assert_allclose(transform.SourcePoints[index,:], warpedPoints, atol=__transform_tolerance, rtol=0)
 
 
 ### MirrorTransformPoints###

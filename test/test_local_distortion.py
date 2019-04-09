@@ -89,20 +89,35 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #         stosFile = self.GetStosFile("0164-0162_brute_32")
 #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
 #     
-    def testStosRefinementRC2_617(self):
+#     def testStosRefinementRC2_617(self):
+#         #self.TestName = "StosRefinementRC2_617"
+#         stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+#         #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
+#         RefineStosFile(InputStos=stosFile, 
+#                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+#                        num_iterations=10,
+#                        cell_size=(128,128),
+#                        grid_spacing=(256,256),
+#                        angles_to_search=[-2.5, 0, 2.5],
+#                        min_travel_for_finalization=0.5,
+#                        min_alignment_overlap=0.5,
+#                        SaveImages=True,
+#                        SavePlots=True)
+        
+    def testStosRefinementRC2_1034(self):
         #self.TestName = "StosRefinementRC2_617"
-        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
-        #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
-        RefineStosFile(InputStos=stosFile, 
-                       OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-                       num_iterations=10,
-                       cell_size=(128,128),
-                       grid_spacing=(256,256),
-                       angles_to_search=[-2.5, 0, 2.5],
-                       min_travel_for_finalization=0.5,
-                       min_alignment_overlap=0.5,
-                       SaveImages=True,
-                       SavePlots=True)
+        stosFile = self.GetStosFile("1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
+        self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=True, SavePlots=True)
+#         RefineStosFile(InputStos=stosFile, 
+#                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+#                        num_iterations=10,
+#                        cell_size=(128,128),
+#                        grid_spacing=(256,256),
+#                        angles_to_search=[-2.5, 0, 2.5],
+#                        min_travel_for_finalization=0.5,
+#                        min_alignment_overlap=0.5,
+#                        SaveImages=True,
+#                        SavePlots=True)
     
     def RunStosRefinement(self, stosFilePath, ImageDir=None, SaveImages=False, SavePlots=True):
         '''
@@ -123,21 +138,21 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             fixedImage = os.path.join(ImageDir, stosObj.ControlImageFullPath)
             warpedImage = os.path.join(ImageDir, stosObj.MappedImageFullPath) 
         
-        fixedImageData = nornir_imageregistration.ImageParamToImageArray(fixedImage)
-        warpedImageData = nornir_imageregistration.ImageParamToImageArray(warpedImage)
+        fixedImageData = nornir_imageregistration.ImageParamToImageArray(fixedImage, dtype=np.float16)
+        warpedImageData = nornir_imageregistration.ImageParamToImageArray(warpedImage, dtype=np.float16)
         
         stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(stosObj.Transform, 1)
         
         unrefined_image_path = os.path.join(self.TestOutputPath, 'unrefined_transform.png')
         
-        if not os.path.exists(unrefined_image_path) and SaveImages:        
-            unrefined_warped_image = nornir_imageregistration.assemble.TransformStos(stosTransform, 
-                                                                                     fixedImage=fixedImage,
-                                                                                     warpedImage=warpedImage)
-            nornir_imageregistration.SaveImage(unrefined_image_path, unrefined_warped_image)
-        else:
-            unrefined_warped_image = nornir_imageregistration.LoadImage(unrefined_image_path)
-        
+#        if not os.path.exists(unrefined_image_path):        
+#            unrefined_warped_image = nornir_imageregistration.assemble.TransformStos(stosTransform, 
+#                                                                                     fixedImage=fixedImage,
+#                                                                                     warpedImage=warpedImage)
+#            nornir_imageregistration.SaveImage(unrefined_image_path, unrefined_warped_image, bpp=8)
+#        else:
+#            unrefined_warped_image = nornir_imageregistration.LoadImage(unrefined_image_path)
+         
         
         num_iterations = 10
         
@@ -153,9 +168,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         final_pass = False
         final_pass_angles = np.linspace(-7.5, 7.5, 11)
         
-        CutoffPercentilePerIteration = 10
+        CutoffPercentilePerIteration = 10.0
         
         angles_to_search = None
+        
+        pool = nornir_pools.GetGlobalThreadPool()
                         
         while i <= num_iterations: 
                 
@@ -173,7 +190,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                             cell_size=cell_size,
                             grid_spacing=grid_spacing,
                             finalized=finalized_points,
-                            angles_to_search=angles_to_search)
+                            angles_to_search=angles_to_search,
+                            min_alignment_overlap=None)
                 self.SaveVariable(alignment_points, cachedFileName)
                 
             print("Pass {0} aligned {1} points".format(i,len(alignment_points)))
@@ -183,20 +201,20 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 
             combined_alignment_points = alignment_points + list(finalized_points.values())
             
-            percentile = 100.0 - (CutoffPercentilePerIteration * 10.0)
+            percentile = 100.0 - (CutoffPercentilePerIteration * i)
             if percentile < 10.0:
                 percentile = 10.0
             elif percentile > 100:
                 percentile = 100
                 
-            if final_pass:
-                percentile = 0
+   #         if final_pass:
+   #             percentile = 0
                 
             if SavePlots:
                 histogram_filename = os.path.join(self.TestOutputPath, 'weight_histogram_pass{0}.png'.format(i))
-                TestSliceToSliceRefinement.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile/100.0)
+                nornir_imageregistration.views.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile/100.0)
                 vector_field_filename = os.path.join(self.TestOutputPath, 'Vector_field_pass{0}.png'.format(i))
-                TestSliceToSliceRefinement.PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
+                nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),  vector_field_filename,
                                                           ylim=(0, fixedImageData.shape[1]),
                                                           xlim=(0, fixedImageData.shape[0]))
                                 
@@ -258,8 +276,12 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 ComparisonImage = np.abs(Delta)
                 ComparisonImage = ComparisonImage / ComparisonImage.max() 
                  
-                nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'delta_pass{0}.png'.format(i)), ComparisonImage)
-                nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'image_pass{0}.png'.format(i)), warpedToFixedImage)
+                
+                #nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'delta_pass{0}.png'.format(i)), ComparisonImage, bpp=8)
+                #nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'image_pass{0}.png'.format(i)), warpedToFixedImage, bpp=8)
+                
+                pool.add_task('delta_pass{0}.png'.format(i), nornir_imageregistration.SaveImage, os.path.join(self.TestOutputPath, 'delta_pass{0}.png'.format(i)), np.copy(ComparisonImage), bpp=8)
+                pool.add_task('image_pass{0}.png'.format(i), nornir_imageregistration.SaveImage, os.path.join(self.TestOutputPath, 'image_pass{0}.png'.format(i)), np.copy(warpedToFixedImage), bpp=8)
      
             #nornir_imageregistration.core.ShowGrayscale([fixedImageData, unrefined_warped_image, warpedToFixedImage, ComparisonImage])
              
@@ -285,7 +307,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 angles_to_search = final_pass_angles
             
         #Convert the transform to a grid transform and persist to disk
-        stosObj.Transform = local_distortion_correction._ConvertTransformToGridTransform(stosObj.Transform, source_image_shape=warpedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
+        stosObj.Transform = local_distortion_correction.ConvertTransformToGridTransform(stosObj.Transform, source_image_shape=warpedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
         stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos") )
         return
     

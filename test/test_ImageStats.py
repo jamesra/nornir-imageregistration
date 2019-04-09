@@ -8,6 +8,7 @@ import os
 import shutil
 import unittest
 
+from PIL import Image
 from nornir_imageregistration import im_histogram_parser
 from nornir_imageregistration import image_stats
 import nornir_imageregistration
@@ -26,12 +27,12 @@ class ImageStatsBase(setup_imagetest.ImageTestBase):
 
         super(ImageStatsBase, self).setUp()
 
-        self.ImagePath16bpp = os.path.join(self.TestInputPath, "PlatformRaw", "IDoc", "RC2_Micro", "17");
-        self.ImagePath8bpp = os.path.join(self.TestInputPath, "Images", "Alignment");
+        self.ImagePath16bpp = os.path.join(self.TestInputPath, "PlatformRaw", "IDoc", "RC2_Micro", "17")
+        self.ImagePath8bpp = os.path.join(self.TestInputPath, "Images", "Alignment")
 
 
 class testHistogram(ImageStatsBase):
-
+    
     def HistogramFromFileImageMagick(self, File):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''
         Bpp = nornir_shared.images.GetImageBpp(File)
@@ -65,16 +66,23 @@ class testHistogram(ImageStatsBase):
     def HistogramFromFileSciPy(self, File):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''
         Bpp = nornir_shared.images.GetImageBpp(File)
-        # maxVal = (1 << Bpp) - 1;
-        maxVal = None;
         Scale = 0.125
         numBins = 2048
         if(Bpp == 8):
             numBins = 256
+        else:
+            numBins = 2048
 
         self.assertTrue(os.path.exists(File), "Input image missing " + File)
+        
+        Im = None
+        MinVal = None
+        MaxVal = None
+        with Image.open(File, mode='r') as img:
+            img_I = img.convert("I") 
+            (MinVal, MaxVal) = img.getextrema()
 
-        histogram = image_stats.__HistogramFileSciPy__(File, Bpp=Bpp, numBins=numBins)
+        histogram = image_stats.__HistogramFileSciPy__(File, Bpp=Bpp, numBins=numBins, MinVal=MinVal, MaxVal=MaxVal)
          
         self.assertIsNotNone(histogram, "No output from __HistogramFileSciPy__ on image") 
   
@@ -191,7 +199,29 @@ class testHistogram(ImageStatsBase):
         # We know that histA has the lower value, so our first bin value should match
         self.assertEqual(HistogramComposite.Bins[0], histA.Bins[0])
 
-        self.SaveHistogram(HistogramComposite, 'Composite');
+        self.SaveHistogram(HistogramComposite, 'Composite')
+        
+    def testHistogram16bpp(self):
+        tileAFullPath = os.path.join(self.ImagePath16bpp, '10000.tif');
+        tileBFullPath = os.path.join(self.ImagePath16bpp, '10016.tif');
+        
+        InputImagePath16bpp = os.path.join(self.TestInputPath, "Images", "RPC2", "0794","10001.tif")
+                
+        histA_Scipy = self.HistogramFromFileSciPy(InputImagePath16bpp)
+        self.assertIsNotNone(histA_Scipy) 
+        
+        histA = self.HistogramFromFileImageMagick(InputImagePath16bpp)
+        self.assertIsNotNone(histA)
+        
+        self.assertEqual(len(histA.Bins), len(histA_Scipy.Bins))
+        self.assertEqual(histA.MinValue, histA_Scipy.MinValue)
+        self.assertEqual(histA.MaxValue, histA_Scipy.MaxValue)  
+        
+        for i, binVal in enumerate(histA.Bins):
+            assert(binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i]))
+        
+        plot.Histogram(histA_Scipy, os.path.join(self.TestOutputPath, "RPC2_0794_Scipy.png"), 1, 99, Title="Scipy Histogram for RPC2 794 001.tif")
+        plot.Histogram(histA, os.path.join(self.TestOutputPath, "RPC2_0794_ImageMagick.png"), 1, 99, Title="ImageMagick Histogram for RPC2 794 001.tif")
     
     def testPrune(self):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''

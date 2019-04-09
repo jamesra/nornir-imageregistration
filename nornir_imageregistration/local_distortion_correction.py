@@ -796,7 +796,7 @@ def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmen
      
     fixedImageROI.setflags(write=False)
 
-    #nornir_imageregistration.ShowGrayscale(([fixedImageROI, warpedImageROI],[fixedImageROI - warpedImageROI,]))
+    #nornir_imageregistration.ShowGrayscale(([fixedImageROI, warpedImageROI],[rigid_warpedImageROI, fixedImageROI - warpedImageROI,]))
 
     pool = nornir_pools.GetGlobalThreadPool()
 

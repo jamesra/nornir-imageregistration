@@ -12,12 +12,11 @@ import numpy
 from scipy.misc import imsave
 from scipy.ndimage import interpolation
 
-import nornir_imageregistration.assemble as assemble
-import nornir_imageregistration.core as core
+import nornir_imageregistration.assemble as assemble 
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.images as images
 
-import setup_imagetest
+from . import setup_imagetest
 
 
 def ShowComparison(*args, **kwargs):
@@ -122,8 +121,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -146,8 +145,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -168,8 +167,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -178,7 +177,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         delta = fixedImage[0:64, 0:64] - transformedImage
 
-        # core.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
+        # nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
         self.assertTrue((delta < 0.01).all())
 
 
@@ -190,8 +189,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
-        fixedImage = core.LoadImage(FixedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -218,8 +217,8 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
 
-        self.assertEquals(core.GetImageSize(self.FixedImagePath)[0], core.GetImageSize(OutputPath)[0])
-        self.assertEquals(core.GetImageSize(self.FixedImagePath)[1], core.GetImageSize(OutputPath)[1])
+        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[0], nornir_imageregistration.GetImageSize(OutputPath)[0])
+        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[1], nornir_imageregistration.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")

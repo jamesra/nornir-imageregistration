@@ -139,6 +139,17 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         
         nornir_imageregistration.SaveImage(output_path, output)
         
+    def test_16Bit_to_8Bit_ConvertImage(self):
+        filename = '10001_RPC2_590.tif'
+        self.FixedImagePath = os.path.join(self.ImportedDataPath,'16-bit', filename)
+        basename = os.path.basename(filename)
+        output_path = os.path.join(self.TestOutputPath,  basename + '_converted.tif')
+                
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input: {0}".format(self.FixedImagePath))
+        output = self.RunConvertImageTest(self.FixedImagePath)
+        
+        nornir_imageregistration.SaveImage(output_path, output)
+        
     def test_16Bit_SaveImage(self):
         input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
         self.RunSaveLoadImageTest(input_image_fullpath, 
