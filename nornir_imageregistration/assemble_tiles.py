@@ -458,6 +458,9 @@ def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=N
     # logger = logging.getLogger(__name__ + '.TilesToImage')
     if source_space_scale is None:
         source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
+        
+    if target_space_scale is None:
+        target_space_scale = source_space_scale
 
     distanceImage = None 
     original_fixed_rect_floats = None
@@ -545,8 +548,10 @@ def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space
     tasks = []
     if source_space_scale is None:
         source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
+        
+    if target_space_scale is None:
+        target_space_scale = source_space_scale
 
-    distanceImage = None 
     original_fixed_rect_floats = None
     
     if not TargetRegion is None:
@@ -734,10 +739,10 @@ def TransformTile(transform, imagefullpath, distanceImage=None, target_space_sca
             scaledTransform.ScaleFixed(target_space_scale)
             transform = scaledTransform
             
-            if not TargetRegion is None:
-                TargetRegion = np.array(TargetRegion) * target_space_scale
-                Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(TargetRegionRect, target_space_scale)
-                Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
+    if not TargetRegion is None and target_space_scale != 1.0:
+        TargetRegion = np.array(TargetRegion) * target_space_scale
+        Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(TargetRegionRect, target_space_scale)
+        Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
 
     (width, height, minX, minY) = (0, 0, 0, 0)
 
