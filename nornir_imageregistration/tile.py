@@ -156,10 +156,16 @@ class TileOverlap(object):
         self._overlapping_rects =  (overlapping_rect_A, overlapping_rect_B)
         
     def __repr__(self):
-        val = "({0},{1})".format(self.ID[0], self.ID[1])
+        area_scale = self._imageScale ** 2
+        val = "({0},{1}) ({2:02f}%,{3:02f}%)".format(self.ID[0], self.ID[1],
+                                                     float((self._overlapping_rects[0].Area / (self.A.ControlBoundingBox.Area * area_scale)) * 100.0),
+                                                     float((self._overlapping_rects[1].Area / (self.B.ControlBoundingBox.Area * area_scale)) * 100.0))
+                                             
         
         if self.feature_scores[0] is not None and self.feature_scores[1] is not None:
             val = val + " {0}".format(str(self.feature_scores))
+        
+        
             
         return val
     

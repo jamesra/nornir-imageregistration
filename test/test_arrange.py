@@ -317,7 +317,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             #pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             #pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             
-            self.assertEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
+            self.assertAlmostEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
         
             #Create a list of offsets requiring updates
             filtered_overlaps_needing_offsets = []
@@ -540,13 +540,23 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #       
 #         print("All done")
            
-    def test_RC2_0192_Smaller_Mosaic(self):
+#     def test_RC2_0192_Smaller_Mosaic(self):
+#               
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic",
+#                                  TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid",
+#                                  downsample=4,
+#                                  max_relax_iterations=150,
+#                                  openwindow=False)
+#       
+#         print("All done")
+        
+    def test_Neitz_110__Mosaic(self):
               
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic",
-                                 TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid",
-                                 downsample=4,
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\src\\git\\nornir-testdata\\Transforms\\mosaics\\Neitz\\Stage.mosaic",
+                                 TilePyramidDir="C:\\src\\git\\nornir-testdata\\Transforms\\mosaics\\Neitz\\Leveled\\TilePyramid",
+                                 downsample=8,
                                  max_relax_iterations=150,
-                                 openwindow=False)
+                                 openwindow=True)
       
         print("All done")
         

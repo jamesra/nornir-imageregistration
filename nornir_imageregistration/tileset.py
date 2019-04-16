@@ -31,8 +31,8 @@ def __DetermineTransformScale(transform, imageSize):
     if not hasattr(transform, 'MappedBoundingBox'):
         return 1.0 
     
-    width = transform.MappedBoundingBox.Width
-    height = transform.MappedBoundingBox.Height
+    width = transform.MappedBoundingBox.Width + 1 #Account for zero origin by adding 1
+    height = transform.MappedBoundingBox.Height + 1 #Account for zero origin by adding 1
 
     if nornir_imageregistration.ApproxEqual(imageSize[0], height, epsilon=1.1) and nornir_imageregistration.ApproxEqual(imageSize[1], width, epsilon=1.1):
         return 1.0
