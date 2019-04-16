@@ -566,8 +566,8 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     This function exists to minimize the inter-process communication
     '''
     
-    A = nornir_imageregistration.LoadImage(A_Filename).astype(dtype=np.float16)
-    B = nornir_imageregistration.LoadImage(B_Filename).astype(dtype=np.float16)
+    A = nornir_imageregistration.LoadImage(A_Filename)
+    B = nornir_imageregistration.LoadImage(B_Filename)
 
 # I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
 #    A = nornir_imageregistration.LoadImage(A_Filename) #.astype(dtype=np.float16)
@@ -578,6 +578,9 @@ def __tile_offset_remote(A_Filename, B_Filename, overlapping_rect_A, overlapping
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
     OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A, excess_scalar=excess_scalar)
     OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B, excess_scalar=excess_scalar)
+    
+    OverlappingRegionA = OverlappingRegionA.astype(np.float32)
+    OverlappingRegionB = OverlappingRegionB.astype(np.float32)
     
     #It is fairly common to underflow when dividing float16 images, so just warn and move on. 
     #I spent a day debugging why a mosaic was not building correctly to find the underflow 
