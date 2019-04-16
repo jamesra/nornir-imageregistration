@@ -960,14 +960,15 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
          
         # Bit of a backward convention here.
         # Need to use float64 so that sum does not return an infinite value
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=np.float64)
+        if ImageMedian is None or ImageStdDev is None:
+            UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=np.float64).compressed()
          
-        if(ImageMedian is None):
-            ImageMedian = np.median(UnmaskedImage1D.compressed())
-        if(ImageStdDev is None):
-            ImageStdDev = np.std(UnmaskedImage1D.compressed())
-            
-        del UnmaskedImage1D
+            if(ImageMedian is None):
+                ImageMedian = np.median(UnmaskedImage1D)
+            if(ImageStdDev is None):
+                ImageStdDev = np.std(UnmaskedImage1D)
+                
+            del UnmaskedImage1D
  
     NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev, image.min(), image.max())
 
