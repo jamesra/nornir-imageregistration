@@ -45,6 +45,9 @@ def IterateOverlappingTiles(list_tiles, min_overlap=None):
         elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > min_overlap:
             yield (list_tiles[A], list_tiles[B])
             
+def IterateTileOverlaps(list_tiles, imageScale=1.0, min_overlap=None):
+    yield from CreateTileOverlaps(list_tiles, imageScale, min_overlap)
+            
 def CreateTileOverlaps(list_tiles, imageScale=1.0, min_overlap=None):
     for (A, B) in IterateOverlappingTiles(list_tiles,min_overlap=min_overlap):
         overlap_data = TileOverlap(A,B,imageScale=imageScale)
@@ -87,19 +90,22 @@ class TileOverlap(object):
     
     @property
     def feature_scores(self):
+        '''float tuple indicating how much texture is available in the overlap region for registration'''
         return self._feature_scores
-    
-    @property
-    def A_feature_score(self):
-        return self._feature_scores[0]
-    
-    @property
-    def B_feature_score(self):
-        return self._feature_scores[1]
     
     @feature_scores.setter
     def feature_scores(self, val):
         self._feature_scores = val.copy()
+    
+    @property
+    def A_feature_score(self):
+        '''float value indicating how much texture is available in the overlap region for registration'''
+        return self._feature_scores[0]
+    
+    @property
+    def B_feature_score(self):
+        '''float value indicating how much texture is available in the overlap region for registration'''
+        return self._feature_scores[1]
     
     @A_feature_score.setter
     def A_feature_score(self, val):
@@ -118,17 +124,37 @@ class TileOverlap(object):
     
     @property
     def overlapping_rects(self):
+        '''
+        Tuple of rectangles (A,B) describing the overlap of both tiles in volume (target) space
+        '''
         return self._overlapping_rects
     
     @property
     def overlapping_rect_A(self):
+        '''
+        Rectangle describing the overlap of both tiles in volume (target) space
+        '''
         return self._overlapping_rects[0]
     
     @property
     def overlapping_rect_B(self):
+        '''
+        Rectangle describing the overlap of both tiles in volume (target) space
+        '''
         return self._overlapping_rects[1]
     
+     
+    @property
+    def get_scaled_overlapping_rects(self, scale_factor):
+        '''
+        Scale the area of overlap by the provided scale_factor, however
+        do not scale the overlapping rectangles into areas that can't overlap
+        ''' 
+    
     def overlap(self):
+        '''
+        :return: 0 to 1 float indicating the overlapping rectangle area divided by largest tile area
+        '''
         if self._overlap is None:
             if self._overlapping_rect_A is None or self._overlapping_rect_B is None:
                 self._overlap = 0
@@ -136,6 +162,10 @@ class TileOverlap(object):
                 self._overlap = nornir_imageregistration.Rectangle.overlap_normalized(self.A,self.B)
             
         return self._overlap
+    
+    
+    def get_expand_overlap_rects(self, scale_factor):
+        raise NotImplemented()
             
     def __init__(self, A, B, imageScale):
         
@@ -152,7 +182,7 @@ class TileOverlap(object):
         self._Tiles = (A,B)
         self._feature_scores = [None, None]
         self._overlap = None
-        (overlapping_rect_A, overlapping_rect_B, self._offset) = Tile.Calculate_Overlapping_Regions(A,B, imageScale=imageScale)
+        (overlapping_rect_A, overlapping_rect_B, self._offset) = TileOverlap.Calculate_Overlapping_Regions(A,B, imageScale=imageScale)
         self._overlapping_rects =  (overlapping_rect_A, overlapping_rect_B)
         
     def __repr__(self):
@@ -168,6 +198,33 @@ class TileOverlap(object):
         
             
         return val
+    
+    @staticmethod
+    def Calculate_Overlapping_Regions(A, B, imageScale):
+        '''
+        :return: The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
+        '''
+        
+        overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
+        if overlapping_rect is None:
+            return (None, None, None)
+        
+        overlapping_rect_A = A.Get_Overlapping_Imagespace_Rect(overlapping_rect)
+        overlapping_rect_B = B.Get_Overlapping_Imagespace_Rect(overlapping_rect)
+         
+        downsampled_overlapping_rect_A = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
+        downsampled_overlapping_rect_B = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
+        
+        # If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
+        OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
+        
+        # This should ensure we never have an an area mismatch
+        downsampled_overlapping_rect_B = nornir_imageregistration.Rectangle.CreateFromPointAndArea(downsampled_overlapping_rect_B.BottomLeft, downsampled_overlapping_rect_A.Size)
+        
+        assert(downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)
+        assert(downsampled_overlapping_rect_A.Height == downsampled_overlapping_rect_B.Height)
+         
+        return (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment)
     
 
 class Tile(object):
@@ -262,32 +319,7 @@ class Tile(object):
         return tiles
     
     
-    @classmethod
-    def Calculate_Overlapping_Regions(cls, A, B, imageScale):
-        '''
-        :return: The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
-        '''
-        
-        overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
-        if overlapping_rect is None:
-            return (None, None, None)
-        
-        overlapping_rect_A = A.Get_Overlapping_Imagespace_Rect(overlapping_rect)
-        overlapping_rect_B = B.Get_Overlapping_Imagespace_Rect(overlapping_rect)
-         
-        downsampled_overlapping_rect_A = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
-        downsampled_overlapping_rect_B = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
-        
-        # If the predicted alignment is perfect and we use only the overlapping regions  we would have an alignment offset of 0,0.  Therefore we add the existing offset between tiles to the result
-        OffsetAdjustment = (B.ControlBoundingBox.Center - A.ControlBoundingBox.Center) * imageScale
-        
-        # This should ensure we never have an an area mismatch
-        downsampled_overlapping_rect_B = nornir_imageregistration.Rectangle.CreateFromPointAndArea(downsampled_overlapping_rect_B.BottomLeft, downsampled_overlapping_rect_A.Size)
-        
-        assert(downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)
-        assert(downsampled_overlapping_rect_A.Height == downsampled_overlapping_rect_B.Height)
-         
-        return (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment)
+    
 
     def __init__(self, transform, imagepath, ID=None):
 

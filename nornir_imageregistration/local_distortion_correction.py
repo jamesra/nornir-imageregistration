@@ -52,14 +52,22 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     for t in list_tiles:
         layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
              
-    for A, B in nornir_imageregistration.IterateOverlappingTiles(list_tiles, minOverlap=0.03):
+    for tile_overlap in nornir_imageregistration.IterateTileOverlaps(list_tiles, minOverlap=0.03):
         # OK... add some small neighborhoods and register those...
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
+        #(downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
 #          
-        task = pool.add_task("Align %d -> %d" % (A.ID, B.ID), __RefineTileAlignmentRemote, A, B, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, imageScale, subregion_shape)
-        task.A = A
-        task.B = B
-        task.OffsetAdjustment = OffsetAdjustment
+        task = pool.add_task("Align %d -> %d" % (A.ID, B.ID),
+                            __RefineTileAlignmentRemote,
+                            tile_overlap.A,
+                            tile_overlap.B,
+                            tile_overlap.overlapping_rect_A,
+                            tile_overlap.overlapping_rect_B,
+                            tile_overlap.Offset,
+                            imageScale,
+                            subregion_shape)
+        task.A = tile_overlap.A
+        task.B = tile_overlap.B
+        task.OffsetAdjustment = tile_overlap.Offset
         tasks.append(task)
 #          
 #         (point_pairs, net_offset) = __RefineTileAlignmentRemote(A, B, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, imageScale)

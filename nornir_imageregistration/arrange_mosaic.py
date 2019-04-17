@@ -488,7 +488,7 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_lay
             layout.CreateNode(t.B.ID, t.B.ControlBoundingBox.Center)
         
     print("Starting tile alignment") 
-    for tile_overlap in list_tile_overlaps: #A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tile_overlaps, min_overlap):
+    for tile_overlap in list_tile_overlaps:
         # Used for debugging: __tile_offset(A, B, imageScale)
         # t = pool.add_task("Align %d -> %d %s", __tile_offset, A, B, imageScale)
         #(downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
@@ -631,7 +631,7 @@ def __tile_offset(A, B, imageScale):
 #    downsampled_overlapping_rect_A = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * imageScale))
 #    downsampled_overlapping_rect_B = nornir_imageregistration.Rectangle.SafeRound(nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_B.ToArray() * imageScale))
 
-    (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
+    (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.TileOverlap.Calculate_Overlapping_Regions(A, B, imageScale)
     
     ImageA = __get_overlapping_image(A.Image, downsampled_overlapping_rect_A)
     ImageB = __get_overlapping_image(B.Image, downsampled_overlapping_rect_B)
@@ -671,12 +671,17 @@ def ScoreMosaicQuality(transforms, imagepaths, imageScale=None):
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
-    for A, B in nornir_imageregistration.tile.IterateOverlappingTiles(list_tiles):
-        (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
+    for tile_overlap in nornir_imageregistration.tile.IterateTileOverlaps(list_tiles, imageScale=imageScale):
+        # (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(tile_overlap.A, tile_overlap.B, imageScale)
         
         #__AlignmentScoreRemote(A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
         
-        t = pool.add_task("Score %d -> %d" % (A.ID, B.ID), __AlignmentScoreRemote, A.ImagePath, B.ImagePath, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
+        t = pool.add_task("Score %d -> %d" % (tile_overlap.ID[0], tile_overlap.ID[1]),
+                          __AlignmentScoreRemote,
+                          tile_overlap.A.ImagePath,
+                          tile_overlap.B.ImagePath,
+                          tile_overlap.overlapping_rect_A,
+                          tile_overlap.overlapping_rect_B)
         tasks.append(t)
         
 #         OverlappingRegionA = __get_overlapping_image(A.Image, downsampled_overlapping_rect_A, excess_scalar=1.0)
