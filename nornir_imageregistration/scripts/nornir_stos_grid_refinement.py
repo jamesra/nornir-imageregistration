@@ -13,7 +13,7 @@ import nornir_imageregistration
 import nornir_imageregistration.local_distortion_correction
 
 import nornir_shared.misc
-from nornir_shared.argparse_helpers import NumberPair, NumberList
+from nornir_shared.argparse_helpers import IntegerPair, IntegerList
 
 from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 
@@ -53,7 +53,7 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-cell_size', '-c',
                         action='store',
                         required=False,
-                        type=NumberPair,
+                        type=IntegerPair,
                         default=(128,128),
                         help='Dimensions of cells (subsets of the images) used for registration.  (The first iteration uses double-sized cells.)',
                         dest='cell_size'
@@ -62,7 +62,7 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-grid_spacing', '-gs',
                         action='store',
                         required=False,
-                        type=NumberPair,
+                        type=IntegerPair,
                         default=(256,256),
                         help='Distances between centers of cells used for registration.',
                         dest='grid_spacing'
@@ -80,7 +80,7 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-angles', '-a',
                         action='store',
                         required=False,
-                        type=NumberList,
+                        type=IntegerList,
                         default=None,
                         help='Rotate each cell by each of the specified degrees and choose the best alignment, slower but may be more accurate.  Default is to not rotate.',
                         dest='angles_to_search'
