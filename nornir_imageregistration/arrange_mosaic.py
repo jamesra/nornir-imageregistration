@@ -176,8 +176,8 @@ def TranslateTiles2(transforms, imagepaths, excess_scalar=None,
         
         #Expand the area we search if we are adding and removing tiles
         excess_scalar_this_pass = excess_scalar
-        if pass_count < min_translate_iterations and iPass == min_translate_iterations:
-            excess_scalar_this_pass = excess_scalar * 2
+        #if pass_count < min_translate_iterations and iPass == min_translate_iterations:
+        #    excess_scalar_this_pass = excess_scalar * 2
             
         #Recalculate all offsets if we changed the overlaps
         if excess_scalar_last_pass != excess_scalar_this_pass:
@@ -526,7 +526,7 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_lay
         diff = ActualOffset - PredictedOffset
         distance = np.sqrt(np.sum(diff ** 2))
         
-        print("%d -> %d = %g" % (tile_overlap.A.ID, tile_overlap.B.ID, distance))
+        print("%d -> %d = Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, offset.weight, distance))
         
         layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, offset.weight) 
         
