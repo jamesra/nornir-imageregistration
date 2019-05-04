@@ -11,6 +11,24 @@ from test.setup_imagetest import ImageTestBase
 
 
 class TestTransforms(unittest.TestCase):
+    
+    def test_transform_boundingboxes(self):
+        A_fixed_center = (0, 75)
+        B_fixed_center = (0,-75) 
+        A_shape = (100,100)
+        B_shape = (100,100)
+        A_target_bbox = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(A_fixed_center, A_shape)
+        B_target_bbox = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(B_fixed_center, B_shape)
+        shared_mapped_bbox = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea((0,0), A_shape)
+        transform_A = nornir_imageregistration.transforms.Rigid(A_fixed_center, MappedBoundingBox=shared_mapped_bbox)
+        transform_B = nornir_imageregistration.transforms.Rigid(B_fixed_center, MappedBoundingBox=shared_mapped_bbox)
+        
+        np.testing.assert_array_equal(transform_A.MappedBoundingBox.BoundingBox, shared_mapped_bbox.BoundingBox)
+        np.testing.assert_array_equal(transform_B.MappedBoundingBox.BoundingBox, shared_mapped_bbox.BoundingBox)
+        
+        np.testing.assert_array_equal(transform_A.FixedBoundingBox.BoundingBox, A_target_bbox.BoundingBox)
+        np.testing.assert_array_equal(transform_B.FixedBoundingBox.BoundingBox, B_target_bbox.BoundingBox)
+        return 
  
     def testIdentity(self):
         T = nornir_imageregistration.transforms.Rigid([0,0], [0,0], 0)
