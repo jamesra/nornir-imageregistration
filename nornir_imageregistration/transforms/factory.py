@@ -37,6 +37,13 @@ def _GetMappedBoundsExtents(transform, bounds=None):
     
     return (bottom, left, top, right)
  
+
+def float_to_shortest_string(val, precision=6):
+    '''
+    Convert a floating point value to the shortest string possible
+    '''
+    format_spec = '''{0:0.''' + str(precision) + '''f}'''
+    return format_spec.format(val).rstrip('0').rstrip('.')
     
 def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
@@ -48,11 +55,12 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
      
-    template = " %(cx).3f %(cy).3f"
+    #template = " %(cx).3f %(cy).3f"
+    template = " %(cx)s %(cy)s"
 
     NumAdded = int(0) 
     for CY, CX, MY, MX in Transform.points:
-        pstr = template % {'cx' : CX, 'cy' : CY}
+        pstr = template % {'cx' : float_to_shortest_string(CX,3), 'cy' : float_to_shortest_string(CY,3)}
         output.append(pstr)
         NumAdded = NumAdded + 1
 
@@ -76,13 +84,17 @@ def _TransformToIRToolsString(Transform, bounds=None):
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
-    template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
+    #template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
+    template = " %(mx)s %(my)s %(cx)s %(cy)s"
 
     width = right - left
     height = top - bottom
 
     for CY, CX, MY, MX in Transform.points:
-        pstr = template % {'cx' : CX, 'cy' : CY, 'mx' : (MX - left) / width , 'my' : (MY - bottom) / height}
+        pstr = template % {'cx' : float_to_shortest_string(CX,3), 
+                           'cy' : float_to_shortest_string(CY,3),
+                           'mx' : float_to_shortest_string((MX - left) / width,10),
+                           'my' : float_to_shortest_string((MY - bottom) / height,10)}
         output.append(pstr)
 
     boundsStr = " ".join(map(str, [left, bottom, width, height]))
