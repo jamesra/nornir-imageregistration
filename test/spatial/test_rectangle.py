@@ -5,9 +5,10 @@ Created on Mar 3, 2014
 '''
 import itertools
 import unittest
+import math
 
 import nornir_imageregistration.spatial as spatial
-import numpy as np
+import numpy as np 
 
 
 class Test(unittest.TestCase):
@@ -107,7 +108,7 @@ class Test(unittest.TestCase):
             
             OverlapSets[A].add(B)
             OverlapSets[B].add(A)
-            self.assertTrue(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "Overlapping rectangles do not overlap")
+            self.assertTrue(spatial.Rectangle.Intersect(rect_list[A], rect_list[B]) is not None, "Overlapping rectangles do not overlap")
         
         for (A, overlap_set) in OverlapSets.items():
             print("%d: %s" % (A, overlap_set))
@@ -124,6 +125,55 @@ class Test(unittest.TestCase):
         
         print("Done")
         print("")
+        
+    def testLongVerticalRectangleSet(self):
+        y_range = np.linspace(0, 90, 10)
+        x_lims = (0,10)
+        area = (20,20)
+        origins = [(y, x_lims[0]) for y in y_range]
+        
+        rectangles = [spatial.Rectangle.CreateFromPointAndArea(origin, area) for origin in origins]
+        rset = spatial.RectangleSet.Create(rectangles)
+        for (A,B) in rset.EnumerateOverlapping():
+            print("{0},{1}".format(A,B))
+            self.assertTrue(abs(B - A) < 2)    
+            
+    def testLongVerticalRectangleSet_slightoffset(self):
+        y_range = np.linspace(0, 90, 10)
+        x_origins = np.linspace(0, 9, 10)
+        area = (20,20)
+        origins = [(y, x_origins[i]) for (i,y) in enumerate(y_range)]
+        
+        rectangles = [spatial.Rectangle.CreateFromPointAndArea(origin, area) for origin in origins]
+        rset = spatial.RectangleSet.Create(rectangles)
+        for (A,B) in rset.EnumerateOverlapping():
+            print("{0},{1}".format(A,B))
+            self.assertTrue(abs(B - A) < 2) 
+            
+    def testGridRectangleSet(self):
+        y_range = np.linspace(0, 40, 5)
+        x_range = np.linspace(10, 90, 10)
+        area = (12,12)
+        origins = []
+        for (i_y,y) in enumerate(y_range):
+            for x in x_range:
+                origins.append((y,x+i_y))
+        
+        rectangles = [spatial.Rectangle.CreateFromPointAndArea(origin, area) for origin in origins]
+        rset = spatial.RectangleSet.Create(rectangles)
+        matches = []
+        for (A,B) in rset.EnumerateOverlapping():
+            print("{0},{1}".format(A,B))
+            matches.append((A,B))
+            #self.assertTrue(abs(B - A) < 2)
+            
+        sorted_matches = sorted(matches)
+        
+        self.assertTrue((24,35) in sorted_matches)
+        self.assertTrue((26,35) in sorted_matches)
+        self.assertTrue((25,35) in sorted_matches)
+        print("Done!") 
+            
         
     def CompareGroups(self, DictA, DictB):
         '''Compare two dictionaries of non-overlapping rectangles'''

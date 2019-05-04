@@ -6,10 +6,9 @@ Points are represented as (Y,X)
 '''
 
 import collections
-
 import numpy as np
-
-from .indicies import *
+from .indicies import iPoint, iRect, iArea
+from .converters import BoundingPrimitiveFromPoints
 
 
 def RaiseValueErrorOnInvalidBounds(bounds):
@@ -35,10 +34,10 @@ class RectangleSet():
     
     @classmethod
     def _create_bounds_array(cls, rects):
-        '''Create a single numpy array for each rectangle, with the index of the rectangle in the original set'''
+        '''Create a single numpy array containing the boundaries for each rectangle, with an additional 5th column containing  the index of the rectangle in the original set'''
         rect_array = np.empty(len(rects), dtype=cls.rect_dtype)        
-        for i, rect in enumerate(rects):
-            input_rect = rects[i].BoundingBox
+        for (i, rect) in enumerate(rects):
+            input_rect = rect.BoundingBox
             rect_array[i] = (input_rect[0], input_rect[1], input_rect[2], input_rect[3], i)
             
         return rect_array
@@ -122,33 +121,48 @@ class RectangleSet():
                     returned_overlaps.add(key)
                     yield key
     
-    @classmethod
-    def SweepAlongAxis(cls, sweep_array):
+    @staticmethod
+    def SweepAlongAxis(sweep_array):
         '''
         :param ndarray sweep_array: Array of active_dtype 
         :return: A set of tuples containing the indicies of overlapping rectangles on the axis
         '''
-        ActiveSet = set()
-        last_value = None
-        IDsToYield = []
+        ActiveSet = set() 
+        overlaps_for_ID = {}
+        IDs_to_yield_on_sweep_move = []
         for i_x in range(0, len(sweep_array)):
-            NextIsDifferent = True
+            sweep_line_moves = True
+            active_state_changes = True
+            entry_is_active = sweep_array[i_x]['Active']
+             
+            ID = sweep_array[i_x]['ID']
+            if i_x + 1 < len(sweep_array): 
+                sweep_line_moves = sweep_array[i_x + 1]['Value'] != sweep_array[i_x]['Value']
+                active_state_changes = sweep_array[i_x + 1]['Active'] != sweep_array[i_x]['Active']
             
-            ID = sweep_array[i_x]['ID'] 
-            if i_x + 1 < len(sweep_array):
-                NextIsDifferent = sweep_array[i_x + 1]['Value'] != sweep_array[i_x]['Value'] and sweep_array[i_x + 1]['Active'] != sweep_array[i_x]['Active']
-            
-            if sweep_array[i_x]['Active']:
+            if entry_is_active:
                 ActiveSet.add(ID)
-                IDsToYield.append(ID)
+                overlaps_for_ID[ID] = ActiveSet.copy()
+                
+                for active_entry_ID in ActiveSet:
+                    overlaps_for_ID[active_entry_ID].add(ID) 
             else:   
                 ActiveSet.remove(ID)
+                IDs_to_yield_on_sweep_move.append(ID)
                 
-            if NextIsDifferent:
-                for YieldID in IDsToYield:
-                    yield (YieldID, ActiveSet.copy())
-                IDsToYield = []
+            if sweep_line_moves or active_state_changes:
+                for YieldID in IDs_to_yield_on_sweep_move:
+                    yield (YieldID, overlaps_for_ID[YieldID])
+                    del overlaps_for_ID[YieldID]
+                    
+                IDs_to_yield_on_sweep_move.clear()
+        
+        for YieldID in IDs_to_yield_on_sweep_move:
+            yield (YieldID, overlaps_for_ID[YieldID])
+            del overlaps_for_ID[YieldID]
             
+        IDs_to_yield_on_sweep_move.clear()
+        return    
                          
     def __str__(self):
         return str(self._rects_array)
@@ -158,6 +172,22 @@ class Rectangle(object):
     '''
     Defines a 2D rectangle
     '''
+    
+    @property
+    def MinX(self):
+        return self._bounds[iRect.MinX]
+    
+    @property
+    def MaxX(self):
+        return self._bounds[iRect.MaxX]
+    
+    @property
+    def MinY(self):
+        return self._bounds[iRect.MinY]
+    
+    @property
+    def MaxY(self):
+        return self._bounds[iRect.MaxY]
 
     @property
     def Width(self):
@@ -242,7 +272,7 @@ class Rectangle(object):
 
     def __init__(self, bounds):
         '''
-        :param object bounds: An ndarray or iterable of [left bottom right top] OR an existing Rectangle object to copy. 
+        :param object bounds: An ndarray or iterable of [bottom left top right] OR an existing Rectangle object to copy. 
         '''
         if isinstance(bounds, np.ndarray):
             if not IsValidRectangleInputArray(bounds):
@@ -330,9 +360,27 @@ class Rectangle(object):
         return isinstance(bounds, np.ndarray) and \
                bounds.size == 4 and \
                np.issubdtype(bounds.dtype, np.floating) 
+               
+    @staticmethod
+    def CreateBoundingRectangleForPoints(points):
+        '''
+        Create a rectangle bounding the passed array of points
+        :param tuple points: ndarray of (Y,X)
+        :rtype: Rectangle
+        '''
+        
+        if not isinstance(points, np.ndarray):
+            points = np.asarray(points)
+            
+        rect = BoundingPrimitiveFromPoints(points)
+        if not isinstance(rect, Rectangle):
+            raise ValueError("CreateBoundingRectangleForPoints expects a 2D array of points")
+        
+        return rect
 
-    @classmethod
-    def CreateFromCenterPointAndArea(cls, point, area):
+
+    @staticmethod
+    def CreateFromCenterPointAndArea(point, area):
         '''
         Create a rectangle whose center is point and the requested area
         :param tuple point: (Y,X)
@@ -346,8 +394,8 @@ class Rectangle(object):
             
         return Rectangle(bounds=(point[iPoint.Y] - half_area[iArea.Height], point[iPoint.X] - half_area[iArea.Width], point[iPoint.Y] + half_area[iArea.Height], point[iPoint.X] + half_area[iArea.Width]))
     
-    @classmethod
-    def CreateFromPointAndArea(cls, point, area):
+    @staticmethod
+    def CreateFromPointAndArea(point, area):
         '''
         Create a rectangle whose bottom left origin is at point with the requested area
         :param tuple point: (Y,X)
@@ -356,8 +404,8 @@ class Rectangle(object):
         '''
         return Rectangle(bounds=(point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height], point[iPoint.X] + area[iArea.Width]))
 
-    @classmethod
-    def CreateFromBounds(cls, Bounds):
+    @staticmethod
+    def CreateFromBounds(Bounds):
         '''
         :param tuple Bounds: (MinY,MinX,MaxY,MaxX)
         '''
@@ -366,12 +414,17 @@ class Rectangle(object):
 
     @classmethod
     def PrimitiveToRectange(cls, primitive):
-        '''Privitive can be a list of (Y,X) or (MinY, MinX, MaxY, MaxX) or a Rectangle'''
+        '''Primitive can be a list of (Y,X) or (MinY, MinX, MaxY, MaxX) or a Rectangle'''
 
         if isinstance(primitive, Rectangle):
             return primitive
+        
+        if isinstance(primitive, np.void):
+            if primitive.dtype == RectangleSet.rect_dtype:
+                return Rectangle((primitive[0], primitive[1], primitive[2], primitive[3]))
 
         if len(primitive) == 2:
+            Warning("This constructor appears odd, investigate this path")
             return Rectangle(primitive[0], primitive[1], primitive[0], primitive[1])
         elif len(primitive) == 4:
             return Rectangle(primitive)
