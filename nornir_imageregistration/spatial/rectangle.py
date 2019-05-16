@@ -320,9 +320,6 @@ class Rectangle(object):
         A = Rectangle.PrimitiveToRectange(A)
         B = Rectangle.PrimitiveToRectange(B)
 
-        if not cls.contains(A, B):
-            return None
-
         minX = min((A.BoundingBox[iRect.MinX], B.BoundingBox[iRect.MinX]))
         minY = min((A.BoundingBox[iRect.MinY], B.BoundingBox[iRect.MinY]))
         maxX = max((A.BoundingBox[iRect.MaxX], B.BoundingBox[iRect.MaxX]))
