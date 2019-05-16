@@ -7,7 +7,10 @@ Created on Nov 2, 2018
 import numpy as np
 import nornir_shared
 import nornir_shared.plot
-import nornir_shared.histogram
+import nornir_shared.histogram 
+import nornir_imageregistration
+import alignment_record
+import matplotlib.pyplot as plt
 
 
 
@@ -50,6 +53,44 @@ def PlotPeakList(new_alignment_records, finalized_alignment_records, filename, y
     percentiles = (percentile_prep / np.max(percentile_prep)) * 100
     TargetPeaks = AdjustedTargetPoints - TargetPoints
     
-    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32), TargetPeaks, shapes, percentiles, filename, ylim, xlim )
+    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32), TargetPeaks, shapes, percentiles, OutputFilename=filename, ylim=ylim, xlim=xlim )
      
+    return
+
+def _gray_to_rgba(img, alpha=1.0):
+    rgba = np.zeros((img.shape[0], img.shape[1], 4), dtype=img.dtype)
+    rgba[:,:,0] = img
+    rgba[:,:,1] = img
+    rgba[:,:,2] = img
+    rgba[:,:,3] = alpha
+    return rgba
+
+def plot_aligned_images(alignment_record, image_A, image_B):
+    '''
+    Plot the two images in the same axis using the provided alignment record    
+    '''
+    
+    image_A = nornir_imageregistration.ImageParamToImageArray(image_A)
+    image_B = nornir_imageregistration.ImageParamToImageArray(image_B)
+    
+    plt.clf()
+    
+    a = _gray_to_rgba(image_A, alpha=128)
+    b = _gray_to_rgba(image_B, alpha=128)
+    
+    a[:,:,3] = a[:,:,0] #Scale alpha by luminosity
+    b[:,:,3] = b[:,:,0] #Scale alpha by luminosity
+    a[:,:,1] = 0
+    
+    b[:,:,0] = 0
+    b[:,:,2] = 0
+    
+    a_extent = (0, image_A.shape[1],  0, image_A.shape[0])
+    b_extent = (alignment_record.peak[1], alignment_record.peak[1] + image_B.shape[1], alignment_record.peak[0], alignment_record.peak[0] + image_B.shape[0])
+    plt.imshow(a, origin='lower', extent=a_extent)
+    plt.imshow(b, origin='lower', extent=b_extent)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.show()
+         
     return
