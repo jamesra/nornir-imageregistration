@@ -122,6 +122,12 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         
         reloaded_bpp = nornir_imageregistration.ImageBpp(reloaded_image)
         self.assertEqual(reloaded_bpp, expected_bpp, wrong_output_bpp_error_msg)
+        
+    def test_8Bit_BMP_ConvertImage(self):
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "PMG_6259_9778_RGOpsin_Tile000018.bmp")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.RunConvertImageTest(self.FixedImagePath)
+        
 
     def test_8Bit_ConvertImage(self):
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "BrightfieldShading.png")

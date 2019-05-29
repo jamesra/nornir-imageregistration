@@ -685,6 +685,17 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #                                  #inter_tile_distance_scale=0.5)
 #          
 #         print("All done")
+
+    def test_PMG_0006_E_Mosaic(self):
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\PMG\\0006\\E\\Stage.mosaic",
+                                 TilePyramidDir="C:\\Data\\PMG\\0006\\E\\Leveled\\TilePyramid",
+                                 downsample=2,
+                                 max_relax_iterations=500,
+                                 openwindow=False,
+                                 max_relax_tension_cutoff=0.1)
+                                 #inter_tile_distance_scale=0.5)
+          
+        print("All done")
         
 #     def test_DM4_0476_Mosaic(self):
 #         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\DM4\\0476\\SEM\\Stage.mosaic",
