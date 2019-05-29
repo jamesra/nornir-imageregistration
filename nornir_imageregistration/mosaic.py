@@ -161,7 +161,30 @@ class Mosaic(object):
         '''Translate the fixed space coordinates of all images in the mosaic'''
         for t in list(self.ImageToTransform.values()):
             t.TranslateFixed(offset)
-            
+    
+    def EnsureTransformsHaveMappedBoundingBoxes(self, image_scale, image_path, all_same_dims=True):
+        '''
+        If a transform does not have a mapped bounding box, define it using the image dimensions
+        :param float image_scale: Downsample factor of image files
+        :parma str image_path: Directory containing image files
+        :param bool all_same_dims: If true, cache image dimensions and re-use for all transforms. 
+        '''
+        
+        cached_tile_shape = None
+        
+        for (file, transform) in self.ImageToTransform.items(): 
+             
+            if transform.MappedBoundingBox is None:
+                if all_same_dims == True: 
+                    mapped_bbox_shape = cached_tile_shape
+                
+                if mapped_bbox_shape is None:
+                    image_full_path = os.path.join(image_path, file)
+                    mapped_bbox_shape = nornir_imageregistration.GetImageSize(image_full_path)
+                    mapped_bbox_shape = np.array(mapped_bbox_shape, dtype=np.int32) * (1.0 / image_scale)
+                    cached_tile_shape = mapped_bbox_shape
+                    
+                transform.MappedBoundingBox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), mapped_bbox_shape)      
             
     def CalculateGridDimensions(self, tile_dims, expected_scale=1):
         '''
@@ -199,17 +222,21 @@ class Mosaic(object):
 
     def ArrangeTilesWithTranslate(self, tiles_path,
                                    image_scale=None,
+                                   first_pass_excess_scalar=None,
                                    excess_scalar=None,
                                    min_overlap=None,
                                    feature_score_threshold=None,
                                    min_translate_iterations=None,
                                    offset_acceptance_threshold=None,
                                    max_relax_iterations=None,
-                                   max_relax_tension_cutoff=None):
+                                   max_relax_tension_cutoff=None,
+                                   first_pass_inter_tile_distance_scale=None,
+                                   inter_tile_distance_scale=None):
         
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
         (layout, tiles) = arrange.TranslateTiles2(transforms=self._TransformsSortedByKey(),
                                                  imagepaths=self.CreateTilesPathList(tiles_path),
+                                                 first_pass_excess_scalar=first_pass_excess_scalar,
                                                  excess_scalar=excess_scalar,
                                                  feature_score_threshold=feature_score_threshold,
                                                  image_scale=image_scale,
@@ -217,7 +244,9 @@ class Mosaic(object):
                                                  offset_acceptance_threshold=offset_acceptance_threshold,
                                                  max_relax_iterations=max_relax_iterations,
                                                  max_relax_tension_cutoff=max_relax_tension_cutoff,
-                                                 min_overlap=min_overlap)
+                                                 min_overlap=min_overlap,
+                                                 first_pass_inter_tile_distance_scale=first_pass_inter_tile_distance_scale,
+                                                 inter_tile_distance_scale=inter_tile_distance_scale)
         return layout.ToMosaic(tiles)
     
     def RefineLayout(self, tilesPath):

@@ -7,6 +7,8 @@ Created on Apr 30, 2019
 import numpy
 import matplotlib.pyplot as plt
 import matplotlib.lines as lines
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
 import nornir_imageregistration
 from nornir_imageregistration import iPoint
 
@@ -22,7 +24,7 @@ def __PlotVectorOriginShape(render_mask, shape, Points, weights=None, color=None
         plt.scatter(Points[:, 1], Points[:, 0], color=color, marker=shape, alpha=0.5)
     else:
         if colormap is None:
-            colormap = plt.get_cmap('RdYlBu')
+            colormap = plt.get_cmap('jet')
         
         plt.scatter(Points[render_mask, 1],
                     Points[render_mask, 0],
@@ -41,10 +43,13 @@ def __PlotLinkedNodes(layout_obj, ax, min_tension=None, max_tension=None):
     pairs = layout_obj.linked_nodes
     
     if max_tension is None:
-        max_tension = layout_obj.MaxTension[1]
+        max_tension = layout_obj.MaxTensionMagnitude[1]
     
     if min_tension is None:    
-        min_tension = layout_obj.MinTension[1]
+        min_tension = layout_obj.MinTensionMagnitude[1]
+        
+    cNorm  = colors.Normalize(vmin=0, vmax=max_tension)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=plt.get_cmap('jet'))
                 
     #Create a line for each pair 
     for (A_ID,B_ID) in pairs:
@@ -52,14 +57,12 @@ def __PlotLinkedNodes(layout_obj, ax, min_tension=None, max_tension=None):
         B_pos = layout_obj.GetPosition(B_ID)
         xdata = [A_pos[iPoint.X], B_pos[iPoint.X]]
         ydata = [A_pos[iPoint.Y], B_pos[iPoint.Y]]
-        weight = nornir_imageregistration.array_distance(layout_obj.PairTensionVector(A_ID,B_ID))
-        if max_tension > 0:
-            weight /= max_tension 
-        else:
-            weight = 0.25
+        
+        weight = nornir_imageregistration.array_distance(layout_obj.PairTensionVector(A_ID,B_ID))           
+        colorVal = scalarMap.to_rgba(weight)
         
         #alpha = layout_obj.
-        line = lines.Line2D(xdata,ydata, alpha=weight, lw=1)
+        line = lines.Line2D(xdata,ydata, color=colorVal, lw=1)
         ax.add_line(line)
     
     return max_tension
@@ -77,13 +80,13 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
     
     Points = layout_obj.GetPositions()
     Offsets = layout_obj.WeightedNetTensionVectors()
-    weights=nornir_imageregistration.array_distance(layout_obj.WeightedNetTensionVectors())
+    weights=nornir_imageregistration.array_distance(layout_obj.WeightedNetTensionVectors()[:,1:])
     
     if max_tension is None:
-        max_tension = layout_obj.MaxWeightedNetTension
-        
-    if max_tension > 0:
-        weights /= max_tension
+        max_tension = layout_obj.MaxTensionMagnitude[1]
+#         
+#     if max_tension > 0:
+#         weights /= max_tension
     
     if shapes is None:
         shapes = 's'
@@ -132,7 +135,7 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
     assert(Points.shape[0] == Offsets.shape[0])
     for iRow in range(0, Points.shape[0]):
         Origin = Points[iRow, :]
-        scaled_offset = Offsets[iRow, :]
+        scaled_offset = Offsets[iRow, 1:]
          
         Destination = Origin + scaled_offset
          

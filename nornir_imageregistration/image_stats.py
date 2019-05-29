@@ -404,7 +404,7 @@ def Histogram(filenames, Bpp=None, Scale=None, **kwargs):
 
     if Bpp is None:
         Bpp = nornir_shared.images.GetImageBpp(listfilenames[0])
-        
+
     assert isinstance(listfilenames, list)
 
     FilenameToTask = {} 
@@ -523,14 +523,14 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
             Bpp = images.GetImageBpp(filename)
         
         assert(isinstance(Bpp, int))
-        MaxVal = (1 << Bpp)
+        MaxVal = (1 << Bpp) - 1
         
     if numBins is None:
-        numBins = MaxVal - MinVal
+        numBins = (MaxVal - MinVal) + 1
     else:
         assert(isinstance(numBins, int))
-        if numBins > (MaxVal - MinVal):
-            numBins = MaxVal - MinVal
+        if numBins > (MaxVal - MinVal) + 1:
+            numBins = (MaxVal - MinVal) + 1
          
     # if(not Scale is None):
     #    if(Scale != 1.0):
@@ -553,8 +553,8 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
 
     # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     #In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range=[MinVal, MaxVal])
-    binWidth = (MaxVal - MinVal) / len(histogram_array)
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range=[MinVal, MaxVal+1])
+    binWidth = bin_edges[1] - bin_edges[0] #(MaxVal - MinVal) / len(histogram_array)
     assert(binWidth > 0)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
     

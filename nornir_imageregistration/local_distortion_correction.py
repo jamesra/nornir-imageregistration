@@ -50,7 +50,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     
     layout = nornir_imageregistration.layout.Layout()
     for t in list_tiles:
-        layout.CreateNode(t.ID, t.ControlBoundingBox.Center)
+        layout.CreateNode(t.ID, t.FixedBoundingBox.Center)
              
     for tile_overlap in nornir_imageregistration.IterateTileOverlaps(list_tiles, minOverlap=0.03):
         # OK... add some small neighborhoods and register those...
@@ -60,14 +60,14 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
                             __RefineTileAlignmentRemote,
                             tile_overlap.A,
                             tile_overlap.B,
-                            tile_overlap.overlapping_rect_A,
-                            tile_overlap.overlapping_rect_B,
-                            tile_overlap.Offset,
+                            tile_overlap.scaled_overlapping_source_rect_A,
+                            tile_overlap.scaled_overlapping_source_rect_B,
+                            tile_overlap.scaled_offset,
                             imageScale,
                             subregion_shape)
         task.A = tile_overlap.A
         task.B = tile_overlap.B
-        task.OffsetAdjustment = tile_overlap.Offset
+        task.OffsetAdjustment = tile_overlap.scaled_offset
         tasks.append(task)
 #          
 #         (point_pairs, net_offset) = __RefineTileAlignmentRemote(A, B, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, imageScale)
@@ -94,7 +94,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
         # layout.SetOffset(t.A.ID, t.B.ID, offset, weight) 
         
         # Figure out what offset we found vs. what offset we expected
-        # PredictedOffset = t.B.ControlBoundingBox.Center - t.A.ControlBoundingBox.Center
+        # PredictedOffset = t.B.FixedBoundingBox.Center - t.A.ControlBoundingBox.Center
         
         # diff = offset - PredictedOffset
         # distance = np.sqrt(np.sum(diff ** 2))
@@ -106,19 +106,19 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     return (layout, tiles)
 
 
-def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, OffsetAdjustment, imageScale, subregion_shape=None):
+def __RefineTileAlignmentRemote(A, B, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B, OffsetAdjustment, imageScale, subregion_shape=None):
     
     if subregion_shape is None:
         subregion_shape = np.array([128, 128])
         
     downsample = 1.0 / imageScale
         
-    grid_dim = nornir_imageregistration.TileGridShape(overlapping_rect_A.Size, subregion_shape)
+    grid_dim = nornir_imageregistration.TileGridShape(scaled_overlapping_source_rect_A.Size, subregion_shape)
     
-    # overlapping_rect_A = nornir_imageregistration.Rectangle.change_area(overlapping_rect_A, grid_dim * subregion_shape)
-    # overlapping_rect_B = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B, grid_dim * subregion_shape)
+    # scaled_overlapping_source_rect_A = nornir_imageregistration.Rectangle.change_area(scaled_overlapping_source_rect_A, grid_dim * subregion_shape)
+    # scaled_overlapping_source_rect_B = nornir_imageregistration.Rectangle.change_area(scaled_overlapping_source_rect_B, grid_dim * subregion_shape)
         
-    overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.ControlBoundingBox, B.ControlBoundingBox)
+    overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.FixedBoundingBox, B.FixedBoundingBox)
     overlapping_rect = nornir_imageregistration.Rectangle.change_area(overlapping_rect, grid_dim * subregion_shape * downsample)
         
     ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=A.Transform, imagefullpath=A.ImagePath, distanceImage=None, target_space_scale=imageScale, TargetRegion=overlapping_rect.ToArray())
@@ -126,8 +126,8 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
       
     # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
-    # OverlappingRegionA = __get_overlapping_image(A, overlapping_rect_A,excess_scalar=1.0)
-    # OverlappingRegionB = __get_overlapping_image(B, overlapping_rect_B,excess_scalar=1.0)
+    # OverlappingRegionA = __get_overlapping_image(A, scaled_overlapping_source_rect_A,excess_scalar=1.0)
+    # OverlappingRegionB = __get_overlapping_image(B, scaled_overlapping_source_rect_B,excess_scalar=1.0)
     A_image = nornir_imageregistration.RandomNoiseMask(ATransformedImageData.image, ATransformedImageData.centerDistanceImage < np.finfo(ATransformedImageData.centerDistanceImage.dtype).max, Copy=True)
     B_image = nornir_imageregistration.RandomNoiseMask(BTransformedImageData.image, BTransformedImageData.centerDistanceImage < np.finfo(BTransformedImageData.centerDistanceImage.dtype).max, Copy=True)
     
@@ -156,7 +156,7 @@ def __RefineTileAlignmentRemote(A, B, overlapping_rect_A, overlapping_rect_B, Of
     for iRow in range(0, grid_dim[0]):
         for iCol in range(0, grid_dim[1]): 
             subregion_offset = (np.array([iRow, iCol]) * subregion_shape) + cell_center_offset  # Position subregion coordinate space
-            source_tile_offset = subregion_offset + overlapping_rect_A.BottomLeft  # Position tile image coordinate space
+            source_tile_offset = subregion_offset + scaled_overlapping_source_rect_A.BottomLeft  # Position tile image coordinate space
             global_offset = OffsetAdjustment + subregion_offset  # Position subregion in tile's mosaic space
             
             if not (iRow, iCol) in A_tiles or not (iRow, iCol) in B_tiles:
@@ -850,7 +850,7 @@ def ApproximateRigidTransform(input_transform, target_points):
 
     source_points = input_transform.InverseTransform(target_points)
       
-    #Offset the target points by 1, and find the angle between the source points
+    #scaled_offset the target points by 1, and find the angle between the source points
     offset = np.array([0,1]) 
     offset_source_points = source_points + offset
     

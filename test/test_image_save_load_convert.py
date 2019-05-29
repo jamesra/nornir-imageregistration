@@ -153,7 +153,7 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
     def test_16Bit_SaveImage(self):
         input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
         self.RunSaveLoadImageTest(input_image_fullpath, 
-                                  expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
+                                  expected_input_properties=ImageProperties(16, numpy.int16, '.tif'), 
                                   expected_output_properties=ImageProperties(16, numpy.uint16, '.png'))
         
         self.RunSaveLoadImageTest(input_image_fullpath, 

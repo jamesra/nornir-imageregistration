@@ -34,6 +34,7 @@ from nornir_imageregistration.local_distortion_correction import RefineMosaic, R
 import nornir_imageregistration.files as files
 import nornir_imageregistration.stos_brute as stos_brute
 import nornir_imageregistration.tile as tile
+import nornir_imageregistration.tile_overlap as tile_overlap
 import nornir_imageregistration.tileset as tileset
 import nornir_imageregistration.transforms as transforms
 import nornir_imageregistration.spatial as spatial
@@ -82,21 +83,72 @@ def IsIntArray(param):
     
     return np.issubdtype(ParamToDtype(param), np.integer)
 
-def ImageBpp(param): 
-    return int(ParamToDtype(param).itemsize * 8)
+def ImageMaxPixelValue(image):
+    '''The maximum value that can be stored in an image represented by integers'''
+    probable_bpp = int(image.itemsize * 8)
+    if probable_bpp > 8:
+        if 'i' == image.dtype.kind: #Signed integers we use a smaller probable_bpp
+            probable_bpp = probable_bpp - 1
+    return (1 << probable_bpp) - 1
 
-def EnsurePointsAre2DNumpyArray(points):
+def ImageBpp(image): 
+    probable_bpp = int(image.itemsize * 8)
+    #if probable_bpp > 8:
+    #    if 'i' == dt.kind: #Signed integers we use a smaller probable_bpp
+    #        probable_bpp = probable_bpp - 1
+    return probable_bpp
+
+def IndexOfValues(A, values):
+    '''
+    :param array A: Array of length N that we want to return indicies into
+    :param array Values: Array of length M containing values we need to find in A
+    :return: Array of length M containing the first index in A where the Values occur, or None
+    '''
+    
+    sorter = np.argsort(A)
+    indicies = np.searchsorted(A, values, side='left', sorter=sorter)
+    return indicies
+
+def EnsurePointsAre1DNumpyArray(points, dtype=None):
     if not isinstance(points, np.ndarray):
-        points = np.asarray(points, dtype=np.float32)
+        if dtype is None:
+            dtype = np.float32
+            
+        points = np.asarray(points, dtype=dtype)
+    elif not dtype is None:
+        if points.dtype != dtype:
+            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
+
+    if points.ndim > 1:
+        points = np.array(points.flat())
+
+    return points
+
+def EnsurePointsAre2DNumpyArray(points, dtype=None):
+    if not isinstance(points, np.ndarray):
+        if dtype is None:
+            dtype = np.float32
+            
+        points = np.asarray(points, dtype=dtype)
+    elif not dtype is None:
+        if points.dtype != dtype:
+            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
 
     if points.ndim == 1:
         points = np.resize(points, (1, 2))
 
     return points
 
-def EnsurePointsAre4xN_NumpyArray(points):
+def EnsurePointsAre4xN_NumpyArray(points, dtype=None):
     if not isinstance(points, np.ndarray):
+        if dtype is None:
+            dtype = np.float32
+            
         points = np.asarray(points, dtype=np.float32)
+    elif not dtype is None:
+        if points.dtype != dtype:
+            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
+            
 
     if points.ndim == 1:
         points = np.resize(points, (1, 4))

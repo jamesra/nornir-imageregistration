@@ -12,7 +12,7 @@ from test.setup_imagetest import ImageTestBase
 
 class TestTransforms(unittest.TestCase):
     
-    def test_transform_boundingboxes(self):
+    def test_rigid_transform_boundingboxes(self):
         A_fixed_center = (0, 75)
         B_fixed_center = (0,-75) 
         A_shape = (100,100)

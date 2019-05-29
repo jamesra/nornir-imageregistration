@@ -32,9 +32,17 @@ class PickleHelper(object):
 
         return None
     
+    @staticmethod
+    def _ensure_pickle_extension(path):
+        (_, ext) = os.path.splitext(path)
+        if ext != '.pickle':
+            path = os.path.join(path, '.pickle')
+        return path 
     
     def SaveVariable(self, var, path):
-        fullpath = os.path.join(self.TestCachePath, path + ".pickle")
+        path = PickleHelper._ensure_pickle_extension(path)
+        
+        fullpath = os.path.join(self.TestCachePath, path)
 
         if not os.path.exists(os.path.dirname(fullpath)):
             os.makedirs(os.path.dirname(fullpath))
@@ -53,6 +61,7 @@ class PickleHelper(object):
 
         if var is None:
             path = os.path.join(self.TestCachePath, varname + ".pickle")
+            path = PickleHelper._ensure_pickle_extension(path)
             if os.path.exists(path):
                 with open(path, 'rb') as filehandle:
                     try:
@@ -91,7 +100,7 @@ class TestBase(unittest.TestCase):
     def TestOutputPath(self):
         if 'TESTOUTPUTPATH' in os.environ:
             TestOutputDir = os.environ["TESTOUTPUTPATH"]
-            return os.path.join(TestOutputDir, self.classname)
+            return os.path.join(TestOutputDir, self.classname, self._testMethodName)
         else:
             self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
 
@@ -99,17 +108,17 @@ class TestBase(unittest.TestCase):
 
     @property
     def TestLogPath(self):
-        if 'TESTOUTPUTPATH' in os.environ:
-            TestOutputDir = os.environ["TESTOUTPUTPATH"]
-            return os.path.join(TestOutputDir, "Logs", self.classname)
-        else:
-            self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
+        #if 'TESTOUTPUTPATH' in os.environ:
+        #TestOutputDir = os.environ["TESTOUTPUTPATH"]
+            return os.path.join(self.TestOutputPath, "Logs")
+        #else:
+        #self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
 
-        return None
+        #return None
 
     @property
     def TestProfilerOutputPath(self):
-        return os.path.join(self.TestOutputPath, self.classname + '.profile')
+        return os.path.join(self.TestOutputPath, self._testMethodName + '.profile')
 
     def setUp(self):
         self.VolumeDir = self.TestOutputPath
@@ -119,10 +128,15 @@ class TestBase(unittest.TestCase):
         try:
             if os.path.exists(self.VolumeDir):
                 shutil.rmtree(self.VolumeDir)
-
-            os.makedirs(self.VolumeDir)
         except:
             pass
+        
+        try:
+            os.makedirs(self.VolumeDir, exist_ok=True)
+        except PermissionError as e:
+            print(str(e))
+            pass
+            
 
         self.profiler = None
 

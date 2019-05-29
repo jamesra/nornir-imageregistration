@@ -519,12 +519,12 @@ class Triangulation(Base):
         self.OnTransformChanged()
         
     def ScaleWarped(self, scalar):
-        '''Scale both warped and control space by scalar'''
+        '''Scale source space control points by scalar'''
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
         
     def ScaleFixed(self, scalar):
-        '''Scale both warped and control space by scalar'''
+        '''Scale target space control points by scalar'''
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 

@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
+import pillow_helpers
 
 
 #Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -259,17 +260,16 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     
     image = ImageParamToImageArray(input_image_param)
     original_dtype = image.dtype
-    Bpp = nornir_imageregistration.ImageBpp(original_dtype)
+    max_possible_int_val = None
     
-    assert(Bpp is not None)
-    max_possible_int_val = (1 << Bpp) - 1
-    max_possible_float_val = 1.0
+    #max_possible_float_val = 1.0
     
     NeedsClip = False
     
     #After lots of pain it is simplest to ensure all images are represented by floats before operating on them
-    if nornir_imageregistration.IsIntArray(original_dtype): 
-        image = image.astype(np.float32) / max_possible_int_val  
+    if nornir_imageregistration.IsIntArray(original_dtype):
+        max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
+        image = image.astype(np.float32) / max_possible_int_val
       
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -310,7 +310,7 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
         image = 1.0 - image
         
     if nornir_imageregistration.IsIntArray(original_dtype) == True:
-            image = image * max_possible_int_val
+        image = image * max_possible_int_val
         
     image = image.astype(original_dtype)
             
@@ -336,7 +336,7 @@ def  _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, F
         nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp)
     return
 
-def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, Bpp=None, OutputBpp=None, Invert=False, bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
+def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
     '''
     The key and value in the dictionary have the full path of an image to convert.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
@@ -351,10 +351,10 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, Bpp=None, O
     if len(ImagesToConvertDict) == 0:
         return False
     
-    if Bpp is None:
+    if InputBpp is None:
         for k in ImagesToConvertDict.keys():
             if os.path.exists(k):
-                Bpp = nornir_shared.images.GetImageBpp(k)
+                InputBpp = nornir_shared.images.GetImageBpp(k)
                 break
     
     prettyoutput.CurseString('Stage', "ConvertImagesInDict")
@@ -373,7 +373,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, Bpp=None, O
                       output_filename=output_image,
                       Flip=Flip,
                       Flop=Flop,
-                      InputBpp=Bpp,
+                      InputBpp=InputBpp,
                       OutputBpp=OutputBpp,
                       Invert=Invert,
                       MinMax=MinMax,
@@ -644,7 +644,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
     if bpp > 8:
         #Ensure we even have the data to bother saving a higher bit depth
         detected_bpp = nornir_imageregistration.ImageBpp(image) 
-        if nornir_imageregistration.ImageBpp(image) < bpp:
+        if detected_bpp < bpp:
             bpp = detected_bpp
         
     (root, ext) = os.path.splitext(ImageFullPath)
@@ -669,7 +669,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             im = Image.fromarray(image * ((1 << bpp)-1)) 
             im = im.convert('I')
         else:
-            if bpp == 16:
+            if bpp < 32:
                 if ext.lower() == '.png':
                     im = uint16_img_from_uint16_array(image)
                 else:
@@ -710,7 +710,8 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 # 
 #     im = Image.fromarray(image)
 #     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
-#     
+#
+
 
 def _LoadImageByExtension(ImageFullPath, dtype):
     '''
@@ -727,40 +728,37 @@ def _LoadImageByExtension(ImageFullPath, dtype):
             #image = plt.imread(ImageFullPath)
             with Image.open(ImageFullPath) as im:
                 
-                image = np.array(im)
-                probable_bpp = nornir_imageregistration.ImageBpp(image)
+                expected_dtype = pillow_helpers.dtype_for_pillow_image(im)
+                image = np.array(im, dtype=expected_dtype)
+                max_pixel_val = nornir_imageregistration.ImageMaxPixelValue(image)
+                
+                
                  
                 if dtype is not None:
                     image = image.astype(dtype)
-                else:
-                    #Reduce to smallest integer type that can hold the data
-                    if im.mode[0] == 'I' and (np.issubdtype(image.dtype, np.int32) or np.issubdtype(image.dtype, np.uint32)):
-                        (min_val, max_val) = im.getextrema()
-                        smallest_dtype = np.uint32
-                        if max_val <= 65535:
-                            smallest_dtype = np.uint16
-                        if max_val <= 255:
-                            smallest_dtype = np.uint8
-                            
-                        image = image.astype(smallest_dtype)
-                        
-                    dtype = image.dtype
+#                 else:
+#                     #Reduce to smallest integer type that can hold the data
+#                     if im.mode[0] == 'I' and (np.issubdtype(image.dtype, np.int32) or np.issubdtype(image.dtype, np.uint32)):
+#                         (min_val, max_val) = im.getextrema()
+#                         smallest_dtype = np.uint32
+#                         if max_val <= 65535:
+#                             smallest_dtype = np.uint16
+#                         if max_val <= 255:
+#                             smallest_dtype = np.uint8
+#                             
+#                         image = image.astype(smallest_dtype)
+#                         
+#                     dtype = image.dtype
                 
                 #Ensure data is in the range 0 to 1 for floating types
                 if nornir_imageregistration.IsFloatArray(dtype):
                     
                     if im.mode[0] == 'F':
-                        (im_min_val, im_max_val) = im.getextrema()
+                        (_, im_max_val) = im.getextrema()
                         if im_max_val <= 1.0:
                             return image
                 
-                    max_val = None
-                    if probable_bpp < 32:
-                        max_val = (1 << probable_bpp) - 1
-                    else:
-                        (im_min_val, im_max_val) = im.getextrema()
-                        max_val = im_max_val
-                    
+                    max_val = max_pixel_val
                     if max_val > 0:
                         image = image / max_val
                                       
@@ -1222,21 +1220,21 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
 
 
 # @profile
-def FindPeak(image, OverlapMask=None, Cutoff=0.995):
+def FindPeak(image, OverlapMask=None, Cutoff=None):
     '''
     Find the offset of the strongest response in a phase correlation image
     
     :param ndimage image: grayscale image
     :param float Cutoff: Percentile used to threshold image.  Values below the percentile are ignored
     :param ndimage OverlapMask: Mask describing which pixels are eligible
-    :return: Offset of peak from image center and sum of pixels values at peak
+    :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
 
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     #CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-    ThresholdImage = np.asarray(image)
+    ThresholdImage = np.copy(image)
 
     if OverlapMask is not None:
         CutoffValue = np.percentile(image[OverlapMask], q=Cutoff*100.0 )
@@ -1244,11 +1242,10 @@ def FindPeak(image, OverlapMask=None, Cutoff=0.995):
     else:
         CutoffValue = np.percentile(image, q=Cutoff*100.0 )
 
-
     ThresholdImage[ThresholdImage < CutoffValue] = 0
         
     #ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
-    # ShowGrayscale(ThresholdImage)
+    # nornir_imageregistration.ShowGrayscale([image,ThresholdImage])
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
     LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, list(range(0, NumLabels)))
@@ -1261,10 +1258,11 @@ def FindPeak(image, OverlapMask=None, Cutoff=0.995):
     del LabelSums
 
     # center_of_mass returns results as (y,x)
-    Offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
-    # Offset = (Offset[0], Offset[1])
+    #scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+    scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+    # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
-    return (Offset, PeakStrength)
+    return (scaled_offset, PeakStrength)
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
@@ -1295,8 +1293,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
         
     CorrelationImage = np.fft.fftshift(CorrelationImage)
 
-    # Crop the areas that cannot overlap
-
+    # Crop the areas that cannot overlap 
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
 

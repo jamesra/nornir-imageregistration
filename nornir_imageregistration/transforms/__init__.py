@@ -8,6 +8,6 @@ NumberOfControlPointsToTriggerMultiprocessing = 20
 from .factory import TransformToIRToolsString, LoadTransform
 from .meshwithrbffallback import MeshWithRBFFallback
 from .rbftransform import RBFWithLinearCorrection
-from .rigid import Rigid, RigidNoRotation
+from .rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
 from .triangulation import Triangulation  
 from .base import Base

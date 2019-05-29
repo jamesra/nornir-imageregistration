@@ -75,10 +75,10 @@ class AlignmentRecord(object):
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
     def __str__(self):
-        s = 'Offset: {x:.2}x, {y:.2}y Weight: {w:.2}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
+        s = 'Offset: {x:.2f}x, {y:.2f}y Weight: {w:.2f}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
         
         if self._angle != 0:
-            s += ' Angle: {0:.2}'.format(self._angle)
+            s += ' Angle: {0:.2f}'.format(self._angle)
             
         # s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
         if self.flippedud:
@@ -122,7 +122,11 @@ class AlignmentRecord(object):
         if warpedImageSize is None:
             warpedImageSize = fixedImageSize
 
-        return nornir_imageregistration.transforms.factory.CreateRigidTransform(fixedImageSize, warpedImageSize, self.rangle, self.peak, self.flippedud)
+        return nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=fixedImageSize,
+                                                                                source_image_shape=warpedImageSize,
+                                                                                rangle=self.rangle,
+                                                                                warped_offset=self.peak,
+                                                                                flip_ud=self.flippedud)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
 
