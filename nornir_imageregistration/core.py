@@ -1230,6 +1230,14 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
+    
+    if Cutoff is None:
+        Cutoff = 0.995
+#        num_pixels = np.prod(image.shape)
+        
+#        if (1.0 - Cutoff) * num_pixels > 1000:
+#            Cutoff = 1.0 - (1000.0 / num_pixels)
+        
 
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
