@@ -8,8 +8,7 @@ import numpy as np
 import nornir_shared
 import nornir_shared.plot
 import nornir_shared.histogram 
-import nornir_imageregistration
-import alignment_record
+import nornir_imageregistration 
 import matplotlib.pyplot as plt
 
 

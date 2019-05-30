@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.fft.fftpack as fftpack
 import scipy.ndimage.interpolation as interpolation
-import pillow_helpers
+from . import pillow_helpers
 
 
 #Disable decompression bomb protection since we are dealing with huge images on purpose
