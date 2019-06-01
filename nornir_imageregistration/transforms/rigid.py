@@ -52,16 +52,22 @@ class RigidNoRotation(base.Base):
     def TranslateFixed(self, offset):
         '''Translate all fixed points by the specified amount'''
         self.target_offset  = self.target_offset + offset
+        self._fixed_bounding_box = None
         self.OnTransformChanged()
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         self.target_offset  = self.target_offset - offset
+        self._fixed_bounding_box = None
+        self._mapped_bounding_box = self._mapped_bounding_box.translate(offset)
         self.OnTransformChanged()
         
     def Scale(self, value):
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * value 
         self.target_offset = self.target_offset * value
+        if self.MappedBoundingBox is not None:
+            self._fixed_bounding_box = None
+            self._mapped_bounding_box = scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(self._mapped_bounding_box, value)
         self.OnTransformChanged()
     
     def __init__(self, target_offset, source_rotation_center=None, angle=None, **kwargs):
@@ -103,6 +109,8 @@ class RigidNoRotation(base.Base):
         odict['target_offset'] = (self.target_offset[0], self.target_offset[1])
         odict['source_space_center_of_rotation'] = (self.source_space_center_of_rotation[0],
                                                     self.source_space_center_of_rotation[1])
+        odict['_mapped_bounding_box'] = self._mapped_bounding_box
+        odict['_fixed_bounding_box'] = self._fixed_bounding_box
 
         return odict
 
