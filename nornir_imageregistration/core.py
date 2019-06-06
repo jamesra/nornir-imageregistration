@@ -21,7 +21,8 @@ import nornir_shared.prettyoutput as prettyoutput
 import matplotlib.pyplot as plt
 
 import numpy as np
-import numpy.fft.fftpack as fftpack
+#import numpy.fft.fftpack as fftpack
+import scipy.fftpack as fftpack #Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
 from . import pillow_helpers
 
@@ -1157,8 +1158,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     #--------------------------------
 
-    FFTFixed = fftpack.rfft2(FixedImage - np.mean(FixedImage.flat))
-    FFTMoving = fftpack.rfft2(MovingImage - np.mean(MovingImage.flat))
+    FFTFixed = fftpack.fft2(FixedImage - np.mean(FixedImage.flat))
+    FFTMoving = fftpack.fft2(MovingImage - np.mean(MovingImage.flat))
     
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True) 
     
@@ -1213,7 +1214,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     
     
 
-    CorrelationImage = np.real(fftpack.irfft2(conjFFTFixed))
+    CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage 
@@ -1291,7 +1292,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
     
-    
+    #nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
     
     CorrelationImage = None
     if FFT_Required:
@@ -1299,7 +1300,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     else:
         CorrelationImage = FFTPhaseCorrelation(FixedImage, MovingImage, delete_input=False)
         
-    CorrelationImage = np.fft.fftshift(CorrelationImage)
+    CorrelationImage = fftpack.fftshift(CorrelationImage)
 
     # Crop the areas that cannot overlap 
     CorrelationImage -= CorrelationImage.min()
