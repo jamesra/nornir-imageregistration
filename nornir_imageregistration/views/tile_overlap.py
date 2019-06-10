@@ -187,12 +187,14 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
     ax.add_collection(collection)
     ax.axis('equal')
     
+    ax.set_title('Overlaps')
+    plt.tight_layout()
     ax.set_xlim(bbox.MinX, bbox.MaxX)
     ax.set_ylim(bbox.MinY, bbox.MaxY)
     ax.invert_yaxis()
     
-    ax.set_title('Overlaps')
-    # plt.tight_layout()
+    
+    # 
     
     if OutputFilename is not None:
         plt.savefig(OutputFilename)

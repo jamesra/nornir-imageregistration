@@ -5,6 +5,7 @@ import nornir_imageregistration
 import numpy as np
 import math
 import matplotlib.colors 
+import matplotlib.gridspec 
 
 def ShowGrayscale(input_params, title=None,PassFail=False):
     '''
@@ -51,14 +52,16 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
         (fig, ax) = _DisplayImageList1D(image_data)
         set_title_for_multi_image(fig, title)
     elif grid_dims[1] > 1:
-        (fig, ax) = _DisplayImageList2D(image_data, grid_dims)
+        (fig, gs) = _DisplayImageList2D(image_data, grid_dims)
         set_title_for_multi_image(fig, title)
         
     elif isinstance(input_params, collections.Iterable):
         #OK, we have a list of images or a list of lists
-           
+        #TODO: Why doesn't this use the DisplayImageList2D function?
+        
             height, width = _GridLayoutDims(input_params)
-            fig, axes = plt.subplots(height, width)
+            gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
+            fig = plt.figure()
             set_title_for_multi_image(fig, title)
 
             for i, image in enumerate(input_params):
@@ -69,11 +72,13 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
                     iCol = (i - (iRow * width)) % width
 
                     print("Row %d Col %d" % (iRow, iCol))
-
-                    if height > 1:
-                        ax = axes[iRow, iCol ]
-                    else:
-                        ax = axes[iCol]
+                    
+                    
+                    ax = fig.add_subplot(gs[iRow, iCol])
+#                     if height > 1:
+#                         ax = axes[iRow, iCol ]
+#                     else:
+#                         ax = axes[iCol]
 
                     ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
     else:
@@ -185,24 +190,33 @@ def _DisplayImageList1D(input_params, title=None):
     
 def _DisplayImageList2D(input_params, grid_dims, title=None):
     (height, width) = grid_dims
-    fig, axes = plt.subplots(height, width)
+    gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
+    fig = plt.figure()
+    #, axes = plt.subplots(height, width)
 
-    for iRow, row_list in enumerate(input_params):
+    for (iRow, row_list) in enumerate(input_params):
         
         if isinstance(row_list, np.ndarray):
-            ax = axes[iRow, 0]
+            ax = fig.add_subplot(gs[iRow,:])#axes[iRow, 0]
             ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
             continue 
         
+        numCols = len(row_list)
         for iCol, image in enumerate(row_list):
             #print("Row %d Col %d" % (iRow, iCol))
-
-            if height > 1:
-                ax = axes[iRow, iCol]
+            
+            if iCol == numCols-1 and numCols < width:
+                ax = fig.add_subplot(gs[iRow, iCol:])
             else:
-                ax = axes[iCol]
+                ax = fig.add_subplot(gs[iRow, iCol])
+                
+
+ #           if height > 1:
+#                ax = fig.add_subplot(gs[iRow, iCol]
+#            else:
+#                ax = fig.add_subplot([iCol]
 
             ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())    
     
-    return (fig, axes)
+    return (fig, gs)
     

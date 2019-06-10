@@ -346,8 +346,8 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
     source_rotation_center = (source_image_shape) / 2.0
 
     # Adjust offset for any mismatch in dimensions
-    
-    #AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
+    #Adjust the center of rotation to be consistent with the original ir-tools
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
@@ -356,7 +356,7 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
 
     # ControlPoints = np.append(TargetPoints, SourcePoints, 1)
 
-    transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=warped_offset,
+    transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=AdjustedOffset,
                                                           source_rotation_center=source_rotation_center,
                                                           angle=rangle,
                                                           scalar=scalar,
@@ -378,6 +378,7 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, war
     assert(target_image_shape[1] > 0)
 
     # Adjust offset for any mismatch in dimensions
+    #Adjust the center of rotation to be consistent with the original ir-tools
     AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
@@ -403,8 +404,8 @@ def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
     '''
     CenteredRotation = utils.RotationMatrix(rangle)
 
-    HalfWidth = (size[iArea.Width] - 1) / 2.0
-    HalfHeight = (size[iArea.Height] - 1) / 2.0
+    HalfWidth = (size[iArea.Width]) / 2.0
+    HalfHeight = (size[iArea.Height]) / 2.0
 
 #     BotLeft = CenteredRotation * matrix([[-HalfWidth], [-HalfHeight], [1]])
 #     TopLeft = CenteredRotation * matrix([[-HalfWidth], [HalfHeight], [1]])
