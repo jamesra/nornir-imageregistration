@@ -1,3 +1,5 @@
+import nornir_imageregistration
+
 __all__ = ['ForwardTransformCheck', 'TransformCheck', 'NearestFixedCheck', 'NearestWarpedCheck',
            'IdentityTransformPoints', 'MirrorTransformPoints', 'TranslateTransformPoints', 'OffsetTransformPoints']
 
@@ -26,6 +28,25 @@ def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
         '''Ensures that the nearest warped point can be found for a test point'''
         distance, index = transform.NearestWarpedPoint(testPoints)
         np.testing.assert_allclose(transform.SourcePoints[index,:], warpedPoints, atol=__transform_tolerance, rtol=0)
+
+def TransformAgreementCheck(t1, t2, points=None):
+        '''Ensures that the nearest warped point can be found for a test point'''
+        if points is None:
+            points = np.array([0,0],dtype=np.float32)
+        else:
+            points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+            
+        r1 = t1.Transform(points)
+        m1 = t2.Transform(points)
+        
+        np.testing.assert_allclose(r1, m1, err_msg="Pair of Transforms do not agree", atol=__transform_tolerance, rtol=0)
+        
+        ir1 = t1.InverseTransform(r1)
+        im1 = t2.InverseTransform(m1)
+        
+        np.testing.assert_allclose(ir1, im1, err_msg="Pair of InverseTransforms do not agree", atol=__transform_tolerance, rtol=0)
+        np.testing.assert_allclose(ir1, points, err_msg="Pair of InverseTransforms do not agree", atol=__transform_tolerance, rtol=0)
+        np.testing.assert_allclose(im1, points, err_msg="Pair of InverseTransforms do not agree", atol=__transform_tolerance, rtol=0)
 
 
 ### MirrorTransformPoints###
