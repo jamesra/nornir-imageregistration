@@ -1212,7 +1212,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
 
     conjFFTFixed[mask] /= abs_conjFFTFixed[mask]  # Numerator / Divisor
     
-    
+    del abs_conjFFTFixed
 
     CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
