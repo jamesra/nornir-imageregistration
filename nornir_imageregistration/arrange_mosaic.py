@@ -401,13 +401,14 @@ def ScoreTileOverlaps(tile_overlaps):
 def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_score=None):
     
     image = nornir_imageregistration.ImageParamToImageArray(image_path, dtype=np.float32)
-      
+
     ImageDataList = [ TileOverlapFeatureScore(overlap_ID=overlap_ID,
                                               iTile=iTile,
                                               image=None,  # __get_overlapping_image(image, overlapping_rect, excess_scalar=1.0, cval=np.nan),
                                               feature_score=nornir_imageregistration.image_stats.__CalculateFeatureScoreSciPy__(__get_overlapping_image(image, overlapping_rect, excess_scalar=1.0, cval=np.nan), feature_coverage_score=feature_coverage_score)) 
                     for (overlap_ID, iTile, overlapping_rect) in list_overlap_tuples]
     
+    del image
     return ImageDataList
 
 # 
@@ -661,6 +662,13 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     
     if ShowImages:
         nornir_imageregistration.views.plot_aligned_images(record, o_a,o_b)
+        del o_a
+        del o_b
+        
+    del A
+    del B
+    del OverlappingRegionA
+    del OverlappingRegionB
     
     return adjusted_record
 
