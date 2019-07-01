@@ -1281,18 +1281,32 @@ def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOve
         return CorrelationImage
 
 
-def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
+def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True, FixedImageShape=None, MovingImageShape=None):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
        moving image must be rotated and translated to align perfectly with the FixedImage.
        
        If adjusting control points the peak can be added to the fixed image's control point, or subtracted from the 
        warped image's control point (accounting for any transform used to create the warped image) to align the images.
+       
+       :param ndarray FixedImage:  Target space we are registering into
+       :param ndarray MovingImage: Source space we are coming from
+       :param float MinOverlap: The minimum amount of overlap by area the registration must have
+       :param float MaxOverlap: The maximum amount of overlap by area the registration must have
+       :param bool FFT_Required: True by default, if False the input images are in FFT space already
+       :param tuple FixedImageShape: Defaults to None, if specified it contains the size of the fixed image before padding.  Used to calculate mask for valid overlap values.
+       :param tuple MovingImageShape: Defaults to None, if specified it contains the size of the moving image before padding.  Used to calculate mask for valid overlap values. 
        '''
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
     
     #nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
+    
+    if FixedImageShape is None:
+        FixedImageShape = FixedImage.shape
+    
+    if MovingImageShape is None:
+        MovingImageShape = MovingImage.shape
     
     CorrelationImage = None
     if FFT_Required:
@@ -1307,7 +1321,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
-    OverlapMask = nornir_imageregistration.GetOverlapMask(FixedImage.shape, MovingImage.shape, CorrelationImage.shape, MinOverlap, MaxOverlap)
+    OverlapMask = nornir_imageregistration.GetOverlapMask(FixedImageShape, MovingImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap)
     (peak, weight) = FindPeak(CorrelationImage, OverlapMask)
 
     del CorrelationImage

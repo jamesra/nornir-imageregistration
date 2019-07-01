@@ -171,7 +171,7 @@ def TranslateTiles2(transforms, imagepaths,
     inter_tile_distance_scale_this_pass = first_pass_inter_tile_distance_scale
     inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
     while iPass >= 0:
-        (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs) = GenerateTileOverlaps(tiles=tiles,
+        (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, nonoverlapping_tile_IDs) = GenerateTileOverlaps(tiles=tiles,
                                                              existing_overlaps=last_pass_overlaps,
                                                              offset_epsilon=offset_acceptance_threshold,
                                                              image_scale=image_scale,
@@ -267,7 +267,7 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon=1.0, imag
     :param float imageScale: The amount the images are downsampled compared to coordinates in the transforms
     :param float min_overlap: Tiles that overlap less than this amount percentage of area will not be included
     
-    :return: Returns a four-component tuple composed of all found overlaps, the new overlaps, the overlaps that require updating, and the deleted overlaps from the existing set. 
+    :return: Returns a four-component tuple composed of all found overlaps, the new overlaps, the overlaps that require updating, the deleted overlaps from the existing set, and the IDs of non-overlapping tiles. 
              None of the returned overlaps are the same objects as those in the original set
     '''
     assert(isinstance(tiles, dict))
@@ -288,6 +288,11 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon=1.0, imag
     removed_offset_IDs = []
     new_overlaps = []
     updated_overlaps = []
+    nonoverlapping_tile_IDs = set(tiles.keys()) #Tiles with no overlaps
+    
+    for overlap in generated_overlaps:
+        nonoverlapping_tile_IDs -= set(overlap.ID)
+        
     # new_or_updated = []
     
     # Iterate the current set of overlaps and determine if:
@@ -344,7 +349,7 @@ def GenerateTileOverlaps(tiles, existing_overlaps=None, offset_epsilon=1.0, imag
     print("{0} overlaps removed".format(len(removed_offset_IDs)))
     print("\n")
         
-    return (generated_overlaps, new_overlaps, updated_overlaps, removed_offset_IDs)
+    return (generated_overlaps, new_overlaps, updated_overlaps, removed_offset_IDs, nonoverlapping_tile_IDs)
 
 
 def ScoreTileOverlaps(tile_overlaps):
@@ -648,7 +653,7 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     
     # nornir_imageregistration.ShowGrayscale([OverlappingRegionA, OverlappingRegionB]) nornir_imageregistration.ShowGrayscale([[o_a, o_b],[OverlappingRegionA, OverlappingRegionB]])
     
-    record = nornir_imageregistration.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)
+    record = nornir_imageregistration.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)#, FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
     
     #overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.translate(scaled_overlapping_source_rect_B, -record.peak) 
     #overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, scaled_overlapping_source_rect_A.Size)

@@ -33,7 +33,7 @@ def GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOve
     
     global __known_overlap_masks
     
-    if MinOverlap == 0.0 and MaxOverlap == 1.0:
+    if MinOverlap == 0.0 and MaxOverlap == 1.0: # and np.array_equal(FixedImageSize, MovingImageSize) and np.array_equal(FixedImageSize, CorrelationImageSize):
         return None
     
     MaskIndex = __CreateMaskLookupIndex(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap, MaxOverlap)
@@ -47,17 +47,30 @@ def GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOve
     return Mask
 
 
-def __CreateFullMaskFromQuadrant(Mask):
+def __CreateFullMaskFromQuadrant(Mask, isOddDimension):
     '''
     Given an image, replicates the image symetrically around both the X and Y axis to create a full mask
+    :param array isOddDimension: True if the axis has an odd dimension in the input.
     '''
     MaskUpRight = Mask
-    MaskUpLeft = np.fliplr(Mask)
-    MaskDownLeft = np.flipud(MaskUpLeft)
-    MaskDownRight = np.fliplr(MaskDownLeft)
-
+    
+    if isOddDimension[1]:
+        MaskUpLeft = np.fliplr(Mask[:,1:])
+    else:
+        MaskUpLeft = np.fliplr(Mask)
+        
     UpperMask = np.hstack((MaskUpLeft, MaskUpRight))
-    LowerMask = np.hstack((MaskDownLeft, MaskDownRight))
+    
+    if isOddDimension[0]:
+        LowerMask = np.flipud(UpperMask[1:,:])
+        #MaskDownLeft = np.flipud(MaskUpLeft[1:,:])
+        #MaskDownRight = np.fliplr(MaskUpRight[1:,:])
+    else:
+        LowerMask = np.flipud(UpperMask)
+        #MaskDownLeft = np.flipud(MaskUpLeft)
+        #MaskDownRight = np.fliplr(MaskUpRight)
+
+#    LowerMask = np.hstack((MaskDownLeft, MaskDownRight))
 
     Mask = np.vstack((LowerMask, UpperMask))
 
@@ -81,8 +94,10 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
         
     if MinOverlap >= MaxOverlap:
         raise ValueError("Minimum overlap must be less than maximum overlap")
-
-    QuadrantSize = (CorrelationImageSize[0] // 2, CorrelationImageSize[1] // 2)
+ 
+    QuadrantSize = np.asarray((CorrelationImageSize[0] / 2.0, CorrelationImageSize[1] / 2.0), dtype=np.float64)
+    isOddDimension = np.mod(QuadrantSize, 1) > 0
+    QuadrantSize = np.ceil(QuadrantSize).astype(np.int32)
     Mask = np.zeros(QuadrantSize, dtype=np.bool)
 
     Mask = _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)
@@ -92,7 +107,7 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
 # 
 #             overlap = Rectangle.overlap(WarpedImageRect, FixedImageRect)
 #             Mask[iy, ix] = overlap >= MinOverlap and overlap <= MaxOverlap
-    return __CreateFullMaskFromQuadrant(Mask)
+    return __CreateFullMaskFromQuadrant(Mask, isOddDimension)
 
 
 def _PopulateMaskQuadrantBruteForce(Mask, FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
