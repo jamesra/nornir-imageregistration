@@ -4,9 +4,6 @@ Created on Aug 30, 2013
 @author: u0490822
 '''
 
-import glob
-import os
-
 from ez_setup import use_setuptools
 
 # from setuptools import setup, find_packages
