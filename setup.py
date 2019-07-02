@@ -29,15 +29,15 @@ if __name__ == '__main__':
     dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.4",
                         "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.4"]
 
-    scripts = ['nornir-addtransforms = nornir_imageregistration.scripts.nornir_addtransforms:Execute',
-               'nornir-assemble-tiles = nornir_imageregistration.scripts.nornir_assemble_tiles:Execute',
-               'nornir-assemble = nornir_imageregistration.scripts.nornir_assemble:Execute',
-               'nornir-rotate-transalate = nornir_imageregistration.scripts.nornir_rotate_translate:Execute',
-               'nornir-slice-to-mosaic = nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
-               'nornir-translatemosaic = nornir_imageregistration.scripts.nornir_translatemosaic:Execute',
-               'nornir-scaletransform = nornir_imageregistration.scripts.nornir_scaletransform:Execute',
-               'nornir-stos-grid-refinement = nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute'
-               'nornir-show-mosaic-layout = nornir_imageregistration.scripts.nornir_show_mosaic_layout:Execute'
+    scripts = ['nornir-addtransforms =        nornir_imageregistration.scripts.nornir_addtransforms:Execute',
+               'nornir-assemble-tiles =       nornir_imageregistration.scripts.nornir_assemble_tiles:Execute',
+               'nornir-assemble =             nornir_imageregistration.scripts.nornir_assemble:Execute',
+               'nornir-rotate-transalate =    nornir_imageregistration.scripts.nornir_rotate_translate:Execute',
+               'nornir-slice-to-mosaic =      nornir_imageregistration.scripts.nornir_slicetomosaic:Execute',
+               'nornir-translatemosaic =      nornir_imageregistration.scripts.nornir_translatemosaic:Execute',
+               'nornir-scaletransform =       nornir_imageregistration.scripts.nornir_scaletransform:Execute',
+               'nornir-stos-grid-refinement = nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute',
+               'nornir-show-mosaic-layout =   nornir_imageregistration.scripts.nornir_show_mosaic_layout:Execute'
                ]
                
     
