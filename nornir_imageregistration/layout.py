@@ -11,6 +11,7 @@ import numpy as np
 from . import alignment_record
 from . import core
 from . import spatial 
+from operator import itemgetter
 
 ID_Value = collections.namedtuple('ID_Magnitude', ['ID', 'Value'])
 
@@ -309,7 +310,7 @@ class LayoutPosition(object):
         c._OffsetArray = self._OffsetArray.copy()
         return c
         
-    def __str__(self):
+    def _str_(self):
         return "%d y:%g x:%g" % (self._ID, self.Position[0], self.Position[1]) 
         
 
@@ -356,6 +357,17 @@ class Layout(object):
             pairs = pairs.union(node_pairs)
 
         return pairs
+    
+    @property
+    def average_center(self):
+        '''
+        :return: The average of the center positions of all tiles in the layout
+        '''
+        
+        centers = [n.Position for n in self.nodes.values()]
+        centers_stacked = np.vstack(centers)
+        avg_center = np.average(centers_stacked, axis=0)
+        return avg_center
 
     @property    
     def MaxWeightedNetTensionMagnitude(self):
@@ -384,6 +396,9 @@ class Layout(object):
         
         tension_vectors = self.MaxTensionVectors
         tension_magnitude = core.array_distance(tension_vectors[:,2:4]) 
+        if len(tension_magnitude) == 0:
+            return None
+        
         i_max = tension_magnitude.argmax()
         return ID_Value(CreatePairID(tension_vectors[i_max,0:2]), tension_magnitude[i_max])
     
@@ -395,9 +410,16 @@ class Layout(object):
         '''
         
         tension_vectors = self.MinTensionVectors
-        tension_magnitude = core.array_distance(tension_vectors[:,2:4]) 
+        tension_magnitude = core.array_distance(tension_vectors[:,2:4])
+        if len(tension_magnitude) == 0:
+            return None
+         
         i_min = tension_magnitude.argmin()
         return ID_Value(CreatePairID(tension_vectors[i_min,0:2]), tension_magnitude[i_min])
+    
+    
+    def __str__(self):
+        return "Layout {0} nodes {1} Connections {2}".format(self.ID, len(self.nodes.keys()), len(self.linked_nodes))
     
     def Contains(self, ID):
         '''
@@ -623,8 +645,11 @@ class Layout(object):
         self.SetOffset(Existing_ID, New_ID, scaled_offset, Weight)
         return 
     
+    NextLayoutID = 0
     def __init__(self):
         
+        self.ID = Layout.NextLayoutID
+        Layout.NextLayoutID = Layout.NextLayoutID + 1
         self._nodes = {}
         return
         
@@ -1007,7 +1032,7 @@ def MergeDisconnectedLayouts(layout_list):
         return layout_list[0]
     
     merged_layout = layout_list[0].copy()
-    
+ 
     for (i,layout) in enumerate(layout_list):
         if i == 0:
             continue
@@ -1015,6 +1040,136 @@ def MergeDisconnectedLayouts(layout_list):
         merged_layout.Merge(layout)
         
     return merged_layout
+
+
+def _generate_combinations(list_of_lists):
+    '''Given a list of iterables containing integers, returns all of the pairs of numbers without pairs appearing in the same list'''
+    for (iList, id_list) in enumerate(list_of_lists):
+        for (iOther, other_list) in enumerate(list_of_lists):
+            if iOther <= iList:
+                continue 
+            
+            for A in id_list:
+                for B in other_list:
+                    if A < B:
+                        yield (A,B)
+
+def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
+    '''
+    Given a list of layouts, generate a single layout, if possible using the offsets in tile_offset_dict
+    :param dict tile_offset_dict: Keys are (A,B) values are offsets [Y,X]
+    '''
+    if len(layout_list) == 1:
+        return layout_list[0]
+    
+    if tile_offset_dict is None:
+        tile_offset_dict = {}
+    else:
+        #Clone the dictionary so we don't change the passed parameter
+        tile_offset_dict = dict(tile_offset_dict)
+        
+    #First, to minimize our search time, remove offsets the layouts already encode
+    # and build a frozenset of IDs in the layouts
+    layout_IDs = []
+    tile_to_layout = {} #Track which tile belongs to which layout
+    for (iLayout,layout) in enumerate(layout_list):
+        layout_IDs.append( frozenset([node_id for node_id in layout.nodes.keys()]) )
+        
+        for link in layout.linked_nodes:
+            assert(link[0] < link[1])
+            if link in tile_offset_dict:
+                del tile_offset_dict[link]
+                
+        for node_id in layout.nodes.keys():
+            tile_to_layout[node_id] = iLayout
+            
+    #Remove the tile links who are in the same layout but not linked in the layout
+    for key in list(tile_offset_dict.keys()):
+        if tile_to_layout[key[0]] == tile_to_layout[key[1]]:
+            del tile_offset_dict[key]
+        
+            
+    cross_layout_keys = {}
+
+    #Identify all of the tile_offsets that can describe where the layouts are relative to each other
+    for offset_key in tile_offset_dict.keys():
+        try:
+            iLayout_A = tile_to_layout[offset_key[0]] 
+            iLayout_B = tile_to_layout[offset_key[1]]
+        except KeyError:
+            continue
+        
+        assert(iLayout_A != iLayout_B)
+        
+        layout_pair = (iLayout_A, iLayout_B)
+        if iLayout_B < iLayout_A:
+            layout_pair = (iLayout_B, iLayout_A)
+        
+        if iLayout_A != iLayout_B:
+            if layout_pair in cross_layout_keys:
+                cross_layout_keys[layout_pair].append(offset_key)
+            else:
+                cross_layout_keys[layout_pair] = [offset_key]
+            
+    #Generate a list of the layouts pairings with the greatest number of keys first, merge largest to smallest
+    layout_pair_offset_count = [(key, len(cross_layout_keys[key])) for key in cross_layout_keys.keys()]
+    sorted_layout_pair_offset_count = sorted(layout_pair_offset_count, key=itemgetter(1), reverse=True)
+    
+    #layout_centers = np.vstack([l.average_center for l in layout_list])
+    
+    #Merge the largest layouts to the smallest layouts until all are merged that can be merged
+    while len(sorted_layout_pair_offset_count) > 0:
+        layout_pair_to_merge = sorted_layout_pair_offset_count.pop(0)
+        layout_pair = layout_pair_to_merge[0]
+        (iLayout_A, iLayout_B) = layout_pair
+        print("Layout {0} absorbing {1}".format(iLayout_A, iLayout_B))
+        assert(iLayout_A != iLayout_B)
+        ALayout = layout_list[iLayout_A]
+        BLayout = layout_list[iLayout_B]
+           
+        tile_offsets = cross_layout_keys[layout_pair]
+        
+        A_To_B_offset_measures = np.zeros((len(tile_offsets), 2))
+        
+        for (iRow, offset_key) in enumerate(tile_offsets):
+            
+            #Using each tile offset key, average the offset between the disconnected layouts
+            tile_offset = tile_offset_dict[offset_key]
+            iLayout = (tile_to_layout[offset_key[0]], tile_to_layout[offset_key[1]])
+            #assert(iLayout[0] != iLayout[1])
+            if iLayout[0] == iLayout[1]:
+                continue
+            
+            tile_layouts = (layout_list[iLayout[0]], layout_list[iLayout[1]])
+            A_Pos = tile_layouts[0].GetPosition(offset_key[0])
+            B_Pos = tile_layouts[1].GetPosition(offset_key[1])
+            #Layout_A_Center = layout_centers[iLayout[0], :]
+            #Layout_B_Center = layout_centers[iLayout[1], :]
+            #A_To_Layout = A_Pos - Layout_A_Center
+            #B_To_Layout = B_Pos - Layout_B_Center
+            #A_To_B = A_To_Layout + tile_offset + B_To_Layout
+            
+            #A_To_B_offset_measures[iRow, :] = A_To_B
+            A_To_B_offset_measures[iRow, :] = (B_Pos - A_Pos) - tile_offset
+            
+            #MergeLayoutsWithNodeOffset(ALayout, BLayout, offset_key[0], offset_key[1], tile_offset.offset, Weight=0)
+            #print("Merged")
+            
+        MergeLayoutsWithAbsoluteOffset(ALayout, BLayout, np.mean(A_To_B_offset_measures, axis=0))
+        
+        for (iLayout, layout) in enumerate(layout_list):
+            if layout.ID == BLayout.ID:
+                layout_list[iLayout] = ALayout
+                
+        #layout_list[iLayout_B] = ALayout
+        #layout_centers[iLayout_A] = ALayout.average_center
+        #layout_centers[iLayout_B] = ALayout.average_center
+    
+    #Now we check for layouts that are completely disconnected
+    
+    
+        
+    return layout_list[0]
     
  
 def GetLayoutForID(listLayouts, ID):
@@ -1046,3 +1201,13 @@ def MergeLayoutsWithNodeOffset(layoutA, layoutB, NodeInA, NodeInB, offset, weigh
     layoutA.Merge(layoutB)
     
     layoutA.SetOffset(NodeInA, NodeInB, offset, weight)
+    
+
+def MergeLayoutsWithAbsoluteOffset(layoutA, layoutB, offset):
+    '''
+    Merge B with A by translating all B transforms by offset.
+    Then update the dictionary of A
+    '''
+    
+    layoutB.Translate(offset)
+    layoutA.Merge(layoutB)

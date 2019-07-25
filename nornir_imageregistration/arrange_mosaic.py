@@ -170,6 +170,11 @@ def TranslateTiles2(transforms, imagepaths,
     pass_count = 0
     inter_tile_distance_scale_this_pass = first_pass_inter_tile_distance_scale
     inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
+    
+    first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
+    
+    stage_reported_overlaps = None
+    
     while iPass >= 0:
         (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, nonoverlapping_tile_IDs) = GenerateTileOverlaps(tiles=tiles,
                                                              existing_overlaps=last_pass_overlaps,
@@ -177,6 +182,9 @@ def TranslateTiles2(transforms, imagepaths,
                                                              image_scale=image_scale,
                                                              min_overlap=min_overlap,
                                                              inter_tile_distance_scale=inter_tile_distance_scale_this_pass)
+        
+        if stage_reported_overlaps is None:
+            stage_reported_overlaps = {to.ID: to.offset for to in new_overlaps}
         
         new_or_updated_overlaps = list(new_overlaps)
         new_or_updated_overlaps.extend(updated_overlaps)
@@ -227,7 +235,8 @@ def TranslateTiles2(transforms, imagepaths,
 #        nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout)
         
         translated_final_layouts = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(scaled_translated_layout)
-        translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayouts(translated_final_layouts)
+        #TODO: Pass the dictionary to this function that indicates tile offsets for pairs of tiles
+        translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(translated_final_layouts, stage_reported_overlaps) 
         
         #Should we do a shorter pass on the first run?
         relax_iterations = max_relax_iterations

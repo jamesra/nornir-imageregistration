@@ -319,6 +319,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         last_pass_overlaps = None
         translated_layout = None
         
+        stage_reported_overlaps = None
+        
         for iPass in range(0,5):
             (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = arrange.GenerateTileOverlaps(tiles=initial_tiles,
                                                              existing_overlaps=last_pass_overlaps,
@@ -326,6 +328,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
                                                              image_scale=imageScale,
                                                              min_overlap=min_overlap,
                                                              inter_tile_distance_scale=inter_tile_distance_scale)
+            
+            if stage_reported_overlaps is None:
+                stage_reported_overlaps = {to.ID: to.offset for to in new_overlaps}
             
             
             #After the first pass trust the mosaic layout
@@ -436,7 +441,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
             self.PlotLayoutWeightHistogram(scaled_translated_layout, mosaicBaseName + "_{0:d}pass_weight_histogram".format(iPass), openwindow=False)
             translated_final_layouts = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(scaled_translated_layout)
-            translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayouts(translated_final_layouts)
+            translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(translated_final_layouts, stage_reported_overlaps)
             
             translated_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_Weighted".format(iPass),
                                                           translated_final_layout,
@@ -693,10 +698,21 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #        
 #         print("All done")
 
-    def test_RPC2_1013_Mosaic(self):
+#     def test_RPC2_1013_Mosaic(self):
+#                  
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RPC2\\1013\\TEM\\Stage.mosaic",
+#                                  TilePyramidDir="C:\\Data\\RPC2\\1013\\TEM\\Leveled\\TilePyramid",
+#                                  downsample=4,
+#                                  max_relax_iterations=500,
+#                                  openwindow=False)
+#          
+#         print("All done")
+        
+    
+    def test_TEM2_Sahler_13208_Mosaic(self):
                  
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RPC2\\1013\\TEM\\Stage.mosaic",
-                                 TilePyramidDir="C:\\Data\\RPC2\\1013\\TEM\\Leveled\\TilePyramid",
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\TEM2_Sahler\\13208\\Stage_limited.mosaic",
+                                 TilePyramidDir="C:\\Data\\TEM2_Sahler\\13208\\Raw8\\TilePyramid",
                                  downsample=4,
                                  max_relax_iterations=500,
                                  openwindow=False)

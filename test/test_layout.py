@@ -307,6 +307,7 @@ class TestLayout(setup_imagetest.TestBase):
         yields coordinates of all 8-way adjacent cells on a grid
         :param tuple pos: (Y,X) position on a grid
         :param tuple grid_dims: (Y,X) size of grid
+        :returns: (adjacentY, adjacentX) as array
         '''
         (y,x) = pos
         
@@ -328,6 +329,139 @@ class TestLayout(setup_imagetest.TestBase):
             for iX in range(min_x,max_x+1):
                 if (iY != y) ^ (iX != x):
                     yield np.asarray((iY, iX), dtype=np.int64)
+                    
+    def test_layout_properties(self):
+        '''Generate a 10x10 grid of tiles with fixed positions and correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
+        num_cols = 10
+        num_rows = 10
+        grid_dims = (num_rows, num_cols)
+        layout = nornir_imageregistration.layout.Layout()
+        tile_dims = np.asarray((10,10))
+        
+        minX = 0
+        maxX = num_cols * tile_dims[1]
+        minY = 0
+        maxY = num_rows * tile_dims[0]
+                
+        pos_to_tileid = {}
+        tileid_to_pos = {}
+        #Tiles are size 10x10, and are randomly placed somewhere in the bounds of the grid
+        iTile = 0
+        for iRow in range(0,num_rows):
+            for iCol in range(0,num_cols): 
+                position = np.array((iRow * tile_dims[0], iCol * tile_dims[1]), dtype=np.float64)
+                position = position + (tile_dims / 2.0)
+                
+                layout.CreateNode(iTile, position, tile_dims)
+#                layout.CreateNode(iTile, np.asarray((iRow, iCol)) * tile_dims, tile_dims)
+                pos_to_tileid[(iRow, iCol)] = iTile
+                tileid_to_pos[iTile] = (iRow, iCol)
+                iTile = iTile + 1 
+                
+                
+        expected_center = (grid_dims * tile_dims) / 2.0
+        np.testing.assert_array_almost_equal_nulp(layout.average_center, expected_center)
+
+        #50% of the tiles are candidates to be linked, create layouts for each independent region
+        create_offset = np.random.random_integers(0,1, grid_dims).astype(np.bool)
+        
+        nornir_imageregistration.ShowGrayscale(create_offset, title="Offset bitmask")
+        
+        tile_offset_dict = {}
+                       
+        for iRow in range(0,num_rows):
+            for iCol in range(0,num_cols):
+                tileID = (iRow * num_cols) + iCol
+                pos = np.asarray((iRow, iCol))
+                for adj in TestLayout.enumerate_four_adjacent(pos, grid_dims):
+                    if adj[0] < iRow or adj[1] < iCol:
+                        continue
+                    
+                    adjID = (adj[0] * num_cols) + adj[1]
+                    
+                    tile_offset_dict[(tileID, adjID)] = (adj - np.array((iRow,iCol))) * tile_dims
+                    
+        added_to_layout = np.zeros(grid_dims, dtype=np.bool)
+        checked_mask = np.zeros(grid_dims, dtype=np.bool)
+        layout_lists = []
+                    
+        for iRow in range(0,num_rows):
+            for iCol in range(0,num_cols):
+                
+                if added_to_layout[iRow, iCol]:
+                    continue
+                
+                iTile = (iRow * num_cols) + iCol
+                 
+                layout = nornir_imageregistration.layout.Layout()        
+                layout_lists.append(layout)
+                       
+                for adj in TestLayout.flood_fill(create_offset, np.array((iRow, iCol), dtype=np.int), added_to_layout):
+                    iAdj = (adj[0] * num_cols) + adj[1] 
+                    position = adj * tile_dims
+                    layout.CreateNode(int(iAdj), position, tile_dims)
+        
+        #Add the offsets for the nodes connected in the layout
+        for layout in layout_lists:
+            for node in layout.nodes.values():
+                iRow = node.ID / grid_dims[1]
+                iCol = node.ID % grid_dims[1]
+                for adj in TestLayout.enumerate_four_adjacent((int(iRow), int(iCol)), grid_dims):
+                    adj_id = (adj[0] * num_cols) + adj[1]
+                    
+                    if (node.ID, adj_id) in tile_offset_dict and adj_id in layout.nodes:
+                        layout.SetOffset(node.ID, adj_id, tile_offset_dict[(node.ID, adj_id)], 1)
+                        
+        #Add one extra layout that is not connected to anything via tile_offset_dict
+        extra_layout = nornir_imageregistration.layout.Layout()
+        layout_lists.append(extra_layout)
+        
+        extra_coord = grid_dims + np.asarray((1,1))
+        extra_id = int((extra_coord[0] * num_cols) + extra_coord[1])
+        extra_layout.CreateNode(extra_id, extra_coord * tile_dims, tile_dims )
+                        
+        merged_layout = MergeDisconnectedLayoutsWithOffsets(layout_lists, tile_offset_dict)
+        
+        self.assertTrue(extra_id in merged_layout.nodes, "Unconnected layout is not in the merged layout")
+                    
+        nornir_imageregistration.views.plot_layout(merged_layout)
+        
+        self.assertTrue(len(merged_layout.nodes) == 100)
+        #for layout in layout_lists:
+        #    nornir_imageregistration.views.plot_layout(layout, ylim=(-tile_dims[0], (grid_dims[0] + 1) * tile_dims[0]), xlim=(-tile_dims[1], (grid_dims[1] + 1) * tile_dims[1]))
+
+    @classmethod
+    def flood_fill(cls, bit_mask, origin, checked_mask=None, desired_value=None):
+        '''
+        An iterator that yields all indicies connected to true bits of the mask
+        If the origin is over a false bit, then only the origin is returned
+        '''
+        
+        if checked_mask is None:
+            checked_mask = np.zeros(bit_mask.shape, dtype=np.bool)
+        
+        key = tuple(origin)
+        checked_mask[key] = True
+        
+        if desired_value is None:
+            desired_value = bit_mask[key]
+        
+        if bit_mask[key] == desired_value:
+            yield origin
+        else:
+            return
+        
+        for adj in TestLayout.enumerate_four_adjacent(origin, bit_mask.shape):
+            adj_key = tuple(adj)
+            if checked_mask[adj_key]:
+                continue
+            
+            if bit_mask[adj_key] == desired_value:
+                yield from cls.flood_fill(bit_mask, adj_key, checked_mask)
+                 
+        return
+        
+        
     
     def test_layout_relax_into_grid(self):
         '''Generate a 10x10 grid of tiles with random positions but correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
