@@ -1166,10 +1166,14 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
         #layout_centers[iLayout_B] = ALayout.average_center
     
     #Now we check for layouts that are completely disconnected
-    
-    
+    distinct_IDs = set([ll.ID for ll in layout_list])
+    unmerged_layouts = []
+    for layout in layout_list:
+        if layout.ID in distinct_IDs:
+            unmerged_layouts.append(layout)
+            distinct_IDs = distinct_IDs - set([layout.ID])
         
-    return layout_list[0]
+    return MergeDisconnectedLayouts(unmerged_layouts)
     
  
 def GetLayoutForID(listLayouts, ID):
