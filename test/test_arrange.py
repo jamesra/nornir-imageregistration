@@ -310,7 +310,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         initial_tiles = nornir_imageregistration.tile.CreateTiles( transforms=transforms, imagepaths=tilesPathList)
         
         
-        min_overlap = 0.075
+        min_overlap = 0.070
         
         if inter_tile_distance_scale is None:
             inter_tile_distance_scale = 1.0
@@ -332,7 +332,6 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             if stage_reported_overlaps is None:
                 stage_reported_overlaps = {to.ID: to.offset for to in new_overlaps}
             
-            
             #After the first pass trust the mosaic layout
             inter_tile_distance_scale = 1.0
             
@@ -348,7 +347,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
                 for ID in removed_overlap_IDs:
                     translated_layout.RemoveOverlap(ID)
                 for ID in non_overlapping_IDs:
-                    translated_layout.RemoveOverlap(ID)    
+                    self.assertTrue(translated_layout.nodes[ID].ConnectedIDs.shape[0] == 0, "Non-overlapping node should not have overlaps")
+#                    translated_layout.RemoveNode(ID)    
                 
             
     #         tile_overlap_feature_scores = self.ReadOrCreateVariable(self.id() + "tile_overlap_feature_scores_%03d_%03g" % (downsample, first_pass_excess_scalar),
@@ -422,10 +422,10 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             (tileA_ID, tileB_ID) = _GetBestOffsetPair(translated_layout)
             self.ShowTilesWithOffset(translated_layout, initial_tiles, tileA_ID, tileB_ID, "_{0:d}pass_Best1stPass".format(iPass), openwindow=openwindow)
             
-            self.ShowTilesWithOffset(translated_layout, initial_tiles, 0, 1, "{0:d}_pass".format(iPass), openwindow=openwindow)
-            self.ShowTilesWithOffset(translated_layout, initial_tiles, 0, 60, "{0:d}_pass".format(iPass), openwindow=openwindow)
-            self.ShowTilesWithOffset(translated_layout, initial_tiles, 1, 61, "{0:d}_pass".format(iPass), openwindow=openwindow)
-            self.ShowTilesWithOffset(translated_layout, initial_tiles, 60, 61, "{0:d}_pass".format(iPass), openwindow=openwindow)
+            #self.ShowTilesWithOffset(translated_layout, initial_tiles, 0, 1, "{0:d}_pass".format(iPass), openwindow=openwindow)
+            #self.ShowTilesWithOffset(translated_layout, initial_tiles, 0, 60, "{0:d}_pass".format(iPass), openwindow=openwindow)
+            #self.ShowTilesWithOffset(translated_layout, initial_tiles, 1, 61, "{0:d}_pass".format(iPass), openwindow=openwindow)
+            #self.ShowTilesWithOffset(translated_layout, initial_tiles, 60, 61, "{0:d}_pass".format(iPass), openwindow=openwindow)
             #self.ShowTilesWithOffset(translated_layout, initial_tiles, 53, 56, "{0:d}_pass".format(iPass), openwindow=openwindow)
             
             # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
@@ -454,14 +454,18 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #                                                 max_iter=max_relax_iterations,
 #                                                 max_tension_cutoff=max_relax_tension_cutoff,
 #                                                 dirname_postfix="_pass{0:d}".format(iPass))
-            
-            relaxed_layout = nornir_imageregistration.layout.RelaxLayout(translated_final_layout,
-                                            max_iter=max_relax_iterations,
-                                            max_tension_cutoff=max_relax_tension_cutoff,
-                                            plotting_output_path=os.path.join(self.TestOutputPath, "relax_pass_{0:d}".format(iPass)),
-                                            plotting_interval=10)
+    
+            relaxed_layouts = []
+            for layout in translated_final_layouts:
+                relaxed_layout = nornir_imageregistration.layout.RelaxLayout(layout,
+                                                max_iter=max_relax_iterations,
+                                                max_tension_cutoff=max_relax_tension_cutoff,
+                                                plotting_output_path=os.path.join(self.TestOutputPath, "relax_pass_{0:d}".format(iPass)),
+                                                plotting_interval=10)
+                relaxed_layouts.append(relaxed_layout)
+                
+            relaxed_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(relaxed_layouts, stage_reported_overlaps)
 
-                  
             relaxed_layout.UpdateTileTransforms(initial_tiles)
             
             relaxed_mosaic = self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_relaxed".format(iPass),
@@ -707,17 +711,28 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #                                  openwindow=False)
 #          
 #         print("All done")
-        
-    
-    def test_TEM2_Sahler_13208_Mosaic(self):
-                 
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\TEM2_Sahler\\13208\\Stage_limited.mosaic",
-                                 TilePyramidDir="C:\\Data\\TEM2_Sahler\\13208\\Raw8\\TilePyramid",
+
+
+    def test_RPC2_0989_Mosaic(self):
+                  
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
+                                 TilePyramidDir="C:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
                                  downsample=4,
                                  max_relax_iterations=500,
                                  openwindow=False)
-         
+          
         print("All done")
+#         
+#     
+#     def test_TEM2_Sahler_13208_Mosaic(self):
+#                  
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\TEM2_Sahler\\13208\\Stage_limited.mosaic",
+#                                  TilePyramidDir="C:\\Data\\TEM2_Sahler\\13208\\Raw8\\TilePyramid",
+#                                  downsample=4,
+#                                  max_relax_iterations=500,
+#                                  openwindow=False)
+#          
+#         print("All done")
 
 #     def test_RC2_1034_Mosaic(self):
 #         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\1034\\TEM\\Stage.mosaic",

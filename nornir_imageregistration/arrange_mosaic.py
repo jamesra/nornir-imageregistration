@@ -236,7 +236,7 @@ def TranslateTiles2(transforms, imagepaths,
         
         translated_final_layouts = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(scaled_translated_layout)
         #TODO: Pass the dictionary to this function that indicates tile offsets for pairs of tiles
-        translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(translated_final_layouts, stage_reported_overlaps) 
+        #translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(translated_final_layouts, stage_reported_overlaps) 
         
         #Should we do a shorter pass on the first run?
         relax_iterations = max_relax_iterations
@@ -244,10 +244,15 @@ def TranslateTiles2(transforms, imagepaths,
             relax_iterations = relax_iterations // 4
             if relax_iterations < 10:
                 relax_iterations = max_relax_iterations // 2
-        
-        relaxed_layout = nornir_imageregistration.layout.RelaxLayout(translated_final_layout,
-                                                                     max_tension_cutoff=max_relax_tension_cutoff,
-                                                                     max_iter=relax_iterations)
+                
+        relaxed_layouts = []
+        for layout in translated_final_layouts:
+            relaxed_layout = nornir_imageregistration.layout.RelaxLayout(layout,
+                                            max_iter=relax_iterations,
+                                            max_tension_cutoff=max_relax_tension_cutoff)
+            relaxed_layouts.append(relaxed_layout)
+            
+        relaxed_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(relaxed_layouts, stage_reported_overlaps)
         
         relaxed_layout.UpdateTileTransforms(tiles)
         last_pass_overlaps = distinct_overlaps

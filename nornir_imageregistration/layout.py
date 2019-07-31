@@ -457,8 +457,20 @@ class Layout(object):
             B = self.nodes[B_ID]
             A.RemoveOffset(B.ID)
             B.RemoveOffset(A.ID)
-        
         return
+    
+    def RemoveNode(self, node_ID):
+        if node_ID in self.nodes:
+            node = self.nodes[node_ID]
+            
+            for connected_ID in node.ConnectedIDs:
+                self.RemoveOverlap(node_ID, connected_ID)
+                
+            del self.nodes[node_ID]
+            
+            return True
+        
+        return False
         
     def GetPosition(self, ID):
         '''Return the position array for a set of nodes, sorted by node ID'''
@@ -1085,10 +1097,10 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
             
     #Remove the tile links who are in the same layout but not linked in the layout
     for key in list(tile_offset_dict.keys()):
-        if tile_to_layout[key[0]] == tile_to_layout[key[1]]:
-            del tile_offset_dict[key]
+        if key[0] in tile_to_layout and key[1] in tile_to_layout:
+            if tile_to_layout[key[0]] == tile_to_layout[key[1]]:
+                del tile_offset_dict[key]
         
-            
     cross_layout_keys = {}
 
     #Identify all of the tile_offsets that can describe where the layouts are relative to each other
