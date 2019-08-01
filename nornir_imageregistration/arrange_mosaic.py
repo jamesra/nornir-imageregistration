@@ -174,6 +174,7 @@ def TranslateTiles2(transforms, imagepaths,
     first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
     
     stage_reported_overlaps = None
+    relaxed_layout = None
     
     while iPass >= 0:
         (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, nonoverlapping_tile_IDs) = GenerateTileOverlaps(tiles=tiles,
