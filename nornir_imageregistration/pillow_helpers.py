@@ -95,11 +95,11 @@ def dtype_for_pillow_image(im):
             if bits == 1:
                 return np.bool
             elif bits <= 8:
-                return np.int8
+                return np.uint8
             elif bits <= 16:
-                return np.int16
+                return np.uint16
             else:
-                return np.int32 #According to Pillow docs the 32-bit integers are signed
+                return np.uint32 #According to Pillow docs the 32-bit integers are signed
         else:
             return _try_estimate_dtype_from_extrema(im)
         
