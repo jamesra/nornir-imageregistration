@@ -294,7 +294,7 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
      
     for iPoint in range(0, grid.num_points):
         rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint, :], grid.cell_size)
-        subset = nornir_imageregistration.CropImageRect(image, rect, cval=numpy.nan)
+        subset = nornir_imageregistration.CropImageRect(Im, rect, cval=numpy.nan)
         finite_subset = subset[numpy.isfinite(subset)].flat
         if len(finite_subset) < (cell_area / 2.0):
             continue
@@ -304,6 +304,10 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
         # std_val = numpy.var(numpy.asarray(finite_subset, dtype=numpy.float32))
         # std_val = numpy.percentile(finite_subset, q=90) - numpy.percentile(finite_subset, q=10) 
         score_list.append(std_val)
+        
+        del subset
+        
+    del Im
 
     if len(score_list) == 0:
         return 0
