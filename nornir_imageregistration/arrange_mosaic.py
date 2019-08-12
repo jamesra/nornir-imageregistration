@@ -420,15 +420,15 @@ def ScoreTileOverlaps(tile_overlaps):
 
 def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_score=None):
     
-    image = nornir_imageregistration.ImageParamToImageArray(image_path, dtype=np.float32)
+    #image = nornir_imageregistration.ImageParamToImageArray(image_path, dtype=np.float32)
 
     ImageDataList = [ TileOverlapFeatureScore(overlap_ID=overlap_ID,
                                               iTile=iTile,
                                               image=None,  # __get_overlapping_image(image, overlapping_rect, excess_scalar=1.0, cval=np.nan),
-                                              feature_score=nornir_imageregistration.image_stats.__CalculateFeatureScoreSciPy__(__get_overlapping_image(image, overlapping_rect, excess_scalar=1.0, cval=np.nan), feature_coverage_score=feature_coverage_score)) 
+                                              feature_score=nornir_imageregistration.image_stats.__CalculateFeatureScoreSciPy__(__get_overlapping_image(image_path, overlapping_rect, excess_scalar=1.0, cval=np.nan), feature_coverage_score=feature_coverage_score)) 
                     for (overlap_ID, iTile, overlapping_rect) in list_overlap_tuples]
     
-    del image
+    #del image
     return ImageDataList
 
 # 
