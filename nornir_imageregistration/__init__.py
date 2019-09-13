@@ -43,6 +43,7 @@ import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.views as views
 import nornir_imageregistration.layout as layout
 import nornir_imageregistration.local_distortion_correction as local_distortion_correction
+import nornir_imageregistration.tileset_functions as tileset_functions
 
 from nornir_imageregistration.spatial.indicies import *
 from nornir_imageregistration.tileset import ShadeCorrectionTypes

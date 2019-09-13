@@ -9,6 +9,7 @@ import os
 import tempfile
 import numpy as np
 import nornir_pools
+import logging
 
 
 class TransformedImageData(object):
@@ -146,18 +147,21 @@ class TransformedImageData(object):
             if not _centerDistanceImage_path is None:
                 os.remove(_centerDistanceImage_path)
         except IOError as E:
+            logging.warning("Could not delete temporary file {0}".format(_centerDistanceImage_path))
             pass
             
         try:
             if not _image_path is None:
                 os.remove(_image_path)
         except IOError as E:
+            logging.warning("Could not delete temporary file {0}".format(_image_path))
             pass
             
         try:
             if not _tempdir is None:
                 os.rmdir(_tempdir)
         except IOError as E:
+            logging.warning("Could not delete temporary directory {0}".format(_tempdir))
             pass
          
 

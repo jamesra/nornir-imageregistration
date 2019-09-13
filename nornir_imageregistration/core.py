@@ -364,7 +364,8 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
         if(MinMax[0] > MinMax[1]):
             raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDict")
      
-    pool = nornir_pools.GetGlobalLocalMachinePool()
+    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=multiprocessing.cpu_count() * 2)
+    #pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
     
     for (input_image, output_image) in ImagesToConvertDict.items():
@@ -403,6 +404,11 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
             except IOError as e:
                 prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
                 pass
+            
+    if not pool is None:
+        pool.wait_completion()
+        pool.shutdown()
+        pool = None
             
     del tasks
 
