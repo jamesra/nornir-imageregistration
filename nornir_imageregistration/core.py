@@ -670,6 +670,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             del image
             im = Image.fromarray(Uint8_image, mode="L")
         elif nornir_imageregistration.IsFloatArray(image): 
+            #TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
             if image.dtype == np.float16:
                 image = image.astype(np.float32)
                 
