@@ -11,14 +11,16 @@ from pylab import *
 
 import nornir_imageregistration.core as core
 import nornir_imageregistration.stos_brute as stos_brute
+from nornir_imageregistration.spatial import Rectangle
+
 
 from . import setup_imagetest
 
 
-class Test(setup_imagetest.ImageTestBase):
+class TestImageAlign(setup_imagetest.ImageTestBase):
 
     def setUp(self):
-        super(Test, self).setUp()
+        super(TestImageAlign, self).setUp()
 
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input " + self.FixedImagePath)
@@ -44,6 +46,7 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
+        self.assertEqual(record.flippedud, False)
         self.assertAlmostEqual(record.peak[0], 0, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1)
         self.assertAlmostEqual(record.peak[1], 0, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1)
 
@@ -62,18 +65,10 @@ class Test(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
-        self.assertAlmostEqual(record.peak[0], 88.5, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
-        self.assertAlmostEqual(record.peak[1], 107, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.0)
-
-        # Try again with overlap limits that should prevent or allow a match
-
-#        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage, minOv)
-#        self.assertIsNotNone(record)
-#
-#        self.assertEqual(record.angle, 0.0)
-#        self.assertAlmostEqual(record.peak[0], 107, msg = "Expected X offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
-#        self.assertAlmostEqual(record.peak[1], 177, msg = "Expected Y offset is zero when aligning image to self: %s" % str(record), delta = 1.0)
-
+        self.assertEqual(record.flippedud, False)
+        self.assertAlmostEqual(record.peak[0], 88.5, msg="Expected Y offset is zero when aligning image to self: %s" % str(record), delta=1.0)
+        self.assertAlmostEqual(record.peak[1], 107, msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
+        
 
 class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
     
@@ -104,7 +99,7 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         self.assertEqual(record.angle, 0.0)
         self.assertAlmostEqual(record.peak[0], 452, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
         self.assertAlmostEqual(record.peak[1], -10, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
-          
+    
 #      
 #     def test_DifficultRC2RodCellBodies(self):
 #         '''These tiles do not align with the current version of the code.  When we use only the overlapping regions the do overlap correctly.'''

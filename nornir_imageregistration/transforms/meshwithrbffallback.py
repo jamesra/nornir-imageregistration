@@ -6,6 +6,7 @@ Created on Oct 18, 2012
 
 import math
 
+import nornir_imageregistration
 from nornir_imageregistration.transforms import base, triangulation
 from nornir_imageregistration.transforms.rbftransform import \
     RBFWithLinearCorrection
@@ -16,33 +17,47 @@ import nornir_pools
 #import scipy.linalg as linalg
 #import scipy.spatial as spatial
 
-from . import utils
+from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
 class MeshWithRBFFallback(triangulation.Triangulation):
     '''
     classdocs
     '''
+    
+    def __getstate__(self):
+        
+        odict = super(MeshWithRBFFallback, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(MeshWithRBFFallback, self).__setstate__(dictionary)
 
     @property
     def ReverseRBFInstance(self):
         if self._ReverseRBFInstance is None:
-            self._ReverseRBFInstance = RBFWithLinearCorrection(self.FixedPoints, self.WarpedPoints)
+            self._ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 
         return self._ReverseRBFInstance
 
     @property
     def ForwardRBFInstance(self):
         if self._ForwardRBFInstance is None:
-            self._ForwardRBFInstance = RBFWithLinearCorrection(self.WarpedPoints, self.FixedPoints)
+            self._ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
 
         return self._ForwardRBFInstance
 
     def InitializeDataStructures(self):
 
-        Pool = nornir_pools.GetGlobalThreadPool()
-        ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.WarpedPoints, self.FixedPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.FixedPoints, self.WarpedPoints)
+        if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
+            Pool = nornir_pools.GetGlobalThreadPool()
+        else:
+            Pool = nornir_pools.GetGlobalMultithreadingPool()
+
+        ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+        ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 
         super(MeshWithRBFFallback, self).InitializeDataStructures()
 
@@ -71,10 +86,12 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def Transform(self, points, **kwargs):
         '''
+        Transform from warped space to fixed space
+        
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];
@@ -96,6 +113,9 @@ class MeshWithRBFFallback(triangulation.Triangulation):
                 BadPoints = points;
 
         BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32);
+        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
+            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+            
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints);
 
         TransformedPoints[InvalidIndicies] = FixedPoints;
@@ -103,10 +123,12 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
     def InverseTransform(self, points, **kwargs):
         '''
+        Transform from fixed space to warped space
+        
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         ''' 
 
-        points = self.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return [];
@@ -138,7 +160,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         '''
         Constructor
         '''
-        super(MeshWithRBFFallback, self).__init__(pointpairs);
+        super(MeshWithRBFFallback, self).__init__(pointpairs)
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None

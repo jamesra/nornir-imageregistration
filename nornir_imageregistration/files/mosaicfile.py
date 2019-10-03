@@ -40,7 +40,7 @@ class MosaicFile(object):
 
         ImageList = []
         ImageList.extend(list(self.ImageToTransformString.keys()))
-        InvalidImages = images.IsValidImage(ImageList, TileDir)
+        InvalidImages = images.AreValidImages(ImageList, TileDir)
 
         FoundInvalid = False
 

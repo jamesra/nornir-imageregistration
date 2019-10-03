@@ -7,21 +7,20 @@ import os
 import unittest
 
 import nornir_imageregistration
-from nornir_imageregistration.alignment_record import AlignmentRecord
+from nornir_imageregistration import AlignmentRecord
 import numpy
 from scipy.misc import imsave
 from scipy.ndimage import interpolation
 
-import nornir_imageregistration.assemble as assemble
-import nornir_imageregistration.core as core
+import nornir_imageregistration.assemble as assemble 
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.images as images
 
 from . import setup_imagetest
 
 
-def ShowComparison(*args):
-    core.ShowGrayscale(*args)
+def ShowComparison(*args, **kwargs):
+    return nornir_imageregistration.ShowGrayscale(*args, **kwargs)
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
 
@@ -110,7 +109,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         
         warpedImage = numpy.ones([Height, Width])
 
-        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage)
+        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage, CropUndefined=False)
         self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
@@ -122,17 +121,18 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
         imsave("C:\\Temp\\17Translate.png", transformedImage)
 
-        rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
+        #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
-        ShowComparison([fixedImage, rotatedWarped, transformedImage])
+        self.assertTrue(ShowComparison([fixedImage, transformedImage], title="Image should be translated +100x,+50y but not rotated.", PassFail=True))
+        return
 
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())
@@ -145,8 +145,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -155,7 +155,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
-        ShowComparison([fixedImage, rotatedWarped, transformedImage])
+        self.assertTrue(ShowComparison([fixedImage, rotatedWarped, transformedImage],title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True))
 
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())
@@ -167,8 +167,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
-        fixedImage = core.LoadImage(WarpedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -177,7 +177,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         delta = fixedImage[0:64, 0:64] - transformedImage
 
-        # core.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
+        # nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
         self.assertTrue((delta < 0.01).all())
 
 
@@ -189,8 +189,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
-        fixedImage = core.LoadImage(FixedImagePath)
-        warpedImage = core.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -217,11 +217,8 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
 
-        self.assertEquals(core.GetImageSize(self.FixedImagePath)[0], core.GetImageSize(OutputPath)[0])
-        self.assertEquals(core.GetImageSize(self.FixedImagePath)[1], core.GetImageSize(OutputPath)[1])
-        
-    
-        
+        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[0], nornir_imageregistration.GetImageSize(OutputPath)[0])
+        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[1], nornir_imageregistration.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")

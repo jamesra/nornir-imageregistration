@@ -32,8 +32,16 @@ class PickleHelper(object):
 
         return None
     
+    @staticmethod
+    def _ensure_pickle_extension(path):
+        (_, ext) = os.path.splitext(path)
+        if ext != '.pickle':
+            path = os.path.join(path, '.pickle')
+        return path 
     
     def SaveVariable(self, var, path):
+        path = PickleHelper._ensure_pickle_extension(path)
+        
         fullpath = os.path.join(self.TestCachePath, path)
 
         if not os.path.exists(os.path.dirname(fullpath)):
@@ -53,6 +61,7 @@ class PickleHelper(object):
 
         if var is None:
             path = os.path.join(self.TestCachePath, varname + ".pickle")
+            path = PickleHelper._ensure_pickle_extension(path)
             if os.path.exists(path):
                 with open(path, 'rb') as filehandle:
                     try:
@@ -91,7 +100,7 @@ class TestBase(unittest.TestCase):
     def TestOutputPath(self):
         if 'TESTOUTPUTPATH' in os.environ:
             TestOutputDir = os.environ["TESTOUTPUTPATH"]
-            return os.path.join(TestOutputDir, self.classname)
+            return os.path.join(TestOutputDir, self.classname, self._testMethodName)
         else:
             self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
 
@@ -99,17 +108,17 @@ class TestBase(unittest.TestCase):
 
     @property
     def TestLogPath(self):
-        if 'TESTOUTPUTPATH' in os.environ:
-            TestOutputDir = os.environ["TESTOUTPUTPATH"]
-            return os.path.join(TestOutputDir, "Logs", self.classname)
-        else:
-            self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
+        #if 'TESTOUTPUTPATH' in os.environ:
+        #TestOutputDir = os.environ["TESTOUTPUTPATH"]
+            return os.path.join(self.TestOutputPath, "Logs")
+        #else:
+        #self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
 
-        return None
+        #return None
 
     @property
     def TestProfilerOutputPath(self):
-        return os.path.join(self.TestOutputPath, self.classname + '.profile')
+        return os.path.join(self.TestOutputPath, self._testMethodName + '.profile')
 
     def setUp(self):
         self.VolumeDir = self.TestOutputPath
@@ -119,14 +128,20 @@ class TestBase(unittest.TestCase):
         try:
             if os.path.exists(self.VolumeDir):
                 shutil.rmtree(self.VolumeDir)
-
-            os.makedirs(self.VolumeDir)
         except:
             pass
+        
+        try:
+            os.makedirs(self.VolumeDir, exist_ok=True)
+        except PermissionError as e:
+            print(str(e))
+            pass
+            
 
         self.profiler = None
 
         if 'PROFILE' in os.environ:
+            os.environ['PROFILE'] = self.TestOutputPath #Overwrite the value with the directory we want the profile data saved in
             self.profiler = cProfile.Profile()
             self.profiler.enable()
 
@@ -147,6 +162,10 @@ class ImageTestBase(TestBase):
 
     def GetImagePath(self, ImageFilename):
         return os.path.join(self.ImportedDataPath, ImageFilename)
+    
+    @property
+    def TestOutputPath(self):
+        return os.path.join(super(ImageTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Images")
@@ -154,24 +173,45 @@ class ImageTestBase(TestBase):
         super(ImageTestBase, self).setUp()
 
 
-class MosaicTestBase(TestBase):
+class TransformTestBase(TestBase):
 
     @property
     def TestName(self):
         raise NotImplementedError("Test should override TestName property")
     
     @property
+    def TestInputDataPath(self):
+        return os.path.join(self.ImportedDataPath, self.TestName)
+    
+    @property
     def TestOutputPath(self):
-        return os.path.join(super(MosaicTestBase, self).TestOutputPath, self.id())
+        return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def GetMosaicFiles(self):
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
+    
+    def GetMosaicFile(self, filenamebase):
+        (base, ext) = os.path.splitext(filenamebase)
+        if ext is None or len(ext) == 0:
+            filenamebase = filenamebase + '.mosaic'
+            
+        return glob.glob(os.path.join(self.TestInputDataPath, filenamebase + ".mosaic"))[0]
+    
+    def GetStosFiles(self):
+        return glob.glob(os.path.join(self.TestInputDataPath, "*.stos"))
+    
+    def GetStosFile(self, filenamebase): 
+        (base, ext) = os.path.splitext(filenamebase)
+        if ext is None or len(ext) == 0:
+            filenamebase = filenamebase + '.stos'
+            
+        return glob.glob(os.path.join(self.TestInputDataPath, filenamebase))[0]
 
     def GetTileFullPath(self, downsamplePath=None):
         if downsamplePath is None:
             downsamplePath = "001"
 
-        return os.path.join(self.ImportedDataPath, self.TestName, "Leveled", "TilePyramid", downsamplePath)
+        return os.path.join(self.TestInputDataPath, "Leveled", "TilePyramid", downsamplePath)
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
@@ -183,7 +223,7 @@ class MosaicTestBase(TestBase):
                 if not os.path.exists(self.TestOutputPath):
                     os.makedirs(self.TestOutputPath)
 
-        super(MosaicTestBase, self).setUp()
+        super(TransformTestBase, self).setUp()
         
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''

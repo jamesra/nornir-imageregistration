@@ -75,6 +75,15 @@ class RegistrationTree(object):
         self.Nodes = {}  # Dictionary of all nodes
         self.RootNodes = {}  # Dictionary of nodes without parents
 
+    def __str__(self):
+        s = "Roots: "
+        for r in self.RootNodes:
+            s += " " + str(r)
+
+        s += '\r\nSections:'
+        s += ','.Join(self.SectionNumbers)
+        return s
+
     def _GetOrCreateRootNode(self, ControlSection):
         ControlNode = None
         if ControlSection in self.Nodes:
@@ -180,7 +189,8 @@ class RegistrationTree(object):
 
         leafonlynode = self._GetOrCreateMappedNode(sectionnum, leaf_only=True)
         parent.AddChild(leafonlynode)
-        assert(not leafonlynode.SectionNumber in self.RootNodes)
+        if leafonlynode.SectionNumber in self.RootNodes:
+            raise ValueError("Leaf node cannot have the same number as an existing root node")
 
         return
 
@@ -202,7 +212,8 @@ class RegistrationTree(object):
 
     @classmethod
     def CreateRegistrationTree(cls, sectionNumbers, adjacentThreshold=2, center=None):
-        sectionNumbers.sort()
+        sectionNumbers = sorted(sectionNumbers)
+        
         RT = RegistrationTree()
 
         if len(sectionNumbers) == 0:
@@ -211,7 +222,7 @@ class RegistrationTree(object):
             RT.AddEmptyRoot(sectionNumbers[0])
             return RT
         else:
-            centerindex = (len(sectionNumbers) - 1) / 2
+            centerindex = (len(sectionNumbers) - 1) // 2
             if not center is None:
                 center = NearestSection(sectionNumbers, center)
                 centerindex = sectionNumbers.index(center)
@@ -274,6 +285,10 @@ def AdjacentPairs(sectionNumbers, adjacentThreshold, startindex, endindex):
     step = 1
     if startindex > endindex:
         step = -1
+        
+    assert(isinstance(startindex, int))
+    assert(isinstance(endindex, int))
+    assert(isinstance(step, int))
 
     for imapped in range(startindex, endindex + step, step):
             mappedSection = sectionNumbers[imapped]

@@ -49,7 +49,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=str,
-                        default=1.0,
+                        default=True,
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath'
                         )
@@ -79,12 +79,18 @@ def ValidateArgs(Args):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
 
     if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+        os.makedirs(os.path.dirname(Args.outputpath), exist_ok=True)
 
     if not Args.tilepath is None:
         if not os.path.exists(Args.tilepath):
             OnUseError("Tile path not found: " + Args.tilepath)
-
+            
+def ReportFileWriteSuccessOrFailure(filepath):
+    if os.path.exists(filepath):
+        print("Wrote: " + filepath)
+    else:
+        print("{0} is missing, unknown error: ".format(filepath))
+        
 def Execute(ExecArgs=None):
     
     if ExecArgs is None:
@@ -95,29 +101,39 @@ def Execute(ExecArgs=None):
     ValidateArgs(Args)
 
     mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
-    mosaicBaseName = os.path.basename(Args.inputpath)
+    
 
     mosaic.TranslateToZeroOrigin()
 
-    (mosaicImage, mosaicMask) = mosaic.AssembleTiles(Args.tilepath)
+    (mosaicImage, mosaicMask) = mosaic.AssembleImage(tilesPath=Args.tilepath, usecluster=True, target_space_scale= 1.0 / Args.scalar)
 
-    if not Args.outputpath.endswith('.png'):
-        Args.outputpath = Args.outputpath + '.png'
+    output_dirname = os.path.dirname(Args.outputpath)
+    output_filename = os.path.basename(Args.outputpath)
+    (output_name, output_ext) = os.path.splitext(output_filename)
+    
+    if output_ext is None or len(output_ext) == 0:
+        output_ext = '.png'
+        
+        if os.path.isdir(Args.outputpath):
+            mosaic_basename = os.path.basename(Args.inputpath)
+            (mosaic_name, _) = os.path.splitext(mosaic_basename)
+            
+            Args.outputpath = os.path.join(Args.outputpath, mosaic_name + output_ext)
+        else:
+            Args.outputpath = Args.outputpath + output_ext
+          
+    mask_output_fullpath = os.path.join(output_dirname, output_name + '_mask' + output_ext)
 
-    nornir_imageregistration.core.SaveImage(Args.outputpath, mosaicImage)
-
-    self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
-
-    if os.path.exists(Args.outputpath):
-        print("Wrote: " + Args.outputpath)
-    else:
-        print("Outputfile is missing, unknown error: " + Args.outputpath)
-
+    nornir_imageregistration.core.SaveImage(Args.outputpath, mosaicImage, bpp=8)
+    ReportFileWriteSuccessOrFailure(Args.outputpath)
+    
+    nornir_imageregistration.core.SaveImage(mask_output_fullpath, mosaicMask)
+    ReportFileWriteSuccessOrFailure(mask_output_fullpath)
 
 if __name__ == '__main__':
 
     (args, extra) = ParseArgs()
 
-    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute()

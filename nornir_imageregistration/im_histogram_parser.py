@@ -6,7 +6,7 @@ Created on Mar 12, 2013
 Converts the output from ImageMagick -histogram:info:- flag to a histogram
 '''
 
-from nornir_shared.histogram import Histogram
+import nornir_shared.histogram
 
 
 def MinMaxValues(lines):
@@ -88,7 +88,7 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
     if maxVal is None:
         maxVal = 255;
 
-    hist = Histogram.Init(minVal, maxVal, numBins)
+    hist = nornir_shared.histogram.Histogram.Init(minVal, maxVal, numBins)
 
     for line in lines:
         (intensityVal, count) = ParseHistogramLine(line);

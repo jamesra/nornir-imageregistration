@@ -14,6 +14,8 @@ import nornir_imageregistration
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 
+from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
+
 
 def __CreateArgParser(ExecArgs=None):
 
@@ -26,6 +28,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=str,
+                        default=None,
                         help='Input .stos file path',
                         dest='inputpath')
 
@@ -36,58 +39,24 @@ def __CreateArgParser(ExecArgs=None):
                         help='Output .stos file path',
                         dest='outputpath')
 
-    parser.add_argument('-scale', '-s',
+    StosOverrideArgs.ExtendParser(parser, RequireInputImages=True)
+
+    parser.add_argument('-min_overlap', '-mino',
                         action='store',
                         required=False,
                         type=float,
-                        default=1.0,
-                        help='The input images are a different size than the desired transform, scale the transform by the specified factor',
-                        dest='scalar'
-                        )
-
-    parser.add_argument('-fixedimage', '-f',
-                        action='store',
-                        required=True,
-                        type=str,
-                        default=None,
-                        help='Fixed image, overrides .stos file fixed image',
-                        dest='fixedimagepath'
-                        )
-
-    parser.add_argument('-warpedimage', '-w',
-                        action='store',
-                        required=True,
-                        type=str,
-                        default=None,
-                        help='warped image, overrides .stos file warped image',
-                        dest='warpedimagepath'
-                        )
-
-    parser.add_argument('-fixedmask', '-fm',
-                        action='store',
-                        required=False,
-                        type=str,
-                        default=None,
-                        help='Fixed mask, overrides .stos file fixed mask',
-                        dest='fixedmaskpath'
-                        )
-
-    parser.add_argument('-warpedmask', '-wm',
-                        action='store',
-                        required=False,
-                        type=str,
-                        default=None,
-                        help='warped mask, overrides .stos file warped mask',
-                        dest='warpedmaskpath'
-                        )
-
-    parser.add_argument('-minoverlap', '-mino',
-                        action='store',
-                        required=False,
-                        type=float,
-                        default=None,
+                        default=0.5,
                         help='images are known to overlap by at least this percentage',
-                        dest='minoverlap'
+                        dest='min_overlap'
+                        )
+    
+    parser.add_argument('-checkflip', '-flip',
+                        action='store',
+                        required=False,
+                        type=bool,
+                        default=False,
+                        help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
+                        dest='testflip'
                         )
 
     return parser
@@ -110,64 +79,6 @@ def OnUseError(message):
 
     sys.exit()
 
-class StosBruteArgs(object):
-
-    @property
-    def ControlImage(self):
-        return self.stos.ControlImageFullPath
-
-    @property
-    def WarpedImage(self):
-        return self.stos.MappedImageFullPath
-
-    @property
-    def ControlMask(self):
-        return self.stos.ControlMaskFullPath
-
-    @property
-    def WarpedMask(self):
-        return self.stos.MappedMaskFullPath
-
-
-    def __init__(self, Args):
-        self.stosPath = Args.inputpath
-        self.stosOutput = Args.outputpath
-
-        self.fixedImage = Args.fixedimagepath
-        self.warpedImage = Args.warpedimagepath
-        self.fixedMask = Args.fixedmaskpath
-        self.warpedMask = Args.warpedmaskpath
-
-        self.stos = self.MergeStosAndArgs(Args)
-
-
-    def MergeStosAndArgs(self, Args):
-
-        stos = nornir_imageregistration.files.StosFile()
-        if not Args.inputpath is None:
-            if os.path.exists(Args.inputpath):
-                stos = nornir_imageregistration.files.StosFile.Load(Args.inputpath)
-
-                if Args.scalar != 1.0:
-                    stos.scale(Args.scalar)
-
-        if not Args.fixedimagepath is None:
-            stos.ControlImageFullPath = self.fixedImage
-
-        if not self.warpedImage is None:
-            stos.MappedImageFullPath = self.warpedImage
-
-        if not self.fixedMask is None:
-            stos.ControlMaskFullPath = self.fixedMask
-
-        if not self.warpedMask is None:
-            self.MappedMaskFullPath = self.warpedMask
-
-        if not os.path.exists(os.path.dirname(Args.outputpath)):
-            os.makedirs(os.path.dirname(Args.outputpath))
-
-        return stos
-
 
 def Execute(ExecArgs=None):
     
@@ -176,9 +87,17 @@ def Execute(ExecArgs=None):
         
     (Args, extra) = ParseArgs(ExecArgs)
 
-    stosArgs = StosBruteArgs(Args)
+    stosArgs = StosOverrideArgs(Args)
+    
+    if not os.path.exists(os.path.dirname(Args.outputpath)):
+        os.makedirs(os.path.dirname(Args.outputpath))
 
-    alignRecord = sb.SliceToSliceBruteForce(stosArgs.ControlImage, stosArgs.WarpedImage, stosArgs.ControlMask, stosArgs.WarpedMask, MinOverlap=Args.minoverlap)
+    alignRecord = sb.SliceToSliceBruteForce( stosArgs.ControlImage,
+                                             stosArgs.WarpedImage,
+                                             stosArgs.ControlMask,
+                                             stosArgs.WarpedMask,
+                                             MinOverlap=Args.min_overlap,
+                                             TestFlip=Args.testflip)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,
@@ -207,6 +126,6 @@ if __name__ == '__main__':
 
     (args, extra) = ParseArgs()
 
-    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute()

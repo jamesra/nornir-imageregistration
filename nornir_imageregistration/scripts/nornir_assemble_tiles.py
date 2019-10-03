@@ -104,7 +104,7 @@ def Execute(ExecArgs=None):
 
     mosaic.TranslateToZeroOrigin()
 
-    mosaicImage = mosaic.AssembleTiles(Args.tilepath)
+    mosaicImage = mosaic.AssembleImage(Args.tilepath)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'
@@ -123,6 +123,6 @@ if __name__ == '__main__':
 
     (args, extra) = ParseArgs()
 
-    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute()

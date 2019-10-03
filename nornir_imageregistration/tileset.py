@@ -7,19 +7,17 @@ Created on Nov 18, 2013
 import copy
 import logging
 import os
+ 
+from scipy import stats 
 
-import PIL
-from scipy import stats
-from scipy.misc import imsave
-
+import nornir_pools
+import nornir_imageregistration
 import nornir_imageregistration.transforms.utils as tutils
-#import nornir_pools as pools
+import nornir_shared.images
+# import nornir_pools as pools
 import numpy as np
 
-from . import core
-from . import core
-
-
+   
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 class ShadeCorrectionTypes(object):
@@ -30,16 +28,19 @@ class ShadeCorrectionTypes(object):
 def __DetermineTransformScale(transform, imageSize):
     '''Returns a scalar that can be applied to the transform to make the transform bounds match the image dimensions'''
 
-    width = transform.MappedBoundingBox.Width
-    height = transform.MappedBoundingBox.Height
+    if not hasattr(transform, 'MappedBoundingBox'):
+        return 1.0 
+    
+    width = transform.MappedBoundingBox.Width #Account for zero origin by adding 1
+    height = transform.MappedBoundingBox.Height #Account for zero origin by adding 1
 
-    if core.ApproxEqual(imageSize[0], height, epsilon=1.1) and core.ApproxEqual(imageSize[1], width, epsilon=1.1):
+    if nornir_imageregistration.ApproxEqual(imageSize[0], height, epsilon=1.1) and nornir_imageregistration.ApproxEqual(imageSize[1], width, epsilon=1.1):
         return 1.0
     else:
         heightScale = (imageSize[0] / height)
         widthScale = (imageSize[1] / width)
 
-        if(core.ApproxEqual(heightScale, widthScale)):
+        if(nornir_imageregistration.ApproxEqual(heightScale, widthScale)):
             return heightScale
         else:
             return None
@@ -55,7 +56,7 @@ def MostCommonScalar(transforms, imagepaths):
         imagefullpath = imagepaths[i]
 
         try:
-            size = core.GetImageSize(imagefullpath)
+            size = nornir_shared.images.GetImageSize(imagefullpath)
         except IOError:
             continue 
         
@@ -80,11 +81,11 @@ def __CompositeTiles(imagepaths, func):
 
     stack = copy.copy(imagepaths)
 
-    CompositeImage = core.LoadImage(stack.pop())
+    CompositeImage = nornir_imageregistration.LoadImage(stack.pop())
 
     while len(stack) > 0:
 
-        imageA = core.LoadImage(stack.pop())
+        imageA = nornir_imageregistration.LoadImage(stack.pop())
         CompositeImage = func(CompositeImage, imageA)
 
         del imageA
@@ -93,55 +94,77 @@ def __CompositeTiles(imagepaths, func):
 
 
 def __CalculateBrightfieldShadeImage(imagepaths):
-     InitialCorrection = __CompositeTiles(imagepaths, func=np.maximum)
-
-
-     # AddValue = 1.0 - np.max(InitialCorrection)
-     # ZerodCorrectionImage = InitialCorrection + AddValue
-
-     # Invert the Correction so that bright areas have nothing added
-     # InvertedCorrection = np.abs(ZerodCorrectionImage - 1)
-
-     # return InvertedCorrection
-     return InitialCorrection
+    InitialCorrection = __CompositeTiles(imagepaths, func=np.maximum)
+    
+    # AddValue = 1.0 - np.max(InitialCorrection)
+    # ZerodCorrectionImage = InitialCorrection + AddValue
+    
+    # Invert the Correction so that bright areas have nothing added
+    # InvertedCorrection = np.abs(ZerodCorrectionImage - 1)
+    
+    # return InvertedCorrection
+    return InitialCorrection
 
 
 def __CalculateDarkfieldShadeImage(imagepaths):
-     InitialTile = __CompositeTiles(imagepaths, func=np.minimum)
+    InitialTile = __CompositeTiles(imagepaths, func=np.minimum)
+    
+    ZerodCorrectionImage = InitialTile - np.min(InitialTile)
+    
+    return ZerodCorrectionImage
 
-     ZerodCorrectionImage = InitialTile - np.min(InitialTile)
 
-     return ZerodCorrectionImage
-
-
-def CalculateShadeImage(imagepaths, type=None):
+def CalculateShadeImage(imagepaths, correction_type=None):
 
     # Find the min or max of the tiles depending on type
-    if type == ShadeCorrectionTypes.BRIGHTFIELD:
-       return __CalculateBrightfieldShadeImage(imagepaths)
-    elif type == ShadeCorrectionTypes.DARKFIELD:
-       return __CalculateDarkfieldShadeImage(imagepaths)
+    if correction_type == ShadeCorrectionTypes.BRIGHTFIELD:
+        return __CalculateBrightfieldShadeImage(imagepaths)
+    elif correction_type == ShadeCorrectionTypes.DARKFIELD:
+        return __CalculateDarkfieldShadeImage(imagepaths)
 
     return None
 
 
-def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
+def __CorrectBrightfieldShadingOneImage(input_fullpath, output_fullpath, imagescalar, bpp):
+    max_pixel_value = ((1 << bpp) - 1)
+    image = nornir_imageregistration.LoadImage(input_fullpath)
+    image = image.astype(np.float16) / max_pixel_value
+     
+    correctedimage = image / imagescalar
+    del image
+    
+    correctedimage[np.isinf(correctedimage)] = 0
+    np.clip(correctedimage, a_min=0, a_max=1.0, out=correctedimage)
+    correctedimage = correctedimage * max_pixel_value
+
+    nornir_imageregistration.SaveImage(output_fullpath, correctedimage, bpp=bpp)
+    del correctedimage 
+
+
+def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
 
     outputPaths = []
-
+    if bpp is None:
+        bpp = nornir_shared.images.GetImageBpp(imagepaths[0])
+        
+    #max_pixel_value = ((1 << bpp) - 1)
     # nshadeimage = shadeimage - shadeimage.min()
     # nshadeimage = NormalizeImage(shadeimage)
     # nshadeimage[np.isinf(shadeimage)] = 1.0
 
     # How much do we need to scale nonmax pixel values so the maximum pixel value is uniform across the entire image
     imagescalar = shadeimage / shadeimage.max()
+    imagescalar.setflags(write=False)
     # imagescalar[np.isinf(imagescalar)] = 1.0
-
+    
+    pool = nornir_pools.GetGlobalSerialPool()
+    tasks = []
     for imagepath in imagepaths:
-        image = core.LoadImage(imagepath)
-
         imageFilename = os.path.basename(imagepath)
         outputFilename = os.path.join(outputpath, imageFilename)
+        
+        t = pool.add_task(imageFilename, __CorrectBrightfieldShadingOneImage, imagepath, outputFilename, imagescalar, bpp=bpp)
+        t.output_fullpath = outputFilename
 
         # Shadeimage is the max of all tiles.  Figure out what the multiplier is for each pixel.
         # invertedimage = 1.0 - shadeimage
@@ -154,34 +177,43 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath):
 
         # shadeimage = shadeimage * (shadeimage / 1.0)
 
-        correctedimage = image / imagescalar
-
-        correctedimage[np.isinf(correctedimage)] = 0
-        correctedimage[correctedimage > 1.0] = 1.0
-        correctedimage[correctedimage < 0] = 0
-
-        core.SaveImage(outputFilename, correctedimage)
-
-        del image
-        del correctedimage
+#         correctedimage = image / imagescalar
+# 
+#         correctedimage[np.isinf(correctedimage)] = 0
+#         np.clip(correctedimage, a_min=0, a_max=1.0, out=correctedimage)
+#         
+#         correctedimage = correctedimage * max_pixel_value
+# 
+#         nornir_imageregistration.SaveImage(outputFilename, correctedimage, bpp=bpp)
+# 
+#         del image
+#         del correctedimage
 
         outputPaths.append(outputFilename)
+        
+    while len(tasks) > 0:
+        t = tasks.pop(0)
+        t.wait()
+        outputPaths.append(t.output_fullpath)
+        assert(os.path.exists(t.output_fullpath))
 
     return outputPaths
 
 
-def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
+def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
 
     outputPaths = []
+    if bpp is None:
+        bpp = nornir_shared.images.GetImageBpp(imagepaths[0])
 
     for imagepath in imagepaths:
-        image = core.LoadImage(imagepath)
+        image = nornir_imageregistration.LoadImage(imagepath)
 
         imageFilename = os.path.basename(imagepath)
         outputFilename = os.path.join(outputpath, imageFilename)
 
         correctedimage = image - shadeimage
-        core.SaveImage(outputFilename, correctedimage)
+        nornir_imageregistration.SaveImage(outputFilename, correctedimage, bpp=bpp)
 
         outputPaths.append(outputFilename)
 
@@ -191,18 +223,15 @@ def __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath):
     return outputPaths
 
 
-def ShadeCorrect(imagepaths, shadeimagepath, outputpath, type=None):
+def ShadeCorrect(imagepaths, shadeimagepath, outputpath, correction_type=None, bpp=None):
 
-    shadeimage = None
-    if isinstance(shadeimagepath, str):
-        shadeimage = core.LoadImage(shadeimagepath)
-    elif isinstance(shadeimagepath, np.ndarray):
-        shadeimage = shadeimagepath
+    shadeimage = nornir_imageregistration.ImageParamToImageArray(shadeimagepath)
+     
+    if correction_type == ShadeCorrectionTypes.BRIGHTFIELD:
+        return __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=bpp)
+    elif correction_type == ShadeCorrectionTypes.DARKFIELD:
+        return __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath, bpp=bpp)
 
-    if type == ShadeCorrectionTypes.BRIGHTFIELD:
-        return __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath)
-    elif type == ShadeCorrectionTypes.DARKFIELD:
-        return __CorrectDarkfieldShading(imagepaths, shadeimage, outputpath)
 
 if __name__ == '__main__':
     pass

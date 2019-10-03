@@ -125,7 +125,7 @@ if __name__ == '__main__':
     (args, extra) = ParseArgs();
 
     if not args.logpath is None:
-        nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.logpath), "Logs"))
+        nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.logpath), "Logs"))
 
     Execute();
 

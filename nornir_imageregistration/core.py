@@ -2,33 +2,34 @@
 scipy image arrays are indexed [y,x]
 '''
 
-import collections
 import ctypes
 import logging
 import math
-import multiprocessing
 import multiprocessing.sharedctypes
 import os
 import tempfile
 
 from PIL import Image
-import nornir_imageregistration
-from nornir_imageregistration.spatial.rectangle import Rectangle
-import numpy.fft
 import scipy.misc
 import scipy.ndimage.measurements
-import scipy.stats
 
+import nornir_pools
+import nornir_imageregistration
+import nornir_shared.images
+import nornir_shared.prettyoutput as prettyoutput
+ 
 import matplotlib.pyplot as plt
-import nornir_shared.images as shared_images
+
 import numpy as np
-import numpy.fft.fftpack as fftpack
+#import numpy.fft.fftpack as fftpack
+import scipy.fftpack as fftpack #Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
+from . import pillow_helpers
 
 
-# In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
-np.seterr(all='raise')
-    
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
+
 # from memory_profiler import profile
 
 class memmap_metadata(object):
@@ -67,38 +68,32 @@ class memmap_metadata(object):
         self._dtype = dtype
         self._mode = None
         self.mode = mode
+        
+def ravel_index(idx, shp):
+    '''
+    Convert a nx2 numpy array of coordinates into array indicies
     
-
-class ImageStats(object):
-    '''A container for image statistics'''
-
-    @property
-    def median(self):
-        return self._median
-
-    @median.setter
-    def median(self, val):
-        self._median = val
-
-    @property
-    def std(self):
-        return self._std
-
-    @std.setter
-    def std(self, val):
-        self._std = val
-
-    def __init__(self):
-        self._median = None
-        self._std = None
-
-    @classmethod
-    def CalcStats(cls, image):
-        obj = ImageStats()
-        obj.median = np.median(image.flat)
-        obj.std = np.std(image.flat)
-        return obj
+    The arrays we expect are in this shape [[X1,Y1],
+                                    [X2,Y2],
+                                    [XN,YN]]
+    '''
     
+    if idx.shape[0] != shp[-1]:
+        idx = np.transpose(idx)
+    
+    return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1],[1])).dot(idx))
+
+
+def index_with_array(image, indicies):
+    '''
+    Returns values from image at the coordinates
+    :param ndarray image: Image to index into
+    :param ndarray indicies: nx2 array of pixel coordinates
+    '''
+    
+    return np.take(image,ravel_index(indicies, image.shape))
+    #return np.reshape(values, (len(values),1))
+        
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
     if array.ndim == 1:
@@ -106,8 +101,8 @@ def array_distance(array):
     
     return np.sqrt(np.sum(array ** 2, 1))
     
-def GetBitsPerPixel(File): 
-    return shared_images.GetImageBpp(File)
+#def GetBitsPerPixel(File): 
+#    return shared_images.GetImageBpp(File)
 
 def ApproxEqual(A, B, epsilon=None):
 
@@ -116,13 +111,21 @@ def ApproxEqual(A, B, epsilon=None):
 
     return np.abs(A - B) < epsilon
 
-def ImageParamToImageArray(imageparam):
+def ImageParamToImageArray(imageparam, dtype=None):
     image = None
     if isinstance(imageparam, np.ndarray):
-        image = imageparam
+        if dtype is None:
+            image = imageparam
+        else:
+            image = imageparam.astype(dtype=dtype)
+            
     elif isinstance(imageparam, str):
-        image = LoadImage(imageparam)
+        image = LoadImage(imageparam, dtype=dtype)
+                                 
     elif isinstance(imageparam, memmap_metadata):
+        if dtype is None:
+            dtype = imageparam.dtype
+            
         image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
     
     if image is None:
@@ -134,7 +137,7 @@ def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
     shapearray = None
     if not isinstance(shapes, list):
-         shapearray = np.array(shapes)
+        shapearray = np.array(shapes)
     else:
         shapeArrays = list(map(np.array, shapes))
         shapearray = np.hstack(shapeArrays)
@@ -146,75 +149,7 @@ def ScalarForMaxDimension(max_dim, shapes):
 def ReduceImage(image, scalar):
     return interpolation.zoom(image, scalar)
 
-def _GridLayoutDims(imagelist):
-    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
-    '''
 
-    numImages = len(imagelist)
-    width = math.ceil(math.sqrt(numImages))
-    height = math.ceil(numImages / width)
-
-    if height > width:
-        tempH = height
-        height = width
-        height = tempH
-
-    return (int(height), int(width))
-
-def ShowGrayscale(imageList, title=None):
-    '''
-    :param list imageList: A list or single ndimage to be displayed with imshow
-    :param str title: Informative title for the figure, for example expected test results
-    '''
-    
-    def set_title_for_single_image(title):
-        if not title is None:
-            plt.title(title)
-        return 
-    
-    def set_title_for_multi_image(fig, title):
-        if not title is None:
-            fig.suptitle(title)
-        return
-            
-    fig = None
-    
-    if isinstance(imageList, np.ndarray):
-        plt.imshow(imageList, cmap=plt.gray())
-        set_title_for_single_image(title)
-    elif isinstance(imageList, collections.Iterable):
-
-        if len(imageList) == 1:
-            plt.imshow(imageList[0], cmap=plt.gray())
-            set_title_for_single_image(title)
-        else: 
-            height, width = _GridLayoutDims(imageList)
-            fig, axeslist = plt.subplots(height, width)
-            set_title_for_multi_image(fig, title)
-
-            for i, image in enumerate(imageList):
-                # fig = figure()
-                if isinstance(image, np.ndarray):
-                    # ax = fig.add_subplot(101 + ((len(imageList) - (i)) * 10))
-                    iRow = i // width
-                    iCol = (i - (iRow * width)) % width
-
-                    print("Row %d Col %d" % (iRow, iCol))
-
-                    if height > 1:
-                        ax = axeslist[iRow, iCol ]
-                    else:
-                        ax = axeslist[iCol]
-
-                    ax.imshow(image, cmap=plt.gray(), figure=fig)  
-    else:
-        return
-    
-    plt.tight_layout(pad=1.0)  
-    plt.show()
-    # Do not call clf or we get two windows on the next call 
-    # plt.clf()
-    
 
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
@@ -262,11 +197,53 @@ def ExtractROI(image, center, area):
 
     return ROI
 
-def ChangeImageDownsample(image, input_downsample, output_downsample):
-    scale_factor = int(input_downsample) / output_downsample
-    desired_size = scipy.array(image.shape) * scale_factor
-    return scipy.misc.imresize(image, (int(desired_size[0]), int(desired_size[1])))
 
+def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
+    image = nornir_imageregistration.LoadImage(InFile)
+    resized_image = nornir_imageregistration.ResizeImage(image, Scalar)
+    nornir_imageregistration.SaveImage(OutFile, resized_image)
+    
+def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
+    
+    resample = kwargs.pop('resample', None)
+    
+    if resample is None:
+        resample = resample = Image.BILINEAR
+        if Scalar < 1.0:
+            resample = Image.LANCZOS
+    
+    with Image.open(InFile, mode='r') as img:
+        
+        dims = np.asarray(img.size).astype(dtype=np.float32)
+        desired_dims = dims * Scalar
+        desired_dims = np.around(desired_dims).astype(dtype=np.int64)
+         
+        shrunk_img = img.resize(size=desired_dims, resample=resample)
+        img.close()
+        del img
+        
+        shrunk_img.save(OutFile, **kwargs)
+        shrunk_img.close()
+        del shrunk_img
+        
+    return None
+    
+
+# Shrinks the passed image file, return procedure handle of invoked command
+def Shrink(InFile, OutFile, Scalar, **kwargs):
+    '''Shrinks the passed image file.  If Pool is not None the 
+       task is returned. kwargs are passed on to Pillow's image save function
+       :param str InFile: Path to input file
+       :param str OutFile: Path to output file
+       :param float ShrinkFactor: Multiplier for image dimensions
+    '''
+    (root, ext) = os.path.splitext(InFile)
+    if ext == '.npy':
+        _ShrinkNumpyImageFile(InFile, OutFile, Scalar, **kwargs)
+    else:
+        _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs)
+        
+        
 def ResizeImage(image, scalar):
     '''Change image size by scalar'''
     
@@ -277,6 +254,163 @@ def ResizeImage(image, scalar):
     new_size = np.array(image.shape, dtype=np.float) * scalar
     
     return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
+
+
+def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Invert=False, MinMax=None, Gamma=None):
+    '''Converts a single image according to the passed parameters using Numpy'''
+    
+    image = ImageParamToImageArray(input_image_param)
+    original_dtype = image.dtype
+    max_possible_int_val = None
+    
+    #max_possible_float_val = 1.0
+    
+    NeedsClip = False
+    
+    #After lots of pain it is simplest to ensure all images are represented by floats before operating on them
+    if nornir_imageregistration.IsIntArray(original_dtype):
+        max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
+        image = image.astype(np.float32) / max_possible_int_val
+      
+    if Flip is not None and Flip:
+        image = np.flipud(image)
+        
+    if Flop is not None and Flop: 
+        image = np.fliplr(image)
+        
+    if MinMax is not None:
+        (min_val, max_val) = MinMax    
+        
+        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+            min_val = min_val / max_possible_int_val
+            max_val = max_val / max_possible_int_val   
+        
+        if min_val is None:
+            min_val = 0
+            
+        if max_val is None:
+            max_val = 1.0
+        
+        max_minus_min = max_val - min_val
+        image = image - min_val
+        image = image / max_minus_min
+            
+        NeedsClip = True
+        
+    if Gamma is None:
+        Gamma = 1.0
+        
+    if Gamma != 1.0:
+        image = np.float_power(image, 1.0 / Gamma, where=image >= 0)
+        NeedsClip = True
+        
+    if NeedsClip:
+        np.clip(image, a_min=0, a_max=1.0, out=image)
+         
+    if Invert is not None and Invert:  
+        image = 1.0 - image
+        
+    if nornir_imageregistration.IsIntArray(original_dtype) == True:
+        image = image * max_possible_int_val
+        
+    image = image.astype(original_dtype)
+            
+    return image
+
+def  _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, MinMax=None, Gamma=None):
+        
+    image = _ConvertSingleImage(input_image_param, 
+                                Flip=Flip, 
+                                Flop=Flop,
+                                Bpp=InputBpp, 
+                                Invert=Invert,
+                                MinMax=MinMax,
+                                Gamma=Gamma)
+    
+    if OutputBpp is None:
+        OutputBpp = InputBpp
+    
+    (_, ext) = os.path.splitext(output_filename)
+    if ext.lower() == '.png':
+        nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp, optimize=True)
+    else:
+        nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp)
+    return
+
+def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
+    '''
+    The key and value in the dictionary have the full path of an image to convert.
+    MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
+    RightLeftShift is a tuple containing a right then left then return to center shift which should be done to remove useless bits from the data
+    I do not use an and because I do not calculate ImageMagick's quantum size yet.
+    Every image must share the same colorspace
+     
+    :return: True if images were converted
+    :rtype: bool 
+    '''
+
+    if len(ImagesToConvertDict) == 0:
+        return False
+    
+    if InputBpp is None:
+        for k in ImagesToConvertDict.keys():
+            if os.path.exists(k):
+                InputBpp = nornir_shared.images.GetImageBpp(k)
+                break
+    
+    prettyoutput.CurseString('Stage', "ConvertImagesInDict")
+    
+    if MinMax is not None:
+        if(MinMax[0] > MinMax[1]):
+            raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDict")
+     
+    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=multiprocessing.cpu_count() * 2)
+    #pool = nornir_pools.GetGlobalSerialPool()
+    tasks = []
+    
+    for (input_image, output_image) in ImagesToConvertDict.items():
+        task = pool.add_task("{0} -> {1}".format(input_image, output_image), 
+                      _ConvertSingleImageToFile,
+                      input_image_param=input_image,
+                      output_filename=output_image,
+                      Flip=Flip,
+                      Flop=Flop,
+                      InputBpp=InputBpp,
+                      OutputBpp=OutputBpp,
+                      Invert=Invert,
+                      MinMax=MinMax,
+                      Gamma=Gamma)
+        tasks.append(task)
+        
+    while len(tasks) > 0:
+        t = tasks.pop(0)
+        try:
+            t.wait()
+        except Exception as e:
+            prettyoutput.LogErr("Failed to convert " + t.name)
+              
+    if bDeleteOriginal:
+        for (input_image, output_image) in ImagesToConvertDict.items():
+            if input_image != output_image:
+                pool.add_task("Delete {0}".format(input_image), os.remove, input_image)
+                      
+        while len(tasks) > 0:
+            t = tasks.pop(0)
+            try:
+                t.wait()
+            except OSError as e:
+                prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
+                pass
+            except IOError as e:
+                prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
+                pass
+            
+    if not pool is None:
+        pool.wait_completion()
+        pool.shutdown()
+        pool = None
+            
+    del tasks
 
 def CropImageRect(imageparam, bounding_rect, cval=None):
     return CropImage(imageparam, Xo=int(bounding_rect[1]), Yo=int(bounding_rect[0]), Width=int(bounding_rect.Width), Height=int(bounding_rect.Height), cval=cval)
@@ -312,10 +446,16 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     assert(isinstance(Width, int))
     assert(isinstance(Height, int))
     
-    image_rectangle = Rectangle([0, 0, image.shape[0], image.shape[1]])
-    crop_rectangle = Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
+    if Width < 0:
+        raise ValueError("Negative dimensions are not allowed")
     
-    overlap_rectangle = Rectangle.overlap_rect(image_rectangle, crop_rectangle)
+    if Height < 0:
+        raise ValueError("Negative dimensions are not allowed")
+    
+    image_rectangle = nornir_imageregistration.Rectangle([0, 0, image.shape[0], image.shape[1]])
+    crop_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
+    
+    overlap_rectangle = nornir_imageregistration.Rectangle.overlap_rect(image_rectangle, crop_rectangle)
     
     in_startY = Yo
     in_startX = Xo
@@ -373,7 +513,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
     
     if not rMask is None:
-        RandomNoiseMask(cropped, rMask, Copy=False)
+        return RandomNoiseMask(cropped, rMask, Copy=False)
 
     return cropped
 
@@ -397,40 +537,25 @@ def CreateTemporaryReadonlyMemmapFile(npArray):
     return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
 
 
-def GenRandomData(height, width, mean, standardDev):
+def GenRandomData(height, width, mean, standardDev, min_val, max_val):
     '''
     Generate random data of shape with the specified mean and standard deviation
     '''
     image = (np.random.randn(int(height), int(width)).astype(np.float32) * standardDev) + mean
-
-    if mean - (standardDev * 2) < 0:
-        image = abs(image)
+    
+    np.clip(image, a_min=min_val, a_max=max_val, out=image)        
     return image
 
 
-def GetImageSize(ImageFullPath):
+def GetImageSize(image_param):
     '''
+    :param image_param str: Either a path to an image file or an ndarray
     :returns: Image (height, width)
     :rtype: tuple
     '''
 
-    # if not os.path.exists(ImageFullPath):
-        # raise ValueError("%s does not exist" % (ImageFullPath))
+    return nornir_shared.images.GetImageSize(image_param)
         
-    (root, ext) = os.path.splitext(ImageFullPath)
-    
-    image = None
-    try:
-        if ext == '.npy':
-            image = _LoadImageByExtension(ImageFullPath)
-            return image.shape
-        else:
-            image = Image.open(ImageFullPath)
-            return (image.size[1], image.size[0])
-    except IOError:
-        raise IOError("Unable to read size from %s" % (ImageFullPath))
-    finally:
-        del image
 
 def ForceGrayscale(image):
     '''
@@ -449,34 +574,120 @@ def _Image_To_Uint8(image):
     if image.dtype == np.uint8:
         return image
     
-    if image.dtype == np.float32 or image.dtype == np.float16 or image.dtype == np.float64:
-        image = image * 255.0
-
-    if image.dtype == np.bool:
+    elif image.dtype == np.bool:
         image = image.astype(np.uint8) * 255
-    else:
-        image = image.astype(np.uint8)
+        
+    elif nornir_imageregistration.IsFloatArray(image.dtype):
+        iMax = image.max()
+        if iMax <= 1:
+            image = image * 255.0
+        else:
+            pass
+            #image = #(255.0 / iMax)
+    elif nornir_imageregistration.IsIntArray(image.dtype):
+        iMax = image.max()
+        if iMax > 255:
+            image = image / (iMax / 255.0)
+            
+    image = image.astype(np.uint8)
 
     return image
 
-def SaveImage(ImageFullPath, image, **kwargs):
-    '''Saves the image as greyscale with no contrast-stretching'''
 
+def OneBit_img_from_bool_array(data):
+    '''
+    Covers for pillow bug with bit images
+    https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
+    '''
+    size = data.shape[::-1]
+    
+    if(data.dtype == np.bool):
+        return Image.frombytes(mode='1', size=size, data=np.packbits(data, axis=1))
+    else:
+        return Image.frombytes(mode='1', size=size, data=np.packbits(data > 0, axis=1))
+        
+
+def uint16_img_from_uint16_array(data):
+    '''
+    Covers for pillow bug with bit images
+    https://github.com/python-pillow/Pillow/issues/2970
+    '''
+    assert(nornir_imageregistration.IsIntArray(data))
+    
+    size = data.shape[::-1]
+    img = Image.new("I", size=data.T.shape)
+    img.frombytes(data.tobytes(), 'raw', 'I;16')
+    return img
+
+def uint16_img_from_float_array(image):
+    '''
+    Covers for pillow bug with bit images
+    https://github.com/python-pillow/Pillow/issues/2970
+    '''
+    assert(nornir_imageregistration.IsFloatArray(image))
+    iMax = image.max()
+    if iMax <= 1:
+        image = image * (1 << 16) - 1 
+    else:
+        pass
+        
+    return image.astype(np.uint16)
+
+def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
+    '''Saves the image as greyscale with no contrast-stretching
+    :param str ImageFullPath: The filename to save
+    :param ndarray image: The image data to save
+    :param int bpp: The bit depth to save, if the image data bpp is higher than this value it will be reduced.  Otherwise only the bpp required to preserve the image data will be used. (8-bit data will not be upsampled to 16-bit)
+    '''
+    dirname = os.path.dirname(ImageFullPath)
+    if dirname is not None and len(dirname) > 0:
+        os.makedirs(dirname, exist_ok=True)
+            
+    if bpp is None:
+        bpp = nornir_imageregistration.ImageBpp(image)
+        if bpp > 16:
+            prettyoutput.LogErr("Saving image at 32 bits-per-pixel, check SaveImageParameters for efficiency:\n{0}".format(ImageFullPath))
+                
+    if bpp > 8:
+        #Ensure we even have the data to bother saving a higher bit depth
+        detected_bpp = nornir_imageregistration.ImageBpp(image) 
+        if detected_bpp < bpp:
+            bpp = detected_bpp
+        
     (root, ext) = os.path.splitext(ImageFullPath)
     if ext == '.jp2':
         SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
     elif ext == '.npy':
         np.save(ImageFullPath, image)
     else:
-        Uint8_image = _Image_To_Uint8(image)
-        del image
-
-        im = Image.fromarray(Uint8_image)
-        
-        if ext == '.png':
-            im.save(ImageFullPath, compress_level=0)
+        if image.dtype == np.bool or bpp == 1:
+            #Covers for pillow bug with bit images
+            #https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
+            #im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
+            im = OneBit_img_from_bool_array(image)  
+        elif bpp == 8:
+            Uint8_image = _Image_To_Uint8(image)
+            del image
+            im = Image.fromarray(Uint8_image, mode="L")
+        elif nornir_imageregistration.IsFloatArray(image): 
+            #TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
+            if image.dtype == np.float16:
+                image = image.astype(np.float32)
+                
+            im = Image.fromarray(image * ((1 << bpp)-1)) 
+            im = im.convert('I')
         else:
-            im.save(ImageFullPath)
+            if bpp < 32:
+                if ext.lower() == '.png':
+                    im = uint16_img_from_uint16_array(image)
+                else:
+                    im = Image.fromarray(image, mode="I;{0}".format(bpp))
+            else:
+                im = Image.fromarray(image, mode="I".format(bpp))
+        
+        im.save(ImageFullPath, **kwargs)
+    
+    return 
 
 def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     '''Saves the image as greyscale with no contrast-stretching'''
@@ -507,25 +718,68 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 # 
 #     im = Image.fromarray(image)
 #     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
-#     
+#
 
-def _LoadImageByExtension(ImageFullPath, bpp=8):
+
+def _LoadImageByExtension(ImageFullPath, dtype):
+    '''
+    Loads an image file and returns an ndarray of dtype
+    :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide. 
+    '''
     (root, ext) = os.path.splitext(ImageFullPath)
     
     image = None
-    if ext == '.npy':
-        image = np.load(ImageFullPath, 'c') 
-    else:
-        image = plt.imread(ImageFullPath)
-        if bpp == 1:
-            image = image.astype(np.bool)
+    try:
+        if ext == '.npy':
+            image = np.load(ImageFullPath, 'c').astype(dtype)
         else:
-            image = ForceGrayscale(image)
+            #image = plt.imread(ImageFullPath)
+            with Image.open(ImageFullPath) as im:
+                
+                expected_dtype = pillow_helpers.dtype_for_pillow_image(im)
+                image = np.array(im, dtype=expected_dtype)
+                max_pixel_val = nornir_imageregistration.ImageMaxPixelValue(image)
+                
+                
+                 
+                if dtype is not None:
+                    image = image.astype(dtype)
+#                 else:
+#                     #Reduce to smallest integer type that can hold the data
+#                     if im.mode[0] == 'I' and (np.issubdtype(image.dtype, np.int32) or np.issubdtype(image.dtype, np.uint32)):
+#                         (min_val, max_val) = im.getextrema()
+#                         smallest_dtype = np.uint32
+#                         if max_val <= 65535:
+#                             smallest_dtype = np.uint16
+#                         if max_val <= 255:
+#                             smallest_dtype = np.uint8
+#                             
+#                         image = image.astype(smallest_dtype)
+#                         
+#                     dtype = image.dtype
+                
+                #Ensure data is in the range 0 to 1 for floating types
+                if nornir_imageregistration.IsFloatArray(dtype):
+                    
+                    if im.mode[0] == 'F':
+                        (_, im_max_val) = im.getextrema()
+                        if im_max_val <= 1.0:
+                            return image
+                
+                    max_val = max_pixel_val
+                    if max_val > 0:
+                        image = image / max_val
+                                      
+                im.close()
+                
+    except IOError as E:
+        prettyoutput.LogErr("Unable to load image {0}".format(ImageFullPath))
+        raise E
         
     return image
 
 # @profile
-def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
+def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=None):
 
     '''
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
@@ -536,15 +790,14 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
     :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
     :rtype: ndimage
     '''
-    if(not os.path.isfile(ImageFullPath)):
-        
+    if(not os.path.isfile(ImageFullPath)): 
         logger = logging.getLogger(__name__)
         logger.error('File does not exist: ' + ImageFullPath)
-        return None
-    
+        raise IOError("Unable to load image: %s" % (ImageFullPath))
+        
     (root, ext) = os.path.splitext(ImageFullPath)
     
-    image = _LoadImageByExtension(ImageFullPath) 
+    image = _LoadImageByExtension(ImageFullPath, dtype) 
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)
@@ -558,7 +811,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None):
             logger = logging.getLogger(__name__)
             logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
-            image_mask = _LoadImageByExtension(ImageMaskFullPath, bpp=1)
+            image_mask = _LoadImageByExtension(ImageMaskFullPath, np.bool)
             if not MaxDimension is None:
                 scalar = ScalarForMaxDimension(MaxDimension, image_mask.shape)
                 if scalar < 1.0:
@@ -585,6 +838,9 @@ def NormalizeImage(image):
 def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''
     
+    if isinstance(source_image_shape, nornir_imageregistration.Rectangle):
+        source_image_shape = source_image_shape.shape
+    
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
     else:
@@ -608,36 +864,55 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid  
 
 
-def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, cval=0):
+def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset=None, cval=0):
     '''An iterator generating all tiles for an image
     :param array tile_size: Shape of each tile
     :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
     ''' 
+    source_image = ImageParamToImageArray(source_image)
+    
     grid_shape = TileGridShape(source_image.shape, tile_size)
     
+    if coord_offset is None:
+        coord_offset = (0,0)
+        
     (required_shape) = grid_shape * tile_size 
     
-    source_image_padded = CropImage(source_image, Xo=0, Yo=0, Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])), cval=0)
+    source_image_padded = None
+    if not np.array_equal(source_image.shape, required_shape):
+        source_image_padded = CropImage(source_image,
+                                        Xo=0, Yo=0,
+                                        Width=int(math.ceil(required_shape[1])), Height=int(math.ceil(required_shape[0])),
+                                        cval=0)
+    else:
+        source_image_padded = source_image
+        
+    #nornir_imageregistration.ShowGrayscale(source_image_padded)
     
     # Build the output dictionary
     StartY = 0 
     EndY = tile_size[0]
     
-    for iRow in range(0, int(grid_shape[0])):
+    for iRow in range(grid_shape[0]):
         
         StartX = 0
         EndX = tile_size[1]
     
-        for iCol in range(0, int(grid_shape[1])):
-            yield (iRow, iCol, source_image_padded[StartY:EndY, StartX:EndX])
+        for iCol in range(grid_shape[1]):
+            t = (iRow + coord_offset[0], iCol + coord_offset[1], source_image_padded[StartY:EndY, StartX:EndX])
+            #nornir_imageregistration.ShowGrayscale(tile)
+            (yield t)
         
             StartX += tile_size[1]
             EndX += tile_size[1]    
         
         StartY += tile_size[0]
         EndY += tile_size[0]
+        
+    return
         
 
 def GetImageTile(source_image, iRow, iCol, tile_size):
@@ -691,16 +966,17 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
          
         # Bit of a backward convention here.
         # Need to use float64 so that sum does not return an infinite value
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=numpy.float64)
+        if ImageMedian is None or ImageStdDev is None:
+            UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=np.float64).compressed()
          
-        if(ImageMedian is None):
-            ImageMedian = np.median(UnmaskedImage1D.compressed())
-        if(ImageStdDev is None):
-            ImageStdDev = np.std(UnmaskedImage1D.compressed())
-            
-        del UnmaskedImage1D
+            if(ImageMedian is None):
+                ImageMedian = np.median(UnmaskedImage1D)
+            if(ImageStdDev is None):
+                ImageStdDev = np.std(UnmaskedImage1D)
+                
+            del UnmaskedImage1D
  
-    NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev)
+    NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev, image.min(), image.max())
 
     # iMasked = transpose(nonzero(iMasked))
     Image1D[iMasked] = NoiseData
@@ -734,7 +1010,7 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
     
     if num_pixels > 0:
         OutputImage1d = OutputImage.flat
-        randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev)
+        randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev, minima, maxima)
         OutputImage1d[maxima_index] = randData[0:len(maxima_index)]
         OutputImage1d[minima_index] = randData[len(maxima_index):]
 
@@ -747,6 +1023,9 @@ def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     '''
     :return: Same as DimensionWithOverlap, but output dimension is increased to the next power of two for faster FFT operations
     '''
+    
+    if overlap is None:
+        overlap = 0.0
 
     if overlap > 1.0:
         overlap = 1.0
@@ -799,6 +1078,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     Height = Size[0]
     Width = Size[1]
+    MinVal = image.min()
+    MaxVal = image.max()
 
     if(NewHeight is None):
         if PowerOfTwo:
@@ -832,8 +1113,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
 
     if not Width == NewWidth:
-        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev)
-        RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev)
+        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev, MinVal, MaxVal)
 
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
@@ -843,8 +1124,8 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     if not Height == NewHeight:
 
-        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev)
-        BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev)
+        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
         PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
@@ -884,8 +1165,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     #--------------------------------
 
-    FFTFixed = fftpack.rfft2(FixedImage)
-    FFTMoving = fftpack.rfft2(MovingImage)
+    FFTFixed = fftpack.fft2(FixedImage - np.mean(FixedImage.flat))
+    FFTMoving = fftpack.fft2(MovingImage - np.mean(MovingImage.flat))
     
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True) 
     
@@ -927,37 +1208,60 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     conjFFTFixed *= FFTMoving
     
     if delete_input:
-        del FFTMoving   
+        del FFTMoving
+        
+    abs_conjFFTFixed = np.absolute(conjFFTFixed)
+    #if np.any(abs_conjFFTFixed == 0):
+        #raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
+        
+    
+    mask = abs_conjFFTFixed > 0    
 
-    conjFFTFixed /= np.absolute(conjFFTFixed)  # Numerator / Divisor
+    conjFFTFixed[mask] /= abs_conjFFTFixed[mask]  # Numerator / Divisor
+    
+    del abs_conjFFTFixed
 
-    CorrelationImage = np.real(fftpack.irfft2(conjFFTFixed))
+    CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage 
 
 
 # @profile
-def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
+def FindPeak(image, OverlapMask=None, Cutoff=None):
     '''
     Find the offset of the strongest response in a phase correlation image
     
     :param ndimage image: grayscale image
     :param float Cutoff: Percentile used to threshold image.  Values below the percentile are ignored
-    :param float MinOverlap: Minimum overlap allowed
-    :param float MaxOverlap: Maximum overlap allowed
-    :return: Offset of peak from image center and sum of pixels values at peak
+    :param ndimage OverlapMask: Mask describing which pixels are eligible
+    :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     '''
+    
+    if Cutoff is None:
+        Cutoff = 0.995
+#        num_pixels = np.prod(image.shape)
+        
+#        if (1.0 - Cutoff) * num_pixels > 1000:
+#            Cutoff = 1.0 - (1000.0 / num_pixels)
+        
 
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
-    CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
+    #CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
+    ThresholdImage = np.copy(image)
 
-    ThresholdImage = numpy.array(image)
+    if OverlapMask is not None:
+        CutoffValue = np.percentile(image[OverlapMask], q=Cutoff*100.0 )
+        ThresholdImage[OverlapMask == False] = 0
+    else:
+        CutoffValue = np.percentile(image, q=Cutoff*100.0 )
+
     ThresholdImage[ThresholdImage < CutoffValue] = 0
+        
     #ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
-    # ShowGrayscale(ThresholdImage)
+    # nornir_imageregistration.ShowGrayscale([image,ThresholdImage])
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
     LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, list(range(0, NumLabels)))
@@ -970,10 +1274,11 @@ def FindPeak(image, Cutoff=0.995, MinOverlap=0, MaxOverlap=1):
     del LabelSums
 
     # center_of_mass returns results as (y,x)
-    Offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
-    # Offset = (Offset[0], Offset[1])
+    #scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+    scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+    # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
-    return (Offset, PeakStrength)
+    return (scaled_offset, PeakStrength)
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
@@ -983,24 +1288,32 @@ def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOve
         return CorrelationImage
 
 
-def CreateOverlapMask(FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
-    '''Defines a mask that determines which peaks should be considered'''
-
-    MaxWidth = FixedImageSize[1] + MovingImageSize[1]
-    MaxHeight = FixedImageSize[0] + MovingImageSize[0]
-
-    mask = np.ones([MaxHeight, MaxWidth], dtype=np.bool)
-
-    raise NotImplementedError()
-
-
-def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True):
+def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Required=True, FixedImageShape=None, MovingImageShape=None):
     '''return an alignment record describing how the images overlap. The alignment record indicates how much the 
-       moving image must be rotated and translated to align perfectly with the FixedImage
+       moving image must be rotated and translated to align perfectly with the FixedImage.
+       
+       If adjusting control points the peak can be added to the fixed image's control point, or subtracted from the 
+       warped image's control point (accounting for any transform used to create the warped image) to align the images.
+       
+       :param ndarray FixedImage:  Target space we are registering into
+       :param ndarray MovingImage: Source space we are coming from
+       :param float MinOverlap: The minimum amount of overlap by area the registration must have
+       :param float MaxOverlap: The maximum amount of overlap by area the registration must have
+       :param bool FFT_Required: True by default, if False the input images are in FFT space already
+       :param tuple FixedImageShape: Defaults to None, if specified it contains the size of the fixed image before padding.  Used to calculate mask for valid overlap values.
+       :param tuple MovingImageShape: Defaults to None, if specified it contains the size of the moving image before padding.  Used to calculate mask for valid overlap values. 
        '''
 
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
+    
+    #nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
+    
+    if FixedImageShape is None:
+        FixedImageShape = FixedImage.shape
+    
+    if MovingImageShape is None:
+        MovingImageShape = MovingImage.shape
     
     CorrelationImage = None
     if FFT_Required:
@@ -1008,15 +1321,15 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     else:
         CorrelationImage = FFTPhaseCorrelation(FixedImage, MovingImage, delete_input=False)
         
-    CorrelationImage = np.fft.fftshift(CorrelationImage)
+    CorrelationImage = fftpack.fftshift(CorrelationImage)
 
-    # Crop the areas that cannot overlap
-
+    # Crop the areas that cannot overlap 
     CorrelationImage -= CorrelationImage.min()
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
-    (peak, weight) = FindPeak(CorrelationImage, MinOverlap=MinOverlap, MaxOverlap=MaxOverlap)
+    OverlapMask = nornir_imageregistration.GetOverlapMask(FixedImageShape, MovingImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap)
+    (peak, weight) = FindPeak(CorrelationImage, OverlapMask)
 
     del CorrelationImage
 
@@ -1063,8 +1376,7 @@ if __name__ == '__main__':
     FilenameB = 'C:\\BuildScript\\Test\\Images\\401.png'
     OutputDir = 'C:\\Buildscript\\Test\\Results\\'
 
-    if not os.path.exists(OutputDir):
-        os.makedirs(OutputDir)
+    os.makedirs(OutputDir, exist_ok=True)
 
 
     def TestPhaseCorrelation(imA, imB):
@@ -1095,8 +1407,6 @@ if __name__ == '__main__':
         return
 
     def SecondMain():
-
-
         imA = plt.imread(FilenameA)
         imB = plt.imread(FilenameB)
 

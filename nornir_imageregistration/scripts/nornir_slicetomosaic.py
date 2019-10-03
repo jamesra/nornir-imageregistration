@@ -112,7 +112,8 @@ def Execute(ExecArgs=None):
                                    OutputFilename=Args.outputpath,
                                    fixedImageFilename=Args.fixedimagepath,
                                    warpedImageFilename=Args.warpedimagepath,
-                                   scalar=Args.scalar)
+                                   scalar=Args.scalar,
+                                   CropUndefined=False)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
@@ -124,7 +125,7 @@ if __name__ == '__main__':
 
     (args, extra) = ParseArgs();
 
-    nornir_shared.misc.SetupLogging(os.path.join(os.path.dirname(args.outputpath), "Logs"))
+    nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute();
 

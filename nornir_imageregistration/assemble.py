@@ -13,13 +13,12 @@ from   nornir_imageregistration.transforms import factory, triangulation
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
 from scipy.ndimage import interpolation
 
+import nornir_imageregistration
 import nornir_imageregistration.transforms.base as transformbase
 import nornir_pools
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 import numpy as np
-
-from . import core
 
 
 def GetROICoords(botleft, area):
@@ -106,7 +105,7 @@ def ExtractRegion(image, botleft=None, area=None, cval=0):
     
     '''
     
-    raise DeprecationWarning("Deprecated __ExtractRegion call being used, use core.CropImage instead")
+    raise DeprecationWarning("Deprecated __ExtractRegion call being used, use nornir_imageregistration.CropImage instead")
 #     if botleft is None:
 #         botleft = (0, 0)
 # 
@@ -145,10 +144,29 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
     
     if maxCoord[0] > input_image.shape[0]:
         maxCoord[0] = input_image.shape[0]
+        if minCoord[0] > maxCoord[0]:
+            minCoord[0] = maxCoord[0]
+            
     if maxCoord[1] > input_image.shape[1]:
         maxCoord[1] = input_image.shape[1]
+        if minCoord[1] > maxCoord[1]:
+            minCoord[1] = maxCoord[1]
+            
+    if maxCoord[0] < 0:
+        maxCoord[0] = 0
+        
+    if maxCoord[1] < 0:
+        maxCoord[1] = 0
+        
+    Width = int(maxCoord[1] - minCoord[1])
+    Height = int(maxCoord[0] - minCoord[0])
+    
+    if Width < 0:
+        Width = 0
+    if Height < 0:
+        Height = 0
 
-    cropped_image = core.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=int(maxCoord[1] - minCoord[1]), Height=int(maxCoord[0] - minCoord[0]), cval=cval)
+    cropped_image = nornir_imageregistration.CropImage(input_image, Xo=int(minCoord[1]), Yo=int(minCoord[0]), Width=Width, Height=Height, cval=cval)
     translated_coordinates = coordinates - minCoord
     
     return (cropped_image, translated_coordinates)
@@ -183,11 +201,27 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     # if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
         # if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
         (subroi_warpedImage, warped_coords) = __CropImageToFitCoords(WarpedImage, warped_coords, cval=cval)
+        if subroi_warpedImage.shape[0] == 0 or subroi_warpedImage.shape[1] == 0:
+            #No points transformed into the requested area, return empty area
+            transformedImage = np.full((area), cval, dtype=WarpedImage.dtype)
+            
+            del WarpedImage
+            return transformedImage
+        
         del WarpedImage
     else:
         subroi_warpedImage = WarpedImage
     
-    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
+    #Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
+    warped_coords = np.around(warped_coords, 3)
+    
+    #TODO: Order appears to not matter so setting to zero may help
+    #outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
+    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=0, cval=cval)
+    
+    #Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
+    np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
+    
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
         outputImage = outputImage.reshape(area)
@@ -195,26 +229,19 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
         transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
-        fixed_coords_rounded = np.asarray(np.round(fixed_coords), dtype=np.int32)
+        fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
         return transformedImage
-    
-
-def _LoadImageIfNeeded(value):
-    if isinstance(value, str):
-        return core.LoadImage(value)
-    
-    return value 
-    
+       
 
 def _ReplaceFilesWithImages(listImages):
     '''Replace any filepath strings in the passed parameter with loaded images.'''
     
     if isinstance(listImages, list):
         for i, value in enumerate(listImages):
-            listImages[i] = _LoadImageIfNeeded(value)
+            listImages[i] = nornir_imageregistration.ImageParamToImageArray(value)
     else:
-        listImages = _LoadImageIfNeeded(listImages)
+        listImages = nornir_imageregistration.ImageParamToImageArray(listImages)
         
     return listImages
 
@@ -270,11 +297,22 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     :Param botleft: Origin of region to map
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
-    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
+    :param bool extrapolate: If true map points that fall outside the bounding box of the transform
     '''
-
+    
+    ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
+    
     if botleft is None:
         botleft = (0, 0)
+        
+    if FixedImageArea is None:
+        firstImage = ImagesToTransform
+        if isinstance(firstImage, list):
+            firstImage = firstImage[0]
+        
+        bounds = nornir_imageregistration.spatial.Rectangle.CreateFromPointAndArea((0,0), firstImage.shape)
+        fixedCorners = transform.InverseTransform(bounds.Corners)
+        FixedImageArea = np.ravel(np.max(fixedCorners,0) - np.min(fixedCorners,0))
 
     if area is None:
         area = FixedImageArea
@@ -284,8 +322,6 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         
     (DstSpace_coords, SrcSpace_coords) = DestinationROI_to_SourceROI(transform, botleft, area, extrapolate=extrapolate)
     
-    ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
-
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
             cval = [cval] * len(DataToTransform)    
@@ -322,12 +358,12 @@ def ParameterToStosTransform(transformData):
         
     return stostransform
 
-def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, warpedImageFilename=None, scalar=1.0, CropUndefined=False):
+def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
     '''Assembles an image based on the passed transform.
-    :param bool fixedImageFilename: Image describing the size we want the warped image to fill
-    :param bool warpedImageFilename: Image we will warp into fixed space
+    :param str fixedImage: Image describing the size we want the warped image to fill, either a string or ndarray
+    :param str warpedImage: Image we will warp into fixed space, either a string or ndarray
     :param float scalar: Amount to scale the transform before passing the image through
-    :param bool CropUndefined: If true do exclude areas outside the convex hull of the transform, if it exists
+    :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
     :param bool Dicreet: True causes points outside the defined transform region to be clipped instead of interpolated
     :return: transformed image
     '''
@@ -335,28 +371,25 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
     stos = None
     stostransform = ParameterToStosTransform(transformData)
 
-    if CropUndefined:
-        stostransform = triangulation.Triangulation(pointpairs=stostransform.points)
-
-    if fixedImageFilename is None:
+    if fixedImage is None:
         if stos is None:
             return None
 
-        fixedImageFilename = stos.ControlImageFullPath
+        fixedImage = stos.ControlImageFullPath
 
-    if warpedImageFilename is None:
+    if warpedImage is None:
         if stos is None:
             return None
 
-        warpedImageFilename = stos.MappedImageFullPath
+        warpedImage = stos.MappedImageFullPath
 
-    fixedImageSize = core.GetImageSize(fixedImageFilename)
+    fixedImageSize = nornir_imageregistration.GetImageSize(fixedImage)
     fixedImageShape = np.array(fixedImageSize) * scalar
-    warpedImage = core.LoadImage(warpedImageFilename)
+    warpedImage = nornir_imageregistration.ImageParamToImageArray(warpedImage)
 
     stostransform.points = stostransform.points * scalar
 
-    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage)
+    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         imsave(OutputFilename, warpedImage, cmap='gray')
@@ -364,11 +397,21 @@ def TransformStos(transformData, OutputFilename=None, fixedImageFilename=None, w
     return warpedImage
 
 
-def TransformImage(transform, fixedImageShape, warpedImage):
-    '''Cut image into tiles, assemble small chunks'''
+def TransformImage(transform, fixedImageShape, warpedImage, CropUndefined):
+    '''Cut image into tiles, assemble small chunks
+    :param transform transform: Transform to apply to point to map from warped image to fixed space
+    :param ndarray fixedImageShape: Width and Height of the image to create
+    :param ndarray warpedImage: Image to transform to fixed space
+    :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
+    :return: An ndimage array of the transformed image
+    '''
+    
+    if CropUndefined:
+        transform = triangulation.Triangulation(pointpairs=transform.points)
 
     tilesize = [2048, 2048]
 
+    fixedImageShape = fixedImageShape.astype(dtype=np.int64)
     height = int(fixedImageShape[0])
     width = int(fixedImageShape[1])
  
@@ -376,14 +419,14 @@ def TransformImage(transform, fixedImageShape, warpedImage):
 
     tasks = []
  
-    grid_shape = core.TileGridShape(warpedImage.shape, tilesize)
+    grid_shape = nornir_imageregistration.TileGridShape(warpedImage.shape, tilesize)
     
     if np.all(grid_shape == np.array([1, 1])):
         # Single threaded
-        return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape)
+        return WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=np.array([0, 0]), area=fixedImageShape, extrapolate=not CropUndefined)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
-        sharedWarpedImage = core.npArrayToReadOnlySharedArray(warpedImage)
+        sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
         
     
@@ -399,7 +442,7 @@ def TransformImage(transform, fixedImageShape, warpedImage):
                 if end_iX > width:
                     end_iX = width
     
-                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", WarpedImageToFixedSpace, transform, fixedImageShape, sharedWarpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined)
                 task.iY = iY
                 task.end_iY = end_iY
                 task.iX = iX

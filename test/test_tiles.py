@@ -25,24 +25,24 @@ class TestTiles(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(ShadedImagePath))
         self.assertTrue(os.path.exists(ShadingReferencePath))
 
-        originalImage = nir.core.LoadImage(ReferenceImagePath)
-        shadedImage = nir.core.LoadImage(ShadedImagePath)
-        shadingMask = nir.core.LoadImage(ShadingReferencePath)
+        originalImage = nir.LoadImage(ReferenceImagePath)
+        shadedImage = nir.LoadImage(ShadedImagePath)
+        shadingMask = nir.LoadImage(ShadingReferencePath)
 
         shadedImageV2 = originalImage * shadingMask
         shadedImageV2Path = os.path.join(self.TestOutputPath, "TestGeneratedShadedImage.png")
 
-        nir.core.SaveImage(shadedImageV2Path, shadedImageV2)
+        nir.SaveImage(shadedImageV2Path, shadedImageV2)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath, type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [originalImage, shadedImage, shadingMask]
 
         for path in OutputPaths:
-            correctedImage = nir.core.LoadImage(path)
+            correctedImage = nir.LoadImage(path)
             shownImages.append(correctedImage)
 
-        # nir.core.ShowGrayscale(shownImages)
+        # nir.ShowGrayscale(shownImages)
 
         pass
 
@@ -63,18 +63,18 @@ class TestTiles(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(ShadedImagePath))
         self.assertTrue(os.path.exists(ShadingReferencePath))
 
-        shadedImage = nir.core.LoadImage(ShadedImagePath)
-        shadingMask = nir.core.LoadImage(ShadingReferencePath)
+        shadedImage = nir.LoadImage(ShadedImagePath)
+        shadingMask = nir.LoadImage(ShadingReferencePath)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath, type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [shadedImage, shadingMask]
 
         for path in OutputPaths:
-            correctedImage = nir.core.LoadImage(path)
+            correctedImage = nir.LoadImage(path)
             shownImages.append(correctedImage)
 
-        # nir.core.ShowGrayscale(shownImages)
+        # nir.ShowGrayscale(shownImages)
 
         pass
 

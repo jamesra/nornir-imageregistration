@@ -9,7 +9,8 @@ The factory is focused on the loading and saving of transforms
 from scipy import *
 
 from nornir_imageregistration.spatial.indicies import *
-import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+from nornir_imageregistration.spatial import Rectangle 
+import nornir_imageregistration.transforms
 import numpy as np
 
 from . import utils
@@ -18,29 +19,49 @@ from . import utils
 def TransformToIRToolsString(transformObj, bounds=None):
     if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
         return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=bounds)
+    if isinstance(transformObj, nornir_imageregistration.transforms.RigidNoRotation):
+        return transformObj.ToITKString()
     else:
         return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
+    
+def _GetMappedBoundsExtents(transform, bounds=None):
+    # Find the extent of the mapped boundaries
+    (bottom, left, top, right) = (None, None, None, None)
+    if bounds is None:
+        (bottom, left, top, right) = transform.MappedBoundingBox.ToTuple()
+    elif isinstance(bounds, Rectangle):
+        (bottom, left, top, right) = bounds.BoundingBox
+    else:
+        (bottom, left, top, right) = bounds
+    
+    return (bottom, left, top, right)
+ 
 
+def float_to_shortest_string(val, precision=6):
+    '''
+    Convert a floating point value to the shortest string possible
+    '''
+    format_spec = '''{0:0.''' + str(precision) + '''f}'''
+    return format_spec.format(val).rstrip('0').rstrip('.')
+
+    
 def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (bottom, left, top, right) = (None, None, None, None)
-    if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
-    else:
-        (bottom, left, top, right) = bounds
+    (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
 
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
-    
-    template = " %(cx)g %(cy)g"
+     
+    # template = " %(cx).3f %(cy).3f"
+    template = " %(cx)s %(cy)s"
 
-    NumAdded = int(0)
+    NumAdded = int(0) 
     for CY, CX, MY, MX in Transform.points:
-        pstr = template % {'cx' : CX, 'cy' : CY}
+        pstr = template % {'cx' : float_to_shortest_string(CX, 3), 'cy' : float_to_shortest_string(CY, 3)}
         output.append(pstr)
         NumAdded = NumAdded + 1
 
@@ -59,22 +80,22 @@ def _TransformToIRToolsString(Transform, bounds=None):
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
-    (bottom, left, top, right) = (None, None, None, None)
-    if bounds is None:
-        (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
-    else:
-        (bottom, left, top, right) = bounds
+    (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
 
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
 
-    template = " %(mx)f %(my)f %(cx)g %(cy)g"
+    # template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
+    template = " %(mx)s %(my)s %(cx)s %(cy)s"
 
     width = right - left
     height = top - bottom
 
     for CY, CX, MY, MX in Transform.points:
-        pstr = template % {'cx' : CX, 'cy' : CY, 'mx' : (MX - left) / width , 'my' : (MY - bottom) / height}
+        pstr = template % {'cx' : float_to_shortest_string(CX, 3),
+                           'cy' : float_to_shortest_string(CY, 3),
+                           'mx' : float_to_shortest_string((MX - left) / width, 10),
+                           'my' : float_to_shortest_string((MY - bottom) / height, 10)}
         output.append(pstr)
 
     boundsStr = " ".join(map(str, [left, bottom, width, height]))
@@ -153,6 +174,10 @@ def LoadTransform(Transform, pixelSpacing=None):
         return ParseLegendrePolynomialTransform(parts, pixelSpacing)
     elif transformType == "Rigid2DTransform_double_2_2":
         return ParseRigid2DTransform(parts, pixelSpacing)
+    elif transformType == "CenteredSimilarity2DTransform_double_2_2":
+        return ParseCenteredSimilarity2DTransform(parts, pixelSpacing)
+    
+    raise ValueError("LoadTransform was passed an unknown transform type")
 
 
 def ParseGridTransform(parts, pixelSpacing=None):
@@ -174,15 +199,13 @@ def ParseGridTransform(parts, pixelSpacing=None):
         iY = (i / 2) // gridWidth
         iX = (i / 2) % gridWidth
 
-        # print str((iX,iY))
-
         mappedX = (float(iX) / float(gridWidth - 1)) * ImageWidth
         mappedY = (float(iY) / float(gridHeight - 1)) * ImageHeight
         ControlX = VariableParameters[i]
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     T.gridWidth = gridWidth
     T.gridHeight = gridHeight
     return T
@@ -211,7 +234,7 @@ def ParseMeshTransform(parts, pixelSpacing=None):
 
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
@@ -244,41 +267,46 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
         ControlY = (FixedParameters[1] * pixelSpacing) + mappedY
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
+    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
 def ParseRigid2DTransform(parts, pixelSpacing=None):
 
-    raise Exception("Not implemented")
-
+    # Example: Rigid2DTransform_double_2_2 vp 3 0 0 0 fp 2 0 0
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-    gridWidth = int(float(FixedParameters[2])) + 1
-    gridHeight = int(float(FixedParameters[1])) + 1
+    angle = float(VariableParameters[0])
+    xoffset = float(VariableParameters[1])
+    yoffset = float(VariableParameters[2])
+    
+    x_center = float(FixedParameters[0])
+    y_center = float(FixedParameters[1])
+    
+    return nornir_imageregistration.transforms.Rigid(target_offset=(yoffset, xoffset), source_center=(y_center, x_center), angle=angle)
 
-    Left = float(FixedParameters[3]) * pixelSpacing
-    Bottom = float(FixedParameters[4]) * pixelSpacing
-    ImageWidth = float(FixedParameters[5]) * pixelSpacing
-    ImageHeight = float(FixedParameters[6]) * pixelSpacing
+def ParseCenteredSimilarity2DTransform(parts, pixelSpacing=None):
 
-    PointPairs = []
+    # Example: CenteredSimilarity2DTransform_double_2_2 vp 6 0 0 0 0 0 0
+    if pixelSpacing is None:
+        pixelSpacing = 1.0
 
-    for i in range(0, len(VariableParameters) - 1, 4):
-        iY = i // gridWidth
-        iX = i % gridWidth
+    (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-        mappedX = (VariableParameters[i + 0] * ImageWidth) + Left
-        mappedY = (VariableParameters[i + 1] * ImageHeight) + Bottom
-        ControlX = float(VariableParameters[i + 2])
-        ControlY = float(VariableParameters[i + 3])
-        PointPairs.append((ControlX, ControlY, mappedX, mappedY))
-
-    T = meshwithrbffallback.MeshWithRBFFallback(PointPairs)
-    return T
+    scale = float(VariableParameters[0])
+    angle = float(VariableParameters[1])
+    x_center = float(FixedParameters[2])
+    y_center = float(FixedParameters[3])
+    xoffset = float(VariableParameters[4])
+    yoffset = float(VariableParameters[5])
+    
+    return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=(yoffset, xoffset),
+                                                                             source_center=(y_center, x_center),
+                                                                             angle=angle,
+                                                                             scale=scale)
 
 
 def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageShape):
@@ -286,32 +314,88 @@ def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageS
     return (offset[0] + ((FixedImageShape[0] - MovingImageShape[0]) / 2.0), offset[1] + ((FixedImageShape[1] - MovingImageShape[1]) / 2.0))
 
 
-def CreateRigidTransform(FixedImageSize, WarpedImageSize, rangle, warped_offset):
+def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image_shape, flip_ud=False):
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
 
-    assert(FixedImageSize[0] > 0)
-    assert(FixedImageSize[1] > 0)
-    assert(WarpedImageSize[0] > 0)
-    assert(WarpedImageSize[1] > 0)
+    use_mesh_transform = flip_ud
+    scalar = 1.0
+    source_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_image_shape)
+    target_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(target_image_shape)
+    
+#     if not np.array_equal(source_image_shape, target_image_shape):
+#         shape_ratio = target_image_shape.astype(np.float64) / source_image_shape.astype(np.float64) 
+#         if shape_ratio[0] != shape_ratio[1]: 
+#             use_mesh_transform = True
+#         else:
+#             scalar = shape_ratio[0]
+            
+    if use_mesh_transform:
+        return CreateRigidMeshTransform(FixedImageSize=target_image_shape,
+                                        WarpedImageSize=source_image_shape,
+                                        rangle=rangle,
+                                        warped_offset=warped_offset,
+                                        flip_ud=flip_ud)
+        
+    
+    assert(source_image_shape[0] > 0)
+    assert(source_image_shape[1] > 0)
+    assert(target_image_shape[0] > 0)
+    assert(target_image_shape[1] > 0)
+    
+    source_rotation_center = (source_image_shape) / 2.0
 
     # Adjust offset for any mismatch in dimensions
-    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, FixedImageSize, WarpedImageSize)
+    #Adjust the center of rotation to be consistent with the original ir-tools
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
-    FixedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle, AdjustedOffset)
-    WarpedPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0))
+    # TargetPoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle, AdjustedOffset)
+    # SourcePoints = GetTransformedRigidCornerPoints(WarpedImageSize, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
-    ControlPoints = np.append(FixedPoints, WarpedPoints, 1)
+    # ControlPoints = np.append(TargetPoints, SourcePoints, 1)
 
-    transform = meshwithrbffallback.MeshWithRBFFallback(ControlPoints)
+    transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=AdjustedOffset,
+                                                          source_rotation_center=source_rotation_center,
+                                                          angle=rangle,
+                                                          scalar=scalar,
+                                                          MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0),source_image_shape))
 
     return transform
 
 
-def GetTransformedRigidCornerPoints(size, rangle, offset):
-    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center
+def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, warped_offset, flip_ud=False):
+    '''
+    Returns a MeshWithRBFFallback transform, the fixed image defines the boundaries of the transform.
+    '''
+    source_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_image_shape)
+    target_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(target_image_shape)
+    
+    assert(source_image_shape[0] > 0)
+    assert(source_image_shape[1] > 0)
+    assert(target_image_shape[0] > 0)
+    assert(target_image_shape[1] > 0)
+
+    # Adjust offset for any mismatch in dimensions
+    #Adjust the center of rotation to be consistent with the original ir-tools
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
+
+    # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
+    # fixed space we should obtain the warped_offset value
+    TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, rangle, AdjustedOffset)
+    SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
+
+    ControlPoints = np.append(TargetPoints, SourcePoints, 1)
+
+    transform = nornir_imageregistration.transforms.MeshWithRBFFallback(ControlPoints)
+
+    return transform
+
+
+def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
+    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
+       Flip, if requested, is performed before the rotation and translation
     :param tuple size: (Height, Width)
     :param float rangle: Angle in radians
     :param tuple offset: (Y, X)
@@ -320,18 +404,24 @@ def GetTransformedRigidCornerPoints(size, rangle, offset):
     '''
     CenteredRotation = utils.RotationMatrix(rangle)
 
-    HalfWidth = (size[iArea.Width] - 1) / 2.0
-    HalfHeight = (size[iArea.Height] - 1) / 2.0
+    HalfWidth = (size[iArea.Width]) / 2.0
+    HalfHeight = (size[iArea.Height]) / 2.0
 
 #     BotLeft = CenteredRotation * matrix([[-HalfWidth], [-HalfHeight], [1]])
 #     TopLeft = CenteredRotation * matrix([[-HalfWidth], [HalfHeight], [1]])
 #     BotRight = CenteredRotation * matrix([[HalfWidth], [-HalfHeight], [1]])
 #     TopRight = CenteredRotation * matrix([[HalfWidth], [HalfHeight], [1]])
 
-    BotLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
-    TopLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
-    BotRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
-    TopRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+    if not flip_ud:
+        BotLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
+        TopLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
+        BotRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
+        TopRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+    else:
+        BotLeft = CenteredRotation * matrix([[HalfHeight], [-HalfWidth], [1]])
+        TopLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
+        BotRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
+        TopRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
 
     Translation = matrix([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
 
