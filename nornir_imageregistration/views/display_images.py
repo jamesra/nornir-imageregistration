@@ -190,7 +190,7 @@ def _DisplayImageList1D(input_params, title=None):
     
 def _DisplayImageList2D(input_params, grid_dims, title=None):
     (height, width) = grid_dims
-    gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
+    gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
     fig = plt.figure()
     #, axes = plt.subplots(height, width)
 
