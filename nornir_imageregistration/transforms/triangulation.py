@@ -512,6 +512,19 @@ class Triangulation(Base):
         rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
         self.points[:, 2:4] = rotatedtemp
         self.OnTransformChanged()
+        
+    def FlipWarped(self, flip_center=None):
+        '''
+        Flips the X coordinates along the vertical line passing through flip_center.  If flip_center is None the center of the bounding box of the points is used.
+        '''
+        if flip_center is None:
+            flip_center = self.MappedBoundingBox.Center
+        
+        temp = self.points[:, 2:4] - flip_center
+        temp[:,1] = -temp[:,1] 
+        temp = temp + flip_center[1]
+        self.points[:,2:4] = temp
+        self.OnTransformChanged()
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
