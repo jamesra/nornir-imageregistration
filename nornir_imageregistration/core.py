@@ -740,8 +740,6 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                 image = np.array(im, dtype=expected_dtype)
                 max_pixel_val = nornir_imageregistration.ImageMaxPixelValue(image)
                 
-                
-                 
                 if dtype is not None:
                     image = image.astype(dtype)
 #                 else:
@@ -773,7 +771,10 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                 im.close()
                 
     except IOError as E:
-        prettyoutput.LogErr("Unable to load image {0}".format(ImageFullPath))
+        prettyoutput.LogErr("IO error loading image {0}\n{1}".format(ImageFullPath, str(E)))
+        raise E
+    except Exception as E:
+        prettyoutput.LogErr("Unexpected exception loading image {0}\n{1}".format(ImageFullPath, str(E)))
         raise E
         
     return image
