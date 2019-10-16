@@ -622,6 +622,8 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     This function exists to minimize the inter-process communication
     '''
     
+    MinOverlap = 0.05
+    
     ShowImages = False 
     A = nornir_imageregistration.LoadImage(A_Filename)
     B = nornir_imageregistration.LoadImage(B_Filename)
@@ -633,14 +635,16 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
     # For the latest version of the code that uses only the overlapping region 3 is appropriate because it allows the alignment point to be anywhere on the image without ambiguity
-    OverlappingRegionA = __get_overlapping_image(A, scaled_overlapping_source_rect_A, excess_scalar=excess_scalar)
-    OverlappingRegionB = __get_overlapping_image(B, scaled_overlapping_source_rect_B, excess_scalar=excess_scalar)
+    OverlappingRegionA = __get_overlapping_image(A, scaled_overlapping_source_rect_A, excess_scalar=excess_scalar, cval='random')
+    OverlappingRegionB = __get_overlapping_image(B, scaled_overlapping_source_rect_B, excess_scalar=excess_scalar, cval='random')
     
-    
+    OverlappingRegionA = nornir_imageregistration.core.PadImageForPhaseCorrelation(OverlappingRegionA, MinOverlap=MinOverlap)
+    OverlappingRegionB = nornir_imageregistration.core.PadImageForPhaseCorrelation(OverlappingRegionB, MinOverlap=MinOverlap)
+     
     if ShowImages:
         o_a = __get_overlapping_image(A, scaled_overlapping_source_rect_A, excess_scalar=1.0, cval=0)
         o_b = __get_overlapping_image(B, scaled_overlapping_source_rect_B, excess_scalar=1.0, cval=0)
-        
+    
     #nornir_imageregistration.ShowGrayscale([[OverlappingRegionA, OverlappingRegionB],[o_a,o_b]])
     OverlappingRegionA = OverlappingRegionA.astype(np.float32)
     OverlappingRegionB = OverlappingRegionB.astype(np.float32)
@@ -668,7 +672,7 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     
     # nornir_imageregistration.ShowGrayscale([OverlappingRegionA, OverlappingRegionB]) nornir_imageregistration.ShowGrayscale([[o_a, o_b],[OverlappingRegionA, OverlappingRegionB]])
     
-    record = nornir_imageregistration.FindOffset(OverlappingRegionA, OverlappingRegionB, FFT_Required=True)#, FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
+    record = nornir_imageregistration.FindOffset(OverlappingRegionA, OverlappingRegionB, MinOverlap=MinOverlap, FFT_Required=True)#, FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
     
     #overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.translate(scaled_overlapping_source_rect_B, -record.peak) 
     #overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, scaled_overlapping_source_rect_A.Size)
