@@ -363,8 +363,12 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
     if MinMax is not None:
         if(MinMax[0] > MinMax[1]):
             raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDict")
-     
-    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=multiprocessing.cpu_count() * 2)
+    
+    num_threads = multiprocessing.cpu_count() * 2
+    if num_threads > len(ImagesToConvertDict):
+        num_threads = len(ImagesToConvertDict) + 1
+        
+    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
     #pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
     
