@@ -48,16 +48,17 @@ def _try_estimate_dtype_from_extrema(im):
         if max_val <= 255:
             assert(min_val >= 0)
             return np.uint8
-        elif max_val < (1 << 15):
-            return np.int16
-        elif max_val < (1 << 16):
-            assert(min_val >= 0)
-            return np.uint16
-        elif max_val < (1 << 31):
-            return np.int32
+        elif max_val <= (1 << 16):
+            if min_val < 0:
+                return np.int16
+            else:
+                return np.uint16
         elif max_val < (1 << 32):
-            assert(min_val >= 0)
-            return np.uint32
+            if min_val < 0:    
+                return np.int32
+            else:
+                assert(min_val >= 0)
+                return np.uint32
         else:
             return np.int64
         
