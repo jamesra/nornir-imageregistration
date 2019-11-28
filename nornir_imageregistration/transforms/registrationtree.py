@@ -28,7 +28,6 @@ class RegistrationTreeNode(object):
 
         return output
 
-
     def __init__(self, sectionNumber, leaf_only=False):
         self.Parent = None
         self.SectionNumber = sectionNumber
@@ -98,10 +97,10 @@ class RegistrationTree(object):
     def _GetOrCreateMappedNode(self, MappedSection, leaf_only=False):
         MappedNode = None
         if MappedSection in self.Nodes:
-           MappedNode = self.Nodes[MappedSection]
+            MappedNode = self.Nodes[MappedSection]
         else:
-           MappedNode = RegistrationTreeNode(MappedSection, leaf_only=leaf_only)
-           self.Nodes[MappedSection] = MappedNode
+            MappedNode = RegistrationTreeNode(MappedSection, leaf_only=leaf_only)
+            self.Nodes[MappedSection] = MappedNode
 
         return MappedNode
 
@@ -129,14 +128,13 @@ class RegistrationTree(object):
     def AddEmptyRoot(self, ControlSection):
         return self._GetOrCreateRootNode(ControlSection)
 
-
 #     def NearestNode(self, sectionNumber, excludeLeafOnlyNodes=True):
 #         '''Return the node nearest to the requested sectionNumber'''
 #
 #         if sectionNumber in self.Nodes:
 #             return self.Nodes[sectionNumber]
 
-    def FindControlForMapped(self, rtnode, mappedsection, center=None):
+    def FindControlForMappedRecursive(self, rtnode, mappedsection, center=None):
         ''' Returns the best control section for the mapped section
             :param RegistrationTreeNode rtnode: Root node to consider insertion on
             :param int sectionnum: Section number to insert
@@ -179,6 +177,62 @@ class RegistrationTree(object):
 
                 # Made it this far, so it is smaller than all children and we should insert to ourselves
                 return rtnode
+
+    def FindControlForMapped(self, rtnode, mappedsection, center=None):
+        ''' Returns the best control section for the mapped section
+            :param RegistrationTreeNode rtnode: Root node to consider insertion on
+            :param int sectionnum: Section number to insert
+            :param int center: Number of the root for the tree we are searching
+        '''
+        if center is None:
+            center = rtnode.SectionNumber
+
+        direction = mappedsection - center
+        
+        nodes_to_check = [rtnode]
+        
+        while(True):
+            rtnode = nodes_to_check.pop(0)
+            
+            children = rtnode.NonLeafOnlyChildren
+    
+            if len(children) == 0:
+                return rtnode           
+            else:
+                # Registration trees are setup so every child is either greater or less than our nodes value, except on the root node
+    
+                if direction < 0:
+                    # Left insertion
+                    for leftchild in children:
+                        # Edge case, the root may have children greater than our value.
+                        if(leftchild.SectionNumber > rtnode.SectionNumber):
+                            continue
+                            
+                        if(mappedsection < leftchild.SectionNumber):
+                            nodes_to_check.append(leftchild)  # This is the largest step we can make towards the center section
+                            break
+                            #return self.FindControlForMapped(leftchild, mappedsection, center)
+                            
+                    
+                    if len(nodes_to_check) == 0:
+                        return rtnode
+                else:
+                    # Right insertion
+                    children.reverse()
+    
+                    for rightchild in children:
+                        # Edge case, the root may have children greater than our value
+                        if(rightchild.SectionNumber < rtnode.SectionNumber):
+                            continue
+    
+                        if(mappedsection > rightchild.SectionNumber):
+                            nodes_to_check.append(rightchild)  # This is the largest step we can make towards the center section
+                            break
+                            #return self.FindControlForMapped(rightchild, mappedsection, center)
+                                
+                # No candidates to check, so rtnode is closer than all children and we should insert to ourselves
+                if len(nodes_to_check) == 0:
+                    return rtnode
 
     def _InsertLeafNode(self, parent, sectionnum):
         '''
@@ -226,7 +280,6 @@ class RegistrationTree(object):
             if not center is None:
                 center = NearestSection(sectionNumbers, center)
                 centerindex = sectionNumbers.index(center)
-
 
             listAdjacentBelowCenter = AdjacentPairs(sectionNumbers, adjacentThreshold, startindex=0, endindex=centerindex)
             listAdjacentAboveCenter = AdjacentPairs(sectionNumbers, adjacentThreshold, startindex=len(sectionNumbers) - 1, endindex=centerindex)
