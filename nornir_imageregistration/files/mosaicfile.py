@@ -169,7 +169,7 @@ class MosaicFile(object):
         if ImageSize is None:
             ImageSize = [(4080, 4080)] * len(Entries)
         elif not isinstance(ImageSize, list):
-            assert(len(ImageSize) == 2)  # Expect tuple or list indicating image size
+            assert len(ImageSize) == 2,  "Expect tuple or list indicating image size"
             ImageSize = ImageSize * len(Entries)
         else:
             # A list of two entries for the size

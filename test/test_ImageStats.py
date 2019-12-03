@@ -160,7 +160,7 @@ class testHistogram(ImageStatsBase):
         self.SaveHistogram(histA, 'A')
         
         for i, binVal in enumerate(histA.Bins):
-            assert(binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i]))
+            assert binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i])
         
         self.assertEqual(histA.MinValue, histA_Scipy.MinValue)
         self.assertEqual(histA.MaxValue, histA_Scipy.MaxValue)
@@ -180,7 +180,7 @@ class testHistogram(ImageStatsBase):
         self.SaveHistogram(histB, 'B')
         
         for i, binVal in enumerate(histB.Bins):
-            assert(binVal == histB_Scipy.Bins[i], "Histogram B Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histB_Scipy.Bins[i]))
+            assert binVal == histB_Scipy.Bins[i], "Histogram B Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histB_Scipy.Bins[i])
         
         
         self.assertEqual(histB.MinValue, histB_Scipy.MinValue)
@@ -194,7 +194,7 @@ class testHistogram(ImageStatsBase):
         TestComposite.AddHistogram(histB_Scipy)
         
         for i, binVal in enumerate(TestComposite.Bins):
-            assert(binVal == HistogramComposite.Bins[i], "Composite Bin {0} has mismatched values {1} vs {2}".format(i, binVal, HistogramComposite.Bins[i]))
+            assert binVal == HistogramComposite.Bins[i], "Composite Bin {0} has mismatched values {1} vs {2}".format(i, binVal, HistogramComposite.Bins[i])
 
         # We know that histA has the lower value, so our first bin value should match
         self.assertEqual(HistogramComposite.Bins[0], histA.Bins[0])
@@ -218,8 +218,8 @@ class testHistogram(ImageStatsBase):
         self.assertEqual(histA.MaxValue, histA_Scipy.MaxValue)  
         
         for i, binVal in enumerate(histA.Bins):
-            assert(binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i]))
-        
+            assert binVal == histA_Scipy.Bins[i], "Histogram A Bin {0} has mismatched values {1} vs {2}".format(i, binVal, histA_Scipy.Bins[i])
+    
         plot.Histogram(histA_Scipy, os.path.join(self.TestOutputPath, "RPC2_0794_Scipy.png"), 1, 99, Title="Scipy Histogram for RPC2 794 001.tif")
         plot.Histogram(histA, os.path.join(self.TestOutputPath, "RPC2_0794_ImageMagick.png"), 1, 99, Title="ImageMagick Histogram for RPC2 794 001.tif")
     

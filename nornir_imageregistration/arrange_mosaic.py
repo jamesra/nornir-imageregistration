@@ -156,7 +156,7 @@ def TranslateTiles2(transforms, imagepaths,
     if len(tiles) == 1:
         #If there is only one tile then just return it
         single_tile_layout = nornir_imageregistration.layout.Layout()
-        single_tile_layout.CreateNode(tiles[0].ID, np.zeros((1,2)))
+        single_tile_layout.CreateNode(tiles[0].ID, np.zeros((2)))
         return (single_tile_layout, tiles)
     
     minOffsetWeight = 0
