@@ -116,6 +116,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         NumCtrlPts = len(self.TargetPoints)
 
         (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
+        
+        #Xc is the linear component of the transform
+        
         # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.TargetPoints, self.SourcePoints, MaxChunkSize=32768000)
         # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
 
@@ -235,8 +238,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
-        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y)
-        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X)
+        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True)
+        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True)
         WeightsY = Y_Task.wait_return()
 
         return numpy.hstack([WeightsX, WeightsY])
