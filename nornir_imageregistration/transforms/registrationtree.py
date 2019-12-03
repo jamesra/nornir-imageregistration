@@ -3,9 +3,10 @@ Created on Nov 14, 2012
 
 @author: u0490822
 '''
-
 import operator
+from collections import namedtuple
 
+MappedToRootWalkTuple = namedtuple('MappedToRootWalkTuple', ['RootNode', 'ParentNode', 'MappedNode'])
 
 class RegistrationTreeNode(object):
 
@@ -41,7 +42,7 @@ class RegistrationTreeNode(object):
         self.Children.append(childSectionNumber)
         self.Children.sort(key=operator.attrgetter('SectionNumber'))
 
-    def __str__(self, *args, **kwargs):
+    def __str__(self):
         s = str(self.SectionNumber) + " <- "
         for c in self.Children:
             if c.LeafOnly:
@@ -308,7 +309,51 @@ class RegistrationTree(object):
     #                    break
 
             return RT
-
+        
+    def GenerateOrderedMappingsToRoots(self):
+        '''
+        Yields mappings to all root nodes in root -> leaf order. 
+        For any given mapped section N the root and any intermediate section
+        mappings are returned before N
+        :returns: (RootNode, MappedNode)
+        '''
+        
+        for root in self.RootNodes.values(): 
+            yield from self.GenerateOrderedMappingsToRootNode(root)
+        
+            
+    def GenerateOrderedMappingsToRootNode(self, rootNode):
+        '''
+        Yields mappings to control sections in root -> leaf order. 
+        So that for any given mapped section N the root and any intermediate section
+        mappings are returned before N
+        :returns: (RootNode, ParentNode, MappedNode) The root of the tree, parent node of the mapped section, and the mapped section
+        '''
+        
+        nodes_to_walk = [rootNode]
+        alreadyMapped = set()
+        
+        while len(nodes_to_walk) > 0:
+        
+            rtNode = None #Registration tree node
+            mappedSectionNumber = nodes_to_walk.pop()
+            
+            if isinstance(mappedSectionNumber, RegistrationTreeNode):
+                rtNode = mappedSectionNumber
+                mappedSectionNumber = mappedSectionNumber.SectionNumber
+            elif mappedSectionNumber in self.Nodes:
+                rtNode = self.Nodes[mappedSectionNumber]
+            else:
+                raise ValueError("Unexpected mappedSectionNumber {0}".format(mappedSectionNumber))
+                continue #Not sure how we could reach this state
+                   
+            alreadyMapped.union([mappedSectionNumber])
+            
+            for mapped in rtNode.Children:
+                yield MappedToRootWalkTuple(rootNode, rtNode, mapped)
+                if mapped.SectionNumber in self.Nodes and mapped.SectionNumber not in alreadyMapped:
+                    nodes_to_walk.append(mapped.SectionNumber)
+            
 
 def NearestSection(sectionNumbers, reqnumber):
     '''Returns the section number nearest to the section number, or the same section number if the section exists'''
