@@ -31,6 +31,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
     @property
     def Weights(self):
         return self._Weights
+    
+    @property
+    def UseRigidTransform(self):
+        return self._UseRigidTransform
 
     @classmethod
     def DefaultBasisFunction(cls, distance):
@@ -43,6 +47,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         points = numpy.hstack((FixedPoints, WarpedPoints))
         super(RBFWithLinearCorrection, self).__init__(points)
+        
+        self._UseRigidTransform = False
 
         # self.ControlPoints = TargetPoints
         # self.SourcePoints = SourcePoints
@@ -114,10 +120,13 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
         NumCtrlPts = len(self.TargetPoints)
-
-        (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
         
-        #Xc is the linear component of the transform
+        if self.UseRigidTransform:
+            NumPts = Points.shape[0]
+            MatrixWeightSumX = numpy.zeros((1, NumPts))
+            MatrixWeightSumY = numpy.zeros((1, NumPts))
+        else:
+            (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
         
         # (UnchunkedMatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.TargetPoints, self.SourcePoints, MaxChunkSize=32768000)
         # assert(MatrixWeightSumX == UnchunkedMatrixWeightSumX)
@@ -232,15 +241,29 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         return BetaMatrix
 
     def CalculateRBFWeights(self, WarpedPoints, ControlPoints, BasisFunction=None):
-
+        '''
+        For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
+        
+        The weights matrix is broken down as follows for N control points
+        Weights[0:N] = Fit of point deviation from the rigid transformation
+        Weights[N:N+1] = Rotation component of transformation
+        Weights[N+3] = Translation component of transformation.
+        
+        If Weights[0:N] ~= 0, then we can use a much faster and simpler rigid transformation with rotation to translate the data
+        If additionally Weights[N:N+1] ~= 0, then we can simply translate the points as needed    
+        '''
         BetaMatrix = RBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
-        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True)
-        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True)
+        Y_Task = thread_pool.add_task("WeightsY", numpy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
+        WeightsX = numpy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
         WeightsY = Y_Task.wait_return()
+        
+        if numpy.allclose(WeightsX[0:-3], 0) and numpy.allclose(WeightsY[0:-3], 0):
+            #prettyoutput.Log("RBF transform is approximately Rigid")
+            self._UseRigidTransform = True
 
         return numpy.hstack([WeightsX, WeightsY])
 
