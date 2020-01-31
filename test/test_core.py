@@ -12,6 +12,7 @@ from pylab import *
 import nornir_shared.images
 import nornir_imageregistration
 import nornir_imageregistration.stos_brute as stos_brute
+import hypothesis
 
 from . import setup_imagetest
 
@@ -69,6 +70,21 @@ class TestCore(setup_imagetest.ImageTestBase):
 
         r = nornir_imageregistration.ROIRange(24, 16, 5)
         self.assertIsNone(r)
+        
+    @hypothesis.given(hypothesis.strategies.floats(), hypothesis.strategies.integers(), hypothesis.strategies.floats())
+    def test_ROIRange_with_hypothesis(self, minVal, num, maxVal):
+        r = nornir_imageregistration.ROIRange(minVal, num, maxVal)
+        
+        if num <= 0:
+            self.assertTrue(len(r) == 0)
+        elif minVal > maxVal:
+            self.assertTrue(len(r) == 0)
+        else:
+            self.assertEqual(r[0], minVal, "First entry in range must == minVal")
+            self.assertEqual(r[-1], maxVal, "last entry in range must == maxVal")
+            self.assertEqual(len(r), num, "size of range must equal num")
+        
+        
 
 
 #    def test_SaveImageJPeg2000(self):
