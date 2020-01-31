@@ -166,6 +166,17 @@ class TestRegistrationTree(unittest.TestCase):
         RT.AddNonControlSections([1, 32])
         checkRegistrationTree(self, RT, 4, [1, 2])
         checkRegistrationTree(self, RT, 30, [31, 32])
+        
+    def test_RegistrationTreeIteration(self):
+        ''' Check that we can iterate sections from the root to leaves in order of root -> intermediate -> leaf numbers.'''
+
+        numbers = [4, 7, 10, 12, 20, 30]
+        center = 19
+        RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
+        
+        for mapping in RT.GenerateOrderedMappingsToRoots():
+            print(str(mapping))
+        
 
 
 if __name__ == "__main__":

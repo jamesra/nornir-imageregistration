@@ -10,9 +10,9 @@ MappedToRootWalkTuple = namedtuple('MappedToRootWalkTuple', ['RootNode', 'Parent
 
 class RegistrationTreeNode(object):
 
-    @property
-    def IsRoot(self):
-        return self.Parent is None
+    #@property
+    #def IsRoot(self):
+    #    return self.Parent is None
 
     @property
     def LeafOnly(self):
@@ -30,19 +30,19 @@ class RegistrationTreeNode(object):
         return output
 
     def __init__(self, sectionNumber, leaf_only=False):
-        self.Parent = None
+        #self.Parent = None
         self.SectionNumber = sectionNumber
         self.Children = []
         self._leaf_only = leaf_only
 
-    def SetParent(self, sectionNumber):
-        self.Parent = sectionNumber
+    #def SetParent(self, sectionNumber):
+    #    self.Parent = sectionNumber
 
     def AddChild(self, childSectionNumber):
         self.Children.append(childSectionNumber)
         self.Children.sort(key=operator.attrgetter('SectionNumber'))
 
-    def __str__(self):
+    def __repr__(self):
         s = str(self.SectionNumber) + " <- "
         for c in self.Children:
             if c.LeafOnly:
