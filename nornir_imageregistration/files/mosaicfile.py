@@ -10,7 +10,7 @@ class MosaicFile(object):
 
     @classmethod
     def LoadChecksum(cls, path):
-        assert(os.path.exists(path))
+        #assert(os.path.exists(path))
         mosaicObj = MosaicFile.Load(path)
         return mosaicObj.Checksum
 
@@ -111,14 +111,18 @@ class MosaicFile(object):
 
     @classmethod
     def Load(cls, filename):
-        if(os.path.exists(filename) == False):
+        
+        lines = []
+        try:
+            with open(filename, 'r') as fMosaic:
+                lines = fMosaic.readlines()
+                fMosaic.close()
+        except FileNotFoundError:
             prettyoutput.LogErr("Mosaic file not found: " + filename)
             return
-
-        lines = []
-        with open(filename, 'r') as fMosaic:
-            lines = fMosaic.readlines()
-            fMosaic.close()
+        except Exception as error:
+            prettyoutput.LogErr("Unexpected error {0} while opening Mosaic file {1}" % (str(error), filename))
+            return
 
         obj = MosaicFile()
 

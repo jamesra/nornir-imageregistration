@@ -62,7 +62,7 @@ class StosFile(object):
 
     @staticmethod
     def LoadChecksum(path):
-        assert(os.path.exists(path))
+        #assert(os.path.exists(path))
         stosObj = StosFile.Load(path)
         return stosObj.Checksum
     
@@ -248,7 +248,7 @@ class StosFile(object):
 
     @classmethod
     def GetInfo(cls, filename):
-        '''Returns details about a stos file we can learn from its name
+        '''Returns details about a stos file we can learn from its filename
            returns  [mappedSection, controlSection, Channel, Filter, Source, Downsample]'''
 
         Logger = logging.getLogger(__name__ + str(cls.__class__))
@@ -314,10 +314,7 @@ class StosFile(object):
 
     @staticmethod
     def Load(filename):
-        if not os.path.exists(filename):
-            PrettyOutput.Log("Stos file not found: " + filename)
-            return None
-
+        
         obj = StosFile()
 
         try:
@@ -325,8 +322,17 @@ class StosFile(object):
         except:
             pass
 
-        with open(filename, 'r') as fMosaic:
-            lines = fMosaic.readlines()
+        lines = []
+        
+        try:
+            with open(filename, 'r') as fMosaic:
+                lines = fMosaic.readlines()
+        except FileNotFoundError:
+            PrettyOutput.LogErr("stos file not found: " + filename)
+            return
+        except Exception as error:
+            PrettyOutput.LogErr("Unexpected error {0} while opening stos file {1}" % (str(error), filename))
+            return
             
         if len(lines) < 7:
             PrettyOutput.LogErr("%s is not a valid stos file" % (filename))
