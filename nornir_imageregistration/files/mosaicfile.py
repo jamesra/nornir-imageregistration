@@ -12,6 +12,9 @@ class MosaicFile(object):
     def LoadChecksum(cls, path):
         #assert(os.path.exists(path))
         mosaicObj = MosaicFile.Load(path)
+        if mosaicObj is None:
+            return None
+        
         return mosaicObj.Checksum
 
     @property

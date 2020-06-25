@@ -64,6 +64,8 @@ class StosFile(object):
     def LoadChecksum(path):
         #assert(os.path.exists(path))
         stosObj = StosFile.Load(path)
+        if stosObj is None:
+            return None
         return stosObj.Checksum
     
     @property
