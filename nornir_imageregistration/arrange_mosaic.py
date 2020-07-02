@@ -577,7 +577,7 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_lay
         distance = np.sqrt(np.sum(diff ** 2))
         f_score = min(tile_overlap.feature_scores)
         final_weight = offset.weight * f_score
-        print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
+        #print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
         
         layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight) 
         

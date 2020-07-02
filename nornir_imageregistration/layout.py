@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 import collections
 import nornir_imageregistration.tile
@@ -942,8 +943,13 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         
     print("Relax Layout")
     
+    last_output = ""
     while max_tension > max_tension_cutoff and i < max_iter:
-        print("\t%d %g" % (i, max_tension))
+        sys.stdout.write('\b' * len(last_output))
+        output_str = "\tPass #%d %g" % (i, max_tension)
+        sys.stdout.write(output_str)
+        sys.stdout.flush()
+        last_output = output_str
         Layout.RelaxNodes(layout_obj, vector_scalar=vector_scale)
         max_tension = layout_obj.MaxWeightedNetTensionMagnitude[1]
         
@@ -967,7 +973,8 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         
         # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), OutputFilename=filename)
         # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), OutputFilename=filename)
-        
+    
+    print("\n")
     return layout_obj
         
 
@@ -982,6 +989,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     
     sorted_offsets = OffsetsSortedByWeight(original_layout) 
 
+    print("Building Layout from offsets")
     LayoutList = [] 
     for iRow in range(0, sorted_offsets.shape[0]):
         row = sorted_offsets[iRow, :]      
@@ -992,7 +1000,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
         Weight = row[4]
         offset = row[2:4]
         
-        print("%d -> %d (%g,%g w: %g)" % (A_ID, B_ID, YOffset, XOffset, Weight))
+        #print("%d -> %d (%g,%g w: %g)" % (A_ID, B_ID, YOffset, XOffset, Weight))
 
         if np.isnan(Weight):
             print("Skip: Invalid weight, not a number")
@@ -1008,19 +1016,20 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             new_layout.CreateNode(B_ID, A_pos + offset)
             new_layout.SetOffset(A_ID, B_ID, offset, Weight) 
             LayoutList.append(new_layout)
-            print("New layout")
+            #print("New layout")
 
         elif (not ALayout is None) and (not BLayout is None):
             # Need to merge the layouts? See if they are the same
             if ALayout == BLayout:
                 # Already mapped
                 if B_ID in ALayout.nodes[A_ID].ConnectedIDs: 
-                    print("Skip: Already mapped")
+                    #print("Skip: Already mapped")
+                    pass
                 else:
                     ALayout.SetOffset(A_ID, B_ID, offset, Weight)
             else:
                 MergeLayoutsWithNodeOffset(ALayout, BLayout, A_ID, B_ID, offset, Weight)
-                print("Merged")
+                #print("Merged")
                 LayoutList.remove(BLayout)
         else:
             
