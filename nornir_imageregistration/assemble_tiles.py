@@ -335,10 +335,10 @@ def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=N
         
         transformedImageData = TransformTile(transform, imagefullpath, distanceImage, target_space_scale=target_space_scale, TargetRegion=regionToRender, SingleThreadedInvoke=True)
         if transformedImageData.image is None:
-            logger = logging.getLogger('TilesToImageParallel')
-            logger.error('Convert task failed: ' + str(transformedImageData))
+            #logger = logging.getLogger('TilesToImageParallel')
+            prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
             if not transformedImageData.errormsg is None:
-                logger.error(transformedImageData.errormsg) 
+                prettyoutput.LogErr(transformedImageData.errormsg) 
                 continue
         
         CompositeOffset = scaled_region_rendered.BottomLeft - scaled_targetRect.BottomLeft
@@ -490,15 +490,15 @@ def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space
 def __AddTransformedTileTaskToComposite(task, transformedImageData, fullImage, fullImageZBuffer, scaled_fixedRect=None):
     
     if transformedImageData is None:
-            logger = logging.getLogger('TilesToImageParallel')
-            logger.error('Convert task failed: ' + str(transformedImageData))
-            return
+        #logger = logging.getLogger('TilesToImageParallel')
+        prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
+        return
         
     if transformedImageData.image is None:
-        logger = logging.getLogger('TilesToImageParallel')
-        logger.error('Convert task failed: ' + str(transformedImageData))
+        #logger = logging.getLogger('TilesToImageParallel')
+        prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
         if not transformedImageData.errormsg is None:
-            logger.error(transformedImageData.errormsg)
+            prettyoutput.LogErr(transformedImageData.errormsg)
             return (fullImage, fullImageZBuffer)
 
     CompositeOffset = task.scaled_region_rendered.BottomLeft - scaled_fixedRect.BottomLeft 
@@ -510,8 +510,8 @@ def __AddTransformedTileTaskToComposite(task, transformedImageData, fullImage, f
                                   CompositeOffset)
     except ValueError:
         # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
-        logger = logging.getLogger('TilesToImageParallel')
-        logger.error('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
+        #logger = logging.getLogger('TilesToImageParallel')
+        prettyoutput.LogErr('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
         pass
     
     transformedImageData.Clear()

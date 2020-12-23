@@ -796,8 +796,8 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
     :rtype: ndimage
     '''
     if(not os.path.isfile(ImageFullPath)): 
-        logger = logging.getLogger(__name__)
-        logger.error('File does not exist: ' + ImageFullPath)
+        #logger = logging.getLogger(__name__)
+        prettyoutput.LogErr('File does not exist: ' + ImageFullPath)
         raise IOError("Unable to load image: %s" % (ImageFullPath))
         
     (root, ext) = os.path.splitext(ImageFullPath)
@@ -813,8 +813,8 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
 
     if(not ImageMaskFullPath is None):
         if(not os.path.isfile(ImageMaskFullPath)):
-            logger = logging.getLogger(__name__)
-            logger.error('Fixed image mask file does not exist: ' + ImageMaskFullPath)
+            #logger = logging.getLogger(__name__)
+            prettyoutput.LogErr('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
             image_mask = _LoadImageByExtension(ImageMaskFullPath, np.bool)
             if not MaxDimension is None:
