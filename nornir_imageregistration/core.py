@@ -247,13 +247,19 @@ def Shrink(InFile, OutFile, Scalar, **kwargs):
 def ResizeImage(image, scalar):
     '''Change image size by scalar'''
     
-    interp = 'bilinear'
-    if scalar < 1.0:
-        interp = 'bicubic'
-
-    new_size = np.array(image.shape, dtype=np.float) * scalar
+    original_min = image.min()
+    original_max = image.max()
     
-    return scipy.misc.imresize(image, np.array(new_size, dtype=np.int64), interp=interp)
+    order = 2
+    if isinstance(scalar, float) and scalar < 1.0:
+        order = 3
+    elif hasattr(scalar, "__iter__"):
+        scalar = nornir_imageregistration.EnsurePointsAre1DNumpyArray(scalar)
+        order = 3 if any([s < 1.0 for s in scalar]) else 2
+
+    #new_size = np.array(image.shape, dtype=np.float) * scalar
+    
+    return scipy.ndimage.zoom(image, zoom=scalar, order=order).clip(original_min, original_max)
 
 
 def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Invert=False, MinMax=None, Gamma=None):

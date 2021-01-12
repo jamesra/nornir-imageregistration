@@ -30,6 +30,18 @@ def RotationMatrix(rangle):
         raise ValueError("Angle must not be none")
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
 
+def ScaleMatrixXY(scale):
+    '''
+    :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
+    '''
+    if scale is None:
+        raise ValueError("Angle must not be none")
+    elif isinstance(scale, float):
+        return np.matrix([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+    elif hasattr(scale, "__iter__"):
+        return np.matrix([[scale[1], 0, 0], [0, scale[0], 0], [0, 0, 1]])
+    
+    raise NotImplementedError("Unexpected argument")
 
 if __name__ == '__main__':
     pass

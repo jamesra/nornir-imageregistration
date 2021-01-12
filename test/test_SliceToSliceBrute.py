@@ -146,9 +146,9 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         warpedMaskName = "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png"
 
         WarpedImageMaskPath = os.path.join(self.ImportedDataPath, warpedMaskName)
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
         FixedImageMaskPath = os.path.join(self.ImportedDataPath, controlMaskName)
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath,
@@ -162,6 +162,61 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(savedstosObj)
 
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
+        savedstosObj.Save(stosfilepath)
+
+        loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
+        self.assertIsNotNone(loadedStosObj)
+
+        self.assertTrue(loadedStosObj.HasMasks, ".stos file is expected to have masks")
+
+        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
+        
+    def testStosBruteScaleMismatchWithMask(self):
+        ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
+        Downsample = '032'
+        Filter = 'Leveled'
+        TEM1Resolution = 2.176 #nm/pixel, section 503, Fixed
+        TEM2Resolution = 2.143 #nm/pixel, section 502, Warped
+        
+        # Approximate correct answer
+        # X: -165
+        # Y: +90
+        # Angle: 176
+        
+        #We are registering 502 onto 503, so TEM2 is warped and TEM1 is fixed
+        
+        WarpedImagePath = os.path.join(ImageRootPath,"502",Filter,"Images",str(Downsample),"0502_TEM_{0}.png".format(Filter))
+        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input: " + WarpedImagePath)
+        FixedImagePath = os.path.join(ImageRootPath,"503",Filter,"Images",str(Downsample),"0503_TEM_{0}.png".format(Filter))
+        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input: " + FixedImagePath)
+
+        controlMaskName = "0503_TEM_Mask.png"
+        warpedMaskName = "0502_TEM_Mask.png"
+
+        WarpedImageMaskPath = os.path.join(ImageRootPath,"502","Mask","Images",str(Downsample),"0502_TEM_Mask.png")
+        self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input: " + WarpedImageMaskPath)
+        FixedImageMaskPath = os.path.join(ImageRootPath,"503","Mask","Images",str(Downsample),"0503_TEM_Mask.png")
+        self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input: " + FixedImageMaskPath)
+        
+        WarpedImageScalar = TEM2Resolution / TEM1Resolution   
+        #WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution   
+
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                               WarpedImagePath,
+                               FixedImageMaskPath,
+                               WarpedImageMaskPath,
+                               WarpedImageScaleFactors = WarpedImageScalar,
+                               TestFlip=False,
+                               AngleSearchRange=range(160,200,1))
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        #CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
+
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
+        self.assertIsNotNone(savedstosObj)
+
+        stosfilepath = os.path.join(self.VolumeDir, '502-503_brute_WithMask_scalemismatch.stos')
         savedstosObj.Save(stosfilepath)
 
         loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)

@@ -309,9 +309,17 @@ def ParseCenteredSimilarity2DTransform(parts, pixelSpacing=None):
                                                                              scale=scale)
 
 
-def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageShape):
-
-    return (offset[0] + ((FixedImageShape[0] - MovingImageShape[0]) / 2.0), offset[1] + ((FixedImageShape[1] - MovingImageShape[1]) / 2.0))
+def __CorrectOffsetForMismatchedImageSizes(offset, FixedImageShape, MovingImageShape, scale=1.0):
+    '''
+    :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
+    '''
+    
+    if isinstance(scale, float):
+        scale = (scale, scale)
+    elif hasattr(scale, '__iter__') == False:
+        raise NotImplementedError("Unsupported type")
+    
+    return (offset[0] + ((FixedImageShape[0] - MovingImageShape[0] * scale[0]) / 2.0), offset[1] + ((FixedImageShape[1] - MovingImageShape[1] * scale[1]) / 2.0))
 
 
 def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image_shape, flip_ud=False):
@@ -365,7 +373,7 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
     return transform
 
 
-def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, warped_offset, flip_ud=False):
+def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, warped_offset, flip_ud=False, scale=1.0):
     '''
     Returns a MeshWithRBFFallback transform, the fixed image defines the boundaries of the transform.
     '''
@@ -379,11 +387,11 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, war
 
     # Adjust offset for any mismatch in dimensions
     #Adjust the center of rotation to be consistent with the original ir-tools
-    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape, scale)     
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
-    TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, rangle, AdjustedOffset)
+    TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, rangle, AdjustedOffset, scale=scale)
     SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
     ControlPoints = np.append(TargetPoints, SourcePoints, 1)
@@ -393,16 +401,23 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle, war
     return transform
 
 
-def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
+def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False, scale=1.0):
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
        Flip, if requested, is performed before the rotation and translation
     :param tuple size: (Height, Width)
     :param float rangle: Angle in radians
     :param tuple offset: (Y, X)
+    :param float scale: Scale the corners by this factor. Ex: 0.5 produces points that shrink the source space by 50% in target space.
     :return: Nx2 array of points [[BotLeft], [BotRight], [TopLeft],  [TopRight]]
     :rtype: numpy.ndarray
     '''
     CenteredRotation = utils.RotationMatrix(rangle)
+    
+    ScaleMatrix = None
+    if scale is not None:
+        ScaleMatrix = utils.ScaleMatrixXY(scale)
+    else:
+        ScaleMatrix = np.identity(3)
 
     HalfWidth = (size[iArea.Width]) / 2.0
     HalfHeight = (size[iArea.Height]) / 2.0
@@ -422,14 +437,7 @@ def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
         TopLeft = CenteredRotation * matrix([[-HalfHeight], [-HalfWidth], [1]])
         BotRight = CenteredRotation * matrix([[HalfHeight], [HalfWidth], [1]])
         TopRight = CenteredRotation * matrix([[-HalfHeight], [HalfWidth], [1]])
-
-    Translation = matrix([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
-
-    BotLeft = Translation * BotLeft
-    BotRight = Translation * BotRight
-    TopLeft = Translation * TopLeft
-    TopRight = Translation * TopRight
-
+        
     # Adjust to the peak location
     PeakTranslation = matrix([[1, 0, offset[iPoint.Y]], [0, 1, offset[iPoint.X]], [0, 0, 1]])
 
@@ -437,6 +445,22 @@ def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False):
     TopLeft = PeakTranslation * TopLeft
     BotRight = PeakTranslation * BotRight
     TopRight = PeakTranslation * TopRight
+
+    #Center the image
+    Translation = matrix([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
+
+    BotLeft = Translation * BotLeft
+    BotRight = Translation * BotRight
+    TopLeft = Translation * TopLeft
+    TopRight = Translation * TopRight
+    
+    #scale the output
+    BotLeft = ScaleMatrix * BotLeft
+    BotRight = ScaleMatrix * BotRight
+    TopLeft = ScaleMatrix * TopLeft
+    TopRight = ScaleMatrix * TopRight
+
+    
 
     arr = np.vstack([BotLeft[:2].getA1(), BotRight[:2].getA1(), TopLeft[:2].getA1(), TopRight[:2].getA1()])
     # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points

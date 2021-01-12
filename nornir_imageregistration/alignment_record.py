@@ -58,10 +58,15 @@ class AlignmentRecord(object):
 
     def WeightKey(self):
         return self._weight
+    
+    @property
+    def scale(self):
+        return self._scale
 
+    @scale.setter
     def scale(self, value):
-        '''Scales the peak position'''
-        self._peak = self._peak * value
+        '''Scales the source space to target space, including peak'''
+        self._scale = value
 
     def translate(self, value):
         '''Translates the peak position using tuple (Y,X)'''
@@ -86,7 +91,10 @@ class AlignmentRecord(object):
             
         return s
 
-    def __init__(self, peak, weight, angle=0.0, flipped_ud=False):
+    def __init__(self, peak, weight, angle=0.0, flipped_ud=False, scale=1.0):
+        '''
+        :param float scale: Scales source space by this factor to map into target space
+        '''
         if not isinstance(angle, float):
             angle = float(angle)
 
@@ -95,6 +103,7 @@ class AlignmentRecord(object):
         if not isinstance(peak, np.ndarray):
             peak = np.array(peak)
 
+        self._scale = scale
         self._peak = peak
         self._weight = float(weight)
         self._flippedud = flipped_ud
@@ -126,7 +135,8 @@ class AlignmentRecord(object):
                                                                                 source_image_shape=warpedImageSize,
                                                                                 rangle=self.rangle,
                                                                                 warped_offset=self.peak,
-                                                                                flip_ud=self.flippedud)
+                                                                                flip_ud=self.flippedud,
+                                                                                scale=self.scale)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
 

@@ -713,10 +713,20 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #         print("All done")
 
 
-    def test_RPC2_0989_Mosaic(self):
+#     def test_RPC2_0989_Mosaic(self):
+#                   
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
+#                                  TilePyramidDir="C:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+#                                  downsample=4,
+#                                  max_relax_iterations=500,
+#                                  openwindow=False)
+#           
+#         print("All done")
+        
+    def test_RC3_0203_Mosaic(self):
                   
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
-                                 TilePyramidDir="C:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC3\\TEM\\0203\\TEM\\Stage.mosaic",
+                                 TilePyramidDir="C:\\Data\\RC3\\TEM\\0203\\TEM\\Leveled\\TilePyramid",
                                  downsample=4,
                                  max_relax_iterations=500,
                                  openwindow=False)
