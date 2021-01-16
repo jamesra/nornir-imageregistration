@@ -760,10 +760,10 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
     '''Returns the difference between the images'''
     
     try: 
-        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename, dtype=np.float16),
+        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename, dtype=np.float32),
                                                      scaled_overlapping_source_rect_A,
                                                      excess_scalar=1.0)
-        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename, dtype=np.float16),
+        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename, dtype=np.float32),
                                                      scaled_overlapping_source_rect_B,
                                                      excess_scalar=1.0)
         
