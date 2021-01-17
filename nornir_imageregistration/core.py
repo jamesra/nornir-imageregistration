@@ -1116,7 +1116,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
             ImageStdDev = np.std(Image1D)
 
     desired_type = np.float16
-    if np.finfo.max < MaxVal:
+    if np.finfo(desired_type).max < MaxVal:
         desired_type = np.float32
         
     PaddedImage = np.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
