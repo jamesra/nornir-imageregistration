@@ -193,6 +193,11 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         # No points transformed into the requested area, return empty image
         transformedImage = np.full((area), cval, dtype=WarpedImage.dtype)
         return transformedImage
+    
+    #Convert to a type the interpolation.map_coordinates supports
+    original_dtype = WarpedImage.dtype
+    if WarpedImage.dtype == np.float16:
+        WarpedImage = WarpedImage.astype(np.float32)
 
     subroi_warpedImage = None
     # For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
@@ -222,16 +227,20 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     #Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
     np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
     
+    outputImage = outputImage.reshape(area)
+    if original_dtype != outputImage.dtype:
+        outputImage = outputImage.astype(original_dtype)
+    
     if fixed_coords.shape[0] == np.prod(area):
         # All coordinates mapped, so we can return the output warped image as is.
-        outputImage = outputImage.reshape(area)
+        outputImage = outputImage.reshape(area) 
         return outputImage
     else:
         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
         transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
         fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
-        return transformedImage
+        return transformedImage.astype(original_dtype)
        
 
 def _ReplaceFilesWithImages(listImages):
