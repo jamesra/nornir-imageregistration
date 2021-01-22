@@ -751,6 +751,11 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                 max_pixel_val = nornir_imageregistration.ImageMaxPixelValue(image)
                 
                 if dtype is not None:
+                    if nornir_imageregistration.IsIntArray(image.dtype) and nornir_imageregistration.IsFloatArray(dtype):
+                        #Ensure we remap values to the range of 0 to 1 without loss before converting to desired floating type
+                        #if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
+                        image = image / image.max()
+                            
                     image = image.astype(dtype)
 #                 else:
 #                     #Reduce to smallest integer type that can hold the data
@@ -767,7 +772,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
 #                     dtype = image.dtype
                 
                 #Ensure data is in the range 0 to 1 for floating types
-                if nornir_imageregistration.IsFloatArray(dtype):
+                elif nornir_imageregistration.IsFloatArray(dtype):
                     
                     if im.mode[0] == 'F':
                         (_, im_max_val) = im.getextrema()
