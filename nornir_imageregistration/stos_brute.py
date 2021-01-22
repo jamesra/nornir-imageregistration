@@ -38,7 +38,10 @@ def SliceToSliceBruteForce(FixedImageInput,
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
        '''
-
+    if AngleSearchRange is not None:
+        if isinstance(AngleSearchRange, np.ndarray):
+            AngleSearchRange = list(AngleSearchRange)
+        
     logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
     
     WarpedImageScalingRequired = False
