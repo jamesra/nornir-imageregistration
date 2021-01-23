@@ -22,6 +22,7 @@ import numpy as np
 
 
 def GetROICoords(botleft, area):
+    #TODO: *_range should be generated as an integer type
     x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.float32)
     y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.float32)
     
@@ -240,7 +241,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
         fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int32)
         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
-        return transformedImage.astype(original_dtype)
+        return transformedImage
        
 
 def _ReplaceFilesWithImages(listImages):
