@@ -77,6 +77,8 @@ def ravel_index(idx, shp):
                                     [X2,Y2],
                                     [XN,YN]]
     '''
+    if shp[0] == 1:
+        return idx[:,1]
     
     if idx.shape[0] != shp[-1]:
         idx = np.transpose(idx)

@@ -4,8 +4,7 @@ import unittest
 
 from nornir_imageregistration.files.mosaicfile import MosaicFile
 from nornir_imageregistration.mosaic  import Mosaic
-from scipy import stats
-from scipy.misc import imsave
+from scipy import stats 
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble_tiles as at

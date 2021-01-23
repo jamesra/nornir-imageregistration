@@ -8,8 +8,7 @@ import unittest
 
 import nornir_imageregistration
 from nornir_imageregistration import AlignmentRecord
-import numpy
-from scipy.misc import imsave
+import numpy 
 from scipy.ndimage import interpolation
 
 import nornir_imageregistration.assemble as assemble 
@@ -62,12 +61,12 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_Rotate180(self):
 
-        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=180.0)
+        arecord = AlignmentRecord(peak=(1, 3), weight=100, angle=180.0)
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, canvasShape)
 
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape, extrapolate=True)
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -76,13 +75,13 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_Rotate90(self):
 
-        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=90.0)
+        arecord = AlignmentRecord(peak=(1, 3), weight=100, angle=90.0)
         canvasShape = (2, 6)
         flipCanvasShape = (6, 2)
         transform = arecord.ToTransform(canvasShape, flipCanvasShape)
 
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape)
-
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape, extrapolate=True)
+          
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
@@ -127,7 +126,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        imsave("C:\\Temp\\17Translate.png", transformedImage)
+        nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage)
 
         #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
@@ -151,7 +150,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        imsave("C:\\Temp\\17Rotate.png", transformedImage)
+        nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage)
 
         rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
@@ -173,7 +172,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage, (0, 0), (64, 64))
-        # imsave("C:\\Temp\\17.png", transformedImage)
+        # nornir_imageregistration.SaveImage("C:\\Temp\\17.png", transformedImage)
 
         delta = fixedImage[0:64, 0:64] - transformedImage
 
@@ -195,7 +194,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        imsave(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage)
+        nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage)
 
 class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
     '''Runs assemble on the same fixed.png, moving.png images using different transform files'''

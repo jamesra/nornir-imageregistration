@@ -109,7 +109,7 @@ def Execute(ExecArgs=None):
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'
 
-    imsave(Args.outputpath, mosaicImage)
+    nornir_imageregistration.SaveImage(Args.outputpath, mosaicImage)
 
     self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 

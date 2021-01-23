@@ -4,10 +4,8 @@ Created on Apr 22, 2013
 
 '''
 
-
 import os
-
-from matplotlib.pyplot import imsave
+ 
 from nornir_imageregistration.files.stosfile import StosFile
 from   nornir_imageregistration.transforms import factory, triangulation
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
@@ -22,9 +20,8 @@ import numpy as np
 
 
 def GetROICoords(botleft, area):
-    #TODO: *_range should be generated as an integer type
-    x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.float32)
-    y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.float32)
+    x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
+    y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
     
     # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
@@ -35,7 +32,7 @@ def GetROICoords(botleft, area):
 
     i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
 
-    coordArray = np.vstack((i_y.astype(np.float32).flat, i_x.astype(np.float32).flat)).transpose()
+    coordArray = np.vstack((i_y.flat, i_x.flat)).transpose()
     
     del i_y
     del i_x
@@ -172,6 +169,7 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
     
     return (cropped_image, translated_coordinates)
 
+
 def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None, cval=0):
     '''Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
@@ -218,30 +216,36 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     else:
         subroi_warpedImage = WarpedImage
     
-    #Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
+    # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
     warped_coords = np.around(warped_coords, 3)
     
-    #TODO: Order appears to not matter so setting to zero may help
-    #outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
-    outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=0, cval=cval)
+    # TODO: Order appears to not matter so setting to zero may help
+    # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     
-    #Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
+    outputValues = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=0, cval=cval)
+    outputImage = np.full(area, cval, dtype=subroi_warpedImage.dtype)
+    fixed_coords_flat = nornir_imageregistration.ravel_index(fixed_coords, outputImage.shape).astype(np.int64)
+    outputImage.flat[fixed_coords_flat] = outputValues
+    # outputImage[fixed_coords] = outputValues
+    
+    # Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
     np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
     
-    outputImage = outputImage.reshape(area)
+    # outputImage = outputImage.reshape(area)
     if original_dtype != outputImage.dtype:
         outputImage = outputImage.astype(original_dtype)
     
-    if fixed_coords.shape[0] == np.prod(area):
-        # All coordinates mapped, so we can return the output warped image as is.
-        outputImage = outputImage.reshape(area) 
-        return outputImage
-    else:
-        # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
-        transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
-        fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int32)
-        transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
-        return transformedImage
+#     if fixed_coords.shape[0] == np.prod(area):
+#         # All coordinates mapped, so we can return the output warped image as is.
+#         outputImage = outputImage.reshape(area) 
+#         return outputImage
+#     else:
+#         # Not all coordinates mapped, create an image of the correct size and place the warped image inside it.
+#         transformedImage = np.full((area), cval, dtype=outputImage.dtype)        
+#         fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int64)
+#         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
+#         return transformedImage
+    return outputImage
        
 
 def _ReplaceFilesWithImages(listImages):
@@ -295,7 +299,6 @@ def FixedImageToWarpedSpace(transform, WarpedImageArea, DataToTransform, botleft
         return FixedImageList
     else:
         return __WarpedImageUsingCoords(SrcSpace_coords, DstSpace_coords, WarpedImageArea, ImagesToTransform, area, cval=cval[0])
-
         
 
 def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
@@ -320,9 +323,9 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         if isinstance(firstImage, list):
             firstImage = firstImage[0]
         
-        bounds = nornir_imageregistration.spatial.Rectangle.CreateFromPointAndArea((0,0), firstImage.shape)
+        bounds = nornir_imageregistration.spatial.Rectangle.CreateFromPointAndArea((0, 0), firstImage.shape)
         fixedCorners = transform.InverseTransform(bounds.Corners)
-        FixedImageArea = np.ravel(np.max(fixedCorners,0) - np.min(fixedCorners,0))
+        FixedImageArea = np.ravel(np.max(fixedCorners, 0) - np.min(fixedCorners, 0))
 
     if area is None:
         area = FixedImageArea
@@ -348,6 +351,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     else:
         return __WarpedImageUsingCoords(DstSpace_coords, SrcSpace_coords, FixedImageArea, ImagesToTransform, area, cval=cval)
 
+
 def ParameterToStosTransform(transformData):
     '''
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
@@ -367,6 +371,7 @@ def ParameterToStosTransform(transformData):
         stostransform = transformData
         
     return stostransform
+
 
 def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
     '''Assembles an image based on the passed transform.
@@ -402,7 +407,7 @@ def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedIma
     warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
-        imsave(OutputFilename, warpedImage, cmap='gray')
+        nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray')
 
     return warpedImage
 
@@ -438,7 +443,6 @@ def TransformImage(transform, fixedImageShape, warpedImage, CropUndefined):
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
         sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
-        
     
         for iY in range(0, height, int(tilesize[0])):
     
@@ -468,8 +472,6 @@ def TransformImage(transform, fixedImageShape, warpedImage, CropUndefined):
             registeredTile = task.wait_return()
             outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registeredTile
         
-        
         del sharedWarpedImage
-
 
     return outputImage

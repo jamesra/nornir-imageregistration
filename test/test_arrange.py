@@ -15,8 +15,7 @@ from nornir_imageregistration.files.mosaicfile import MosaicFile
 import nornir_imageregistration.layout
 from nornir_imageregistration.mosaic import Mosaic
 import nornir_imageregistration.mosaic
-from scipy import stats
-from scipy.misc import imsave
+from scipy import stats 
 
 import nornir_imageregistration.arrange_mosaic as arrange
 import nornir_imageregistration.assemble_tiles as at
@@ -310,7 +309,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         initial_tiles = nornir_imageregistration.tile.CreateTiles( transforms=transforms, imagepaths=tilesPathList)
         
         
-        min_overlap = 0.070
+        min_overlap = 0.050
         
         if inter_tile_distance_scale is None:
             inter_tile_distance_scale = 1.0
@@ -433,7 +432,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
             nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
                                                                                min_allowed_weight=minWeight,
-                                                                               max_allowed_weight=maxWeight)
+                                                                               max_allowed_weight=maxWeight)   
             
 #            nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout)
         
@@ -722,11 +721,21 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #                                  openwindow=False)
 #           
 #         print("All done")
+#         
+#     def test_RC3_0203_Mosaic(self):
+#                   
+#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC3\\TEM\\0203\\TEM\\Stage.mosaic",
+#                                  TilePyramidDir="C:\\Data\\RC3\\TEM\\0203\\TEM\\Leveled\\TilePyramid",
+#                                  downsample=4,
+#                                  max_relax_iterations=500,
+#                                  openwindow=False)
+#           
+#         print("All done")
         
-    def test_RC3_0203_Mosaic(self):
+    def test_Neitz_Mosaic(self):
                   
-        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC3\\TEM\\0203\\TEM\\Stage.mosaic",
-                                 TilePyramidDir="C:\\Data\\RC3\\TEM\\0203\\TEM\\Leveled\\TilePyramid",
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\cped\\SEM\\0855\\SEM\\Stage.mosaic",
+                                 TilePyramidDir="D:\\Data\\cped\\SEM\\0855\\SEM\\Leveled\\TilePyramid",
                                  downsample=4,
                                  max_relax_iterations=500,
                                  openwindow=False)

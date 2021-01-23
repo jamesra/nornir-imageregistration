@@ -25,6 +25,9 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         odict = super(RBFWithLinearCorrection, self).__getstate__()
 
         odict['_Weights'] = self._Weights
+        
+        if not '_UseRigidTransform' in odict:
+            odict['_UseRigidTransform'] = False
 
         return odict
 
@@ -257,8 +260,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
-        Y_Task = thread_pool.add_task("WeightsY", numpy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
-        WeightsX = numpy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
+        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
+        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
         WeightsY = Y_Task.wait_return()
         
         if numpy.allclose(WeightsX[0:-3], 0) and numpy.allclose(WeightsY[0:-3], 0):
