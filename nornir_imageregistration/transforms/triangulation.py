@@ -76,7 +76,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
     
-    print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
+    #print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
 
     PointsAdded = True
     while PointsAdded:
@@ -117,13 +117,13 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
             if starting_num_points == ending_num_points:
                 break 
 
-            print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
-            print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
-            print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
+            #print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
+            #print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
+            #print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
             
             # TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
             
-    print("End enrichment") 
+    #print("End enrichment") 
 
     if create_copy:
         output_transform = copy.deepcopy(AToB_mapped_Transform)

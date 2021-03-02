@@ -532,7 +532,7 @@ class StosFile(object):
             else:
                 return self            
         
-        PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
+        #PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
         scale = float(oldspacing) / float(newspacing)
 
         NewStosFile = StosFile()

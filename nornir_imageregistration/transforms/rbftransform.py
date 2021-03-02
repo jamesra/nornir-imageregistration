@@ -255,6 +255,8 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
         If Weights[0:N] ~= 0, then we can use a much faster and simpler rigid transformation with rotation to translate the data
         If additionally Weights[N:N+1] ~= 0, then we can simply translate the points as needed    
         '''
+        self._UseRigidTransform = False
+        
         BetaMatrix = RBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = RBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
