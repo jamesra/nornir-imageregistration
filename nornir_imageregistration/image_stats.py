@@ -26,9 +26,7 @@ import nornir_shared.prettyoutput as PrettyOutput
 import nornir_imageregistration
 import nornir_imageregistration.im_histogram_parser  
 from numpy import int32
-import matplotlib.pyplot as plt
-
-from PIL import Image
+import matplotlib.pyplot as plt 
 
 
 class ImageStats():

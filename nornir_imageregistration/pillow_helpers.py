@@ -5,6 +5,8 @@ Created on Apr 23, 2019
 '''
 
 from PIL import Image
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
 import numpy as np
 
 

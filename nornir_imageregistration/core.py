@@ -10,6 +10,9 @@ import os
 import tempfile
 
 from PIL import Image
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
+
 import scipy.misc
 import scipy.ndimage.measurements
 
@@ -27,8 +30,7 @@ import scipy.ndimage.interpolation as interpolation
 from . import pillow_helpers
 
 
-#Disable decompression bomb protection since we are dealing with huge images on purpose
-Image.MAX_IMAGE_PIXELS = None
+
 
 # from memory_profiler import profile
 

@@ -24,6 +24,10 @@ assemble_tiles
 
 '''
 
+from PIL import Image
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
+
 from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord
 from nornir_imageregistration.core import *
 from nornir_imageregistration.spatial import *

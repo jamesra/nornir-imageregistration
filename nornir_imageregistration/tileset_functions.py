@@ -13,6 +13,8 @@ by pillow as lots of small I/O requests against the image file.
 
 import numpy
 from PIL import Image
+#Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
 import threading
 import tempfile
 import os
