@@ -10,6 +10,7 @@ import multiprocessing
 import os
 import subprocess
 import sys
+from PIL import Image
 
 import numpy
 from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
