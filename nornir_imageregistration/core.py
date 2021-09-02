@@ -1238,12 +1238,14 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     #if np.any(abs_conjFFTFixed == 0):
         #raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
         
-    
-    mask = abs_conjFFTFixed > 0    
-
-    conjFFTFixed[mask] /= abs_conjFFTFixed[mask]  # Numerator / Divisor
-    
+    wht_expon = 0.65
+    mask = abs_conjFFTFixed > 1e-5    
+    #Based on talk with Art Wetzel, apparently wht_expon = -1 is Phase Correlation.  0 is Pierson Correlation 
+    wht_expon_adjustment = np.power(abs_conjFFTFixed[mask], wht_expon)
     del abs_conjFFTFixed
+    
+    conjFFTFixed[mask] /= wht_expon_adjustment  # Numerator / Divisor 
+    del wht_expon_adjustment
 
     CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
