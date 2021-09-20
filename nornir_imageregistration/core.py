@@ -158,10 +158,14 @@ def ReduceImage(image, scalar):
 def ROIRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within the limits, but contains count entries.'''
 
-    r = None
+    if count == 0:
+        return list()
+    
     if maxVal - minVal < count:
         return None
 
+    r = None
+    
     if start < minVal:
         r = list(range(minVal, minVal + count))
     elif start + count >= maxVal:
@@ -1233,19 +1237,30 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     
     if delete_input:
         del FFTMoving
-        
+    
     abs_conjFFTFixed = np.absolute(conjFFTFixed)
+    
+    #wht_expon = -0.65
+    #wht_mask = conjFFTFixed > 0
+    #wht_scales = np.power(abs_conjFFTFixed[wht_mask], wht_expon)
+    # conjFFTFixed[wht_mask] *= wht_scales
+        
     #if np.any(abs_conjFFTFixed == 0):
         #raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
-        
-    wht_expon = 0.65
-    mask = abs_conjFFTFixed > 1e-5    
+     
     #Based on talk with Art Wetzel, apparently wht_expon = -1 is Phase Correlation.  0 is Pierson Correlation 
-    wht_expon_adjustment = np.power(abs_conjFFTFixed[mask], wht_expon)
-    del abs_conjFFTFixed
+    mask = abs_conjFFTFixed > 1e-5 
+    #conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
+    #conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
+    conjFFTFixed[mask] /= np.power(abs_conjFFTFixed[mask], 0.65)  
+    del mask
     
-    conjFFTFixed[mask] /= wht_expon_adjustment  # Numerator / Divisor 
-    del wht_expon_adjustment
+    #wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
+    #conjFFTFixed[mask] *= wht_expon_adjustment
+    #wht_mask = conjFFTFixed > 1e-5
+    #conjFFTFixed[wht_mask] *= np.power(conjFFTFixed[wht_mask], -0.65)
+    #del wht_expon_adjustment
+    del abs_conjFFTFixed
 
     CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
