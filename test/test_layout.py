@@ -16,6 +16,8 @@ import os
 
 from . import setup_imagetest
 from . import test_arrange
+import hypothesis
+from build.lib.test import test_layout
 
 def _MaxTension(layout):    
     net_tension_vectors = layout.NetTensionVectors()
@@ -330,10 +332,15 @@ class TestLayout(setup_imagetest.TestBase):
                 if (iY != y) ^ (iX != x):
                     yield np.asarray((iY, iX), dtype=np.int64)
                     
-    def test_layout_properties(self):
+    def test_layout_repro_1_1(self):
+        self.do_layout(1,1)
+          
+    @hypothesis.given(hypothesis.strategies.integers(1,15), hypothesis.strategies.integers(1,15))
+    def test_layout_with_properties(self, num_cols, num_rows):
         '''Generate a 10x10 grid of tiles with fixed positions and correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
-        num_cols = 10
-        num_rows = 10
+        self.do_layout(num_cols, num_rows)
+         
+    def do_layout(self, num_cols, num_rows):
         grid_dims = (num_rows, num_cols)
         layout = nornir_imageregistration.layout.Layout()
         tile_dims = np.asarray((10,10))
@@ -365,7 +372,7 @@ class TestLayout(setup_imagetest.TestBase):
         #50% of the tiles are candidates to be linked, create layouts for each independent region
         create_offset = np.random.random_integers(0,1, grid_dims).astype(np.bool)
         
-        nornir_imageregistration.ShowGrayscale(create_offset, title="Offset bitmask")
+        #nornir_imageregistration.ShowGrayscale(create_offset, title="Offset bitmask")
         
         tile_offset_dict = {}
                        
@@ -421,12 +428,14 @@ class TestLayout(setup_imagetest.TestBase):
         extra_layout.CreateNode(extra_id, extra_coord * tile_dims, tile_dims )
                         
         merged_layout = MergeDisconnectedLayoutsWithOffsets(layout_lists, tile_offset_dict)
-        
+         
         self.assertTrue(extra_id in merged_layout.nodes, "Unconnected layout is not in the merged layout")
-                    
-        nornir_imageregistration.views.plot_layout(merged_layout)
+        expected_node_count = (num_rows * num_cols) + 1
+                      
+        if len(merged_layout.nodes) != expected_node_count:
+            nornir_imageregistration.views.plot_layout(merged_layout)
         
-        self.assertTrue(len(merged_layout.nodes) == 100)
+        self.assertTrue(len(merged_layout.nodes) == expected_node_count, f"Expected {expected_node_count} nodes in final layout, got {len(merged_layout.nodes)}")
         #for layout in layout_lists:
         #    nornir_imageregistration.views.plot_layout(layout, ylim=(-tile_dims[0], (grid_dims[0] + 1) * tile_dims[0]), xlim=(-tile_dims[1], (grid_dims[1] + 1) * tile_dims[1]))
 
@@ -460,9 +469,8 @@ class TestLayout(setup_imagetest.TestBase):
                 yield from cls.flood_fill(bit_mask, adj_key, checked_mask)
                  
         return
-        
-        
-    
+         
+         
     def test_layout_relax_into_grid(self):
         '''Generate a 10x10 grid of tiles with random positions but correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
         num_cols = 10

@@ -12,9 +12,10 @@ from pylab import *
 import nornir_shared.images
 import nornir_imageregistration
 import nornir_imageregistration.stos_brute as stos_brute
+
 import hypothesis
 
-from . import setup_imagetest
+from test import setup_imagetest
 
 class TestCore(setup_imagetest.ImageTestBase):
 
@@ -78,7 +79,7 @@ class TestCore(setup_imagetest.ImageTestBase):
         if num <= 0:
             self.assertTrue(len(r) == 0)
         elif minVal > maxVal:
-            self.assertTrue(len(r) == 0)
+            self.assertIsNone(r)
         else:
             self.assertEqual(r[0], minVal, "First entry in range must == minVal")
             self.assertEqual(r[-1], maxVal, "last entry in range must == maxVal")

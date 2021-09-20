@@ -96,6 +96,7 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         record = core.FindOffset(PaddedFixedImage, PaddedWarpedImage)
         self.assertIsNotNone(record)
 
+        print(record)
         self.assertEqual(record.angle, 0.0)
         self.assertAlmostEqual(record.peak[0], 452, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
         self.assertAlmostEqual(record.peak[1], -10, msg="Expected offset (452,-10): %s" % str(record), delta=1.5)
