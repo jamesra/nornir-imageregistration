@@ -364,7 +364,6 @@ class Layout(object):
         '''
         :return: The average of the center positions of all tiles in the layout
         '''
-        
         centers = [n.Position for n in self.nodes.values()]
         centers_stacked = np.vstack(centers)
         avg_center = np.average(centers_stacked, axis=0)
@@ -1014,7 +1013,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             A_pos = original_layout.GetPosition(A_ID)
             new_layout.CreateNode(A_ID, A_pos)
             new_layout.CreateNode(B_ID, A_pos + offset)
-            new_layout.SetOffset(A_ID, B_ID, offset, Weight) 
+            new_layout.SetOffset(A_ID, B_ID, offset, Weight)
             LayoutList.append(new_layout)
             #print("New layout")
 
@@ -1080,6 +1079,9 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
     Given a list of layouts, generate a single layout, if possible using the offsets in tile_offset_dict
     :param dict tile_offset_dict: Keys are (A,B) values are offsets [Y,X]
     '''
+    if layout_list is None or len(layout_list) == 0:
+        return None;
+    
     if len(layout_list) == 1:
         return layout_list[0]
     
