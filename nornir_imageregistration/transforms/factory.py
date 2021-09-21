@@ -411,6 +411,9 @@ def GetTransformedRigidCornerPoints(size, rangle, offset, flip_ud=False, scale=1
     :return: Nx2 array of points [[BotLeft], [BotRight], [TopLeft],  [TopRight]]
     :rtype: numpy.ndarray
     '''
+    
+    #The corners of a X,Y image that starts at 0,0 are located at X-1,Y-1.  So we subtract one from the size
+    size = size - np.array((1,1))
     CenteredRotation = utils.RotationMatrix(rangle)
     
     ScaleMatrix = None
