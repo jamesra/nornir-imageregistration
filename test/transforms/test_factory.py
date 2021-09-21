@@ -44,7 +44,7 @@ class TestMath(unittest.TestCase):
         Width = 256
 
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), 0, (0, 0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height, Width))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height-1, Width-1))
 
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
@@ -59,13 +59,13 @@ class TestMath(unittest.TestCase):
 
         # Rotate a half-turn
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), tau / 2.0, (0, 0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height, Width))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height-1, Width-1))
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
         # Rotate a quarter-turn
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), tau / 4.0, (0, 0))
         p = ((-Width / 2.0) + (Height / 2.0), (-Height / 2.0) + (Width / 2.0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea(p, (Width, Height))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea(p, (Width-1, Height-1))
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
         return
