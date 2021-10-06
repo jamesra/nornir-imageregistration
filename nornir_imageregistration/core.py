@@ -1306,20 +1306,25 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
     LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, list(range(0, NumLabels)))
-    PeakValueIndex = LabelSums.argmax()
-    PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
-    PeakStrength = LabelSums[PeakValueIndex]
-
-    del LabelImage
-    del ThresholdImage
-    del LabelSums
-
-    # center_of_mass returns results as (y,x)
-    #scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
-    scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
-    # scaled_offset = (scaled_offset[0], scaled_offset[1])
-
-    return (scaled_offset, PeakStrength)
+    if LabelSums.sum() == 0: #There are no peaks identified
+        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
+        PeakStrength = 0
+        return (scaled_offset, PeakStrength)
+    else:
+        PeakValueIndex = LabelSums.argmax()
+        PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
+        PeakStrength = LabelSums[PeakValueIndex]
+    
+        del LabelImage
+        del ThresholdImage
+        del LabelSums
+    
+        # center_of_mass returns results as (y,x)
+        #scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+        # scaled_offset = (scaled_offset[0], scaled_offset[1])
+    
+        return (scaled_offset, PeakStrength)
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):

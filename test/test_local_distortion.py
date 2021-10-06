@@ -97,7 +97,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
 #                        cell_size=(128,128),
-#                        grid_spacing=(256,256),
+#                        grid_spacing=(128,128),
 #                        angles_to_search=[-2.5, 0, 2.5],
 #                        min_travel_for_finalization=0.5,
 #                        min_alignment_overlap=0.5,
@@ -112,7 +112,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
 #                        cell_size=(128,128),
-#                        grid_spacing=(256,256),
+#                        grid_spacing=(128,128),
 #                        angles_to_search=[-2.5, 0, 2.5],
 #                        min_travel_for_finalization=0.5,
 #                        min_alignment_overlap=0.5,
@@ -156,8 +156,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         num_iterations = 10
         
-        cell_size=np.asarray((128, 128),dtype=np.int32) * 2.0
-        grid_spacing=(256, 256)
+        cell_size=np.asarray((128, 128),dtype=np.int32)
+        grid_spacing=(128, 128)
         
         i = 1
         
@@ -310,20 +310,17 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         stosObj.Transform = local_distortion_correction.ConvertTransformToGridTransform(stosObj.Transform, source_image_shape=warpedImageData.shape, cell_size=cell_size, grid_spacing=grid_spacing)
         stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos") )
         return
-    
-    
-    
-    
+      
     def testGridRefineScript(self):
         stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
         args = ['-input', stosFile,
                 '-output', os.path.join(self.TestOutputPath,'scriptTestResult.stos'),
                 '-min_overlap', '0.5',
-                '-grid_spacing', '512,512',
-                '-it', '3',
+                '-grid_spacing', '128,128',
+                '-it', '5',
                 '-c','128,128',
                 '-angles','0',
-                '-travel_cutoff','0.75']
+                '-travel_cutoff','0.5']
         
         nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
         return

@@ -278,7 +278,7 @@ def RefineStosFile(InputStos, OutputStosPath,
     
     InputStos.Transform = ConvertTransformToGridTransform(output_transform,
                                                            source_image_shape=source_image.shape, 
-                                                           cell_size=cell_size, 
+                                                           cell_size=cell_size,
                                                            grid_spacing=grid_spacing)
     InputStos.Save(OutputStosPath)
 
@@ -311,7 +311,7 @@ def RefineTransform(stosTransform,
     :param tuple cell_size: (width, height) area of image around control points to use for registration
     :param tuple grid_spacing: (width, height) of separation between control points on the grid
     :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-    :param float min_alighment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
+    :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
     :param bool SaveImages: Saves registered images of each iteration in the output path for debugging purposes
     :param bool SavePlots: Saves histograms and vector plots of each iteration in the output path for debugging purposes     
     :param str outputDir: Directory to save images and plots if requested.  Must not be null if SaveImages or SavePlots are true   
