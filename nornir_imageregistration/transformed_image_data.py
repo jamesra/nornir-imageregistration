@@ -9,10 +9,14 @@ import os
 import tempfile
 import numpy as np
 import nornir_pools
-import logging
+import logging 
+
 import atexit
 import shutil
 
+_sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=tempfile.gettempdir())
+
+atexit.register(shutil.rmtree, _sharedTempRoot)
 
 class TransformedImageData(object):
     '''
@@ -76,16 +80,7 @@ class TransformedImageData(object):
     @property
     def errormsg(self):
         return self._errmsg
-    
-    @property
-    def tempfiledir(self):
-        if self._tempdir is None:
-            tempdir = tempfile.mkdtemp("_TransformedImageData")
-            self._tempdir = tempdir 
-            atexit.register(shutil.rmtree, tempdir)
-            
-        return self._tempdir
-
+        
     @classmethod
     def Create(cls, image, centerDistanceImage, transform, source_space_scale, target_space_scale, SingleThreadedInvoke):
         o = TransformedImageData()
@@ -122,8 +117,9 @@ class TransformedImageData(object):
         if image is None:
             return None 
         
-        tempfilename = os.path.join(self.tempfiledir, name + '.npy')
-        np.save(tempfilename, image)
+        tfile = tempfile.NamedTemporaryFile(suffix=name, dir=_sharedTempRoot, delete=False)
+        tempfilename = tfile.name
+        np.save(tfile, image)
         #memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
         #np.copyto(memmapped_image, image)
         #print("Write %s" % tempfilename)
@@ -159,15 +155,7 @@ class TransformedImageData(object):
                 os.remove(_image_path)
         except IOError as E:
             logging.warning("Could not delete temporary file {0}".format(_image_path))
-            pass
-            
-        try:
-            if not _tempdir is None:
-                os.rmdir(_tempdir)
-        except IOError as E:
-            logging.warning("Could not delete temporary directory {0}".format(_tempdir))
-            pass
-         
+            pass 
 
     def __init__(self, errorMsg=None):
         self._image = None
