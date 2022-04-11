@@ -10,6 +10,8 @@ import tempfile
 import numpy as np
 import nornir_pools
 import logging
+import atexit
+import shutil
 
 
 class TransformedImageData(object):
@@ -78,7 +80,9 @@ class TransformedImageData(object):
     @property
     def tempfiledir(self):
         if self._tempdir is None:
-            self._tempdir = tempfile.mkdtemp("_TransformedImageData")
+            tempdir = tempfile.mkdtemp("_TransformedImageData")
+            self._tempdir = tempdir 
+            atexit.register(shutil.rmtree, tempdir)
             
         return self._tempdir
 
