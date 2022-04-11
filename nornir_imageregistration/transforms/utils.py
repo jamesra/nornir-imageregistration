@@ -30,6 +30,11 @@ def RotationMatrix(rangle):
         raise ValueError("Angle must not be none")
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
 
+def IdentityMatrix():
+    '''
+    '''
+    return np.matrix([[1,0,0], [0,1,0], [0, 0, 1]])
+
 def ScaleMatrixXY(scale):
     '''
     :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values

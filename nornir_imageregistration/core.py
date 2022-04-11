@@ -10,7 +10,7 @@ import os
 import tempfile
 
 from PIL import Image
-#Disable decompression bomb protection since we are dealing with huge images on purpose
+# Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
 
 import scipy.misc
@@ -24,18 +24,17 @@ import nornir_shared.prettyoutput as prettyoutput
 import matplotlib.pyplot as plt
 
 import numpy as np
-#import numpy.fft.fftpack as fftpack
-import scipy.fftpack as fftpack #Cursory internet research suggested Scipy was faster at this time.  Untested. 
+# import numpy.fft.fftpack as fftpack
+import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
 from . import pillow_helpers
 
-
-
-
 # from memory_profiler import profile
+
 
 class memmap_metadata(object):
     '''meta-data for a memmap array'''
+
     @property
     def path(self):
         return self._path
@@ -70,6 +69,7 @@ class memmap_metadata(object):
         self._dtype = dtype
         self._mode = None
         self.mode = mode
+
         
 def ravel_index(idx, shp):
     '''
@@ -80,12 +80,12 @@ def ravel_index(idx, shp):
                                     [XN,YN]]
     '''
     if shp[0] == 1:
-        return idx[:,1]
+        return idx[:, 1]
     
     if idx.shape[0] != shp[-1]:
         idx = np.transpose(idx)
     
-    return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1],[1])).dot(idx))
+    return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1], [1])).dot(idx))
 
 
 def index_with_array(image, indicies):
@@ -95,8 +95,9 @@ def index_with_array(image, indicies):
     :param ndarray indicies: nx2 array of pixel coordinates
     '''
     
-    return np.take(image,ravel_index(indicies, image.shape))
-    #return np.reshape(values, (len(values),1))
+    return np.take(image, ravel_index(indicies, image.shape))
+    # return np.reshape(values, (len(values),1))
+
         
 def array_distance(array):
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
@@ -105,8 +106,9 @@ def array_distance(array):
     
     return np.sqrt(np.sum(array ** 2, 1))
     
-#def GetBitsPerPixel(File): 
+# def GetBitsPerPixel(File): 
 #    return shared_images.GetImageBpp(File)
+
 
 def ApproxEqual(A, B, epsilon=None):
 
@@ -114,6 +116,7 @@ def ApproxEqual(A, B, epsilon=None):
         epsilon = 0.01
 
     return np.abs(A - B) < epsilon
+
 
 def ImageParamToImageArray(imageparam, dtype=None):
     image = None
@@ -137,6 +140,7 @@ def ImageParamToImageArray(imageparam, dtype=None):
     
     return image
 
+
 def ScalarForMaxDimension(max_dim, shapes):
     '''Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value'''
     shapearray = None
@@ -150,19 +154,44 @@ def ScalarForMaxDimension(max_dim, shapes):
 
     return max_dim / maxVal
 
+
 def ReduceImage(image, scalar):
     return interpolation.zoom(image, scalar)
 
 
+def ExtractROI(image, center, area):
+    '''Returns an ROI around a center point with the area, if the area passes a boundary the ROI
+       maintains the same area, but is shifted so the entire area remains in the image.
+       USES NUMPY (Y,X) INDEXING'''
 
-def ROIRange(start, count, maxVal, minVal=0):
-    '''Returns a range that falls within the limits, but contains count entries.'''
+    half_area = area / 2.0
+    x_range = SafeROIRange( center - half_area[1], area[1], maxVal=image.shape[1])
+    y_range = SafeROIRange( center - half_area[0], area[0], maxVal=image.shape[0])
+
+    ROI = image(y_range, x_range)
+
+    return ROI
+
+
+def SafeROIRange(start, count, maxVal, minVal=0):
+    '''
+    Returns a range cropped within min and max values, but always attempts to have count entries in the ROI.
+    If minVal or maxVal would crop the list then start is shifted to ensure the resulting value has the correct number of entries.
+    :param int start: Starting value
+    :param int count: Number of items in the list, incremented by 1, to return.
+    :param int maxVal: Maximum value allowed to be returned.  Output list will be cropped if it equals or exceeds this value.
+    :param int minVal: Minimum value allowed to be returned.  Output list will be cropped below this value.
+    :return:  [start start+1, start+2, ..., start+count]
+    '''
 
     if count == 0:
         return list()
     
+    if maxVal < minVal:
+        raise ValueError(f"maxVal must be greater than minVal. {maxVal} > {minVal}");
+    
     if maxVal - minVal < count:
-        return None
+        raise ValueError(f"Not enough room to return a ROI of requested size.  maxVal - minVal must be >= count. {maxVal} - {minVal} >= {count}");
 
     r = None
     
@@ -174,6 +203,7 @@ def ROIRange(start, count, maxVal, minVal=0):
         r = list(range(start, start + count))
 
     return r
+
 
 def ConstrainedRange(start, count, maxVal, minVal=0):
     '''Returns a range that falls within min/max limits.'''
@@ -193,23 +223,11 @@ def ConstrainedRange(start, count, maxVal, minVal=0):
     return r
 
 
-def ExtractROI(image, center, area):
-    '''Returns an ROI around a center point with the area, if the area passes a boundary the ROI
-       maintains the same area, but is shifted so the entire area remains in the image.
-       USES NUMPY (Y,X) INDEXING'''
-
-    x_range = ROIRange(area[1], (center - area[1]) / 2.0, maxVal=image.shape[1])
-    y_range = ROIRange(area[0], (center - area[0]) / 2.0, maxVal=image.shape[0])
-
-    ROI = image(y_range, x_range)
-
-    return ROI
-
-
 def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
     image = nornir_imageregistration.LoadImage(InFile)
     resized_image = nornir_imageregistration.ResizeImage(image, Scalar)
     nornir_imageregistration.SaveImage(OutFile, resized_image)
+
     
 def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
     
@@ -265,7 +283,7 @@ def ResizeImage(image, scalar):
         scalar = nornir_imageregistration.EnsurePointsAre1DNumpyArray(scalar)
         order = 3 if any([s < 1.0 for s in scalar]) else 2
 
-    #new_size = np.array(image.shape, dtype=np.float) * scalar
+    # new_size = np.array(image.shape, dtype=np.float) * scalar
     
     return scipy.ndimage.zoom(image, zoom=scalar, order=order).clip(original_min, original_max)
 
@@ -277,11 +295,11 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     original_dtype = image.dtype
     max_possible_int_val = None
     
-    #max_possible_float_val = 1.0
+    # max_possible_float_val = 1.0
     
     NeedsClip = False
     
-    #After lots of pain it is simplest to ensure all images are represented by floats before operating on them
+    # After lots of pain it is simplest to ensure all images are represented by floats before operating on them
     if nornir_imageregistration.IsIntArray(original_dtype):
         max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
         image = image.astype(np.float32) / max_possible_int_val
@@ -321,7 +339,7 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     if NeedsClip:
         np.clip(image, a_min=0, a_max=1.0, out=image)
          
-    if Invert is not None and Invert:  
+    if Invert is not None and Invert: 
         image = 1.0 - image
         
     if nornir_imageregistration.IsIntArray(original_dtype) == True:
@@ -331,12 +349,13 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
             
     return image
 
+
 def  _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, MinMax=None, Gamma=None):
         
-    image = _ConvertSingleImage(input_image_param, 
-                                Flip=Flip, 
+    image = _ConvertSingleImage(input_image_param,
+                                Flip=Flip,
                                 Flop=Flop,
-                                Bpp=InputBpp, 
+                                Bpp=InputBpp,
                                 Invert=Invert,
                                 MinMax=MinMax,
                                 Gamma=Gamma)
@@ -350,6 +369,7 @@ def  _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, F
     else:
         nornir_imageregistration.SaveImage(output_filename, image, bpp=OutputBpp)
     return
+
 
 def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False, bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
     '''
@@ -383,11 +403,11 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
         num_threads = len(ImagesToConvertDict) + 1
         
     pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
-    #pool = nornir_pools.GetGlobalSerialPool()
+    # pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
     
     for (input_image, output_image) in ImagesToConvertDict.items():
-        task = pool.add_task("{0} -> {1}".format(input_image, output_image), 
+        task = pool.add_task("{0} -> {1}".format(input_image, output_image),
                       _ConvertSingleImageToFile,
                       input_image_param=input_image,
                       output_filename=output_image,
@@ -430,8 +450,10 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
             
     del tasks
 
+
 def CropImageRect(imageparam, bounding_rect, cval=None):
     return CropImage(imageparam, Xo=int(bounding_rect[1]), Yo=int(bounding_rect[0]), Width=int(bounding_rect.Width), Height=int(bounding_rect.Height), cval=cval)
+
 
 def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     '''
@@ -502,7 +524,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         (out_startY, out_startX) = overlap_rectangle.BottomLeft - crop_rectangle.BottomLeft 
         (out_endY, out_endX) = np.array([out_startY, out_startX]) + overlap_rectangle.Size
         
-    #To correct a numpy warning, convert values to int
+    # To correct a numpy warning, convert values to int
     in_startX = int(in_startX)
     in_startY = int(in_startY)
     in_endX = int(in_endX)
@@ -523,7 +545,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
     cropped = None
     if cval is None:
         cropped = np.zeros((Height, Width), dtype=image.dtype)
-    elif cval == 'random':    
+    elif cval == 'random': 
         cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = np.ones((Height, Width), dtype=image.dtype) * cval
@@ -535,6 +557,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
 
     return cropped
 
+
 def npArrayToReadOnlySharedArray(npArray):
     '''Returns a shared memory array for a numpy array.  Used to reduce memory footprint when passing parameters to multiprocess pools'''
     SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
@@ -542,6 +565,7 @@ def npArrayToReadOnlySharedArray(npArray):
     SharedArray = SharedArray.reshape(npArray.shape)
     np.copyto(SharedArray, npArray)
     return SharedArray
+
 
 def CreateTemporaryReadonlyMemmapFile(npArray):
     with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
@@ -582,10 +606,11 @@ def ForceGrayscale(image):
     :rtype: ndarray with 2 dimensions'''
 
     if len(image.shape) > 2:
-        image = image[:, :, 0]
+        image = image[:,:, 0]
         return np.squeeze(image)
 
     return image
+
 
 def _Image_To_Uint8(image):
     '''Converts image to uint8.  If input image uses floating point the image is scaled to the range 0-255'''
@@ -601,7 +626,7 @@ def _Image_To_Uint8(image):
             image = image * 255.0
         else:
             pass
-            #image = #(255.0 / iMax)
+            # image = #(255.0 / iMax)
     elif nornir_imageregistration.IsIntArray(image.dtype):
         iMax = image.max()
         if iMax > 255:
@@ -637,6 +662,7 @@ def uint16_img_from_uint16_array(data):
     img.frombytes(data.tobytes(), 'raw', 'I;16')
     return img
 
+
 def uint16_img_from_float_array(image):
     '''
     Covers for pillow bug with bit images
@@ -650,6 +676,7 @@ def uint16_img_from_float_array(image):
         pass
         
     return image.astype(np.uint16)
+
 
 def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
     '''Saves the image as greyscale with no contrast-stretching
@@ -667,7 +694,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             prettyoutput.LogErr("Saving image at 32 bits-per-pixel, check SaveImageParameters for efficiency:\n{0}".format(ImageFullPath))
                 
     if bpp > 8:
-        #Ensure we even have the data to bother saving a higher bit depth
+        # Ensure we even have the data to bother saving a higher bit depth
         detected_bpp = nornir_imageregistration.ImageBpp(image) 
         if detected_bpp < bpp:
             bpp = detected_bpp
@@ -679,20 +706,20 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
         np.save(ImageFullPath, image)
     else:
         if image.dtype == np.bool or bpp == 1:
-            #Covers for pillow bug with bit images
-            #https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
-            #im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
+            # Covers for pillow bug with bit images
+            # https://stackoverflow.com/questions/50134468/convert-boolean-numpy-array-to-pillow-image
+            # im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
             im = OneBit_img_from_bool_array(image)  
         elif bpp == 8:
             Uint8_image = _Image_To_Uint8(image)
             del image
             im = Image.fromarray(Uint8_image, mode="L")
         elif nornir_imageregistration.IsFloatArray(image): 
-            #TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
+            # TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
             if image.dtype == np.float16:
                 image = image.astype(np.float32)
                 
-            im = Image.fromarray(image * ((1 << bpp)-1)) 
+            im = Image.fromarray(image * ((1 << bpp) - 1)) 
             im = im.convert('I')
         else:
             if bpp < 32:
@@ -706,6 +733,7 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
         im.save(ImageFullPath, **kwargs)
     
     return 
+
 
 def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     '''Saves the image as greyscale with no contrast-stretching'''
@@ -751,7 +779,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
         if ext == '.npy':
             image = np.load(ImageFullPath, 'c').astype(dtype)
         else:
-            #image = plt.imread(ImageFullPath)
+            # image = plt.imread(ImageFullPath)
             with Image.open(ImageFullPath) as im:
                 
                 expected_dtype = pillow_helpers.dtype_for_pillow_image(im)
@@ -760,8 +788,8 @@ def _LoadImageByExtension(ImageFullPath, dtype):
                 
                 if dtype is not None:
                     if nornir_imageregistration.IsIntArray(image.dtype) and nornir_imageregistration.IsFloatArray(dtype):
-                        #Ensure we remap values to the range of 0 to 1 without loss before converting to desired floating type
-                        #if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
+                        # Ensure we remap values to the range of 0 to 1 without loss before converting to desired floating type
+                        # if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
                         image = image / image.max()
                             
                     image = image.astype(dtype)
@@ -779,7 +807,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
 #                         
 #                     dtype = image.dtype
                 
-                #Ensure data is in the range 0 to 1 for floating types
+                # Ensure data is in the range 0 to 1 for floating types
                 elif nornir_imageregistration.IsFloatArray(dtype):
                     
                     if im.mode[0] == 'F':
@@ -802,6 +830,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
         
     return image
 
+
 # @profile
 def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=None):
 
@@ -815,7 +844,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
     :rtype: ndimage
     '''
     if(not os.path.isfile(ImageFullPath)): 
-        #logger = logging.getLogger(__name__)
+        # logger = logging.getLogger(__name__)
         prettyoutput.LogErr('File does not exist: ' + ImageFullPath)
         raise IOError("Unable to load image: %s" % (ImageFullPath))
         
@@ -832,7 +861,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
 
     if(not ImageMaskFullPath is None):
         if(not os.path.isfile(ImageMaskFullPath)):
-            #logger = logging.getLogger(__name__)
+            # logger = logging.getLogger(__name__)
             prettyoutput.LogErr('Fixed image mask file does not exist: ' + ImageMaskFullPath)
         else:
             image_mask = _LoadImageByExtension(ImageMaskFullPath, np.bool)
@@ -859,6 +888,7 @@ def NormalizeImage(image):
     typecode = 'f%d' % (image.dtype.itemsize)
     return (miniszeroimage * scalar).astype(typecode)
 
+
 def TileGridShape(source_image_shape, tile_size):
     '''Given an image and tile size, return the dimensions of the grid'''
     
@@ -871,6 +901,7 @@ def TileGridShape(source_image_shape, tile_size):
         tile_shape = tile_size
     
     return np.ceil(source_image_shape / tile_shape).astype(np.int32)
+
      
 def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     '''
@@ -901,7 +932,7 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset
     grid_shape = TileGridShape(source_image.shape, tile_size)
     
     if coord_offset is None:
-        coord_offset = (0,0)
+        coord_offset = (0, 0)
         
     (required_shape) = grid_shape * tile_size 
     
@@ -914,7 +945,7 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset
     else:
         source_image_padded = source_image
         
-    #nornir_imageregistration.ShowGrayscale(source_image_padded)
+    # nornir_imageregistration.ShowGrayscale(source_image_padded)
     
     # Build the output dictionary
     StartY = 0 
@@ -927,7 +958,7 @@ def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset
     
         for iCol in range(grid_shape[1]):
             t = (iRow + coord_offset[0], iCol + coord_offset[1], source_image_padded[StartY:EndY, StartX:EndX])
-            #nornir_imageregistration.ShowGrayscale(tile)
+            # nornir_imageregistration.ShowGrayscale(tile)
             (yield t)
         
             StartX += tile_size[1]
@@ -1040,8 +1071,10 @@ def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
 
     return OutputImage
 
+
 def NearestPowerOfTwo(val):
     return math.pow(2, math.ceil(math.log(val, 2)))
+
 
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     '''
@@ -1079,6 +1112,7 @@ def DimensionWithOverlap(val, overlap=1.0):
     overlap += 0.5
 
     return val + (val * (1.0 - overlap) * 2.0)
+
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
@@ -1138,7 +1172,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))
 
     # Copy image into padded image
-    PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:, :]
+    PaddedImage[PaddedImageYOffset:PaddedImageYOffset + Height, PaddedImageXOffset:PaddedImageXOffset + Width] = image[:,:]
 
     if not Width == NewWidth:
         LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal)
@@ -1162,6 +1196,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         del BottomBorder
 
     return PaddedImage
+
 
 # @profile
 def ImagePhaseCorrelation(FixedImage, MovingImage):
@@ -1215,7 +1250,6 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     if(not (FFTFixed.shape == FFTMoving.shape)):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
         raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
- 
 
     #--------------------------------
     # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
@@ -1240,26 +1274,26 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     
     abs_conjFFTFixed = np.absolute(conjFFTFixed)
     
-    #wht_expon = -0.65
-    #wht_mask = conjFFTFixed > 0
-    #wht_scales = np.power(abs_conjFFTFixed[wht_mask], wht_expon)
+    # wht_expon = -0.65
+    # wht_mask = conjFFTFixed > 0
+    # wht_scales = np.power(abs_conjFFTFixed[wht_mask], wht_expon)
     # conjFFTFixed[wht_mask] *= wht_scales
         
-    #if np.any(abs_conjFFTFixed == 0):
-        #raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
+    # if np.any(abs_conjFFTFixed == 0):
+        # raise ValueError("Zero found in conjugation of FFT, is the image a single value?")
      
-    #Based on talk with Art Wetzel, apparently wht_expon = -1 is Phase Correlation.  0 is Pierson Correlation 
+    # Based on talk with Art Wetzel, apparently wht_expon = -1 is Phase Correlation.  0 is Pierson Correlation 
     mask = abs_conjFFTFixed > 1e-5 
-    #conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
-    #conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
+    # conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
+    # conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
     conjFFTFixed[mask] /= np.power(abs_conjFFTFixed[mask], 0.65)  
     del mask
     
-    #wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
-    #conjFFTFixed[mask] *= wht_expon_adjustment
-    #wht_mask = conjFFTFixed > 1e-5
-    #conjFFTFixed[wht_mask] *= np.power(conjFFTFixed[wht_mask], -0.65)
-    #del wht_expon_adjustment
+    # wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
+    # conjFFTFixed[mask] *= wht_expon_adjustment
+    # wht_mask = conjFFTFixed > 1e-5
+    # conjFFTFixed[wht_mask] *= np.power(conjFFTFixed[wht_mask], -0.65)
+    # del wht_expon_adjustment
     del abs_conjFFTFixed
 
     CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
@@ -1286,27 +1320,26 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         
 #        if (1.0 - Cutoff) * num_pixels > 1000:
 #            Cutoff = 1.0 - (1000.0 / num_pixels)
-        
 
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
-    #CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
+    # CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
     ThresholdImage = np.copy(image)
 
     if OverlapMask is not None:
-        CutoffValue = np.percentile(image[OverlapMask], q=Cutoff*100.0 )
+        CutoffValue = np.percentile(image[OverlapMask], q=Cutoff * 100.0)
         ThresholdImage[OverlapMask == False] = 0
     else:
-        CutoffValue = np.percentile(image, q=Cutoff*100.0 )
+        CutoffValue = np.percentile(image, q=Cutoff * 100.0)
 
     ThresholdImage[ThresholdImage < CutoffValue] = 0
         
-    #ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
+    # ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # nornir_imageregistration.ShowGrayscale([image,ThresholdImage])
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
     LabelSums = scipy.ndimage.measurements.sum(ThresholdImage, LabelImage, list(range(0, NumLabels)))
-    if LabelSums.sum() == 0: #There are no peaks identified
+    if LabelSums.sum() == 0:  # There are no peaks identified
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
         PeakStrength = 0
         return (scaled_offset, PeakStrength)
@@ -1320,7 +1353,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         del LabelSums
     
         # center_of_mass returns results as (y,x)
-        #scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+        # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])
     
@@ -1353,7 +1386,7 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
     # Find peak requires both the fixed and moving images have equal size
     assert((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1]))
     
-    #nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
+    # nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
     
     if FixedImageShape is None:
         FixedImageShape = FixedImage.shape
@@ -1383,10 +1416,10 @@ def FindOffset(FixedImage, MovingImage, MinOverlap=0.0, MaxOverlap=1.0, FFT_Requ
 
     return record
 
+
 def ImageIntensityAtPercent(image, Percent=0.995):
     '''Returns the intensity of the Cutoff% most intense pixel in the image'''
     NumPixels = image.size
-
 
 #   Sorting the list is a more correct and straightforward implementation, but using numpy.histogram is about 1 second faster
 #   image1D = numpy.sort(image, axis=None)
@@ -1424,9 +1457,7 @@ if __name__ == '__main__':
 
     os.makedirs(OutputDir, exist_ok=True)
 
-
     def TestPhaseCorrelation(imA, imB):
-
 
         # import TaskTimer
         # Timer = TaskTimer.TaskTimer()

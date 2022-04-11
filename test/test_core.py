@@ -52,41 +52,83 @@ class TestCore(setup_imagetest.ImageTestBase):
         self.__CheckRangeForPowerOfTwo(1.0)
         self.__CheckRangeForPowerOfTwo(0.5)
 
-    def testROIRange(self):
-
-        r = nornir_imageregistration.ROIRange(0, 16, 32)
+    def testSafeROIRange(self):
+        
+        r = self.check_SafeROIResult(0, 16, 32)
         self.assertEqual(r[0], 0)
         self.assertEqual(r[-1], 15)
         self.assertEqual(len(r), 16)
 
-        r = nornir_imageregistration.ROIRange(-3, 16, 32)
+        r = self.check_SafeROIResult(0, 16, 32)
         self.assertEqual(r[0], 0)
         self.assertEqual(r[-1], 15)
         self.assertEqual(len(r), 16)
 
-        r = nornir_imageregistration.ROIRange(24, 16, 32)
+        r = self.check_SafeROIResult(-3, 16, 32)
+        self.assertEqual(r[0], 0)
+        self.assertEqual(r[-1], 15)
+        self.assertEqual(len(r), 16)
+
+        r = self.check_SafeROIResult(24, 16, 32)
         self.assertEqual(r[0], 16)
         self.assertEqual(r[-1], 31)
         self.assertEqual(len(r), 16)
 
-        r = nornir_imageregistration.ROIRange(24, 16, 5)
+        r = self.check_SafeROIResult(24, 16, 5)
         self.assertIsNone(r)
         
-    @hypothesis.given(hypothesis.strategies.floats(), hypothesis.strategies.integers(), hypothesis.strategies.floats())
-    def test_ROIRange_with_hypothesis(self, minVal, num, maxVal):
-        r = nornir_imageregistration.ROIRange(minVal, num, maxVal)
+        r = self.check_SafeROIResult(0, 1, 0, 0)
+        self.assertIsNone(r)
+        
+        
+    @hypothesis.given(start=hypothesis.strategies.integers(-5, 256), num=hypothesis.strategies.integers(-5, 256), maxVal=hypothesis.strategies.integers(-5,256), minVal=hypothesis.strategies.integers(-10,64))
+    def test_ROIRange_with_hypothesis(self, start, num, maxVal, minVal):  
+        r = self.check_SafeROIResult(start, num, maxVal, minVal)
+        if r is None:
+            if(maxVal < minVal):
+                hypothesis.event('maxVal < minVal')
+                return
+        
+            if(maxVal - minVal < num):
+                hypothesis.event('maxVal - minVal < num')
+                return 
+            
+            self.fail("None is not an expected result")
         
         if num <= 0:
-            self.assertTrue(len(r) == 0)
-        elif minVal > maxVal:
-            self.assertIsNone(r)
-        else:
-            self.assertEqual(r[0], minVal, "First entry in range must == minVal")
-            self.assertEqual(r[-1], maxVal, "last entry in range must == maxVal")
-            self.assertEqual(len(r), num, "size of range must equal num")
+            self.assertTrue(len(r) == 0) 
+            hypothesis.event('trivial - count equals 0')
         
+    
+    def check_SafeROIResult(self, start, num, maxVal, minVal=0):        
+        r = None
+        try:
+            r = nornir_imageregistration.SafeROIRange(start, num, maxVal, minVal)
+        except ValueError:
+            if(maxVal < minVal): 
+                return
+            
+            if(maxVal - minVal < num): 
+                return 
+            
+            
+        if num <= 0:
+            self.assertTrue(len(r) == 0)  
+            return r
         
-
+        self.assertEqual(len(r), num, "SafeROI needs to return the requested size of ROI")
+        self.assertGreaterEqual(r[0], minVal, "min list value must be greater than or equal minVal")
+        self.assertLess(r[-1], maxVal, "max list value must be less than maxVal")
+        
+        if r[0] < start:
+            self.assertEqual(r[0], (maxVal - num))            
+            self.assertEqual(r[-1], maxVal - 1, "Last entry must be maxVal - 1 if start was shifted to fit ROI")
+        elif r[0] > start:
+            self.assertEqual(r[0], minVal, "If start value was increased then first entry should be minVal, which was greater than requested start value")            
+            self.assertEqual(r[-1], minVal + num - 1, "Last entry must be maxVal - 1 if start was shifted to fit ROI")
+        
+        return r 
+        
 
 #    def test_SaveImageJPeg2000(self):
 #        

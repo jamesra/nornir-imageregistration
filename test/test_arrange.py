@@ -656,11 +656,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             self._ShowMosaic(translated_mosaic, OutputMosaicDir)
          
         
-#     def test_RC2_0197_Mosaic(self):
-#         
-#         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
-# 
-#         print("All done")
+#    def test_RC2_0197_Mosaic(self):         
+#        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
+#        print("All done")
 #         
 #     def test_RC2_0001_Mosaic(self):
 #         
@@ -674,11 +672,11 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 # 
 #         print("All done")
 # #         
-#     def test_RC2_0192_Mosaic(self):
+#    def test_RC2_0192_Mosaic(self):
 #               
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+#        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
 #       
-#         print("All done")
+#        print("All done")
 
 #     def test_RC1_0060_Mosaic(self):
 #                   
@@ -732,15 +730,15 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #           
 #         print("All done")
         
-    def test_Neitz_Mosaic(self):
-                  
-        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\cped\\SEM\\0855\\SEM\\Stage.mosaic",
-                                 TilePyramidDir="D:\\Data\\cped\\SEM\\0855\\SEM\\Leveled\\TilePyramid",
-                                 downsample=4,
-                                 max_relax_iterations=500,
-                                 openwindow=False)
-          
-        print("All done")
+    # def test_Neitz_Mosaic(self):
+    #
+    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\cped_sm\\SEM\\0855\\SEM\\Stage.mosaic",
+    #                              TilePyramidDir="D:\\Data\\cped_sm\\SEM\\0855\\SEM\\Leveled\\TilePyramid",
+    #                              downsample=4,
+    #                              max_relax_iterations=500,
+    #                              openwindow=False)
+    #
+    #     print("All done")
 #         
 #     
 #     def test_TEM2_Sahler_13208_Mosaic(self):
@@ -753,14 +751,14 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 #          
 #         print("All done")
 
-#     def test_RC2_1034_Mosaic(self):
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\1034\\TEM\\Stage.mosaic",
-#                                  TilePyramidDir="C:\\Data\\RC2\\TEM\\1034\\TEM\\Leveled\\TilePyramid",
-#                                  downsample=4,
-#                                  max_relax_iterations=500,
-#                                  openwindow=False,
-#                                  max_relax_tension_cutoff=0.1)
-#                                  #inter_tile_distance_scale=0.5)
+    # def test_RC2_1034_Mosaic(self):
+    #     self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\1034\\TEM\\Stage.mosaic",
+    #                              TilePyramidDir="C:\\Data\\RC2\\TEM\\1034\\TEM\\Leveled\\TilePyramid",
+    #                              downsample=4,
+    #                              max_relax_iterations=500,
+    #                              openwindow=False,
+    #                              max_relax_tension_cutoff=0.1)
+    #                              #inter_tile_distance_scale=0.5)
 #          
 #         print("All done")
 

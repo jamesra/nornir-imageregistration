@@ -8,12 +8,14 @@ import unittest
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import *
-from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
-              IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints
+
+from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+              IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
+              __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints
 
 import numpy as np
-from transforms import rbftransform
-from transforms.factory import CreateRigidTransform
+from nornir_imageregistration.transforms import rbftransform
+from nornir_imageregistration.transforms.factory import CreateRigidTransform
 
 
 class TestTransforms(unittest.TestCase):
@@ -41,6 +43,63 @@ class TestTransforms(unittest.TestCase):
                                 [-1, -1]])
 
         TransformCheck(self, T, warpedPoint, controlPoint)
+    
+    def testRBFLinearFallbackWithRotation(self):
+        T = rbftransform.RBFWithLinearCorrection(TranslateRotateTransformPoints[:, 2:], TranslateRotateTransformPoints[:, 0:2])
+        warpedPoint = np.array([[1, 2],
+                                [1.25, 2.25],
+                                [2, 3],
+                                [0, 1]])
+        fixedPoint = np.array([[1, -3],
+                                [1.25, -3.25],
+                                [2, -4],
+                                [0, -2]])
+
+        nPoints = TranslateRotateTransformPoints.shape[0]
+        rotate_y_component = T.Weights[nPoints]
+        scale_y_component = T.Weights[nPoints + 1]
+        translate_y_component = T.Weights[nPoints + 2]
+        
+        axis_offset = nPoints + 3
+        rotate_x_component = T.Weights[axis_offset + nPoints]
+        scale_x_component = T.Weights[axis_offset + nPoints + 1]
+        translate_x_component = T.Weights[axis_offset + nPoints + 2]
+        
+        RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component], source_rotation_center=[0,0],angle=np.radians(-90))
+        #TransformCheck(RT, warpedPoint, fixedPoint)
+        print("Rotation weights", T.Weights)
+        fp = T.Transform(warpedPoint)
+        np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
+        fp2 = RT.Transform(warpedPoint)
+        np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
+
+    def testRBFLinearFallbackWithRotationAndScaling(self):
+        T = rbftransform.RBFWithLinearCorrection(TranslateRotateScaleTransformPoints[:, 2:], TranslateRotateScaleTransformPoints[:, 0:2])
+        warpedPoint = np.array([[1, 2],
+                                [1.25, 2.25],
+                                [2, 3],
+                                [0, 1]])
+        fixedPoint = np.array([[3, -4],
+                                [3.5, -4.5],
+                                [5, -6],
+                                [1, -2]])
+
+        nPoints = TranslateRotateScaleTransformPoints.shape[0]
+        rotate_y_component = T.Weights[nPoints]
+        scale_y_component = T.Weights[nPoints + 1]
+        translate_y_component = T.Weights[nPoints + 2]
+        
+        axis_offset = nPoints + 3
+        rotate_x_component = T.Weights[axis_offset + nPoints]
+        scale_x_component = T.Weights[axis_offset + nPoints + 1]
+        translate_x_component = T.Weights[axis_offset + nPoints + 2]
+        
+        RT = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([translate_y_component, translate_x_component], source_rotation_center=[0,0],angle=np.radians(-90),scalar=-scale_x_component)
+        print("Scaling also", T.Weights)
+        fp = T.Transform(warpedPoint)
+        np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
+        fp2 = RT.Transform(warpedPoint)
+        np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
         
     def testRBFLinearFallback(self):
         T = rbftransform.RBFWithLinearCorrection(TranslateTransformPoints[:, 2:], TranslateTransformPoints[:, 0:2])
@@ -64,12 +123,12 @@ class TestTransforms(unittest.TestCase):
         rotate_x_component = T.Weights[axis_offset + nPoints]
         scale_x_component = T.Weights[axis_offset + nPoints + 1]
         translate_x_component = T.Weights[axis_offset + nPoints + 2]
-        
+
         RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component], angle=rotate_y_component)
-        
+
         fp = T.Transform(warpedPoint)
         np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
-        
+
         fp2 = RT.Transform(warpedPoint)
         np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
