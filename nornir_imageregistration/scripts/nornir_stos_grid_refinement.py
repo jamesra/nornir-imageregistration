@@ -54,7 +54,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=IntegerPair,
-                        default=(128,128),
+                        default=(256,256),
                         help='Dimensions of cells (subsets of the images) used for registration.  (The first iteration uses double-sized cells.)',
                         dest='cell_size'
                         )
@@ -63,7 +63,7 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=IntegerPair,
-                        default=(256,256),
+                        default=(128,128),
                         help='Distances between centers of cells used for registration.',
                         dest='grid_spacing'
                         )
