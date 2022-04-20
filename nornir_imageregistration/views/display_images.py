@@ -1,6 +1,6 @@
 
 import matplotlib.pyplot as plt 
-import collections
+import collections.abc
 import nornir_imageregistration
 import numpy as np
 import math
@@ -55,7 +55,7 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
         (fig, gs) = _DisplayImageList2D(image_data, grid_dims)
         set_title_for_multi_image(fig, title)
         
-    elif isinstance(input_params, collections.Iterable):
+    elif isinstance(input_params, collections.abc.Iterable):
         #OK, we have a list of images or a list of lists
         #TODO: Why doesn't this use the DisplayImageList2D function?
         
@@ -122,7 +122,7 @@ def _ConvertParamsToImageList(param):
         output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
-    elif isinstance(param, collections.Iterable):
+    elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
         if len(output) == 1:
             output = output[0]
@@ -142,7 +142,7 @@ def _GridLayoutDims(imagelist):
                 
     if isinstance(imagelist, np.ndarray):
         return (1,1)
-    elif isinstance(imagelist, collections.Iterable):
+    elif isinstance(imagelist, collections.abc.Iterable):
         lengths = [_NumImages(p) for p in imagelist]
         max_len = np.max(lengths)
         return (len(imagelist), max_len)
