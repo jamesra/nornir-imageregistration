@@ -6,9 +6,19 @@ Created on Oct 18, 2012
 
 import nornir_pools
 from abc import ABC, ABCMeta, abstractproperty, abstractmethod, abstractstaticmethod, abstractclassmethod
+ 
+class ITransformTranslation(ABC):
+    @abstractmethod
+    def TranslateFixed(self, offset):
+        '''Translate all fixed points by the specified amount'''
+        raise NotImplementedError()
 
-
-class Base(ABC):
+    @abstractmethod
+    def TranslateWarped(self, offset):
+        '''Translate all warped points by the specified amount'''
+        raise NotImplementedError()
+    
+class Base(ITransformTranslation):
     '''Base class of all transforms'''
 
     def __init__(self):
@@ -28,18 +38,20 @@ class Base(ABC):
         '''Map points from the fixed space to mapped space. Nornir is gradually transitioning to a target space to source space naming convention.'''
         return None
     
-    @property
+    @abstractproperty
     def MappedBoundingBox(self):
         raise NotImplementedError()
  
-    @property
+    @abstractproperty
     def FixedBoundingBox(self):
         raise NotImplementedError()
     
+    @abstractmethod
     def TranslateFixed(self, offset):
         '''Translate all fixed points by the specified amount'''
         raise NotImplementedError()
 
+    @abstractmethod
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         raise NotImplementedError()
@@ -50,7 +62,7 @@ class Base(ABC):
     def RemoveOnChangeEventListener(self, func):
         if func in self.OnChangeEventListeners:
             self.OnChangeEventListeners.remove(func)
-         
+    
     def OnTransformChanged(self):
         '''Calls every function registered to be notified when the transform changes.'''
 
@@ -72,14 +84,4 @@ class Base(ABC):
             for func in self.OnChangeEventListeners:
                 func()
                 
-class ITransformTranslation(ABC):
-    @abstractmethod
-    def TranslateFixed(self, offset):
-        '''Translate all fixed points by the specified amount'''
-        raise NotImplementedError()
-
-    @abstractmethod
-    def TranslateWarped(self, offset):
-        '''Translate all warped points by the specified amount'''
-        raise NotImplementedError()
     
