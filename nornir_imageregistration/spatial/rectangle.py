@@ -162,7 +162,8 @@ class RectangleSet():
             del overlaps_for_ID[YieldID]
             
         IDs_to_yield_on_sweep_move.clear()
-        return    
+        return
+    
                          
     def __str__(self):
         return str(self._rects_array)
@@ -251,7 +252,19 @@ class Rectangle(object):
     @property
     def BoundingBox(self):
         return self._bounds
-
+    
+    
+    def __eq__(self, other):
+        if isinstance(other,Rectangle):
+            return np.array_equal(self._bounds, other._bounds)
+        elif isinstance(other, np.array):
+            return np.array_equal(self._bounds, other)
+        
+        return False;
+    
+    def __ne__(self, other):
+        return self.__eq__(other) == False
+            
     def __getitem__(self, i):
         return self._bounds.__getitem__(i)
 
