@@ -2,7 +2,7 @@
 from nornir_imageregistration.transforms import base, triangulation
 import nornir_imageregistration.transforms.utils
 import nornir_imageregistration.transforms.factory
-from nornir_imageregistration import Rectangle
+from nornir_imageregistration.spatial import Rectangle
 import numpy as np
 
 

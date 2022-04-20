@@ -335,6 +335,7 @@ class TestTransforms(unittest.TestCase):
                                 [11.0, 0.0],
                                 [11.0, 11.0],
                                 [-11.0, 11.0]])
+        
         TransformCheck(self, T, warpedPoints, -warpedPoints) 
 
         T.AddPoints([[2.5, 2.5, -2.5, -2.5],

@@ -89,6 +89,7 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         '''
         Transform from warped space to fixed space
         
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...] 
         :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
         '''
 
@@ -158,8 +159,8 @@ class MeshWithRBFFallback(triangulation.Triangulation):
         return TransformedPoints
 
     def __init__(self, pointpairs):
-        '''
-        Constructor
+        ''' 
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
         '''
         super(MeshWithRBFFallback, self).__init__(pointpairs)
 

@@ -6,6 +6,7 @@ Created on Sep 26, 2018
 import unittest
 
 import os
+import os.path
 import pickle
 import nornir_pools
 import nornir_shared.plot
@@ -24,6 +25,7 @@ from nornir_shared.files import try_locate_file
 from . import setup_imagetest
 from . import test_arrange
 import local_distortion_correction
+from build.lib.nornir_imageregistration.files import stosfile
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):
 # 
@@ -54,10 +56,12 @@ import local_distortion_correction
 class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imagetest.PickleHelper):
 
     def __init__(self, methodName='runTest'):
-        if methodName.startswith('test'):
-            self._TestName = methodName[len('test'):]
-        else:
-            self._TestName = methodName
+        self._TestName = 'SliceToSliceRefinement'
+        
+        #if methodName.startswith('test'):
+            #self._TestName = methodName[len('test'):]
+        #else:
+            #self._TestName = methodName
             
         setup_imagetest.TransformTestBase.__init__(self, methodName=methodName)
         
@@ -89,10 +93,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #         stosFile = self.GetStosFile("0164-0162_brute_32")
 #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
 #     
-#     def testStosRefinementRC2_617(self):
-#         #self.TestName = "StosRefinementRC2_617"
-#         stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
-#         #self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=False, SavePlots=True)
+    def testStosRefinementRC2_617(self):
+        #self.TestName = "StosRefinementRC2_617"
+        stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
+        #self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=True, SavePlots=True)
 #         RefineStosFile(InputStos=stosFile, 
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
@@ -106,8 +110,23 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
     def testStosRefinementRC2_1034(self):
         #self.TestName = "StosRefinementRC2_617"
-        stosFile = self.GetStosFile("1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
-        self.RunStosRefinement(stosFile, ImageDir=self.TestInputDataPath, SaveImages=True, SavePlots=True)
+        stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034","1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
+        #self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=True, SavePlots=True)
+#         RefineStosFile(InputStos=stosFile, 
+#                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+#                        num_iterations=10,
+#                        cell_size=(128,128),
+#                        grid_spacing=(128,128),
+#                        angles_to_search=[-2.5, 0, 2.5],
+#                        min_travel_for_finalization=0.5,
+#                        min_alignment_overlap=0.5,
+#                        SaveImages=True,
+#                        SavePlots=True)
+
+    def testStosRefinementRC2_1034_Mini(self):
+        #self.TestName = "StosRefinementRC2_617"
+        stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034_Mini","1032-1034_brute_32_pyre_crude_across.stos")
+        self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=True, SavePlots=True)
 #         RefineStosFile(InputStos=stosFile, 
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
@@ -136,11 +155,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         
         if ImageDir is not None:
             fixedImage = os.path.join(ImageDir, stosObj.ControlImageFullPath)
-            warpedImage = os.path.join(ImageDir, stosObj.MappedImageFullPath) 
-        
+            warpedImage = os.path.join(ImageDir, stosObj.MappedImageFullPath)
+            
         fixedImageData = nornir_imageregistration.ImageParamToImageArray(fixedImage, dtype=np.float16)
         warpedImageData = nornir_imageregistration.ImageParamToImageArray(warpedImage, dtype=np.float16)
-        
+              
         stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(stosObj.Transform, 1)
         
         unrefined_image_path = os.path.join(self.TestOutputPath, 'unrefined_transform.png')
@@ -157,7 +176,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         num_iterations = 10
         
         cell_size=np.asarray((128, 128),dtype=np.int32)
-        grid_spacing=(128, 128)
+        grid_spacing=(92, 92)
         
         i = 1
         
@@ -185,8 +204,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 alignment_points = _RunRefineTwoImagesIteration(stosTransform,
                             fixedImageData,
                             warpedImageData,
-                            os.path.join(ImageDir, stosObj.ControlMaskFullPath),
-                            os.path.join(ImageDir, stosObj.MappedMaskFullPath),
+                            os.path.join(ImageDir, stosObj.ControlMaskName),
+                            os.path.join(ImageDir, stosObj.MappedMaskName),
                             cell_size=cell_size,
                             grid_spacing=grid_spacing,
                             finalized=finalized_points,
@@ -201,7 +220,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 
             combined_alignment_points = alignment_points + list(finalized_points.values())
             
-            percentile = 100.0 - (CutoffPercentilePerIteration * i)
+            percentile = 50.0 - (CutoffPercentilePerIteration * i)
             if percentile < 10.0:
                 percentile = 10.0
             elif percentile > 100:
@@ -209,6 +228,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 
    #         if final_pass:
    #             percentile = 0
+   
+            updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, percentile)
                 
             if SavePlots:
                 histogram_filename = os.path.join(self.TestOutputPath, 'weight_histogram_pass{0}.png'.format(i))
@@ -218,11 +239,16 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                           ylim=(0, fixedImageData.shape[1]),
                                                           xlim=(0, fixedImageData.shape[0]))
                                 
-            updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, percentile)
-             
-            new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(combined_alignment_points,
-                                                                                                     percentile=percentile,
-                                                                                                     min_travel_distance=0.333)
+            
+            finalize_percentile = 50.0
+            if finalize_percentile < 10.0:
+                finalize_percentile = 10.0
+            elif finalize_percentile > 100:
+                finalize_percentile = 100
+                
+            new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(alignment_points,
+                                                                                                     percentile=finalize_percentile,
+                                                                                                     min_travel_distance=1)
              
             new_finalizations = 0
             for (ir, record) in enumerate(alignment_points): 
@@ -287,7 +313,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
              
             i = i + 1
             
-            stosTransform = updatedTransform
+            #Build a final transform using only finalized points
+            #stosTransform = updatedTransform
+            stosTransform = local_distortion_correction._PeakListToTransform(list(finalized_points.values()), percentile)
             
             if final_pass:
                 break
@@ -312,17 +340,17 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         return
       
     def testGridRefineScript(self):
-        stosFile = self.GetStosFile("0617-0618_brute_32_pyre")
+        stosFile = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
         args = ['-input', stosFile,
                 '-output', os.path.join(self.TestOutputPath,'scriptTestResult.stos'),
                 '-min_overlap', '0.5',
                 '-grid_spacing', '128,128',
-                '-it', '5',
-                '-c','128,128',
+                '-it', '1',
+                '-c','256,256',
                 '-angles','0',
                 '-travel_cutoff','0.5']
         
-        nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
+        #nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
         return
     
     def _rotate_points(self, points, rotcenter, rangle):
@@ -404,6 +432,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             r.CalculatedWarpedPoint = T.InverseTransform(r.AdjustedTargetPoint)
         ########
         
+        #If this is failing check that at least three records make it past the filter criteria
         transform = local_distortion_correction._PeakListToTransform(records)
         
         test1 = np.asarray(((0,0),(5,5),(10,10)))

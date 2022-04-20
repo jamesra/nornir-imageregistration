@@ -694,7 +694,7 @@ class Triangulation(Base):
         self._WarpedKDTree = None
         self._FixedKDTree = None
         self._FixedBoundingBox = None
-        self._MappedBoundingBox = None 
+        self._MappedBoundingBox = None
 
     @classmethod
     def load(cls, variableParams, fixedParams):

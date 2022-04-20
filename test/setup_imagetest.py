@@ -181,7 +181,7 @@ class TransformTestBase(TestBase):
     
     @property
     def TestInputDataPath(self):
-        return os.path.join(self.ImportedDataPath, self.TestName)
+        return os.path.join(self.TestInputPath, 'Transforms', self.TestName)
     
     @property
     def TestOutputPath(self):
@@ -197,15 +197,20 @@ class TransformTestBase(TestBase):
             
         return glob.glob(os.path.join(self.TestInputDataPath, filenamebase + ".mosaic"))[0]
     
-    def GetStosFiles(self):
-        return glob.glob(os.path.join(self.TestInputDataPath, "*.stos"))
+    def GetStosFiles(self, *args):
+        return glob.glob(os.path.join(self.TestInputDataPath, *args, "*.stos"))
     
-    def GetStosFile(self, filenamebase): 
+    def GetStosFilePath(self, *args): 
+        '''Return a .stos file at a specific path'''
+        filenamebase = args[-1]
         (base, ext) = os.path.splitext(filenamebase)
         if ext is None or len(ext) == 0:
-            filenamebase = filenamebase + '.stos'
+            filenamebase = filenamebase + '.stos' 
             
-        return glob.glob(os.path.join(self.TestInputDataPath, filenamebase))[0]
+        path = os.path.join(self.TestInputDataPath, *args[0:-1], filenamebase)
+        self.assertTrue(os.path.exists(path), f'{path} is missing')
+        
+        return path
 
     def GetTileFullPath(self, downsamplePath=None):
         if downsamplePath is None:
