@@ -2,6 +2,7 @@ import copy
 import logging
 import os
 import sys
+import typing
 
 import nornir_imageregistration 
 
@@ -10,7 +11,7 @@ import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
 
 
-def __argumentToStos(Argument):
+def __argumentToStos(Argument) -> nornir_imageregistration.transforms.Base:
 
     stosObj = None
     if isinstance(Argument, str):
@@ -22,35 +23,6 @@ def __argumentToStos(Argument):
 
     return stosObj
 
-def AddStosTransforms(A_To_B, B_To_C, EnrichTolerance):
-
-    A_To_B_Stos = __argumentToStos(A_To_B)
-    B_To_C_Stos = __argumentToStos(B_To_C)
-
-    # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
-    A_To_B_Transform = nornir_imageregistration.transforms.LoadTransform(A_To_B_Stos.Transform)
-    B_To_C_Transform = nornir_imageregistration.transforms.LoadTransform(B_To_C_Stos.Transform)
-    
-    # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
-    
-    
-    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
-
-    A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
-    A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
-    A_To_C_Stos.ControlMaskFullPath = B_To_C_Stos.ControlMaskFullPath
-
-    A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
-
-#     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
-#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
-#     else:
-#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
-
-    A_To_C_Stos.ControlImageDim = B_To_C_Stos.ControlImageDim
-    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim 
-
-    return A_To_C_Stos
 
 class StosFile(object):
     """description of class"""
@@ -247,6 +219,9 @@ class StosFile(object):
 
         self.ImageToTransform = dict()
         return
+    
+    def __str__(self):
+        return f'{self.ControlSectionNumber}<-{self.MappedSectionNumber} DS:{self._Downsample}'
 
     @classmethod
     def GetInfo(cls, filename):
@@ -359,7 +334,7 @@ class StosFile(object):
         return obj
 
     @staticmethod
-    def IsValid(filename):
+    def IsValid(filename) -> bool:
         '''#If stos-grid completely fails it uses the maximum float value for each data point.  This function loads the transform and ensures it is valid'''
 
         if not os.path.exists(filename):
@@ -670,3 +645,41 @@ class StosFile(object):
 
 
         return True
+
+
+def AddStosTransforms(A_To_B,
+                      B_To_C, 
+                      EnrichTolerance: bool) -> StosFile:
+    '''
+    :param A_To_B: Commonly a single section transform, "4->3"
+    :param B_To_C: Commonly the transform to the center of a volume, "3->1"
+    '''
+    A_To_B_Stos = __argumentToStos(A_To_B)
+    B_To_C_Stos = __argumentToStos(B_To_C)
+
+    # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
+    A_To_B_Transform = nornir_imageregistration.transforms.LoadTransform(A_To_B_Stos.Transform)
+    B_To_C_Transform = nornir_imageregistration.transforms.LoadTransform(B_To_C_Stos.Transform)
+    
+    # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
+    
+    
+    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
+    
+
+    A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
+    A_To_C_Stos.ControlSectionNumber = B_To_C_Stos.ControlSectionNumber
+    A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
+    A_To_C_Stos.ControlMaskFullPath = B_To_C_Stos.ControlMaskFullPath
+
+    A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
+
+#     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
+#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
+#     else:
+#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
+
+    A_To_C_Stos.ControlImageDim = B_To_C_Stos.ControlImageDim
+    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim 
+
+    return A_To_C_Stos
