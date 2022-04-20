@@ -10,7 +10,7 @@ import matplotlib.lines as lines
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
 import nornir_imageregistration
-from nornir_imageregistration import iPoint
+from nornir_imageregistration.spatial import iPoint
 
 def __PlotVectorOriginShape(render_mask, shape, Points, weights=None, color=None, colormap=None):
     '''Plot a subset of the points that are True in the mask with the specified shape
