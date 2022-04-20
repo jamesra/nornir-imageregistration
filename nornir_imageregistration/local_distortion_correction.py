@@ -381,7 +381,7 @@ def RefineTransform(stosTransform,
             
         combined_alignment_points = alignment_points + list(finalized_points.values())
             
-        percentile = 100.0 - (CutoffPercentilePerIteration * i)
+        percentile = 50.0 - (CutoffPercentilePerIteration * i)
         if percentile < 10.0:
             percentile = 10.0
         elif percentile > 100:
@@ -403,10 +403,18 @@ def RefineTransform(stosTransform,
                                                       xlim=(0, target_image.shape[0]),
                                                       attrib='PSDDelta')
             
+        
+            
         updatedTransform = _PeakListToTransform(combined_alignment_points, percentile)
+        
+        finalize_percentile = 50.0
+        if finalize_percentile < 10.0:
+            finalize_percentile = 10.0
+        elif finalize_percentile > 100:
+            finalize_percentile = 100
              
         new_finalized_points = CalculateFinalizedAlignmentPointsMask(combined_alignment_points,
-                                                                     percentile=percentile,
+                                                                     percentile=finalize_percentile,
                                                                      min_travel_distance=min_travel_for_finalization)
         
         new_finalizations = 0
@@ -485,8 +493,11 @@ def RefineTransform(stosTransform,
             angles_to_search = final_pass_angles
         
     # Convert the transform to a grid transform and persist to disk
+    
+    stosTransform = _PeakListToTransform(list(finalized_points.values()), percentile=None)
+    gridTransform = ConvertTransformToGridTransform(stosTransform, source_image_shape=source_image.shape, cell_size=cell_size, grid_spacing=grid_spacing)
      
-    return stosTransform
+    return gridTransform
         
 
 def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_mask=None,
@@ -518,10 +529,14 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     
     if target_mask is not None:
         target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
+        #Remove extrema, TODO: Remove only large extrema?
+        target_mask = np.logical_and(target_mask, np.logical_and(target_image != 1.0, target_image != 0)) 
         target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask)
         
     if source_mask is not None:
         source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
+        #Remove extrema, TODO: Remove only large extrema?
+        source_mask = np.logical_and(source_mask, np.logical_and(source_image != 1.0, source_image != 0))
         source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask)
     
 #     shared_fixed_image  = nornir_imageregistration.npArrayToReadOnlySharedArray(target_image)
@@ -554,11 +569,11 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
 #    TargetPoints = np.round(TargetPoints - overage).astype(np.int64)
     # TODO, ensure fixedPoints are within the bounds of target_image
     grid_data.FilterOutofBoundsSourcePoints(source_image.shape)
-    grid_data.RemoveCellsUsingSourceImageMask(source_mask, 0.45)
+    grid_data.RemoveCellsUsingSourceImageMask(source_mask, 0.66)
     #nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.SourcePoints, source_mask, OutputFilename=None)
     
     grid_data.PopulateTargetPoints(Transform)
-    grid_data.RemoveCellsUsingTargetImageMask(target_mask, 0.45)
+    grid_data.RemoveCellsUsingTargetImageMask(target_mask, 0.66)
     
     #nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.TargetPoints, target_mask, OutputFilename=None)
     # grid_data.ApplyWarpedImageMask(source_mask)
@@ -682,6 +697,9 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
 def _PeakListToTransform(alignment_records, percentile=None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the _RunRefineTwoImagesIteration function into a transform
+    :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
+    :param fixed_records: Records that will always be included and not measured in metrics
+    :param percentile: Cutoff percentile for inlcuding alignment_records
     '''
     
     # TargetPoints = np.asarray(list(map(lambda a: a.TargetPoint, alignment_records)))
@@ -689,14 +707,24 @@ def _PeakListToTransform(alignment_records, percentile=None):
     AdjustedTargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, alignment_records)))
     # AdjustedWarpedPoints = np.asarray(list(map(lambda a: a.AdjustedWarpedPoint, alignment_records)))
     # CalculatedWarpedPoints = np.asarray(list(map(lambda a: a.CalculatedWarpedPoint, alignment_records)))
-    weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
+    
+    #With Weights big numbers are good and with peak distance generally small numbers are good.
+    #To merge these scores I invert the weights to subtract them from the max weight, then multiply by distance
+    
+    weights_distance = np.asarray(list(map(lambda a: (a.weight, np.linalg.norm(a.peak)), alignment_records)))
+    max_weight_distance = np.max(weights_distance,0)
+    weights_distance[:,0] = max_weight_distance[0] - weights_distance[:,0] 
+    
+    composite_score = np.prod(weights_distance,1)
     # WarpedPeaks = AdjustedWarpedPoints - OriginalSourcePoints
     
-    cutoff = 0
+    cutoff = np.max(composite_score)
     if percentile is not None:
-        cutoff = np.percentile(weights, percentile)       
+        cutoff = np.percentile(composite_score, 100.0 - percentile)       
     
-    valid_indicies = weights >= cutoff
+    valid_indicies = composite_score <= cutoff
+    
+    #Todo: Check that we have at least three points
     
     ValidFP = AdjustedTargetPoints[valid_indicies, :]
     ValidWP = OriginalSourcePoints[valid_indicies, :]
@@ -705,6 +733,10 @@ def _PeakListToTransform(alignment_records, percentile=None):
                           ValidFP.shape)) #, "Duplicate fixed points detected")
     assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidWP).shape,
                           ValidWP.shape)) #, "Duplicate warped points detected")
+    
+    if ValidFP.shape[0] < 3:
+        
+        raise Exception("Need at least three points to build a transform")
     
     # PointPairs = np.hstack((TargetPoints, SourcePoints))
     PointPairs = np.hstack((ValidFP, ValidWP))
@@ -762,11 +794,11 @@ def AlignmentRecordsToDict(alignment_records):
 
 
 def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask=None, percentile=0.5, min_travel_distance=1.0):
-    
+    '''
+    :return array: logical mask indicating which points meet the threshold to be finalized
+    '''
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
-    peaks = np.asarray(list(map(lambda a: a.peak, alignment_records)))
-    peak_distance = np.square(peaks)
-    peak_distance = np.sum(peak_distance, axis=1)
+    peak_distance = np.asarray(list(map(lambda a: np.linalg.norm(a.peak), alignment_records))) 
     
     cutoff = np.percentile(weights, percentile)    
     
