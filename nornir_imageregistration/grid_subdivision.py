@@ -58,8 +58,12 @@ class GridDivisionBase(object):
             
             self.RemoveMaskedPoints(valid)
             
-    def __CalculateMaskedCells(self, mask, points, min_overlap):
-        
+    def __CalculateMaskedCells(self, mask, points, min_unmasked_area: float = 0.5):
+        '''
+        :param ndarray mask: mask image used for calculation
+        :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        '''
         cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
         half_cell = (self.cell_size / 2.0).astype(np.int32)
         cell_area = np.prod(self.cell_size)
@@ -76,16 +80,17 @@ class GridDivisionBase(object):
             cell_true_count[iRow] = np.count_nonzero(cell)
             
         overlaps = cell_true_count / float(cell_area)
-        valid = overlaps > min_overlap
+        valid = overlaps >= min_unmasked_area
         return valid
     
             
-    def RemoveCellsUsingTargetImageMask(self, target_mask, min_overlap=0.5):
+    def RemoveCellsUsingTargetImageMask(self, target_mask, min_unmasked_area: float):
         '''
-        :param float min_overlap: Amount of cell area that must be valid according to mask
+        :param ndarray target_mask: mask image used for calculation
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
         '''
         if target_mask is not None:
-            valid = self.__CalculateMaskedCells(mask=target_mask, points=self.TargetPoints, min_overlap=min_overlap)
+            valid = self.__CalculateMaskedCells(mask=target_mask, points=self.TargetPoints, min_unmasked_area=min_unmasked_area)
             self.RemoveMaskedPoints(valid)
             
     def ApplySourceImageMask(self, source_mask):
@@ -94,12 +99,13 @@ class GridDivisionBase(object):
             valid = nornir_imageregistration.index_with_array(source_mask, self.SourcePoints)
             self.RemoveMaskedPoints(valid)
             
-    def RemoveCellsUsingSourceImageMask(self, source_mask, min_overlap=0.5):
+    def RemoveCellsUsingSourceImageMask(self, source_mask, min_unmasked_area: float):
         '''
-        :param float min_overlap: Amount of cell area that must be valid according to mask
+        :param ndarray source_mask: mask image used for calculation
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
         '''
         if source_mask is not None:
-            valid = self.__CalculateMaskedCells(mask=source_mask, points=self.SourcePoints, min_overlap=min_overlap)
+            valid = self.__CalculateMaskedCells(mask=source_mask, points=self.SourcePoints, min_unmasked_area=min_unmasked_area)
             self.RemoveMaskedPoints(valid)
         
     def FilterOutofBoundsTargetPoints(self, target_shape=None):       

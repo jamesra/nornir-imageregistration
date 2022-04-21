@@ -221,10 +221,11 @@ def RefineStosFile(InputStos, OutputStosPath,
                    cell_size=None,
                    grid_spacing=None,
                    angles_to_search=None,
-                   min_travel_for_finalization=None,
+                   max_travel_for_finalization=None,
                    min_alignment_overlap=None,
                    SaveImages=False,
-                   SavePlots=False):
+                   SavePlots=False, 
+                   **kwargs):
     '''
     Refines an inputStos file and produces the OutputStos file.
     
@@ -272,7 +273,7 @@ def RefineStosFile(InputStos, OutputStosPath,
                                         cell_size=cell_size,
                                         grid_spacing=grid_spacing,
                                         angles_to_search=angles_to_search,
-                                        min_travel_for_finalization=min_travel_for_finalization,
+                                        max_travel_for_finalization=max_travel_for_finalization,
                                         min_alignment_overlap=min_alignment_overlap,
                                         SaveImages=SaveImages,
                                         SavePlots=SavePlots,
@@ -290,17 +291,19 @@ def RefineTransform(stosTransform,
                     source_image,
                     target_mask=None,
                     source_mask=None,
-                    num_iterations=None,
+                    num_iterations:int=None,
                     cell_size=None,
                     grid_spacing=None,
                     angles_to_search=None,
-                    min_travel_for_finalization=None,
-                    min_alignment_overlap=None,
-                    SaveImages=False,
-                    SavePlots=False,
-                    outputDir=None):
+                    max_travel_for_finalization: float=None,
+                    min_alignment_overlap: float = None,
+                    min_unmasked_area: float = None,
+                    SaveImages: bool = False,
+                    SavePlots: bool = False,
+                    outputDir: str = None):
     '''
-    Refines a transform and returns a grid transform produced by the refinement algorithm.
+    Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
+    takes an initial transform and creates a regular grid of points.  Points covered more than 
     
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
@@ -313,17 +316,23 @@ def RefineTransform(stosTransform,
     :param tuple cell_size: (width, height) area of image around control points to use for registration
     :param tuple grid_spacing: (width, height) of separation between control points on the grid
     :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
+    :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
     :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
+    :param float min_unmasked_area: Amount of cell area that must be unmasked to utilize the cell
     :param bool SaveImages: Saves registered images of each iteration in the output path for debugging purposes
     :param bool SavePlots: Saves histograms and vector plots of each iteration in the output path for debugging purposes     
     :param str outputDir: Directory to save images and plots if requested.  Must not be null if SaveImages or SavePlots are true   
     '''
     
     if cell_size is None:
-        cell_size = (256, 256)
+        cell_size = np.array((256, 256))
+    elif isinstance(cell_size, int):
+        cell_size = np.array((cell_size, cell_size))
     
     if grid_spacing is None:
-        grid_spacing = (256, 256)
+        grid_spacing = np.array((256, 256))
+    elif isinstance(grid_spacing, int):
+        grid_spacing = np.array((grid_spacing, grid_spacing))
         
     if angles_to_search is None:
         angles_to_search = [0]
@@ -331,14 +340,14 @@ def RefineTransform(stosTransform,
     if num_iterations is None:
         num_iterations = 10
         
-    if min_travel_for_finalization is None:
-        min_travel_for_finalization = 0.333
+    if max_travel_for_finalization is None:
+        max_travel_for_finalization = np.sqrt(np.max(cell_size))
         
     if min_alignment_overlap is None:
         min_alignment_overlap = 0.5
         
-    if SavePlots or SaveImages:
-        assert(outputDir is not None)
+    if (SavePlots or SaveImages) and outputDir is None:
+        raise ValueError("outputDir must be specified if SavePlots or SaveImages is true.")
     
     # Convert inputs to numpy arrays
         
@@ -420,7 +429,7 @@ def RefineTransform(stosTransform,
             
         new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
                                                                     percentile=finalize_percentile,
-                                                                    max_travel_distance=np.sqrt(cell_size[0]))
+                                                                    max_travel_distance=max_travel_for_finalization)
 
         new_finalizations = 0
         for (ir, record) in enumerate(alignment_points): 
@@ -523,10 +532,11 @@ def CreateExtremaMask(imageData, size_cutoff=0.001):
 
 def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_mask=None,
                     source_mask=None, cell_size=(256, 256), grid_spacing=(256, 256),
-                    finalized=None, angles_to_search=None, min_alignment_overlap=0.5):
+                    max_mask=None, finalized=None, angles_to_search=None, min_alignment_overlap:float=0.5, min_unmasked_area:float=None):
     '''
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
+    
     :param transform transform: Transform that maps from source to target space
     :param ndarray target_image: Target image to serve as reference
     :param ndarray source_image: Source image to be transformed
@@ -536,7 +546,8 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     :param tuple grid_spacing: (width, height) of separation between control points on the grid
     :param dict finalized: A dictionary of points, indexed by Target Space Coordinates, that are finalized and do not need to be checked
     :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-    :param float min_alighment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.    
+    :param float min_alighment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
+    :param float min_unmasked_area: Cells must have this much area unmasked on both masks to be aligned    
     '''
     
     if isinstance(Transform, str):
@@ -807,6 +818,7 @@ def ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=Non
     PointPairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
      
     # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
+    
     T = nornir_imageregistration.transforms.triangulation.Triangulation(PointPairs)
     T.gridWidth = grid_data.grid_dims[1]
     T.gridHeight = grid_data.grid_dims[0]

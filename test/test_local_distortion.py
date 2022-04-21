@@ -93,10 +93,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #         stosFile = self.GetStosFile("0164-0162_brute_32")
 #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
 #     
-    def testStosRefinementRC2_617(self):
-        #self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
-        self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    # def testStosRefinementRC2_617(self):
+    #     #self.TestName = "StosRefinementRC2_617"
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
+    #     self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
 #         RefineStosFile(InputStos=stosFile, 
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
@@ -108,11 +108,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        SaveImages=True,
 #                        SavePlots=True)
         
-    def testStosRefinementRC2_1034(self):
-        #self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034","1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
-        self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
-#         RefineStosFile(InputStos=stosFile, 
+#     def testStosRefinementRC2_1034(self):
+#         #self.TestName = "StosRefinementRC2_617"
+#         stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034","1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
+#         self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+# #         RefineStosFile(InputStos=stosFile, 
 #                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
 #                        num_iterations=10,
 #                        cell_size=(128,128),
