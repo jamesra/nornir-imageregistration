@@ -42,6 +42,8 @@ def PlotPeakList(new_alignment_records, finalized_alignment_records, filename, y
     all_records = new_alignment_records + finalized_alignment_records
     shapes = ['s' for a in new_alignment_records]
     shapes.extend(['.' for a in finalized_alignment_records])
+    colors = ['b' for a in new_alignment_records]
+    colors.extend(['g' for a in finalized_alignment_records])
                  
     TargetPoints = np.asarray(list(map(lambda a: a.TargetPoint, all_records)))
     #OriginalWarpedPoints = np.asarray(list(map(lambda a: a.SourcePoint, all_records)))
@@ -52,7 +54,7 @@ def PlotPeakList(new_alignment_records, finalized_alignment_records, filename, y
     percentiles = (percentile_prep / np.max(percentile_prep)) * 100
     TargetPeaks = AdjustedTargetPoints - TargetPoints
     
-    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32), TargetPeaks, shapes, percentiles, OutputFilename=filename, ylim=ylim, xlim=xlim )
+    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32), TargetPeaks, shapes, percentiles, OutputFilename=filename, ylim=ylim, xlim=xlim, colors=colors )
      
     return
 

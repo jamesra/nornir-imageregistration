@@ -14,7 +14,9 @@ from nornir_imageregistration.transforms.triangulation import Triangulation
 
 
 import numpy as np
-import os
+import scipy
+import scipy.ndimage
+import os 
 
 
 class DistortionCorrection:
@@ -381,14 +383,18 @@ def RefineTransform(stosTransform,
             
         combined_alignment_points = alignment_points + list(finalized_points.values())
             
-        percentile = 50.0 - (CutoffPercentilePerIteration * i)
+        percentile = 33.3# - (CutoffPercentilePerIteration * i)
         if percentile < 10.0:
             percentile = 10.0
         elif percentile > 100:
             percentile = 100
-            
-#         if final_pass:
-#             percentile = 0
+             
+        #         if final_pass:
+        #             percentile = 0
+   
+        updatedTransform = _PeakListToTransform(alignment_points, AlignRecordsToControlPoints(finalized_points.values()), percentile=percentile)
+        #updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, fixed_points=None, percentile=percentile)
+          
             
         if SavePlots:
             histogram_filename = os.path.join(outputDir, 'weight_histogram_pass{0}.png'.format(i))
@@ -405,18 +411,17 @@ def RefineTransform(stosTransform,
             
         
             
-        updatedTransform = _PeakListToTransform(combined_alignment_points, percentile)
         
-        finalize_percentile = 50.0
+        finalize_percentile = 66.6
         if finalize_percentile < 10.0:
             finalize_percentile = 10.0
         elif finalize_percentile > 100:
             finalize_percentile = 100
-             
-        new_finalized_points = CalculateFinalizedAlignmentPointsMask(combined_alignment_points,
-                                                                     percentile=finalize_percentile,
-                                                                     min_travel_distance=min_travel_for_finalization)
-        
+            
+        new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
+                                                                    percentile=finalize_percentile,
+                                                                    max_travel_distance=np.sqrt(cell_size[0]))
+
         new_finalizations = 0
         for (ir, record) in enumerate(alignment_points): 
             if not new_finalized_points[ir]:
@@ -493,12 +498,28 @@ def RefineTransform(stosTransform,
             angles_to_search = final_pass_angles
         
     # Convert the transform to a grid transform and persist to disk
-    
-    stosTransform = _PeakListToTransform(list(finalized_points.values()), percentile=None)
+    #stosTransform = _PeakListToTransform(list(finalized_points.values()), percentile=None)
     gridTransform = ConvertTransformToGridTransform(stosTransform, source_image_shape=source_image.shape, cell_size=cell_size, grid_spacing=grid_spacing)
      
     return gridTransform
-        
+
+def CreateExtremaMask(imageData, size_cutoff=0.001):
+    '''
+    Returns a mask for features above a set size that are at max or min pixel value
+    :param size_cutoff: 0 to 1.0, determines how large a feature must be before it is masked
+    '''
+    extrema_mask = np.logical_or(imageData == 1.0, imageData == 0)
+    (extrema_mask_label, nLabels) = scipy.ndimage.label(extrema_mask)
+    
+    label_sums = scipy.ndimage.measurements.sum_labels(extrema_mask, extrema_mask_label, list(range(0, nLabels)))
+    cutoff_value = np.prod(imageData.shape) * size_cutoff 
+    cutoff_labels = np.nonzero(label_sums < cutoff_value)
+    extrema_mask_minus_small_features = np.isin(extrema_mask_label, cutoff_labels)
+     
+    #nornir_imageregistration.ShowGrayscale((imageData, extrema_mask, extrema_mask_minus_small_features))
+    
+    return extrema_mask_minus_small_features
+     
 
 def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_mask=None,
                     source_mask=None, cell_size=(256, 256), grid_spacing=(256, 256),
@@ -530,14 +551,16 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     if target_mask is not None:
         target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
         #Remove extrema, TODO: Remove only large extrema?
-        target_mask = np.logical_and(target_mask, np.logical_and(target_image != 1.0, target_image != 0)) 
-        target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask)
+        target_extrema_mask = CreateExtremaMask(target_image)
+        target_mask = np.logical_and(target_mask, target_extrema_mask) 
+        target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask, Copy=True)
         
     if source_mask is not None:
         source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
         #Remove extrema, TODO: Remove only large extrema?
-        source_mask = np.logical_and(source_mask, np.logical_and(source_image != 1.0, source_image != 0))
-        source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask)
+        source_extrema_mask = CreateExtremaMask(source_image)
+        source_mask = np.logical_and(source_mask, source_extrema_mask)
+        source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask, Copy=True)
     
 #     shared_fixed_image  = nornir_imageregistration.npArrayToReadOnlySharedArray(target_image)
 #     shared_fixed_image.mode = 'r'
@@ -692,16 +715,32 @@ def _RunRefineTwoImagesIteration(Transform, target_image, source_image, target_m
     # Re-run the loop
     
     # return updatedTransform
+    
+def AlignRecordsToControlPoints(alignment_records):
+    '''
+    Convert alignment records to a numpy array of control points
+    :param alignment_records: list of alignment records
+    :return: ndarray of control points
+    '''
+    
+    SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
+    TargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, alignment_records)))
+    
+    PointPairs = np.hstack((TargetPoints, SourcePoints))
+    return PointPairs
 
     
-def _PeakListToTransform(alignment_records, percentile=None):
+def _PeakListToTransform(alignment_records, fixed_points=None, percentile=None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the _RunRefineTwoImagesIteration function into a transform
     :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
-    :param fixed_records: Records that will always be included and not measured in metrics
+    :param fixed_points: Control points that will always be included and not measured in metrics
     :param percentile: Cutoff percentile for inlcuding alignment_records
     '''
     
+    if fixed_points is not None and False == isinstance(fixed_points, np.ndarray):
+        raise Exception("fixed_points must be an ndarray")
+        
     # TargetPoints = np.asarray(list(map(lambda a: a.TargetPoint, alignment_records)))
     OriginalSourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
     AdjustedTargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, alignment_records)))
@@ -715,12 +754,13 @@ def _PeakListToTransform(alignment_records, percentile=None):
     max_weight_distance = np.max(weights_distance,0)
     weights_distance[:,0] = max_weight_distance[0] - weights_distance[:,0] 
     
-    composite_score = np.prod(weights_distance,1)
+    #composite_score = weights_distance[:,0] #np.prod(weights_distance,1)
+    composite_score = np.prod(weights_distance, 1)
     # WarpedPeaks = AdjustedWarpedPoints - OriginalSourcePoints
     
     cutoff = np.max(composite_score)
     if percentile is not None:
-        cutoff = np.percentile(composite_score, 100.0 - percentile)       
+        cutoff = np.percentile(composite_score, 100.0 - percentile)
     
     valid_indicies = composite_score <= cutoff
     
@@ -734,12 +774,18 @@ def _PeakListToTransform(alignment_records, percentile=None):
     assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidWP).shape,
                           ValidWP.shape)) #, "Duplicate warped points detected")
     
-    if ValidFP.shape[0] < 3:
-        
+    if ValidFP.shape[0] < 3: 
         raise Exception("Need at least three points to build a transform")
     
     # PointPairs = np.hstack((TargetPoints, SourcePoints))
     PointPairs = np.hstack((ValidFP, ValidWP))
+    
+    if fixed_points is not None and fixed_points.shape[0] > 0:
+        if fixed_points.shape[1] != 4:
+            raise Exception("fixed_points must have shape (N,4)")
+        
+        PointPairs = np.vstack((PointPairs, fixed_points))
+         
     # PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
     T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(PointPairs)
@@ -793,17 +839,25 @@ def AlignmentRecordsToDict(alignment_records):
     return lookup
 
 
-def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask=None, percentile=0.5, min_travel_distance=1.0):
+def CalculateFinalizedAlignmentPointsMask(alignment_records, old_mask=None, percentile=0.5, max_travel_distance=1.0):
     '''
     :return array: logical mask indicating which points meet the threshold to be finalized
     '''
-    weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
-    peak_distance = np.asarray(list(map(lambda a: np.linalg.norm(a.peak), alignment_records))) 
+    weights_distance = np.asarray(list(map(lambda a: (a.weight, np.linalg.norm(a.peak)), alignment_records)))
+    max_weight_distance = np.max(weights_distance,0)
+    weights_distance[:,0] = max_weight_distance[0] - weights_distance[:,0] 
     
-    cutoff = np.percentile(weights, percentile)    
+    #composite_score = weights_distance[:,0] #np.prod(weights_distance,1)
+    composite_score = np.prod(weights_distance,1)
     
-    valid_weight = weights > cutoff 
-    valid_distance = peak_distance <= np.square(min_travel_distance)
+    #weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
+    #peak_distance = np.asarray(list(map(lambda a: np.linalg.norm(a.peak), alignment_records))) 
+    
+    #cutoff = np.percentile(weights, percentile)  
+    cutoff = np.percentile(composite_score, 100.0 - percentile)    
+    
+    valid_weight = weights_distance[:,0] < cutoff 
+    valid_distance = weights_distance[:,1] <= max_travel_distance
     
     finalize_mask = np.logical_and(valid_weight, valid_distance)
     
