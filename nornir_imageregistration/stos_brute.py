@@ -42,7 +42,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         if isinstance(AngleSearchRange, np.ndarray):
             AngleSearchRange = list(AngleSearchRange)
         
-    logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
+    #logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
     
     WarpedImageScalingRequired = False
     if WarpedImageScaleFactors is not None:
@@ -169,9 +169,16 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
     TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
     TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
 
-    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
-    RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
-
+    #Why is MinOverlap hard-coded to 1.0?
+    #PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
+    if False == np.array_equal(imFixed.shape, np.array((TargetHeight, TargetHeight))):
+        PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
+        
+    if np.array_equal(RotatedWarped.shape, np.array((TargetHeight, TargetHeight))):
+        RotatedPaddedWarped = RotatedWarped
+    else:
+        RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
+        
     #if OKToDelimWarped:
     del imWarped 
     del imFixed
