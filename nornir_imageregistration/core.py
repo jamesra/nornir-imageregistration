@@ -8,6 +8,7 @@ import math
 import multiprocessing.sharedctypes
 import os
 import tempfile
+import warnings
 
 from PIL import Image
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -1043,10 +1044,10 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
     return MaskedImage
 
 
-def CreateExtremaMask(image:np.ndarray, size_cutoff:float=0.001, minima = 0.0, maxima = 1.0):
+def CreateExtremaMask(image:np.ndarray, size_cutoff, minima = 0.0, maxima = 1.0):
     '''
     Returns a mask for features above a set size that are at max or min pixel value
-    :param size_cutoff: 0 to 1.0, determines how large a continuos min or max region must be before it is masked. If None all min/max are masked regardless of size
+    :param size_cutoff: Determines how large a continous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
     '''
     #(minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(image)
     
@@ -1060,7 +1061,15 @@ def CreateExtremaMask(image:np.ndarray, size_cutoff:float=0.001, minima = 0.0, m
             return np.ones(image.shape,extrema_mask.dtype)
         
         label_sums = scipy.ndimage.measurements.sum_labels(extrema_mask, extrema_mask_label, list(range(0, nLabels)))
-        cutoff_value = np.prod(image.shape) * size_cutoff
+       
+        cutoff_value = None
+        #if cutoff value is less than one treat it as a fraction of total area 
+        if size_cutoff <= 1.0:
+            cutoff_value = np.prod(image.shape) * size_cutoff
+        elif isinstance(size_cutoff, int) == False:
+            warnings.warn(f"Expecting an integer to specify min area of labels to mask in CreateExtremaMask.  Got {size_cutoff}.")
+            cutoff_value = size_cutoff
+            
         labels_to_save = label_sums < cutoff_value
         if np.any(labels_to_save):
             cutoff_labels = np.nonzero(labels_to_save)
