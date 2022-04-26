@@ -58,12 +58,16 @@ class GridDivisionBase(object):
             
             self.RemoveMaskedPoints(valid)
             
-    def __CalculateMaskedCells(self, mask, points, min_unmasked_area: float = 0.5):
+    def __CalculateMaskedCells(self, mask, points, min_unmasked_area: float = None):
         '''
         :param ndarray mask: mask image used for calculation
         :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
-        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
         '''
+        
+        if min_unmasked_area is None:
+            min_unmasked_area = 0
+            
         cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
         half_cell = (self.cell_size / 2.0).astype(np.int32)
         cell_area = np.prod(self.cell_size)
@@ -80,7 +84,7 @@ class GridDivisionBase(object):
             cell_true_count[iRow] = np.count_nonzero(cell)
             
         overlaps = cell_true_count / float(cell_area)
-        valid = overlaps >= min_unmasked_area
+        valid = overlaps > min_unmasked_area
         return valid
     
             

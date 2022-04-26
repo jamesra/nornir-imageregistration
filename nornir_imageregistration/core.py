@@ -982,7 +982,8 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
 def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False):
     '''
     Fill the masked area with random noise with gaussian distribution about the image
-    mean and with standard deviation matching the image's standard deviation
+    mean and with standard deviation matching the image's standard deviation.  Mask
+    pixels that are False will be replaced with random noise
     
     :param ndimage image: Input image
     :param ndimage mask: Mask, zeros are replaced with noise.  Ones pull values from input image
@@ -1000,29 +1001,30 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
 
     Mask1D = Mask.flat
 
-    iMasked = Mask1D == 0
+    iPixelsToReplace = Mask1D == 0
     
-    NumMaskedPixels = np.sum(iMasked)
-    if(NumMaskedPixels == 0):
-        return MaskedImage
-   
+    numInvalidPixels = np.sum(iPixelsToReplace)
+     
     Image1D = MaskedImage.flat
     
-    # iUnmasked = numpy.logical_not(iMasked)
+    numValidPixels = len(Image1D) - numInvalidPixels 
+    if numInvalidPixels == 0: 
+        #Entire image is masked, there is no noise to create
+        return MaskedImage
+    
+    # iUnmasked = numpy.logical_not(iPixelsToReplace)
     if(ImageMedian is None or ImageStdDev is None):
         # Create masked array for accurate stats
-        
-        numUnmaskedPixels = len(Image1D) - NumMaskedPixels 
-        if numUnmaskedPixels <= 2:
-            if numUnmaskedPixels == 0:
-                raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
-            else:
-                raise ValueError("All but %d pixels are masked, cannot calculate standard deviation" % ())
+        if numValidPixels == 0:
+            raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
+            #return MaskedImage        
+        elif numValidPixels <= 2:
+            raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
          
         # Bit of a backward convention here.
         # Need to use float64 so that sum does not return an infinite value
         if ImageMedian is None or ImageStdDev is None:
-            UnmaskedImage1D = np.ma.masked_array(Image1D, iMasked, dtype=np.float64).compressed()
+            UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=np.float64).compressed()
          
             if(ImageMedian is None):
                 ImageMedian = np.median(UnmaskedImage1D)
@@ -1031,45 +1033,56 @@ def RandomNoiseMask(image, Mask, ImageMedian=None, ImageStdDev=None, Copy=False)
                 
             del UnmaskedImage1D
  
-    NoiseData = GenRandomData(1, NumMaskedPixels, ImageMedian, ImageStdDev, image.min(), image.max())
+    NoiseData = GenRandomData(1, numInvalidPixels, ImageMedian, ImageStdDev, image.min(), image.max())
 
-    # iMasked = transpose(nonzero(iMasked))
-    Image1D[iMasked] = NoiseData
+    # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
+    Image1D[iPixelsToReplace] = NoiseData
 
     # NewImage = reshape(Image1D, (Height, Width), 2)
 
     return MaskedImage
 
 
-def ReplaceImageExtramaWithNoise(image, ImageMedian=None, ImageStdDev=None):
+def CreateExtremaMask(image:np.ndarray, size_cutoff:float=0.001, minima = 0.0, maxima = 1.0):
+    '''
+    Returns a mask for features above a set size that are at max or min pixel value
+    :param size_cutoff: 0 to 1.0, determines how large a continuos min or max region must be before it is masked. If None all min/max are masked regardless of size
+    '''
+    #(minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(image)
+    
+    extrema_mask = np.logical_or(image == maxima, image == minima)
+    
+    if size_cutoff is None:
+        return extrema_mask
+    else:
+        (extrema_mask_label, nLabels) = scipy.ndimage.label(extrema_mask)
+        if nLabels == 0: #If there are no labels, do not mask anything
+            return np.ones(image.shape,extrema_mask.dtype)
+        
+        label_sums = scipy.ndimage.measurements.sum_labels(extrema_mask, extrema_mask_label, list(range(0, nLabels)))
+        cutoff_value = np.prod(image.shape) * size_cutoff
+        labels_to_save = label_sums < cutoff_value
+        if np.any(labels_to_save):
+            cutoff_labels = np.nonzero(labels_to_save)
+            extrema_mask_minus_small_features = np.isin(extrema_mask_label, cutoff_labels)
+     
+        #nornir_imageregistration.ShowGrayscale((image, extrema_mask, extrema_mask_minus_small_features))
+        
+        return extrema_mask_minus_small_features
+
+
+def ReplaceImageExtramaWithNoise(image: np.ndarray, ImageMedian:float=None, ImageStdDev:float=None, size_cutoff:float=0.001):
     '''
     Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions
+    :param float ImageMedian: Median pixel value, if known, to use for random noise output.  Will be calculated if not passed
+    :param float ImageStdDev: Standard Deviation of pixel value, if known, to use for random noise output.  Will be calculated if not passed
+    :param size_cutoff: 0 to 1.0, determines how large a continuos min or max region must be before it is masked. If None all min/max are masked regardless of size.  Defaults to 0.001, None will mask all min/max
     '''
 
-    Image1D = image.flat
-
-    (minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(Image1D)
-
-    maxima_index = np.transpose((Image1D == maxima).nonzero())
-    minima_index = np.transpose((Image1D == minima).nonzero())
-
-    if(ImageMedian is None or ImageStdDev is None):
-        if(ImageMedian is None):
-            ImageMedian = np.median(Image1D)
-        if(ImageStdDev is None):
-            ImageStdDev = np.std(Image1D)
-
-    num_pixels = len(maxima_index) + len(minima_index)
-
-    OutputImage = np.copy(image)
-    
-    if num_pixels > 0:
-        OutputImage1d = OutputImage.flat
-        randData = GenRandomData(num_pixels, 1, ImageMedian, ImageStdDev, minima, maxima)
-        OutputImage1d[maxima_index] = randData[0:len(maxima_index)]
-        OutputImage1d[minima_index] = randData[len(maxima_index):]
-
-    return OutputImage
+    #If profiling shows this is slow there are older implementations in git
+    mask = CreateExtremaMask(image,size_cutoff=size_cutoff)
+    noised_image = nornir_imageregistration.RandomNoiseMask(image, mask, Copy=True)
+    return noised_image
 
 
 def NearestPowerOfTwo(val):
@@ -1118,7 +1131,7 @@ def DimensionWithOverlap(val, overlap=1.0):
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, NewWidth=None, NewHeight=None, PowerOfTwo=True):
     '''
     Prepares an image for use with the phase correlation operation.  Padded areas are filled with noise matching the histogram of the 
-    original image.  Optionally the min/max pixels can also replaced be replaced with noise using FillExtremaWithNoise
+    original image.
     
     :param ndarray image: Input image
     :param float MinOverlap: Minimum overlap allowed between the input image and images it will be registered to
