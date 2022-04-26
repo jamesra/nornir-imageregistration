@@ -243,13 +243,38 @@ class TestCore(setup_imagetest.ImageTestBase):
 
     def testReplaceImageExtramaWithNoise(self):
 
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "0226_mosaic_32.png")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+
+        image = imread(self.FixedImagePath)
+        updatedImage = nornir_imageregistration.ReplaceImageExtramaWithNoise(image)
+        
+        minima = 0
+        maxima = 1.0
+        extrema_mask = np.logical_not(np.logical_or(image == maxima, image == minima))
+        mask = nornir_imageregistration.CreateExtremaMask(image,size_cutoff=0.001)
+        self.assertIsNotNone(updatedImage)
+        self.assertFalse((image == updatedImage).all())
+        
+        self.assertTrue(nornir_imageregistration.ShowGrayscale((image, extrema_mask, updatedImage, mask), title="Image should have extrema values removed, but not small regions saturated cells.\nTop mask should mark all extrema.  Bottom mask should remove small extrema regions.", PassFail=True))
+
+    def testReplaceImageExtramaWithNoiseSmall(self):
+
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
         updatedImage = nornir_imageregistration.ReplaceImageExtramaWithNoise(image)
+        
+        minima = 0
+        maxima = 1.0
+        extrema_mask = np.logical_not(np.logical_or(image == maxima, image == minima))
+        mask = nornir_imageregistration.CreateExtremaMask(image,size_cutoff=0.001)
         self.assertIsNotNone(updatedImage)
         self.assertFalse((image == updatedImage).all())
+        
+        self.assertTrue(nornir_imageregistration.ShowGrayscale((image, extrema_mask, updatedImage, mask), title="Image should have extrema values removed, but not small regions saturated cells.\nTop mask should mark all extrema.  Bottom mask should remove small extrema regions.", PassFail=True))
+
 
     def testRandomNoiseMask(self):
 
