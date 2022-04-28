@@ -135,6 +135,8 @@ def ImageParamToImageArray(imageparam, dtype=None):
             dtype = imageparam.dtype
             
         image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
+        if dtype != imageparam.dtype:
+            image = image.astype(dtype=dtype)
     
     if image is None:
         raise ValueError("Image param %s is not a numpy array or image file" % (str(imageparam)))
@@ -1068,6 +1070,8 @@ def CreateExtremaMask(image:np.ndarray, size_cutoff, minima = 0.0, maxima = 1.0)
             cutoff_value = np.prod(image.shape) * size_cutoff
         elif isinstance(size_cutoff, int) == False:
             warnings.warn(f"Expecting an integer to specify min area of labels to mask in CreateExtremaMask.  Got {size_cutoff}.")
+            cutoff_value = size_cutoff
+        else:
             cutoff_value = size_cutoff
             
         labels_to_save = label_sums < cutoff_value
