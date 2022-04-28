@@ -5,13 +5,15 @@ Created on Mar 18, 2013
 '''
 import os
 import unittest
+import hypothesis
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import *
 
 from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
               IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
-              __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints
+              __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
+              CompressedTransformPoints 
 
 import numpy as np
 from nornir_imageregistration.transforms import rbftransform
@@ -353,6 +355,72 @@ class TestTransforms(unittest.TestCase):
         self.assertFalse(utils.IsOriginAtZero([OffsetTransform]), "Origin of Offset Transform is not at zero")
         
         self.assertTrue(utils.IsOriginAtZero([IdentityTransform, OffsetTransform]), "Origin of identity transform and offset transform is at zero")
+
+    
+    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15))
+    def test_RBFReciprocation(self, x, y):
+        '''
+        Tests that calling a transform and then the inverse returns the original points
+        '''
+        T = nornir_imageregistration.transforms.RBFWithLinearCorrection(CompressedTransformPoints[:,2:], 
+                                                                        CompressedTransformPoints[:,0:2])
+        
+        InverseT = nornir_imageregistration.transforms.RBFWithLinearCorrection(CompressedTransformPoints[:,0:2], 
+                                                                        CompressedTransformPoints[:,2:])
+        
+        point = np.array((y,x), dtype= np.float32)
+        
+        t_point = T.Transform(point)
+        inverse_point = InverseT.Transform(t_point)
+        delta = np.linalg.norm(point-inverse_point)
+        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
+                                       f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point-inverse_point)}\n")
+        
+    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15))
+    def test_TriangulationReciprocation(self, x, y):
+        '''
+        Tests that calling a transform and then the inverse returns the original points
+        '''  
+        T = nornir_imageregistration.transforms.Triangulation(CompressedTransformPoints)
+        
+        point = np.array((y,x), dtype= np.float32)
+        
+        t_point = T.Transform(point)
+        
+        #If None then the point cannot be mapped in the discrete transform
+        if np.any(np.isnan(t_point)):
+            hypothesis.event('trivial - outside bounds')
+            return
+            
+        inverse_point = T.InverseTransform(t_point)
+        delta = np.linalg.norm(point-inverse_point)
+        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
+                                       f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point-inverse_point)}\n")
+        
+    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15),
+                      x_offset=hypothesis.strategies.integers(-5, 5),  y_offset=hypothesis.strategies.integers(-5, 5),
+                      x_center=hypothesis.strategies.integers(-5, 15), y_center=hypothesis.strategies.integers(-5, 15))
+    def test_CenteredSimilarityReciprocation(self, x, y, x_offset, y_offset, x_center, y_center):
+        '''
+        Tests that calling a transform and then the inverse returns the original points
+        ''' 
+        source_rotation_center = np.array((y_center, x_center))
+        target_offset = np.array((y_offset, x_offset))
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
+                                                          source_rotation_center=source_rotation_center,
+                                                          angle=0,
+                                                          scalar=1,
+                                                          MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0),(10,10)))
+
+        
+        point = np.array((y,x), dtype= np.float32)
+        
+        t_point = T.Transform(point)
+        inverse_point = T.InverseTransform(t_point)
+        delta = np.linalg.norm(point-inverse_point)
+        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
+                                       f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point-inverse_point)}\n")
+        
         
     def test_bounds(self):
         

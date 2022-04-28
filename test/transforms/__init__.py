@@ -106,3 +106,9 @@ OffsetTransformPoints = np.array([[1, 1, 0, 0],
                               [2, 1, 1, 0],
                               [1, 2, 0, 1],
                               [2, 2, 1, 1]])
+
+#Describes a square where in one transform the top-right corner is moved to the center
+CompressedTransformPoints = np.array([[0, 0, 0, 0],
+                              [10, 0, 10, 0],
+                              [0, 10, 0, 10],
+                              [10, 10, 7.5, 6]])
