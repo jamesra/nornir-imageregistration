@@ -55,13 +55,15 @@ def SliceToSliceBruteForce(FixedImageInput,
         
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)        
+        imFixed = nornir_imageregistration.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
         imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
+        imWarped = nornir_imageregistration.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
         if WarpedImageScalingRequired:
             imWarped = nornir_imageregistration.ResizeImage(imWarped, WarpedImageScaleFactors)
     else:
@@ -76,8 +78,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         imWarped = nornir_imageregistration.ReduceImage(imWarped, scalar)
 
     # Replace extrema with noise
-    imFixed = nornir_imageregistration.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
-    imWarped = nornir_imageregistration.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
+    
 
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
@@ -321,8 +322,8 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
     
     # Delete the pool to ensure extra python threads do not stick around
-    if pool is not None:
-        pool.shutdown()
+    #if pool is not None:
+    #    pool.shutdown()
 
     del PaddedFixed
 
