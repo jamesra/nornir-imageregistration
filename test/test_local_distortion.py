@@ -109,7 +109,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        SavePlots=True)
         
 #     def testStosRefinementRC2_1034(self):
-#         #self.TestName = "StosRefinementRC2_617"
+#         #self.TestName = "StosRefinementRC2_1034"
 #         stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034","1034-1032_ctrl-TEM_Leveled_map-TEM_Leveled_original.stos")
 #         self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
 # #         RefineStosFile(InputStos=stosFile, 
@@ -124,7 +124,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        SavePlots=True)
 
     def testStosRefinementRC2_1034_Mini(self):
-        # self.TestName = "StosRefinementRC2_617"
+        #self.TestName = "StosRefinementRC2_1034_Mini"
         stosFilePath = self.GetStosFilePath("StosRefinementRC2_1034_Mini", "1032-1034_brute_32_pyre_crude_across.stos")
         self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
 #         RefineStosFile(InputStos=stosFile, 
@@ -137,6 +137,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 #                        min_alignment_overlap=0.5,
 #                        SaveImages=True,
 #                        SavePlots=True)
+        return
     
     def RunStosRefinement(self, stosFilePath, ImageDir=None, SaveImages=False, SavePlots=True):
         '''
@@ -199,7 +200,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                         cell_size=128,
                                                         grid_spacing=96,
                                                         angles_to_search=None,
-                                                        final_pass_angles=np.linspace(-7.5, 7.5, 11),
+                                                        final_pass_angles=[0],#np.linspace(-7.5, 7.5, 11),
                                                         max_travel_for_finalization=None,
                                                         min_alignment_overlap=0.5,
                                                         min_unmasked_area=0.49)
@@ -221,6 +222,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                 finalized=finalized_points,
                                                                 settings=settings)
                 self.SaveVariable(alignment_points, cachedFileName)
+            else:
+                duplicate_check = {a.ID:a for a in alignment_points}
+                for key in duplicate_check.keys():
+                    if key in finalized_points:
+                        raise ValueError("Cached alignment has a duplicate point.  Delete the cache and try again")
                 
             print(f"Pass {i} aligned {len(alignment_points)} points")
             
@@ -235,7 +241,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             elif percentile > 100:
                 percentile = 100
                 
-            (updatedTransform, weight_distance_composite_scores) = local_distortion_correction._PeakListToTransform(alignment_points,
+            (updatedTransform, included_alignment_records, weight_distance_composite_scores) = local_distortion_correction._PeakListToTransform(alignment_points,
                                                                                  AlignRecordsToControlPoints(finalized_points.values()),
                                                                                  percentile=percentile,
                                                                                  cutoff=FirstPassCompositeScoreCutoff)
@@ -243,9 +249,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             if FirstPassCompositeScoreCutoff is None:
                 FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2], 100.0 - percentile)
                 FirstPassWeightScoreCutoff = np.percentile(weight_distance_composite_scores[:, 0], percentile)
-                
-            # updatedTransform = local_distortion_correction._PeakListToTransform(combined_alignment_points, fixed_points=None, percentile=percentile)
-                
+                       
             if SavePlots:
                 histogram_filename = os.path.join(self.TestOutputPath, f'weight_histogram_pass{i}.png')
                 nornir_imageregistration.views.PlotWeightHistogram(alignment_points, histogram_filename, cutoff=percentile / 100.0)
@@ -273,12 +277,22 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                                                      max_travel_distance=settings.max_travel_for_finalization,
                                                                                                      weight_cutoff=FinalizeCutoffThisPass)
             
+            
             if FirstPassFinalizeValue is None: 
                 FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0], finalize_percentile)
+                
+            print (f"Finalizing {len(new_finalized_points)} points this pass.")
              
-            new_finalized_alignments_list = filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points))
+            new_finalized_alignments_list = list(filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+            new_finalized_alignments_dict = { fp[1].ID : fp[1] for fp in new_finalized_alignments_list} 
             
-            (improved_finalized_dict, improved_alignments) = local_distortion_correction.TryToImproveAlignments([ap[1] for ap in new_finalized_alignments_list], settings)
+            (improved_finalized_dict, improved_alignments) = local_distortion_correction.TryToImproveAlignments(
+                                                                                            updatedTransform,
+                                                                                            new_finalized_alignments_dict, 
+                                                                                            settings)
+            
+            print (f"Improved {len(improved_alignments)} finalized alignments")
+            
             new_finalization_count = len(improved_finalized_dict)
             finalized_points = {**finalized_points, **improved_finalized_dict}
             
@@ -324,8 +338,17 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             #     new_finalizations += 1
                 
             print(f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(combined_alignment_points)} are locked")
-            stosObj.Transform = updatedTransform
             
+            #Update the transform with the adjusted points
+            if len(improved_alignments) > 0:
+                combined_records_this_pass = {a.ID:a for a in included_alignment_records}
+                for item in finalized_points.items():
+                    combined_records_this_pass[item[0]] = item[1]
+                    
+                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                        AlignRecordsToControlPoints(combined_records_this_pass.values()))
+                
+            stosObj.Transform = updatedTransform
             stosObj.Save(os.path.join(self.TestOutputPath, "UpdatedTransform_pass{0}.stos".format(i)))
                  
             if SaveImages: 
@@ -369,17 +392,16 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 # angles_to_search = settings.final_pass_angles
                 
         # Make one more pass to see if we can improve finalized points
-        #(finalized_points, improved_alignments) = TryToImproveAlignments(finalized_points.values(), settings)
-        #finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
         
-        # nudged_finalized_points = local_distortion_correction._RefinePointsForTwoImages(finalTransform, finalized_points.values(), 
-        #                                                       [fp.SourcePoint for fp in finalized_points.values()],
-        #                                                       [fp.TargetPoint for fp in finalized_points.values()],
-        #                                                       settings)
-        #print(f'Final tuning of points nudged {len(improved_alignments)} of {len(finalized_points)} points')
+        (nudged_finalized_points, nudged_point_keys) = local_distortion_correction.TryToImproveAlignments(finalTransform, finalized_points, settings)
+        print(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
          
+        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                            AlignRecordsToControlPoints(nudged_finalized_points.values()))
+        
         # Convert the transform to a grid transform and persist to disk
-        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values())) 
+        #finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values())) 
 
         stosObj.Transform = local_distortion_correction.ConvertTransformToGridTransform(finalTransform, source_image_shape=settings.source_image.shape, cell_size=settings.cell_size, grid_spacing=settings.grid_spacing)
         stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos"))
@@ -478,7 +500,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         ########
         
         # If this is failing check that at least three records make it past the filter criteria
-        (transform, calculated_cutoff) = local_distortion_correction._PeakListToTransform(records)
+        (transform, included_alignment_records, calculated_cutoff) = local_distortion_correction._PeakListToTransform(records)
         
         test1 = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected1 = np.asarray(((9, 10), (14, 15), (19, 20))) 
@@ -496,7 +518,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                         5.0)
             records2.append(r)
         
-        (transform2, calculated_cutoff_2) = local_distortion_correction._PeakListToTransform(records2)
+        (transform2, included_alignment_records, calculated_cutoff_2) = local_distortion_correction._PeakListToTransform(records2)
         test2 = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected2 = np.asarray(((9, 11), (14, 16), (19, 21))) 
         actual2 = transform2.InverseTransform(test2)

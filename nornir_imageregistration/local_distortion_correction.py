@@ -39,7 +39,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     
     if imageScale is None:
         imageScale = 1.0
-        
+
     if subregion_shape is None:
         subregion_shape = np.array([128, 128])
         
@@ -335,11 +335,7 @@ def RefineTransform(stosTransform,
                             finalized=finalized_points)
         
         prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
-        
-        # For the first pass we use a larger cell to help get some initial registration points
-        # if i == 1:
-        #    cell_size = cell_size / 2.0
-            
+         
         combined_alignment_points = alignment_points + list(finalized_points.values())
             
         percentile = 33.3  # - (CutoffPercentilePerIteration * i)
@@ -347,11 +343,9 @@ def RefineTransform(stosTransform,
             percentile = 10.0
         elif percentile > 100:
             percentile = 100
-             
-        #         if final_pass:
-        #             percentile = 0
+              
    
-        (updatedTransform, weight_distance_composite_scores) = _PeakListToTransform(alignment_points,
+        (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(alignment_points,
                                                                                     AlignRecordsToControlPoints(finalized_points.values()),
                                                                                     percentile=percentile,
                                                                                     cutoff=FirstPassCompositeScoreCutoff)
@@ -394,15 +388,27 @@ def RefineTransform(stosTransform,
         if FirstPassFinalizeValue is None: 
                 FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0], finalize_percentile)
 
-        new_finalized_alignments_list = filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points))
-            
-        (improved_finalized_dict, improved_alignments) = TryToImproveAlignments([ap[1] for ap in new_finalized_alignments_list], settings)
+        new_finalized_alignments_list = list(filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+        new_finalized_alignments_dict = { fp[1].ID: fp[1] for fp in new_finalized_alignments_list} 
+        
+        (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
+                                                                                new_finalized_alignments_dict,
+                                                                                settings)
+        
         new_finalization_count = len(improved_finalized_dict)
         finalized_points = {**finalized_points, **improved_finalized_dict}
             
         prettyoutput.Log(f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(combined_alignment_points)} are locked")
-        stosTransform = updatedTransform
         
+        # Update the transform with the adjusted points
+        if len(improved_alignments) > 0:
+            combined_records_this_pass = {a.ID:a for a in included_alignment_records}
+            for item in finalized_points.items():
+                combined_records_this_pass[item[0]] = item[1]
+                
+            updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                    AlignRecordsToControlPoints(combined_records_this_pass.values()))
+              
         if SaveImages: 
             # InputStos.Save(os.path.join(outputDir, "UpdatedTransform_pass{0}.stos".format(i)))
          
@@ -433,12 +439,18 @@ def RefineTransform(stosTransform,
         # If we've locked 90% of the points we are done
         if len(finalized_points) > len(combined_alignment_points) * 0.9:
             final_pass = True 
-        
-    #Return a transform built from the finalized points
-    stosTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
-    # gridTransform = ConvertTransformToGridTransform(stosTransform, source_image_shape=source_image.shape, cell_size=cell_size, grid_spacing=grid_spacing)
+            
+    # Make one more pass to see if we can improve finalized points
+    finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+    
+    (nudged_finalized_points, nudged_point_keys) = TryToImproveAlignments(finalTransform, finalized_points, settings)
+    prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
      
-    return stosTransform
+    # Return a transform built from the finalized points
+    finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                        AlignRecordsToControlPoints(nudged_finalized_points.values()))
+         
+    return finalTransform
      
 
 def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.Base,
@@ -460,10 +472,10 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
                                                                           cell_size=settings.cell_size,
                                                                           grid_spacing=settings.grid_spacing)
     
-    #Remove finalized points from refinement consideration
-    if finalized is not None:
-        found = [tuple(grid_data.SourcePoints[i,:]) not in finalized for i in range(grid_data.coords.shape[0])]
-        valid = np.asarray(found, np.bool)
+    # Remove finalized points from refinement consideration
+    if finalized is not None and len(finalized) > 0:
+        not_finalized = [tuple(grid_data.coords[i,:]) not in finalized for i in range(grid_data.coords.shape[0])]
+        valid = np.asarray(not_finalized, np.bool)
         grid_data.RemoveMaskedPoints(valid)
     
     # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
@@ -488,8 +500,6 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
 #     TargetPoints = TargetPoints[valid_inbounds, :]
 #     coords = coords[valid_inbounds, :]
 #     
-
-    
         
 #         TargetPoints = TargetPoints[valid, :]
 #         coords = coords[valid, :]
@@ -512,7 +522,7 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
 #         TargetPoints = TargetPoints[valid, :]
 #         coords = coords[valid, :]
 
-    return _RefinePointsForTwoImages(transform, [tuple(row) for row in grid_data.coords],  grid_data.SourcePoints, grid_data.TargetPoints, settings)
+    return _RefinePointsForTwoImages(transform, [tuple(row) for row in grid_data.coords], grid_data.SourcePoints, grid_data.TargetPoints, settings)
 
 
 def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.Base,
@@ -659,7 +669,7 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=
     :param fixed_points: Control points that will always be included and not measured in metrics
     :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
     :param float cutoff: Cutoff value, if set, percentile is ignored
-    :return: (Transform, cutoff) The transform and the cutoff value used/calculated
+    :return: (Transform, used_alignment_records, cutoff) The transform, the alignment_records used in the transform, and the cutoff value used/calculated
     '''
     num_fixed = 0
     if fixed_points is not None:
@@ -700,10 +710,11 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=
     ValidFP = AdjustedTargetPoints[valid_indicies,:]
     ValidWP = OriginalSourcePoints[valid_indicies,:]
     
-    assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidFP).shape,
-                          ValidFP.shape))  # , "Duplicate fixed points detected")
-    assert(np.array_equiv(Triangulation.RemoveDuplicates(ValidWP).shape,
-                          ValidWP.shape))  # , "Duplicate warped points detected")
+    if False == np.array_equiv(ValidFP.shape, Triangulation.RemoveDuplicates(ValidFP).shape):
+        raise Exception("Duplicate fixed points detected")
+    
+    if False == np.array_equiv(ValidWP.shape, Triangulation.RemoveDuplicates(ValidWP).shape):
+        raise Exception("Duplicate warped points detected")
     
     # See if we have enough points to build a transform.  If not include top scoring points until we have a transform
     if ValidFP.shape[0] + num_fixed < 3:
@@ -727,7 +738,9 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=
 
     T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(PointPairs)
     
-    return (T, weights_distance)
+    used_alignment_records = [alignment_records[valid_item[0]] for valid_item in filter(lambda item: item[1], enumerate(valid_indicies))]
+    
+    return (T, used_alignment_records, weights_distance)
 
 
 def ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
@@ -813,70 +826,8 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records, percentile=0.5, max
     finalize_mask = np.logical_and(valid_weight, valid_distance)
     
     return finalize_mask
-    
-    
-def AttemptAlignPoint(transform, fixedImage, warpedImage, controlpoint, alignmentArea, anglesToSearch=None):
-    '''Try to use the Composite view to render the two tiles we need for alignment'''
-    if anglesToSearch is None:
-        anglesToSearch = np.linspace(-7.5, 7.5, 11)
-        
-    FixedRectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(point=[controlpoint[0] - (alignmentArea[0] / 2.0),
-                                                                                   controlpoint[1] - (alignmentArea[1] / 2.0)],
-                                                                             area=alignmentArea)
-
-    FixedRectangle = nornir_imageregistration.Rectangle.SafeRound(FixedRectangle)
-    FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea)
-    
-    rigid_transforms = nornir_imageregistration.local_distortion_correction.ApproximateRigidTransform(input_transform=transform,
-                                                                                                      target_points=controlpoint)
-    
-    # Pull image subregions 
-    rigid_warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(rigid_transforms[0],
-                            fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
-    
-    warpedImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
-                            fixedImage.shape, warpedImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
-
-    fixedImageROI = nornir_imageregistration.CropImage(fixedImage.copy(), FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0], int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]), cval="random")
      
-    fixedImageROI.setflags(write=False)
-
-    # nornir_imageregistration.ShowGrayscale(([fixedImageROI, warpedImageROI],[rigid_warpedImageROI, fixedImageROI - warpedImageROI,]))
-
-    pool = nornir_pools.GetGlobalThreadPool()
-
-    # task = pool.add_task("AttemptAlignPoint", nornir_imageregistration.FindOffset, fixedImageROI, warpedImageROI, MinOverlap = 0.2)
-    # apoint = task.wait_return()
-    # apoint = nornir_imageregistration.FindOffset(fixedImageROI, warpedImageROI, MinOverlap=0.2)
-    # nornir_imageregistration.ShowGrayscale([fixedImageROI, warpedImageROI], "Fixed <---> Warped")
-    
-    # nornir_imageregistration.ShowGrayscale([fixedImageROI, warpedImageROI])
-    
-    t = pool.add_task("Rigid align point {0},{1}".format(controlpoint[1], controlpoint[0]),
-                        nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
-                        fixedImageROI, rigid_warpedImageROI,
-                        AngleSearchRange=anglesToSearch,
-                        MinOverlap=0.25, SingleThread=True,
-                        Cluster=False, TestFlip=False)
-#     rigid_apoint = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(fixedImageROI, rigid_warpedImageROI,
-#                                                                         AngleSearchRange=anglesToSearch,
-#                                                                         MinOverlap=0.25, SingleThread=True,
-#                                                                         Cluster=False, TestFlip=False)
-    
-    # apoint = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(fixedImageROI, warpedImageROI,
-    #                                                                     AngleSearchRange=anglesToSearch,
-    #                                                                     MinOverlap=0.25, SingleThread=True,
-    #                                                                     Cluster=False, TestFlip=False)
-    
-    rigid_apoint = t.wait_return()
- 
-    if rigid_apoint.weight > apoint.weight:
-        return rigid_apoint
-    else:
-        # print("Auto-translate result: " + str(apoint))
-        return apoint
-
-
+     
 def ApproximateRigidTransform(input_transform, target_points):
     '''
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
@@ -978,81 +929,90 @@ def StartAttemptAlignPoint(pool, taskname, transform,
     
     return task
 
-def TryToImproveAlignments(alignment_points, settings:nornir_imageregistration.settings.GridRefinement):
+
+def TryToImproveAlignments(transform, alignment_records, settings:nornir_imageregistration.settings.GridRefinement):
     '''
     Given a set of alignment points, try to align the points again.  If we get a stronger score then 
     replace the alignment with the higher scoring result
     '''
     
-    # SourcePoints = np.array([fp.SourcePoint for fp in alignment_points.values()])
-    # TargetPoints = np.array([fp.TargetPoint for fp in alignment_points.values()])
-    # keys = range(len(alignment_points))
-    #
-
-    pool = None
-    if len(alignment_points) > 8:
-        pool = nornir_pools.GetGlobalMultithreadingPool()
-    else:
-        pool = nornir_pools.GetGlobalSerialPool()
+    items = alignment_records.items()
     
-    tasks = {}
-    for record in alignment_points:
-        key = tuple(record.SourcePoint)
-        
-        # See if we can improve the final alignment
-        # refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
-        #                                                                                   record.SourceROI,
-        #                                                                                   AngleSearchRange=settings.final_pass_angles,
-        #                                                                                   MinOverlap=settings.min_alignment_overlap,
-        #                                                                                   SingleThread=False,
-        #                                                                                   Cluster=False,
-        #                                                                                   TestFlip=False)
-        
-        t = pool.add_task(f'{key}',
-                            nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
-                            record.TargetROI,
-                            record.SourceROI,
-                            AngleSearchRange=settings.final_pass_angles,
-                            MinOverlap=settings.min_alignment_overlap,
-                            SingleThread=True,
-                            Cluster=False,
-                            TestFlip=False)
-        
-        tasks[key] = (t, record)
-        
-    pool.wait_completion()
+    SourcePoints = np.vstack([fp[1].SourcePoint for fp in items])
+    TargetPoints = np.vstack([fp[1].TargetPoint for fp in items])
+    # keys = [fp.ID for fp in alignment_records]
+    keys = [fp[0] for fp in items]
+    
+    refined_alignments = _RefinePointsForTwoImages(transform, keys, SourcePoints, TargetPoints, settings)
+    #
+    # pool = None
+    # if len(alignment_points) > 8:
+    #     pool = nornir_pools.GetGlobalMultithreadingPool()
+    # else:
+    #     pool = nornir_pools.GetGlobalSerialPool()
+    #
+    # tasks = {}
+    # for record in alignment_points:
+    #     key = tuple(record.SourcePoint)
+    #
+    #     # See if we can improve the final alignment
+    #     # refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
+    #     #                                                                                   record.SourceROI,
+    #     #                                                                                   AngleSearchRange=settings.final_pass_angles,
+    #     #                                                                                   MinOverlap=settings.min_alignment_overlap,
+    #     #                                                                                   SingleThread=False,
+    #     #                                                                                   Cluster=False,
+    #     #                                                                                   TestFlip=False)
+    #
+    #     t = pool.add_task(f'{key}',
+    #                         nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
+    #                         record.TargetROI,
+    #                         record.SourceROI,
+    #                         AngleSearchRange=settings.final_pass_angles,
+    #                         MinOverlap=settings.min_alignment_overlap,
+    #                         SingleThread=True,
+    #                         Cluster=False,
+    #                         TestFlip=False)
+    #
+    #     tasks[key] = (t, record)
+    #
+    # pool.wait_completion()
     
     output = dict();
     improved_alignments = []
-    for (key, task_tuple) in tasks.items():
-        task = task_tuple[0]
-        record = task_tuple[1]
-        refined_align_record = task.wait_return()
+    for refined_align_record in refined_alignments:
+        key = refined_align_record.ID
+        record = alignment_records[key]
+        # task = task_tuple[0]
+        # record = task_tuple[1]
+        # refined_align_record = task.wait_return()
+        chosen_record = record
         
         if refined_align_record.weight > record.weight and np.linalg.norm(refined_align_record.peak) < settings.max_travel_for_finalization:
-            oldPSDDelta = record.PSDDelta
-            record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
-                                                                         TargetPoint=record.TargetPoint,
-                                                                         SourcePoint=record.SourcePoint,
-                                                                         peak=refined_align_record.peak,
-                                                                         weight=refined_align_record.weight,
-                                                                         angle=refined_align_record.angle,
-                                                                         flipped_ud=refined_align_record.flippedud)
-            record.PSDDelta = oldPSDDelta
-            #record.TargetROI = record.TargetROI
-            #record.SourceROI = record.SourceROI
-            improved_alignments.append(record)
+            # oldPSDDelta = record.PSDDelta
+            # record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
+            #                                                              TargetPoint=record.TargetPoint,
+            #                                                              SourcePoint=record.SourcePoint,
+            #                                                              peak=refined_align_record.peak,
+            #                                                              weight=refined_align_record.weight,
+            #                                                              angle=refined_align_record.angle,
+            #                                                              flipped_ud=refined_align_record.flippedud)
+            # record.PSDDelta = oldPSDDelta
+            # record.TargetROI = record.TargetROI
+            # record.SourceROI = record.SourceROI
+            chosen_record = refined_align_record
+            improved_alignments.append(key)
          
         # Create a record that is unmoving
-        output[key] = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(record.ID,
-                                                         TargetPoint=record.AdjustedTargetPoint,
-                                                         SourcePoint=record.SourcePoint,
+        output[key] = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(chosen_record.ID,
+                                                         TargetPoint=chosen_record.AdjustedTargetPoint,
+                                                         SourcePoint=chosen_record.SourcePoint,
                                                          peak=np.asarray((0, 0), dtype=np.float32),
-                                                         weight=record.weight, angle=0,
-                                                         flipped_ud=record.flippedud)
+                                                         weight=chosen_record.weight, angle=0,
+                                                         flipped_ud=chosen_record.flippedud)
         
-        output[key].PSDDelta = record.PSDDelta
+        output[key].PSDDelta = chosen_record.PSDDelta
         
-    #Close the pool to prevent threads from hanging around
-    pool.shutdown()
+    # Close the pool to prevent threads from hanging around
+    # pool.shutdown()
     return (output, improved_alignments)
