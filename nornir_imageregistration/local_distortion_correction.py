@@ -17,9 +17,7 @@ from nornir_imageregistration.transforms.triangulation import Triangulation
 import numpy as np
 import scipy
 import scipy.ndimage
-import os 
-import alignment_record
-from views import alignment_records
+import os   
 
  
 class DistortionCorrection:
@@ -990,7 +988,7 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
         
         if refined_align_record.weight > record.weight and np.linalg.norm(refined_align_record.peak) < settings.max_travel_for_finalization:
             # oldPSDDelta = record.PSDDelta
-            # record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
+            # record = nornir_imageregistration.EnhancedAlignmentRecord(ID=record.ID,
             #                                                              TargetPoint=record.TargetPoint,
             #                                                              SourcePoint=record.SourcePoint,
             #                                                              peak=refined_align_record.peak,
@@ -1004,7 +1002,7 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
             improved_alignments.append(key)
          
         # Create a record that is unmoving
-        output[key] = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(chosen_record.ID,
+        output[key] = nornir_imageregistration.EnhancedAlignmentRecord(chosen_record.ID,
                                                          TargetPoint=chosen_record.AdjustedTargetPoint,
                                                          SourcePoint=chosen_record.SourcePoint,
                                                          peak=np.asarray((0, 0), dtype=np.float32),
