@@ -936,6 +936,9 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
     
     items = alignment_records.items()
     
+    if len(items) == 0:
+        return (dict(), list())
+    
     SourcePoints = np.vstack([fp[1].SourcePoint for fp in items])
     TargetPoints = np.vstack([fp[1].TargetPoint for fp in items])
     # keys = [fp.ID for fp in alignment_records]
