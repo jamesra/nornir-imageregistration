@@ -67,7 +67,7 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
    # print str(NumAdded) + " points added"
 
-    boundsStr = " ".join(map(str, [left, bottom, (right - left), top - bottom]))
+    boundsStr = " ".join(map(str, [left, bottom, (right - left) - 1, (top - bottom)-1]))
     
     output.append(" fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr)
     # output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
