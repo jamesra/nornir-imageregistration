@@ -41,8 +41,8 @@ import numpy as np
 # ##An alignment record records how a warped image should be translated and rotated to be
 # ##positioned over a fixed image.  For this reason if we map 0,0 from the warped image it
 # ##should return the -peak in the alignment record
-class TestAlignmentRecord(unittest.TestCase):
-
+class TestAlignmentRecord(unittest.TestCase): 
+    
     def testIdentity(self):
         record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0)
         self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
@@ -201,7 +201,7 @@ class TestAlignmentRecord(unittest.TestCase):
 
 class TestIO(test.setup_imagetest.ImageTestBase):
 
-    def TestReadWriteTransform(self):
+    def testReadWriteTransform(self):
         '''A simple test of a transform which maps points from a 10,10 image to a 100,100 without translation or rotation'''
         WarpedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
@@ -240,7 +240,7 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
 
 
-    def TestTranslateReadWriteAlignment(self):
+    def testTranslateReadWriteAlignment(self):
 
         WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")

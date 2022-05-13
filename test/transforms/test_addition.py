@@ -14,8 +14,7 @@ import nornir_imageregistration
 
 from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
               IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
-              __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints
-from PyQt5.QtCore import fixed
+              __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints 
 
 class TestTranslationTransformAddition(TransformTestBase):
     '''

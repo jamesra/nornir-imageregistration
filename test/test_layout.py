@@ -16,8 +16,7 @@ import os
 
 from . import setup_imagetest
 from . import test_arrange
-import hypothesis
-from build.lib.test import test_layout
+import hypothesis 
 
 def _MaxTension(layout):    
     net_tension_vectors = layout.NetTensionVectors()
