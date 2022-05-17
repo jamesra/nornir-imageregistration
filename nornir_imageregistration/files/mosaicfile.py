@@ -121,44 +121,49 @@ class MosaicFile(object):
                 lines = fMosaic.readlines()
                 fMosaic.close()
         except FileNotFoundError:
-            prettyoutput.LogErr("Mosaic file not found: " + filename)
+            prettyoutput.LogErr(f"Mosaic file not found: {filename}")
             return
         except Exception as error:
-            prettyoutput.LogErr("Unexpected error {0} while opening Mosaic file {1}" % (str(error), filename))
+            prettyoutput.LogErr(f"Unexpected error {error} while opening Mosaic file {filename}")
             return
 
         obj = MosaicFile()
 
         iLine = 0
-        while iLine < len(lines):
-            line = lines[iLine]
-            line = line.strip()
-            [text, value] = line.split(':', 1)
-
-            if(text.startswith('number_of_images')):
-                value.strip()
-                obj.FileReportedNumberOfImages = int(value)
-            elif(text.startswith('pixel_spacing')):
-                value.strip()
-                obj.pixel_spacing = int(float(value))
-            elif(text.startswith('use_std_mask')):
-                obj.use_std_mask = int(value)
-            elif(text.startswith('format_version_number')):
-                obj.format_version_number = int(value)
-            elif(text.startswith('image')):
-                if(obj.format_version_number == 0):
-                    [filename, transform] = value.split(None, 1)
-                    filename = filename.strip()
-                    filename = os.path.basename(filename)
-                    transform = transform.strip()
-                    obj.ImageToTransformString[filename] = transform
-                else:
-                    filename = os.path.basename(lines[iLine + 1].strip())
-                    transform = lines[iLine + 2].strip()
-                    obj.ImageToTransformString[filename] = transform
-                    iLine = iLine + 2
-
-            iLine = iLine + 1
+        try:
+            while iLine < len(lines):
+                line = lines[iLine]
+                line = line.strip()
+                [text, value] = line.split(':', 1)
+    
+                if(text.startswith('number_of_images')):
+                    value.strip()
+                    obj.FileReportedNumberOfImages = int(value)
+                elif(text.startswith('pixel_spacing')):
+                    value.strip()
+                    obj.pixel_spacing = int(float(value))
+                elif(text.startswith('use_std_mask')):
+                    obj.use_std_mask = int(value)
+                elif(text.startswith('format_version_number')):
+                    obj.format_version_number = int(value)
+                elif(text.startswith('image')):
+                    if(obj.format_version_number == 0):
+                        [filename, transform] = value.split(None, 1)
+                        filename = filename.strip()
+                        filename = os.path.basename(filename)
+                        transform = transform.strip()
+                        obj.ImageToTransformString[filename] = transform
+                    else:
+                        filename = os.path.basename(lines[iLine + 1].strip())
+                        transform = lines[iLine + 2].strip()
+                        obj.ImageToTransformString[filename] = transform
+                        iLine = iLine + 2
+    
+                iLine = iLine + 1
+        except:
+            prettyoutput.LogErr(f"Error in {filename} on or above line #{iLine}\n{lines[iLine]}\n")
+            raise 
+            
 
         return obj
 
