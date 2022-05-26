@@ -64,44 +64,7 @@ class Test(unittest.TestCase):
         self.assertTrue(np.allclose(rect.Area, scaled_rect.Area / 4), "Scaled rectangle should have quadruple the area")
         self.assertTrue(np.allclose(rect.Size, scaled_rect.Size / 2), "Scaled rectangle should have double the size")
         
-    
-    
-    @hypothesis.given(points=hypothesis.extra.numpy.arrays(np.float32, shape=(16,2), elements=hypothesis.strategies.floats(-100.0, 100.0, width=16), fill=hypothesis.strategies.nothing()),
-                      shapes=hypothesis.extra.numpy.arrays(np.uint8, shape=(16,2),elements=hypothesis.strategies.integers(0, 255), fill=hypothesis.strategies.nothing()))
-    def testUnion(self, points, shapes): 
-        self.runUnionTest(points=points, shapes=shapes)
-    
-    def runUnionTest(self, points, shapes):
-        rect_list = []
-        for i in range(points.shape[0]):
-            origin = points[i,:]
-            shape = shapes[i,:]
-            
-            r = spatial.Rectangle.CreateFromPointAndArea(origin, shape)
-            rect_list.append(r)
-            
-        self.runUnionTestOnList(rect_list)
-        
-        # bounds = spatial.Rectangle.Union(*rect_list)
-        #
-        # top_right_points = points + shapes
-        #
-        # expected_mins = np.min(points,0)
-        # expected_maxs = np.max(top_right_points,0)
-        # actual_mins = bounds[0:2]
-        # actual_maxs = bounds[2:]
-        #
-        # mins_match = np.allclose(expected_mins, actual_mins)
-        # maxs_match = np.allclose(expected_maxs, actual_maxs)
-        #
-        # if mins_match == False or maxs_match == False:
-        #     print(f'Points:\n{points}')
-        #     print(f'Shapes:\n{shapes}')
-        #     print(f'Bounds:\n{bounds}')
-        #
-        # self.assertTrue(mins_match)
-        # self.assertTrue(maxs_match)
-    
+     
     @hypothesis.settings(deadline=None)
     @hypothesis.given(rects=rectangles(0,32))
     def testUnionRectangles(self, rects): 
@@ -145,7 +108,16 @@ class Test(unittest.TestCase):
         points[0,1] = 1
         self.runUnionTest(points=points, shapes=shapes)
         
-        
+    def runUnionTest(self, points, shapes):
+        rect_list = []
+        for i in range(points.shape[0]):
+            origin = points[i,:]
+            shape = shapes[i,:]
+            
+            r = spatial.Rectangle.CreateFromPointAndArea(origin, shape)
+            rect_list.append(r)
+            
+        self.runUnionTestOnList(rect_list)
         
     def testOverlaps(self):
         
