@@ -9,6 +9,10 @@ import math
 
 import nornir_imageregistration.spatial as spatial
 import numpy as np 
+import hypothesis
+import hypothesis.strategies
+import hypothesis.extra.numpy
+from . import rectangles
 
 
 class Test(unittest.TestCase):
@@ -59,6 +63,89 @@ class Test(unittest.TestCase):
         self.assertTrue(np.allclose(rect.Center, scaled_rect.Center), "Scaled rectangle should have the same center")
         self.assertTrue(np.allclose(rect.Area, scaled_rect.Area / 4), "Scaled rectangle should have quadruple the area")
         self.assertTrue(np.allclose(rect.Size, scaled_rect.Size / 2), "Scaled rectangle should have double the size")
+        
+    
+    
+    @hypothesis.given(points=hypothesis.extra.numpy.arrays(np.float32, shape=(16,2), elements=hypothesis.strategies.floats(-100.0, 100.0, width=16), fill=hypothesis.strategies.nothing()),
+                      shapes=hypothesis.extra.numpy.arrays(np.uint8, shape=(16,2),elements=hypothesis.strategies.integers(0, 255), fill=hypothesis.strategies.nothing()))
+    def testUnion(self, points, shapes): 
+        self.runUnionTest(points=points, shapes=shapes)
+    
+    def runUnionTest(self, points, shapes):
+        rect_list = []
+        for i in range(points.shape[0]):
+            origin = points[i,:]
+            shape = shapes[i,:]
+            
+            r = spatial.Rectangle.CreateFromPointAndArea(origin, shape)
+            rect_list.append(r)
+            
+        self.runUnionTestOnList(rect_list)
+        
+        # bounds = spatial.Rectangle.Union(*rect_list)
+        #
+        # top_right_points = points + shapes
+        #
+        # expected_mins = np.min(points,0)
+        # expected_maxs = np.max(top_right_points,0)
+        # actual_mins = bounds[0:2]
+        # actual_maxs = bounds[2:]
+        #
+        # mins_match = np.allclose(expected_mins, actual_mins)
+        # maxs_match = np.allclose(expected_maxs, actual_maxs)
+        #
+        # if mins_match == False or maxs_match == False:
+        #     print(f'Points:\n{points}')
+        #     print(f'Shapes:\n{shapes}')
+        #     print(f'Bounds:\n{bounds}')
+        #
+        # self.assertTrue(mins_match)
+        # self.assertTrue(maxs_match)
+    
+    @hypothesis.settings(deadline=None)
+    @hypothesis.given(rects=rectangles(0,32))
+    def testUnionRectangles(self, rects): 
+        if len(rects) == 0:
+            try:
+                self.runUnionTestOnList(rect_list=rects)
+                self.fail("Empty rectangle list did not throw proper exception")
+            except ValueError:
+                hypothesis.event("Empty rectangle list threw proper exception")
+                return        
+        else:
+            self.runUnionTestOnList(rect_list=rects)
+    
+    def runUnionTestOnList(self, rect_list):
+        bounds = spatial.Rectangle.Union(*rect_list)
+        
+        points = np.array([r.BottomLeft for r in rect_list])
+        shapes = np.array([r.Dimensions for r in rect_list])
+        
+        top_right_points = points + shapes
+        
+        expected_mins = np.min(points,0)
+        expected_maxs = np.max(top_right_points,0)
+        actual_mins = bounds[0:2]
+        actual_maxs = bounds[2:]
+
+        mins_match = np.allclose(expected_mins, actual_mins)
+        maxs_match = np.allclose(expected_maxs, actual_maxs)
+        
+        if mins_match == False or maxs_match == False:
+            print(f'Points:\n{points}')
+            print(f'Shapes:\n{shapes}')
+            print(f'Bounds:\n{bounds}')
+        
+        self.assertTrue(mins_match)
+        self.assertTrue(maxs_match)
+        
+    def testUnionRepro(self):
+        points= np.zeros((16,2))
+        shapes= np.zeros((16,2))
+        points[0,1] = 1
+        self.runUnionTest(points=points, shapes=shapes)
+        
+        
         
     def testOverlaps(self):
         
