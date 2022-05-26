@@ -6,7 +6,7 @@ from nornir_imageregistration.spatial import Rectangle
 import numpy as np
 
 
-class RigidNoRotation(base.Base):
+class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultTransformChangeEvents):
     '''This class is legacy and probably needs a deprecation warning'''
     
     def _transform_rectangle(self, rect):
@@ -24,50 +24,20 @@ class RigidNoRotation(base.Base):
         #Transform the other bounding box
         mapped_corners = self.InverseTransform(rect.Corners)
         return Rectangle.CreateBoundingRectangleForPoints(mapped_corners)
-    
-    @property
-    def MappedBoundingBox(self):
-        if self._mapped_bounding_box is None:
-            self._mapped_bounding_box = self._inverse_transform_rectangle(self._fixed_bounding_box)
-        
-        return self._mapped_bounding_box
- 
-    @property
-    def FixedBoundingBox(self):
-        if self._fixed_bounding_box is None:
-            self._fixed_bounding_box = self._transform_rectangle(self._mapped_bounding_box)
-        
-        return self._fixed_bounding_box
-    
-    @MappedBoundingBox.setter
-    def MappedBoundingBox(self, val):
-        self._fixed_bounding_box = None
-        self._mapped_bounding_box = val
- 
-    @FixedBoundingBox.setter
-    def FixedBoundingBox(self, val):
-        self._mapped_bounding_box = None
-        self._fixed_bounding_box = val
       
     def TranslateFixed(self, offset):
         '''Translate all fixed points by the specified amount'''
         self.target_offset  = self.target_offset + offset
-        self._fixed_bounding_box = None
         self.OnTransformChanged()
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         self.target_offset  = self.target_offset - offset
-        self._fixed_bounding_box = None
-        self._mapped_bounding_box = self._mapped_bounding_box.translate(offset)
         self.OnTransformChanged()
         
     def Scale(self, value):
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * value 
         self.target_offset = self.target_offset * value
-        if self.MappedBoundingBox is not None:
-            self._fixed_bounding_box = None
-            self._mapped_bounding_box = scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(self._mapped_bounding_box, value)
         self.OnTransformChanged()
     
     def __init__(self, target_offset, source_rotation_center=None, angle=None, **kwargs):
@@ -91,17 +61,6 @@ class RigidNoRotation(base.Base):
         self.source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_rotation_center)
         self._angle = angle
         
-        self._fixed_bounding_box = kwargs.get('FixedBoundingBox', None)
-        self._mapped_bounding_box = kwargs.get('MappedBoundingBox', None)
-        
-        if self._fixed_bounding_box is not None:
-            if not isinstance(self._fixed_bounding_box, Rectangle):
-                raise ValueError("FixedBoundingBox must be a Rectangle")
-            
-        if self._mapped_bounding_box is not None:
-            if not isinstance(self._mapped_bounding_box, Rectangle):
-                raise ValueError("MappedBoundingBox must be a Rectangle") 
-            
         
     def __getstate__(self):
         odict = {}
@@ -125,8 +84,8 @@ class RigidNoRotation(base.Base):
         self.OnTransformChanged()
         
     @staticmethod
-    def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
+    def Load(TransformString,pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
         
     def ToITKString(self):
         #TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -285,15 +244,11 @@ class CenteredSimilarity2DTransform(Rigid):
     def ScaleWarped(self, scalar):
         '''Scale source space control points by scalar'''
         self._scalar = self._scalar / scalar
-        self._mapped_bounding_box = nornir_imageregistration.Rectangle.scale_on_origin(self._mapped_bounding_box, scalar) #self._inverse_transform_rectangle(self._fixed_bounding_box)
-        self._fixed_bounding_box = None
         self.OnTransformChanged()
         
     def ScaleFixed(self, scalar):
         '''Scale target space control points by scalar'''
         self._scalar = self._scalar * scalar
-        #self._fixed_bounding_box = None nornir_imageregistration.Rectangle.scale_on_center(self._fixed_bounding_box, scalar) #self._inverse_transform_rectangle(self._fixed_bounding_box)
-        self._fixed_bounding_box = None
         self.OnTransformChanged()                                                                                   
                                                                                        
     
