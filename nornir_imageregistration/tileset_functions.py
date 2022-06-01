@@ -20,6 +20,7 @@ import tempfile
 import os
 import shutil
 import nornir_pools
+import nornir_shared.files
 #import nornir_shared.prettyoutput as prettyoutput
 
 def ClearTempDirectories(level_paths):
@@ -36,7 +37,7 @@ def ClearTempDirectories(level_paths):
     pool = nornir_pools.GetGlobalThreadPool()
     for level_path in level_paths:
         LevelDir = os.path.join(temp_dir, os.path.basename(level_path))
-        pool.add_task("Remove temp directory {0}".format(LevelDir), shutil.rmtree, LevelDir, ignore_errors=True)
+        pool.add_task("Remove temp directory {0}".format(LevelDir), nornir_shared.files.rmtree, LevelDir, ignore_errors=True)
         
     pool.wait_completion()
         

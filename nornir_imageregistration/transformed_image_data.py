@@ -12,11 +12,11 @@ import nornir_pools
 import logging 
 
 import atexit
-import shutil
+import nornir_shared.files
 
 _sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=tempfile.gettempdir())
 
-atexit.register(shutil.rmtree, _sharedTempRoot)
+atexit.register(nornir_shared.files.rmtree, _sharedTempRoot)
 
 class TransformedImageData(object):
     '''
