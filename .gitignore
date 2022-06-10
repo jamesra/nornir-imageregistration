@@ -206,6 +206,7 @@ pip-log.txt
 .coverage
 .tox
 
+.hypothesis/
 /.hypothesis/
 
 #Translations
