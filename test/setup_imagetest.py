@@ -16,6 +16,7 @@ import six
 import nornir_pools
 from nornir_shared.misc import SetupLogging
 import numpy as np
+from abc import abstractmethod, ABC
 
 
 class PickleHelper(object):
@@ -77,7 +78,7 @@ class PickleHelper(object):
         return var
 
 
-class TestBase(unittest.TestCase):
+class TestBase(unittest.TestCase, ABC):
 
     @property
     def classname(self):
@@ -176,6 +177,7 @@ class ImageTestBase(TestBase):
 class TransformTestBase(TestBase):
 
     @property
+    @abstractmethod
     def TestName(self):
         raise NotImplementedError("Test should override TestName property")
     
@@ -216,7 +218,7 @@ class TransformTestBase(TestBase):
         if downsamplePath is None:
             downsamplePath = "001"
 
-        return os.path.join(self.TestInputDataPath, "Leveled", "TilePyramid", downsamplePath)
+        return os.path.join(self.ImportedDataPath, self.TestName, "Leveled", "TilePyramid", downsamplePath)
 
     def setUp(self):
         self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")

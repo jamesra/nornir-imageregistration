@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 
+import nornir_imageregistration
 import nornir_imageregistration.assemble
 
 import nornir_shared.misc
@@ -34,13 +35,14 @@ def __CreateArgParser(ExecArgs=None):
                         type=str,
                         help='Output image file path',
                         dest='outputpath')
+    
 
     parser.add_argument('-scale', '-s',
                         action='store',
                         required=False,
                         type=float,
                         default=1.0,
-                        help='The input images are a different size than the transform, scale the transform by the specified factor',
+                        help='The input images are a different size than the transform, scale the transform by the specified inverse factor.  So if the images are downsampled by a factor of 4 pass 4 to this parameter.',
                         dest='scalar'
                         )
     
@@ -99,20 +101,19 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    mosaic = Mosaic.LoadFromMosaicFile(m)
-    mosaicBaseName = os.path.basename(m)
-
-    mosaic.TranslateToZeroOrigin()
-
-    mosaicImage = mosaic.AssembleImage(Args.tilepath)
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath) 
+    mosaicTileset = nornir_imageregistration.MosaicTileset(mosaic, Args.tilepath, source_space_scale=1.0 / Args.scalar)
+    mosaicTileset.TranslateToZeroOrigin()
+    
+    mosaicImage = mosaicTileset.AssembleImage(Args.tilepath)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'
 
     nornir_imageregistration.SaveImage(Args.outputpath, mosaicImage)
+    self.assertTrue(os.path.exists(Args.outputpath), "OutputImage not found")
 
-    self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
-
+     
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
     else:

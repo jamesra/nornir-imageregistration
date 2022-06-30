@@ -239,7 +239,6 @@ class TestCore(setup_imagetest.ImageTestBase):
         tiles = nornir_imageregistration.ImageToTiles(self.FixedImagePath, tile_size=(256, 512))
         self.assertTrue(nornir_imageregistration.ShowGrayscale(list(tiles.values()), "Expecting 512 wide x 256 tall tiles", PassFail=True))
         
- 
 
     def testReplaceImageExtramaWithNoise(self):
 

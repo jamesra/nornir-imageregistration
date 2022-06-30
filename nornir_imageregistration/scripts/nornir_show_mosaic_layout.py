@@ -115,8 +115,8 @@ def Execute(ExecArgs=None):
     tilesPathList = sorted(mosaic.CreateTilesPathList(TilesDir))
     transforms = list(mosaic._TransformsSortedByKey())
             
-    imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms=transforms, imagepaths=tilesPathList)
-    initial_tiles = nornir_imageregistration.tile.CreateTiles( transforms=transforms, imagepaths=tilesPathList)
+    #imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms=transforms, imagepaths=tilesPathList)
+    initial_tiles = nornir_imageregistration.mosaic_tileset.MosaicTileset.Create( transforms=transforms, imagepaths=tilesPathList)
         
     (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = nornir_imageregistration.arrange_mosaic.GenerateTileOverlaps(tiles=initial_tiles,
                                                              existing_overlaps=None,

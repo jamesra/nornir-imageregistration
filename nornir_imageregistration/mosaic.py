@@ -6,23 +6,23 @@ Created on Mar 29, 2013
 
 import copy
 import os
+import numpy as np
+
 
 import nornir_imageregistration
 from nornir_imageregistration.files.mosaicfile import MosaicFile
-
-import nornir_imageregistration.arrange_mosaic as arrange
-import nornir_imageregistration.assemble_tiles as at
+  
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools
-import numpy as np
-
-from . import spatial
+import nornir_pools 
 
 
 class Mosaic(object):
     '''
-    Maps images into a mosaic with a transform
+    Maps image names into a mosaic with a transform.
+    The image downsample is unknown to the mosaic.  Use
+    Tiles when you are ready to arrange or assemble sets
+    of tiles.
     '''
 
     @classmethod
@@ -53,6 +53,8 @@ class Mosaic(object):
             # ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
+    
+    
 
     def ToMosaicFile(self):
         mfile = MosaicFile()
@@ -96,7 +98,7 @@ class Mosaic(object):
             Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
 
         self._ImageToTransform = ImageToTransform
-        self.ImageScale = 1
+        self.ImageScale = 1 #All .mosaic file transforms are stored on disk at full resolution
 
     @classmethod
     def _ConvertTransformStringsToTransforms(cls, image_to_transform):
@@ -123,21 +125,7 @@ class Mosaic(object):
 
         return tutils.MappedBoundingBox(list(self.ImageToTransform.values()))
 
-    @property
-    def FixedBoundingBoxWidth(self):
-        return tutils.FixedBoundingBoxWidth(list(self.ImageToTransform.values()))
-
-    @property
-    def FixedBoundingBoxHeight(self):
-        return tutils.FixedBoundingBoxHeight(list(self.ImageToTransform.values()))
-
-    @property
-    def MappedBoundingBoxWidth(self):
-        return tutils.MappedBoundingBoxWidth(list(self.ImageToTransform.values()))
-
-    @property
-    def MappedBoundingBoxHeight(self):
-        return tutils.MappedBoundingBoxHeight(list(self.ImageToTransform.values()))
+    
 
     def TileFullPaths(self, tilesDir):
         '''Return a list of full paths to the tile for each transform'''
@@ -186,14 +174,7 @@ class Mosaic(object):
                     
                 transform.MappedBoundingBox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), mapped_bbox_shape)      
             
-    def CalculateGridDimensions(self, tile_dims, expected_scale=1):
-        '''
-        :param tuple tile_dims: (Height, Width) of tiles we are dividing the mosaic into
-        :param float expected_scale: The scale factor applied to the mosaic before dividing it into tiles, default is 1
-        '''
-        tile_dims = np.asarray(tile_dims, dtype=np.int64)
-        scaled_fixed_bounding_box_shape = np.ceil(self.FixedBoundingBox.shape / (1 / expected_scale)).astype(np.int64)
-        return nornir_imageregistration.TileGridShape(scaled_fixed_bounding_box_shape, tile_size=tile_dims)
+    
 
     @classmethod
     def TranslateLayout(cls, Images, Positions, ImageScale=1):
@@ -220,160 +201,10 @@ class Mosaic(object):
             
         return values
 
-    def ArrangeTilesWithTranslate(self, tiles_path,
-                                   image_scale=None,
-                                   first_pass_excess_scalar=None,
-                                   excess_scalar=None,
-                                   min_overlap=None,
-                                   feature_score_threshold=None,
-                                   min_translate_iterations=None,
-                                   offset_acceptance_threshold=None,
-                                   max_relax_iterations=None,
-                                   max_relax_tension_cutoff=None,
-                                   first_pass_inter_tile_distance_scale=None,
-                                   inter_tile_distance_scale=None):
-        
-        # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = arrange.TranslateTiles2(transforms=self._TransformsSortedByKey(),
-                                                 imagepaths=self.CreateTilesPathList(tiles_path),
-                                                 first_pass_excess_scalar=first_pass_excess_scalar,
-                                                 excess_scalar=excess_scalar,
-                                                 feature_score_threshold=feature_score_threshold,
-                                                 image_scale=image_scale,
-                                                 min_translate_iterations=min_translate_iterations,
-                                                 offset_acceptance_threshold=offset_acceptance_threshold,
-                                                 max_relax_iterations=max_relax_iterations,
-                                                 max_relax_tension_cutoff=max_relax_tension_cutoff,
-                                                 min_overlap=min_overlap,
-                                                 first_pass_inter_tile_distance_scale=first_pass_inter_tile_distance_scale,
-                                                 inter_tile_distance_scale=inter_tile_distance_scale)
-        return layout.ToMosaic(tiles)
     
-    def RefineLayout(self, tilesPath):
-
-        # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = nornir_imageregistration.RefineGrid(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
-        return layout.ToMosaic(tiles)
     
-    def QualityScore(self, tilesPath):
-        
-        score = arrange.ScoreMosaicQuality(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
+    def QualityScore(self, tilespath, downsample):
+        tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(self, image_folder=tilespath, image_to_source_space_scale=downsample)
+        score = nornir_imageregistration.arrange_mosaic.ScoreMosaicQuality(tileset)
         return score
 
-    def AssembleImage(self, tilesPath, FixedRegion=None, usecluster=False, target_space_scale=None, source_space_scale=None):
-        '''Create a single image of the mosaic for the requested region.
-        :param str tilesPath: Directory containing tiles referenced in our transform
-        :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
-        :param boolean usecluster: Offload work to other threads or nodes if true
-        :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
-        :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
-        '''
-
-        # Left off here, I need to split this function so that FixedRegion has a consistent meaning
-
-        # Ensure that all transforms map to positive values
-        # self.TranslateToZeroOrigin()
-
-        if not FixedRegion is None:
-            spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
-            
-        # Allocate a buffer for the tiles
-        tilesPathList = self.CreateTilesPathList(tilesPath)
-         
-        if usecluster and len(tilesPathList) > 1:
-            cpool = nornir_pools.GetGlobalMultithreadingPool()
-            return at.TilesToImageParallel(self._TransformsSortedByKey(), tilesPathList, pool=cpool, TargetRegion=FixedRegion, target_space_scale=target_space_scale, source_space_scale=source_space_scale)
-        else:
-            # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return at.TilesToImage(self._TransformsSortedByKey(), tilesPathList, TargetRegion=FixedRegion, target_space_scale=target_space_scale, source_space_scale=source_space_scale)
-        
-    def GenerateOptimizedTiles(self, tilesPath, tile_dims=None, max_temp_image_area=None, usecluster=True, target_space_scale=None, source_space_scale=None):
-        '''
-        Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
-        :param str tilesPath: Directory containing tiles referenced in our transform
-        :param tuple tile_dims: Size of the optimized tiles
-        :param max_image_dims: The maximum size of image we will assemble at any time.  Smaller values consume less memory, larger values run faster
-        :param boolean usecluster: Offload work to other threads or nodes if true
-        :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
-        :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
-        '''
-        
-        # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes 
-        if tile_dims is None:
-            tile_dims = (512, 512)
-            
-        tile_dims = np.asarray(tile_dims)
-            
-        if source_space_scale is None:
-            source_space_scale = nornir_imageregistration.tileset.MostCommonScalar(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
-            
-        if target_space_scale is None:
-            target_space_scale = source_space_scale
-            
-        scaled_tile_dims = tile_dims / target_space_scale # tile_dims * ( 1 / target_space_scale), The dimensions of the tile if assembled at full-resolution
-        
-        mosaic_fixed_bounding_box = self.FixedBoundingBox
-        if not np.array_equal(mosaic_fixed_bounding_box.BottomLeft, np.asarray((0, 0))):
-            self.TranslateToZeroOrigin()
-            mosaic_fixed_bounding_box = self.FixedBoundingBox
-            
-        grid_dims = nornir_imageregistration.TileGridShape(mosaic_fixed_bounding_box.shape * target_space_scale,
-                                                           tile_size=tile_dims)
-        
-        # Lets build long vertical columns.  Figure out how many columns we can assemble at a time
-        scaled_mosaic_fixed_bounding_box_shape = grid_dims * tile_dims
-        
-        if max_temp_image_area is None:
-            max_temp_image_area = mosaic_fixed_bounding_box.Area
-            
-        template_image_shape = None  # Shape of the image we will assemble at each step
-        template_image_grid_dims = None  # Dimensions of tiles contained within each working_image
-        if max_temp_image_area >= np.prod(scaled_mosaic_fixed_bounding_box_shape):
-            template_image_shape = mosaic_fixed_bounding_box.shape
-            template_image_grid_dims = grid_dims
-        else:
-            num_rows = grid_dims[0]
-            max_column_width = max_temp_image_area / scaled_mosaic_fixed_bounding_box_shape[0] 
-            num_columns = int(np.floor(max_column_width / tile_dims[1]))
-            if num_columns < 1:
-                num_columns = 1
-                
-            template_image_grid_dims = np.asarray((num_rows, num_columns))
-            template_image_shape = template_image_grid_dims * scaled_tile_dims
-            
-        working_image_origin = mosaic_fixed_bounding_box.BottomLeft
-        assert(working_image_origin[0] == 0 and working_image_origin[1] == 0)
-        
-        iColumn = 0
-        while iColumn < grid_dims[1]:
-            # Assemble a strip of images, divide them up and save
-            origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
-            
-            working_image_shape = template_image_shape
-            working_image_grid_dims = template_image_grid_dims
-            # If we are on the final column don't make it larger than necessary
-            if working_image_grid_dims[1] + iColumn > grid_dims[1]:
-                working_image_grid_dims[1] = grid_dims[1] - iColumn
-                working_image_shape[1] = working_image_grid_dims[1] * scaled_tile_dims[1]
-                assert(working_image_shape[1] > 0)
-            
-            fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)
-                     
-            (working_image, _mask ) = self.AssembleImage(tilesPath=tilesPath,
-                                               FixedRegion=fixed_region,
-                                               usecluster=usecluster,
-                                               target_space_scale=target_space_scale,
-                                               source_space_scale=source_space_scale)
-        
-            del _mask
-            
-            (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
-                                                                       tile_size=tile_dims,
-                                                                       grid_shape=working_image_grid_dims,
-                                                                       coord_offset=(0, iColumn)))
-        
-            del working_image
-            
-            iColumn += working_image_grid_dims[1]
-          
-        return

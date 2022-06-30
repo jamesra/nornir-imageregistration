@@ -3,17 +3,15 @@ Created on Oct 18, 2012
 
 @author: Jamesan
 '''
-
-import sys
+ 
 import copy
-import logging
-import math
+import logging 
 import operator
  
-from . import utils
-from .base import *
-
 import nornir_imageregistration 
+from . import utils
+from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents
+
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
 from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInterpolator
@@ -99,8 +97,9 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
 
         # In extreme distortion we don't want to add new control points forever or converge on existing control points. 
         # So ignore centroids falling too close to an existing vertex        
-        A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles]
-        CentroidVertexDistances = CentroidToVertexDistance(A_Centroids, A_CentroidTriangles)
+        CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, np.bool)
+        A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles[CentroidMisplaced]]
+        CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced], A_CentroidTriangles)
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
         # Add new verticies for the qualifying centroids
@@ -134,7 +133,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
         return AToB_mapped_Transform
 
 
-class Triangulation(Base):
+class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
@@ -695,6 +694,10 @@ class Triangulation(Base):
         self._FixedKDTree = None
         self._FixedBoundingBox = None
         self._MappedBoundingBox = None
+        
+    @staticmethod
+    def Load(TransformString, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     @classmethod
     def load(cls, variableParams, fixedParams):

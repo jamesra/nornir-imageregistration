@@ -14,25 +14,20 @@ def _IterateOverlappingTiles(list_tiles, min_overlap=None):
         elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > min_overlap:
             yield (list_tiles[A], list_tiles[B])
             
-def IterateTileOverlaps(list_tiles, imageScale=1.0, min_overlap=None, inter_tile_distance_scale=1.0):
-    yield from CreateTileOverlaps(list_tiles, imageScale, min_overlap, inter_tile_distance_scale=inter_tile_distance_scale)
+def IterateTileOverlaps(list_tiles, image_to_source_space_scale=1.0, min_overlap=None, inter_tile_distance_scale=1.0):
+    yield from CreateTileOverlaps(list_tiles, image_to_source_space_scale, min_overlap, inter_tile_distance_scale=inter_tile_distance_scale)
             
-def CreateTileOverlaps(list_tiles, imageScale=1.0, min_overlap=None, inter_tile_distance_scale=1.0, all_tiles_same_shape=True):
+def CreateTileOverlaps(list_tiles, image_to_source_space_scale=1.0, min_overlap=None, inter_tile_distance_scale=1.0):
     '''
     :param float imageScale: Downsample factor of image files
     :param float min_overlap: 0 to 1.0 indicating amount of area that must overlap between tiles
     :param float inter_tile_distance_scale: When tiles overlap, scale the distance between them by this factor.  Used to increase the area of overlap used for registration for cases where the input positions are noisy 
-    :param bool all_tiles_same_shape: If true, cache image dimensions and re-use for all transforms.
     '''
-    #The code here assumes all tiles have the same shape    
-    cached_tile_shape = None
-    for t in list_tiles:
-        cached_tile_shape = t.EnsureTileHasMappedBoundingBox(imageScale, cached_tile_shape=cached_tile_shape)
-        if False == all_tiles_same_shape:
-            cached_tile_shape = None 
+    if isinstance(list_tiles, dict):
+        list_tiles = list(list_tiles.values())
     
     for (A, B) in _IterateOverlappingTiles(list_tiles,min_overlap=min_overlap):
-        overlap_data = TileOverlap(A,B,imageScale=imageScale, inter_tile_distance_scale=inter_tile_distance_scale)
+        overlap_data = TileOverlap(A,B,image_to_source_space_scale=image_to_source_space_scale, inter_tile_distance_scale=inter_tile_distance_scale)
         if overlap_data.has_overlap:
             yield overlap_data
             
@@ -178,10 +173,14 @@ class TileOverlap(object):
     def get_expanded_overlap_rects(self, scale_factor):
         raise NotImplemented()
             
-    def __init__(self, A, B, imageScale, inter_tile_distance_scale=1.0):
+    def __init__(self, A, B, image_to_source_space_scale, inter_tile_distance_scale=1.0):
         
-        if imageScale is None:
-            imageScale = 1.0
+        if image_to_source_space_scale is None:
+            image_to_source_space_scale = 1.0
+            
+        if image_to_source_space_scale < 1:
+            raise ValueError("This might be OK... but images are almost always downsampled.  This exception was added to migrate from old code to this class because at that time all scalars were positive.  For example a downsampled by 4 image must have coordinates multiplied by 4 to match the full-res source space of the transform.")
+
              
         #Ensure ID's used are from low to high
         if A.ID > B.ID:
@@ -189,7 +188,7 @@ class TileOverlap(object):
             A = B
             B = temp
             
-        self._imageScale = imageScale
+        self._imageScale = 1.0 / image_to_source_space_scale
         self._Tiles = (A,B)
         self._feature_scores = [None, None]
         self._overlap = None
@@ -197,7 +196,7 @@ class TileOverlap(object):
                                                                                                                                           inter_tile_distance_scale=inter_tile_distance_scale)
         self._overlapping_source_rects = (overlapping_rect_A, overlapping_rect_B)
         
-        self._scaled_overlapping_source_rects = TileOverlap.scale_overlapping_rects(overlapping_rect_A, overlapping_rect_B, scalar=imageScale)
+        self._scaled_overlapping_source_rects = TileOverlap.scale_overlapping_rects(overlapping_rect_A, overlapping_rect_B, scalar=1.0 / image_to_source_space_scale)
         
     def __repr__(self):
         area_scale = self._imageScale ** 2
@@ -216,8 +215,14 @@ class TileOverlap(object):
     @staticmethod
     def Calculate_Overlapping_Regions(A, B, inter_tile_distance_scale=1.0):
         '''
+        :param tile A:
+        :param tile B:
         :param float inter_tile_distance_scale: A value from 0 to 1 that scales the distance between the centers of the two tiles.  A value of 0 considers the full images when registering.  A value of 1.0 only considers the overlapping regions according to the tile transforms.  Reduce this value in early registration passes to increase the search area.
-        :return: The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
+        :return: A tuple with:
+            1. The rectangle describing the overlapping region in source (image) space of A
+            2. The rectangle describing the overlapping region in source (image) space of B
+            3. The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
+            4. The offset adjustment from A to B, how much to add to the center of A to get the center of B
         '''
         A_target_bbox = A.FixedBoundingBox
         B_target_bbox = B.FixedBoundingBox

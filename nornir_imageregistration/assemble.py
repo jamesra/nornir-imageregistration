@@ -6,13 +6,12 @@ Created on Apr 22, 2013
 
 import os
  
-from nornir_imageregistration.files.stosfile import StosFile
+import nornir_imageregistration 
 from   nornir_imageregistration.transforms import factory, triangulation
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
 from scipy.ndimage import interpolation
 
-import nornir_imageregistration
-import nornir_imageregistration.transforms.base as transformbase
+from nornir_imageregistration import ITransform
 import nornir_pools
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
@@ -222,7 +221,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     # TODO: Order appears to not matter so setting to zero may help
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     
-    outputValues = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=0, cval=cval)
+    outputValues = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=1, cval=cval)
     outputImage = np.full(area, cval, dtype=subroi_warpedImage.dtype)
     fixed_coords_flat = nornir_imageregistration.ravel_index(fixed_coords, outputImage.shape).astype(np.int64)
     outputImage.flat[fixed_coords_flat] = outputValues
@@ -323,7 +322,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         if isinstance(firstImage, list):
             firstImage = firstImage[0]
         
-        bounds = nornir_imageregistration.spatial.Rectangle.CreateFromPointAndArea((0, 0), firstImage.shape)
+        bounds = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0, 0), firstImage.shape)
         fixedCorners = transform.InverseTransform(bounds.Corners)
         FixedImageArea = np.ravel(np.max(fixedCorners, 0) - np.min(fixedCorners, 0))
 
@@ -337,7 +336,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
-            cval = [cval] * len(DataToTransform)    
+            cval = [cval] * len(DataToTransform)
         
         FixedImageList = []
         for i, wi in enumerate(ImagesToTransform):
@@ -362,12 +361,12 @@ def ParameterToStosTransform(transformData):
     if isinstance(transformData, str):
         if not os.path.exists(transformData):
             raise ValueError("transformData is not a valid path to a .stos file %s" % transformData)
-        stos = StosFile.Load(transformData)
+        stos = nornir_imageregistration.StosFile.Load(transformData)
         stostransform = factory.LoadTransform(stos.Transform)
-    elif isinstance(transformData, StosFile):
+    elif isinstance(transformData, nornir_imageregistration.StosFile):
         stos = transformData.Transform
         stostransform = factory.LoadTransform(stos.Transform)
-    elif isinstance(transformData, transformbase.Base):
+    elif isinstance(transformData, ITransform):
         stostransform = transformData
         
     return stostransform
@@ -407,7 +406,7 @@ def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedIma
     warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
-        nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray')
+        nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
 
     return warpedImage
 

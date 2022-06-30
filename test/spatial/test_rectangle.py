@@ -146,44 +146,53 @@ class Test(unittest.TestCase):
         overlap_rect_list = list(self.OverlapRects.values())
         self.EnumerateOverlappingRectangles(overlap_rect_list)
         
+    @hypothesis.given(rects=rectangles(0,128, shapeRange=(1,100)))
+    def testRectangleSetWithHypothesis(self, rects):
+        self.EnumerateOverlappingRectangles(rect_list=rects)
+        
+    def testRectangleSetWithHypothesisRepro(self):
+        rect = spatial.Rectangle.CreateFromPointAndArea((0,0),(1,1))
+        self.EnumerateOverlappingRectangles([rect])
+            
     def EnumerateOverlappingRectangles(self, rect_list):
          
         rset = spatial.RectangleSet.Create(rect_list)
         
-        print("Rectangle List:")
-        for i in range(0, len(rect_list)):
-            print("%d: %s" % (i, str(rect_list[i])))
+        #print("Rectangle List:")
+        #for i in range(0, len(rect_list)):
+        #    print("%d: %s" % (i, str(rect_list[i])))
         
         OverlapSets = {}
         for i in range(0, len(rect_list)):
             OverlapSets[i] = set()
             
-        print("Validate overlapping rectangles")
+        #print("Validate overlapping rectangles")
         for (A, B) in rset.EnumerateOverlapping():
             #Make sure it is not a duplicate
             self.assertFalse(B in OverlapSets[A])
             self.assertFalse(A in OverlapSets[B])
-            print ("{0},{1}".format(A,B))
+            #print ("{0},{1}".format(A,B))
             
             OverlapSets[A].add(B)
             OverlapSets[B].add(A)
             self.assertTrue(spatial.Rectangle.Intersect(rect_list[A], rect_list[B]) is not None, "Overlapping rectangles do not overlap")
         
-        for (A, overlap_set) in OverlapSets.items():
-            print("%d: %s" % (A, overlap_set))
+        #for (A, overlap_set) in OverlapSets.items():
+            #print("%d: %s" % (A, overlap_set))
             
-        print("Validate non-overlapping rectangles")
+        #print("Validate non-overlapping rectangles")
         for (A, overlap_set) in OverlapSets.items():
             non_overlap_set = overlap_set.copy()
             non_overlap_set ^= set(range(0, len(rect_list)))
-            print("%d: %s" % (A, non_overlap_set))
+            #print("%d: %s" % (A, non_overlap_set))
             for B in non_overlap_set:
                 if A != B:
                     self.assertFalse(spatial.Rectangle.contains(rect_list[A], rect_list[B]), "%d - %d: Non-overlapping rectangles overlap" % (A, B))
         
         
-        print("Done")
-        print("")
+        #print("Done")
+        #print("")
+        del rset
         
     def testLongVerticalRectangleSet(self):
         y_range = np.linspace(0, 90, 10)

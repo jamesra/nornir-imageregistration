@@ -8,4 +8,4 @@ from .point import *
 from .rectangle import Rectangle, RectangleSet, RaiseValueErrorOnInvalidBounds, IsValidBoundingBox
 from numpy import arctan2
 from .converters import ArcAngle, BoundsArrayFromPoints, BoundingPrimitiveFromPoints
-
+  

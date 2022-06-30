@@ -88,9 +88,11 @@ def __plot_nodes(layout_obj):
         
         
 
-def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=None, max_tension=None):
+def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=None, max_tension=None, title=None, PassFail=False):
      
     plt.clf()
+    if title is not None:
+        plt.title(title)
     
     Points = layout_obj.GetPositions()
     Offsets = layout_obj.WeightedNetTensionVectors()
@@ -147,6 +149,7 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
     plt.gca().invert_yaxis()
     plt.gcf().patch.set_facecolor((0.1,0.1,0.1))
     plt.gca().set_facecolor((0.5,0.5,0.5))
+    plt.gcf().set_facecolor("w")
     
     new_max_tension = __PlotLinkedNodes(layout_obj, plt.gca(), max_tension=max_tension)
     
@@ -155,12 +158,13 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
         Origin = Points[iRow, :]
         scaled_offset = Offsets[iRow, 1:]
          
-        Destination = Origin + scaled_offset
+        Destination = Origin + (scaled_offset * 20)
         
         if not numpy.array_equal(Origin, Destination):
             line = numpy.vstack((Origin, Destination))
             #line = lines.Line2D(line[:, 1], line[:, 0], color='blue', alpha=0.5, width=0.1)
-            plt.plot(line[:, 1], line[:, 0], color='blue', alpha=0.5, linewidth=0.1)
+#            This plot line isn't showing up.
+            plt.plot(line[:, 1], line[:, 0], color='black', alpha=0.5, linewidth=1)
         
     if ylim is not None:
         plt.ylim(ylim)
@@ -171,7 +175,10 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
     if(OutputFilename is not None):
         plt.savefig(OutputFilename, dpi=300)
     else:
-        plt.show(block=True)
+        if PassFail:
+            return nornir_imageregistration.ShowWithPassFail(plt.gcf())
+        else:
+            plt.show(block=True)
         
     return new_max_tension
         

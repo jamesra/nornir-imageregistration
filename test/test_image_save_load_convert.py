@@ -156,25 +156,25 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         
         nornir_imageregistration.SaveImage(output_path, output)
         
-    def test_16Bit_SaveImage(self):
-        input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
-        self.RunSaveLoadImageTest(input_image_fullpath, 
-                                  expected_input_properties=ImageProperties(16, numpy.int16, '.tif'), 
-                                  expected_output_properties=ImageProperties(16, numpy.uint16, '.png'))
-        
-        self.RunSaveLoadImageTest(input_image_fullpath, 
-                                  expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
-                                  expected_output_properties=ImageProperties(16, numpy.uint16, '.tif'))
-        
-    def test_16Bit_to_8Bit_SaveImage(self):
-        input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
-        self.RunSaveLoadImageTest(input_image_fullpath, 
-                                  expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
-                                  expected_output_properties=ImageProperties(8, numpy.uint8, '.png'))
-        
-        self.RunSaveLoadImageTest(input_image_fullpath, 
-                                  expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
-                                  expected_output_properties=ImageProperties(8, numpy.uint8, '.tif'))
+    # def test_16Bit_SaveImage(self):
+    #     input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
+    #     self.RunSaveLoadImageTest(input_image_fullpath, 
+    #                               expected_input_properties=ImageProperties(16, numpy.int16, '.tif'), 
+    #                               expected_output_properties=ImageProperties(16, numpy.uint16, '.png'))
+    #
+    #     self.RunSaveLoadImageTest(input_image_fullpath, 
+    #                               expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
+    #                               expected_output_properties=ImageProperties(16, numpy.uint16, '.tif'))
+    #
+    # def test_16Bit_to_8Bit_SaveImage(self):
+    #     input_image_fullpath = os.path.join(self.ImportedDataPath, '16-bit', "10000.tif")
+    #     self.RunSaveLoadImageTest(input_image_fullpath, 
+    #                               expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
+    #                               expected_output_properties=ImageProperties(8, numpy.uint8, '.png'))
+    #
+    #     self.RunSaveLoadImageTest(input_image_fullpath, 
+    #                               expected_input_properties=ImageProperties(16, numpy.uint16, '.tif'), 
+    #                               expected_output_properties=ImageProperties(8, numpy.uint8, '.tif'))
         
     def test_8Bit_SaveImage(self):
         input_image_fullpath = os.path.join(self.ImportedDataPath, "BrightfieldShading.png")

@@ -102,11 +102,11 @@ def Execute(ExecArgs=None):
 
     mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
     
-
-    mosaic.TranslateToZeroOrigin()
-
-    (mosaicImage, mosaicMask) = mosaic.AssembleImage(tilesPath=Args.tilepath, usecluster=True, target_space_scale= 1.0 / Args.scalar)
-
+    mosaicTileset = nornir_imageregistration.MosaicTileset(mosaic, Args.tilepath, source_space_scale=1.0 / Args.scalar) 
+    mosaicTileset.TranslateToZeroOrigin()
+    
+    (mosaicImage, mosaicMask)  = mosaicTileset.AssembleImage(usecluster=True, target_space_scale= 1.0 / Args.scalar)
+     
     output_dirname = os.path.dirname(Args.outputpath)
     output_filename = os.path.basename(Args.outputpath)
     (output_name, output_ext) = os.path.splitext(output_filename)

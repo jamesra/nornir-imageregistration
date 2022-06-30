@@ -31,25 +31,26 @@ def __DetermineTransformScale(transform, imageSize):
     if not hasattr(transform, 'MappedBoundingBox'):
         return 1.0 
     
-    width = transform.MappedBoundingBox.Width #Account for zero origin by adding 1
-    height = transform.MappedBoundingBox.Height #Account for zero origin by adding 1
+    width = transform.MappedBoundingBox.Width + 1 #Account for zero origin by adding 1
+    height = transform.MappedBoundingBox.Height + 1 #Account for zero origin by adding 1
 
     if nornir_imageregistration.ApproxEqual(imageSize[0], height, epsilon=1.1) and nornir_imageregistration.ApproxEqual(imageSize[1], width, epsilon=1.1):
         return 1.0
     else:
         heightScale = (imageSize[0] / height)
         widthScale = (imageSize[1] / width)
-
+        
         if(nornir_imageregistration.ApproxEqual(heightScale, widthScale)):
             return heightScale
         else:
-            return None
+            raise ValueError(f"Mismatch between heightScale and widthScale. {heightScale} vs {widthScale}")
 
 
 def MostCommonScalar(transforms, imagepaths):
     '''Compare the image size encoded in the transforms to the image sizes on disk. 
        Return the most common scale factor required to make the transforms match the image dimensions'''
 
+    raise DeprecationWarning("Examine why we are determining scale from a set of images.  Attempt to replace with mosaic_tileset's attribute for image to source space scale")
     scales = []
 
     for i, transform in enumerate(transforms):

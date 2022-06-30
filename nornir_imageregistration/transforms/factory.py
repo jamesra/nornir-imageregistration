@@ -8,9 +8,9 @@ The factory is focused on the loading and saving of transforms
 
 from scipy import *
 
+import nornir_imageregistration
 from nornir_imageregistration.spatial.indicies import *
-from nornir_imageregistration.spatial import Rectangle 
-import nornir_imageregistration.transforms
+from nornir_imageregistration import Rectangle 
 import numpy as np
 
 from . import utils
@@ -26,7 +26,9 @@ def TransformToIRToolsString(transformObj, bounds=None):
 
     
 def _GetMappedBoundsExtents(transform, bounds=None):
-    # Find the extent of the mapped boundaries
+    '''
+    Find the extent of the mapped boundaries
+    '''
     (bottom, left, top, right) = (None, None, None, None)
     if bounds is None:
         (bottom, left, top, right) = transform.MappedBoundingBox.ToTuple()
@@ -52,7 +54,9 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
     # Find the extent of the mapped boundaries
     (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
-
+    image_width =  (right - left) + 1 #We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
+    image_height = (top - bottom) + 1 
+    
     output = []
     output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
      
@@ -64,13 +68,8 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
         pstr = template % {'cx' : float_to_shortest_string(CX, 3), 'cy' : float_to_shortest_string(CY, 3)}
         output.append(pstr)
         NumAdded = NumAdded + 1
-
-   # print str(NumAdded) + " points added"
-
-    boundsStr = " ".join(map(str, [left, bottom, (right - left), top - bottom]))
-    
-    output.append(" fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr)
-    # output = output + " fp 7 0 " + str(int(YDim - 1)) + " " + str(int(XDim - 1)) + " " + boundsStr
+ 
+    output.append(f" fp 7 0 {YDim - 1:d} {XDim - 1:d} {left:g} {bottom:g} {image_width:g} {image_height:g}") 
     transform_string = ''.join(output)
     
     return transform_string
@@ -81,6 +80,8 @@ def _TransformToIRToolsString(Transform, bounds=None):
 
     # Find the extent of the mapped boundaries
     (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
+    image_width =  (right - left) + 1 #We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
+    image_height = (top - bottom) + 1 
 
     output = []
     output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
@@ -97,15 +98,9 @@ def _TransformToIRToolsString(Transform, bounds=None):
                            'mx' : float_to_shortest_string((MX - left) / width, 10),
                            'my' : float_to_shortest_string((MY - bottom) / height, 10)}
         output.append(pstr)
-
-    boundsStr = " ".join(map(str, [left, bottom, width, height]))
-    
-    output.append(" fp 8 0 16 16 ")
-    output.append(boundsStr)
-    output.append(' ' + str(numPoints))
-    
-    # boundsStr = " ".join(map(str, [0, 0, width, height]))
-    # transform_string = #output + " fp 8 0 16 16 " + boundsStr + ' ' + str(numPoints)
+ 
+    output.append(f" fp 8 0 16 16 {left:g} {bottom:g} {image_width:g} {image_height:g} {numPoints:d}")
+     
     transform_string = ''.join(output)
 
     return transform_string
@@ -199,8 +194,9 @@ def ParseGridTransform(parts, pixelSpacing=None):
         iY = (i / 2) // gridWidth
         iX = (i / 2) % gridWidth
 
-        mappedX = (float(iX) / float(gridWidth - 1)) * ImageWidth
-        mappedY = (float(iY) / float(gridHeight - 1)) * ImageHeight
+        #We subtract one from ImageWidth because the pixels are indexed at zero->Width-1
+        mappedX = (float(iX) / float(gridWidth - 1)) * (ImageWidth-1)
+        mappedY = (float(iY) / float(gridHeight - 1)) * (ImageHeight-1) 
         ControlX = VariableParameters[i]
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
@@ -227,8 +223,8 @@ def ParseMeshTransform(parts, pixelSpacing=None):
 
     for i in range(0, len(VariableParameters) - 1, 4):
 
-        mappedX = (VariableParameters[i + 0] * ImageWidth) + Left
-        mappedY = (VariableParameters[i + 1] * ImageHeight) + Bottom
+        mappedX = (VariableParameters[i + 0] * (ImageWidth-1)) + Left
+        mappedY = (VariableParameters[i + 1] * (ImageHeight-1)) + Bottom
         ControlX = float(VariableParameters[i + 2]) * pixelSpacing
         ControlY = float(VariableParameters[i + 3]) * pixelSpacing
 
@@ -339,8 +335,8 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
 #             scalar = shape_ratio[0]
             
     if use_mesh_transform:
-        return CreateRigidMeshTransform(FixedImageSize=target_image_shape,
-                                        WarpedImageSize=source_image_shape,
+        return CreateRigidMeshTransform(target_image_shape=target_image_shape,
+                                        source_image_shape=source_image_shape,
                                         rangle=rangle,
                                         warped_offset=warped_offset,
                                         flip_ud=flip_ud)
@@ -351,7 +347,12 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
     assert(target_image_shape[0] > 0)
     assert(target_image_shape[1] > 0)
     
-    source_rotation_center = (source_image_shape) / 2.0
+    source_bounding_rect = Rectangle.CreateFromPointAndArea((0,0), source_image_shape)
+    target_bounding_rect = Rectangle.CreateFromPointAndArea((0,0), target_image_shape)
+    
+    #Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
+    #the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
+    source_rotation_center = source_bounding_rect.Center - 0.5
 
     # Adjust offset for any mismatch in dimensions
     #Adjust the center of rotation to be consistent with the original ir-tools
@@ -364,11 +365,13 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
 
     # ControlPoints = np.append(TargetPoints, SourcePoints, 1)
 
-    transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=AdjustedOffset,
+    if rangle != 0:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=AdjustedOffset,
                                                           source_rotation_center=source_rotation_center,
                                                           angle=rangle,
-                                                          scalar=scalar,
-                                                          MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0),source_image_shape))
+                                                          scalar=scalar)
+    else:
+        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=AdjustedOffset)
 
     return transform
 

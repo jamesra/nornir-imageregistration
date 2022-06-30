@@ -42,7 +42,7 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         PaddedWarpedImage = core.PadImageForPhaseCorrelation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage)
+        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage, FixedImageShape=self.FixedImage.shape, MovingImageShape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
@@ -61,7 +61,7 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         PaddedWarpedImage = core.PadImageForPhaseCorrelation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage)
+        record = core.FindOffset(self.PaddedFixedImage, PaddedWarpedImage, FixedImageShape=self.FixedImage.shape, MovingImageShape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
@@ -93,7 +93,7 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         PaddedWarpedImage = core.PadImageForPhaseCorrelation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = core.FindOffset(PaddedFixedImage, PaddedWarpedImage)
+        record = core.FindOffset(PaddedFixedImage, PaddedWarpedImage, FixedImageShape=FixedImage.shape, MovingImageShape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         print(record)

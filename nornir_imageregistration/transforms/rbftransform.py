@@ -4,22 +4,19 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-import math
-
-import nornir_imageregistration
-from nornir_imageregistration.transforms import triangulation
+import math 
 import numpy
 import scipy.interpolate
+import nornir_imageregistration 
 
-import nornir_pools
-#import nornir_shared
+import nornir_pools 
 import scipy.linalg 
 import scipy.spatial
 
 from . import utils
-
-
-class RBFWithLinearCorrection(triangulation.Triangulation):
+from .triangulation import Triangulation
+ 
+class RBFWithLinearCorrection(Triangulation):
 
     def __getstate__(self):
         odict = super(RBFWithLinearCorrection, self).__getstate__()
@@ -60,6 +57,10 @@ class RBFWithLinearCorrection(triangulation.Triangulation):
             self.BasisFunction = RBFWithLinearCorrection.DefaultBasisFunction
 
         self._Weights = self.CalculateRBFWeights(WarpedPoints, FixedPoints, self.BasisFunction)
+        
+    @staticmethod
+    def Load(TransformString, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     def OnPointsAddedToTransform(self, new_points):
         '''Update our data structures to account for added control points'''

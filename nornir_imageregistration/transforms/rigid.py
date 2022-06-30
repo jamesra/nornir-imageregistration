@@ -2,7 +2,7 @@
 from nornir_imageregistration.transforms import base, triangulation
 import nornir_imageregistration.transforms.utils
 import nornir_imageregistration.transforms.factory
-from nornir_imageregistration.spatial import Rectangle
+from nornir_imageregistration import Rectangle
 import numpy as np
 
 
@@ -36,6 +36,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         self.OnTransformChanged()
         
     def Scale(self, value):
+        '''Scale both warped and control space by scalar'''
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * value 
         self.target_offset = self.target_offset * value
         self.OnTransformChanged()
@@ -68,9 +69,6 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         odict['target_offset'] = (self.target_offset[0], self.target_offset[1])
         odict['source_space_center_of_rotation'] = (self.source_space_center_of_rotation[0],
                                                     self.source_space_center_of_rotation[1])
-        odict['_mapped_bounding_box'] = self._mapped_bounding_box
-        odict['_fixed_bounding_box'] = self._fixed_bounding_box
-
         return odict
 
     def __setstate__(self, dictionary):
@@ -83,18 +81,22 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
         
+    def __repr__(self):
+        return f"Offset: {self.target_offset[0]}y,{self.target_offset[1]}x"
+
+        
     @staticmethod
     def Load(TransformString,pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
         
     def ToITKString(self):
         #TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self._angle, self.target_offset[1], self.target_offset[0], self.source_space_center_of_rotation[1], self.source_space_center_of_rotation[0])
+        return f"Rigid2DTransform_double_2_2 vp 3 {self._angle} {self.target_offset[1]} {self.target_offset[0]} fp 2 {self.source_space_center_of_rotation[1]} {self.source_space_center_of_rotation[0]}"
     
     def Transform(self, points, **kwargs):
         
         
-        if not (self.angle is None or self.angle == 0):
+        if not (self._angle is None or self._angle == 0):
             #Look at GetTransformedRigidCornerPoints for a possible implementation
             raise NotImplemented("Rotation is not implemented")
         
@@ -103,7 +105,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
     def InverseTransform(self, points, **kwargs):
         
         
-        if not (self.angle is None or self.angle == 0):
+        if not (self._angle is None or self._angle == 0):
             #Look at GetTransformedRigidCornerPoints for a possible implementation
             raise NotImplemented("Rotation is not implemented")
         
@@ -197,7 +199,7 @@ class Rigid(RigidNoRotation):
     def __repr__(self):
         return super(Rigid, self).__repr__()
 
-class CenteredSimilarity2DTransform(Rigid):
+class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
     '''
     Applies a scale+rotation+translation transform
     '''
@@ -239,10 +241,10 @@ class CenteredSimilarity2DTransform(Rigid):
                                                                                        self.source_space_center_of_rotation[0],
                                                                                        self.target_offset[1],
                                                                                        self.target_offset[0])
-        
-        
+            
     def ScaleWarped(self, scalar):
         '''Scale source space control points by scalar'''
+        self.source_space_center_of_rotation = self.source_space_center_of_rotation / scalar
         self._scalar = self._scalar / scalar
         self.OnTransformChanged()
         

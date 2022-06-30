@@ -1,8 +1,8 @@
-'''
+"""
 Created on Aug 30, 2013
 
 @author: u0490822
-'''
+"""
 
 from ez_setup import use_setuptools
 
@@ -24,7 +24,8 @@ if __name__ == '__main__':
                         "scipy>=0.13.2",
                         "matplotlib>=1.3.0",
                         "Pillow>=5.3",
-                        "six"]
+                        "six",
+                        "hypothesis"]
 
     dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.4.1",
                         "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.4.1"]
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         # entry = script_template % (renamed, script_path)
         # named_scripts.append(entry)
         
-    entry_points = {'console_scripts' : scripts}
+    entry_points = {'console_scripts': scripts}
 
     classifiers = ['Programming Language :: Python :: 3.7',
                    'Topic :: Scientific/Engineering']

@@ -15,7 +15,7 @@ import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.images as images
 
-from . import setup_imagetest
+import setup_imagetest
 
 
 def ShowComparison(*args, **kwargs):
@@ -23,18 +23,29 @@ def ShowComparison(*args, **kwargs):
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
 
+    @classmethod
+    def create_tiny_image(cls, shape):
+        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, numpy.int32)
+        image = numpy.zeros(shape, dtype=numpy.float32)
+        for x in range(0,shape[1]):
+            for y in range(0,shape[0]):
+                color_index = (((x % 4) + (y % 4)) % 4) / 4
+                image[y,x] = (color_index * 0.8) + 0.2
+        
+        return image
 
     def test_identity(self):
 
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
         # Shape in numpy is (height, width)
-        canvasShape = (2, 6)
-        flipCanvasShape = (6, 2)
-        transform = arecord.ToTransform(canvasShape, canvasShape)
+        sourceShape = (2, 6)
+        targetShape = sourceShape 
+        transform = arecord.ToTransform(targetShape, sourceShape)
 
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), targetShape)
 
+        self.show_test_image(transform, sourceShape, (numpy.max(points,0) - numpy.min(points,0)) + 1, "Identity transform, should be identical")
         # Transform ROI should return coordinates as
         # ([Y1,X1],
         # ([Y2,X2], ...
@@ -46,46 +57,78 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_translate(self):
 
-        arecord = AlignmentRecord(peak=(1, 2), weight=100, angle=0.0)
+        offset = numpy.array((1,2),numpy.int32)
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=0.0)
 
-        canvasShape = (2, 6)
-        flipCanvasShape = (6, 2)
-        transform = arecord.ToTransform(canvasShape, canvasShape)
+        sourceShape = (2, 6)
+        targetShape = sourceShape
+        transform = arecord.ToTransform(targetShape, sourceShape)
 
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (1, 2), canvasShape)
-
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
-
-    def test_Rotate180(self):
-
-        arecord = AlignmentRecord(peak=(1, 3), weight=100, angle=180.0)
-        canvasShape = (2, 6)
-        flipCanvasShape = (6, 2)
-        transform = arecord.ToTransform(canvasShape, canvasShape)
-
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (0, 0), canvasShape, extrapolate=True)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape)
+        
+        self.show_test_image(transform, sourceShape, targetShape * numpy.array((2)), f"Translate by x:{offset[1]} y:{offset[0]}")
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
-    def test_Rotate90(self):
+    def test_Rotate180(self): 
+        sourceShape = (2, 6)
+        targetShape = sourceShape
+        offset = (0,0)#numpy.array(canvasShape) / 2.0
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
+        transform = arecord.ToTransform(targetShape, sourceShape)
 
-        arecord = AlignmentRecord(peak=(1, 3), weight=100, angle=90.0)
-        canvasShape = (2, 6)
-        flipCanvasShape = (6, 2)
-        transform = arecord.ToTransform(canvasShape, flipCanvasShape)
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
+        
+        self.show_test_image(transform, sourceShape, targetShape, "Rotate 180 degrees")
 
-        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, (transform.FixedBoundingBox[spatial.iRect.MinY], transform.FixedBoundingBox[spatial.iRect.MinX]), canvasShape, extrapolate=True)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
+
+    def test_Rotate90(self): 
+        
+        sourceShape = (3, 6)
+        targetShape = (6, 3)
+        offset =  (0,0)#numpy.array(targetShape) / 2.0
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
+        transform = arecord.ToTransform(targetShape, sourceShape)
+        
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
+        
+        self.show_test_image(transform, sourceShape,  targetShape,"Rotate 90 degrees")
+          
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 2, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
+        
+    def test_Rotate90_expandedCanvas(self):
+        
+        sourceShape = (3, 6)
+        targetShape = (10, 10)
+        offset =  (0,0)#numpy.array(targetShape) / 2.0
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
+        transform = arecord.ToTransform(targetShape, sourceShape)
+        
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
+        
+        self.show_test_image(transform, sourceShape,  targetShape,"Rotate 90 degrees")
           
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 1, delta=0.01)
+        
+    def show_test_image(self, transform, image_shape, target_space_shape, title):
+        image = TestTransformROI.create_tiny_image(image_shape)
+        transformedImage = assemble.WarpedImageToFixedSpace(transform, target_space_shape, image)
+        
+        self.assertTrue(nornir_imageregistration.ShowGrayscale([image, transformedImage], title=title, PassFail=True))
+        
 
 class TestAssemble(setup_imagetest.ImageTestBase):
     
@@ -126,7 +169,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage)
+        nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage, bpp=8)
 
         #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
@@ -150,7 +193,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage)
+        nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
         rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
 #
@@ -194,7 +237,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, fixedImage.shape, warpedImage)
-        nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage)
+        nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage, bpp=8)
 
 class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
     '''Runs assemble on the same fixed.png, moving.png images using different transform files'''

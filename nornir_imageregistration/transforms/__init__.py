@@ -5,9 +5,20 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
 
 NumberOfControlPointsToTriggerMultiprocessing = 20
 
-from .factory import TransformToIRToolsString, LoadTransform
-from .meshwithrbffallback import MeshWithRBFFallback
-from .rbftransform import RBFWithLinearCorrection
-from .rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
-from .triangulation import Triangulation  
-from .base import Base
+
+import nornir_imageregistration.transforms.base as base
+import nornir_imageregistration.transforms.triangulation as triangulation
+import nornir_imageregistration.transforms.rigid as rigid
+import nornir_imageregistration.transforms.metrics as metrics
+import nornir_imageregistration.transforms.factory as factory
+import nornir_imageregistration.transforms.rbftransform as rbftransform
+import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
+
+from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, IDiscreteTransform, ITransformScaling
+from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
+from nornir_imageregistration.transforms.triangulation import Triangulation
+from nornir_imageregistration.transforms.factory import TransformToIRToolsString, LoadTransform
+from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
+from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
+
+

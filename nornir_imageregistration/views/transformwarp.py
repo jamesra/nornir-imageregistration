@@ -11,7 +11,7 @@ import matplotlib.tri as mtri
 import scipy.interpolate
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms import *  
+from nornir_imageregistration.transforms import factory  
 import nornir_shared.histogram
 import nornir_shared.plot
 
@@ -24,9 +24,9 @@ class TransformWarpView:
         '''
         
         if isinstance(transform, str):
-            transform = nornir_imageregistration.files.StosFile.Load(transform)
+            transform = nornir_imageregistration.StosFile.Load(transform)
         
-        if isinstance(transform, nornir_imageregistration.files.StosFile):
+        if isinstance(transform, nornir_imageregistration.StosFile):
             transform = factory.LoadTransform(transform.Transform,1)
             
         if not isinstance(transform, nornir_imageregistration.transforms.triangulation.Triangulation):
@@ -145,7 +145,7 @@ class StosTransformWarpView(TransformWarpView):
     def stos(self, val):
         if self.__stos != val:
             if val is not None:
-                if not isinstance(val, nornir_imageregistration.files.StosFile):
+                if not isinstance(val, nornir_imageregistration.StosFile):
                     raise ValueError("stos attribute must be a StosFile object")
                 
                 self.transform = factory.LoadTransform(val.Transform,1)
@@ -159,9 +159,9 @@ class StosTransformWarpView(TransformWarpView):
         self.__stos = None
         
         if isinstance(transform, str):
-            transform = nornir_imageregistration.files.StosFile.Load(transform)
+            transform = nornir_imageregistration.StosFile.Load(transform)
         
-        if isinstance(transform, nornir_imageregistration.files.StosFile):
+        if isinstance(transform, nornir_imageregistration.StosFile):
             self.stos = transform
             
     def GenerateWarpOverlayForFixedImage(self, outputfullpath=None):

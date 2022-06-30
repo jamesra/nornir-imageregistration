@@ -3,15 +3,14 @@ import logging
 import os
 import sys
 import typing
-
-import nornir_imageregistration 
-
+  
+import nornir_imageregistration
 import nornir_shared.checksum
 import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
 
 
-def __argumentToStos(Argument) -> nornir_imageregistration.transforms.Base:
+def __argumentToStos(Argument):
 
     stosObj = None
     if isinstance(Argument, str):
@@ -50,7 +49,7 @@ class StosFile(object):
             self._Transform = None
             return 
         
-        if isinstance(val, nornir_imageregistration.transforms.Base):
+        if isinstance(val, nornir_imageregistration.transforms.ITransform):
             self._Transform = nornir_imageregistration.transforms.TransformToIRToolsString(val)
         elif isinstance(val, str):
             self._Transform = val

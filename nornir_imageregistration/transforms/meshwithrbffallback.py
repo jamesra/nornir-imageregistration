@@ -6,21 +6,18 @@ Created on Oct 18, 2012
 
 import math
 
-import nornir_imageregistration
-from nornir_imageregistration.transforms import base, triangulation
-from nornir_imageregistration.transforms.rbftransform import \
-    RBFWithLinearCorrection
+import nornir_imageregistration 
+from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
 import numpy
 import scipy.interpolate
 
-import nornir_pools
-#import scipy.linalg as linalg
-#import scipy.spatial as spatial
+import nornir_pools 
+from .triangulation import Triangulation
 
 from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
-class MeshWithRBFFallback(triangulation.Triangulation):
+class MeshWithRBFFallback(Triangulation):
     '''
     classdocs
     '''
@@ -166,6 +163,10 @@ class MeshWithRBFFallback(triangulation.Triangulation):
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
+        
+    @staticmethod
+    def Load(TransformString, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
 
 if __name__ == '__main__':

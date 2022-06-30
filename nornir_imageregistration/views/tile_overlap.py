@@ -112,6 +112,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
         colors = ['red'] * len(overlaps)
         
     for (i,overlap) in enumerate(overlaps):
+        label_str = f'{overlap.A.ID}-{overlap.B.ID} {overlap.overlap * 100:.1f}%  {overlap.offset[0]}y {overlap.offset[1]}x'
         patches.append(mpatches.Rectangle(numpy.flip(overlap.overlapping_target_rect.BottomLeft),
                                       overlap.overlapping_target_rect.Width,
                                       overlap.overlapping_target_rect.Height,
@@ -119,9 +120,9 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
                                       edgecolor=None,
                                       linewidth=0,
                                       alpha=overlap.overlap,
-                                      label='{0}-{1} {2:.1f}%'.format(overlap.A, overlap.B, overlap.overlap * 100)))
+                                      label=label_str))
         
-        label_str ='{0}-{1} {2:.1f}%'.format(overlap.A, overlap.B, overlap.overlap * 100)
+        
         feature_scores = getattr(overlap, 'feature_scores', None)
         if feature_scores is not None:
             label_str = label_str + '\nScores: {0:.2f} {1:.2f}'.format(feature_scores[0], feature_scores[1])

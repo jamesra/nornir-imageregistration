@@ -3,11 +3,10 @@
 
 import os
 
-import nornir_imageregistration
-import nornir_imageregistration.files.stosfile
+import numpy as np
 from scipy import pi
 
-import numpy as np
+import nornir_imageregistration 
 
 
 class AlignmentRecord(object):
@@ -130,13 +129,20 @@ class AlignmentRecord(object):
 
         if warpedImageSize is None:
             warpedImageSize = fixedImageSize
-
-        return nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=fixedImageSize,
-                                                                                source_image_shape=warpedImageSize,
+            
+        return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak, 
                                                                                 rangle=self.rangle,
-                                                                                warped_offset=self.peak,
-                                                                                flip_ud=self.flippedud,
-                                                                                scale=self.scale)
+                                                                                target_image_shape=fixedImageSize,
+                                                                                source_image_shape=warpedImageSize,
+                                                                                flip_ud=self.flippedud
+                                                                                )
+
+        # return nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=fixedImageSize,
+        #                                                                         source_image_shape=warpedImageSize,
+        #                                                                         rangle=self.rangle,
+        #                                                                         warped_offset=self.peak,
+        #                                                                         flip_ud=self.flippedud,
+        #                                                                         scale=self.scale)
 
     def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
 
@@ -166,7 +172,7 @@ class AlignmentRecord(object):
         return string
 
     def ToStos(self, ImagePath, WarpedImagePath, FixedImageMaskPath=None, WarpedImageMaskPath=None, PixelSpacing=1):
-        stos = nornir_imageregistration.files.stosfile.StosFile()
+        stos = nornir_imageregistration.StosFile()
         stos.ControlImageName = os.path.basename(ImagePath)
         stos.ControlImagePath = os.path.dirname(ImagePath)
 
@@ -197,14 +203,16 @@ class AlignmentRecord(object):
         #                                 'mapwidth' : stos.MappedImageDim[0]/2,
         #                                 'mapheight' : stos.MappedImageDim[1]/2}
 
-        transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)f %(height)f"
+        transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
 
         # We use Y,X ordering in memory due to Numpy.  Ir-Tools coordinates are written X,Y.
         coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]), (stos.MappedImageDim[1], stos.MappedImageDim[0]))
 
+        #I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
+        #have a -1 to account for the zero origin
         stos.Transform = transformTemplate % {'coordString' : coordString,
-                                              'width' : stos.MappedImageDim[0] - 1,
-                                              'height' : stos.MappedImageDim[1] - 1}
+                                              'width' : stos.MappedImageDim[0],
+                                              'height' : stos.MappedImageDim[1]}
 
         stos.Downsample = PixelSpacing
 

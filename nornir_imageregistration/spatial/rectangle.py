@@ -5,12 +5,11 @@ Points are represented as (Y,X)
 
 '''
 
-import collections
+import collections.abc
 import numpy as np
 from .indicies import iPoint, iRect, iArea
 from .converters import BoundingPrimitiveFromPoints
-  
-
+   
 def RaiseValueErrorOnInvalidBounds(bounds):
     if not IsValidBoundingBox(bounds):
         raise ValueError("Negative dimensions are not allowed")
@@ -30,7 +29,7 @@ class RectangleSet():
     
     rect_dtype = np.dtype([('MinY', 'f4'), ('MinX', 'f4'), ('MaxY', 'f4'), ('MaxX', 'f4'), ('ID', 'u8')])
     # active_dtype is used for lists sorting the start and end position of rectangles
-    active_dtype = np.dtype([('Value', 'f4'), ('ID', 'u8'), ('Active', 'u1')])
+    active_dtype = np.dtype([('Value', 'f4'), ('ID', 'u8'), ('InBounds', 'u1')])
     
     @classmethod
     def _create_bounds_array(cls, rects):
@@ -47,9 +46,11 @@ class RectangleSet():
         '''
         Create lists that sort the beginning and end values for rectangles along each axis
         '''
-        
         x_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
         y_sweep_array = np.empty(len(rect_array) * 2, dtype=cls.active_dtype)
+        
+        #degenerate_x = []
+        #degenerate_y = []
         
         for i, rect in enumerate(rect_array):
             x_sweep_array[i * 2] = (rect['MinX'], rect['ID'], True)
@@ -57,9 +58,19 @@ class RectangleSet():
             y_sweep_array[i * 2] = (rect['MinY'], rect['ID'], True)
             y_sweep_array[(i * 2) + 1] = (rect['MaxY'], rect['ID'], False)
             
-        x_sweep_array = np.sort(x_sweep_array, order=('Value', 'Active'))
-        y_sweep_array = np.sort(y_sweep_array, order=('Value', 'Active'))
+            if rect['MinX'] >= rect['MaxX']:
+                raise ValueError(f"Degenerate rectangle with zero width not supported: {rect}")
+                #degenerate_x.append(rect['ID'])
+            if rect['MinY'] >= rect['MaxY']:
+                raise ValueError(f"Degenerate rectangle with zero height not supported: {rect}")
+                #degenerate_y.append(rect['ID'])
+            
+        x_sweep_array = np.sort(x_sweep_array, order=('Value', 'InBounds'))
+        y_sweep_array = np.sort(y_sweep_array, order=('Value', 'InBounds'))
         
+        #Handle degenerate cases by reverse sorting the Active column so they are in-bounds before out of bounds
+        
+         
         return (x_sweep_array, y_sweep_array)
     
     def __init__(self, rects_array):    
@@ -91,6 +102,60 @@ class RectangleSet():
             self._AddOverlapPairToDict(OverlapDict, ID, MatchingID)
         
         return OverlapDict
+    
+    def Intersect(self, rect):
+        '''
+        :returns: all rectangles in the set that intersect the provided rectangle 
+        '''
+        
+        rect = Rectangle.PrimitiveToRectange(rect)
+        
+        x_intersections = frozenset(self._scan_sweep_array_for_all_intersections(self.x_sweep_array,
+                                                                       min_val=rect.MinX, 
+                                                                       max_val=rect.MaxX))
+        if x_intersections:
+            y_intersections = frozenset(self._scan_sweep_array_for_all_intersections(self.y_sweep_array,
+                                                                       min_val=rect.MinY, 
+                                                                       max_val=rect.MaxY))
+            
+            return x_intersections & y_intersections
+        else:
+            return frozenset([])
+        
+        
+    
+    @classmethod
+    def _scan_sweep_array_for_all_intersections(cls, sweep_array, min_val:float, max_val:float):
+        '''
+        Given a min and max value, return all intersecting rectangle IDs for the 
+        given axis.
+        :returns: A generator, which may yield duplicates, of all intersecting entries in the sweep array
+        '''
+        
+        #This function is very chatty in that it returns rectangles more than once, that is OK, resist the urge to optimize.
+        #Use a set if you need unique results 
+        potential_intersections = set()
+        
+        for entry in sweep_array:
+            axis_coordinate = entry['Value']
+            
+            if axis_coordinate < min_val: #Before we reach min_val track all rectangles that start in case they span the entire range
+                if entry['InBounds']:
+                    potential_intersections.add(entry['ID'])
+                else:
+                    potential_intersections.remove(entry['ID'])
+            else:
+                if axis_coordinate > max_val: #Check if we have exited the interesting range
+                    break #No need to scan the remainder of the rectangles, none will be in range
+                else:
+                    ID = entry['ID']
+                    if ID in potential_intersections:
+                        potential_intersections.remove(ID)
+                        
+                    yield ID
+        
+        yield from potential_intersections #Return the intersections that could span the entire range
+        
                 
     
     def EnumerateOverlapping(self):
@@ -127,19 +192,21 @@ class RectangleSet():
         :param ndarray sweep_array: Array of active_dtype 
         :return: A set of tuples containing the indicies of overlapping rectangles on the axis
         '''
+        if sweep_array is None:
+            raise ValueError("sweep_array must not be None")
+         
         ActiveSet = set() 
         overlaps_for_ID = {}
         IDs_to_yield_on_sweep_move = []
         for i_x in range(0, len(sweep_array)):
             sweep_line_moves = True
             active_state_changes = True
-            entry_is_active = sweep_array[i_x]['Active']
+            entry_is_active = sweep_array[i_x]['InBounds']
              
             ID = sweep_array[i_x]['ID']
             if i_x + 1 < len(sweep_array): 
                 sweep_line_moves = sweep_array[i_x + 1]['Value'] != sweep_array[i_x]['Value']
-                active_state_changes = sweep_array[i_x + 1]['Active'] != sweep_array[i_x]['Active']
-            
+                active_state_changes = sweep_array[i_x + 1]['InBounds'] != sweep_array[i_x]['InBounds']            
             if entry_is_active:
                 ActiveSet.add(ID)
                 overlaps_for_ID[ID] = ActiveSet.copy()
@@ -287,6 +354,9 @@ class Rectangle(object):
         '''
         :param object bounds: An ndarray or iterable of [bottom left top right] OR an existing Rectangle object to copy. 
         '''
+        if bounds is None:
+            raise ValueError("bounds for Rectangle must not be None")
+        
         if isinstance(bounds, np.ndarray):
             if not IsValidRectangleInputArray(bounds):
                 raise ValueError("Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(bounds))
@@ -335,8 +405,8 @@ class Rectangle(object):
         elif len(args) == 1:
             if isinstance(args[0], Rectangle):
                 return args[0]
-            elif isinstance(args[0], collections.Iterable):
-                return cls.Union(*args)
+            elif isinstance(args[0], collections.abc.Iterable):
+                return cls.Union(*(args[0]))
             else: 
                 return Rectangle.PrimitiveToRectange(args[0])
         else:

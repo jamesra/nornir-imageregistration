@@ -5,7 +5,7 @@ Points are represented as (Y,X)
 
 '''
 
-import nornir_imageregistration.spatial
+from .converters import BoundsArrayFromPoints
 
 import numpy as np
 
@@ -86,7 +86,7 @@ class BoundingBox(object):
 
     @classmethod
     def CreateFromPoints(cls, points):
-        boundingArray = nornir_imageregistration.spatial.BoundsArrayFromPoints(points)
+        boundingArray = BoundsArrayFromPoints(points)
         return BoundingBox(bounds=boundingArray)
 
     @classmethod

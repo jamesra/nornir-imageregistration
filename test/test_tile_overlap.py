@@ -15,9 +15,13 @@ class Test(unittest.TestCase):
     
     @classmethod
     def create_tile(cls, target_center, shape):
-        mapped_bbox = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea((0,0), shape)
+        shape = numpy.array(shape)
+        target_center = numpy.array(target_center)
+        mapped_bbox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), shape)
+        target_center =  target_center - mapped_bbox.Center
         transform = nornir_imageregistration.transforms.Rigid(target_center, MappedBoundingBox=mapped_bbox)
-        tile = nornir_imageregistration.tile.Tile(transform, None, cls.tile_ID)
+        temp_image = nornir_imageregistration.GenRandomData(height=shape[0], width=shape[1], mean=0.5, standardDev=0.25, min_val=0.0, max_val=1.0)
+        tile = nornir_imageregistration.tile.Tile(transform, temp_image, image_to_source_space_scale=1.0, ID=cls.tile_ID)
         cls.tile_ID = cls.tile_ID + 1
         return tile
 
@@ -29,13 +33,15 @@ class Test(unittest.TestCase):
         
         tile_A = self.create_tile(A_fixed_center, A_shape)
         tile_B = self.create_tile(B_fixed_center, B_shape)
-                
+         
         overlap = nornir_imageregistration.tile_overlap.TileOverlap(tile_A, tile_B, 1, 1)
 #        plot_tile_overlap(overlap) 
-        expected_overlap_A = nornir_imageregistration.Rectangle((-50,-50,50,-30))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_overlap_A.BoundingBox)
-        expected_overlap_B = nornir_imageregistration.Rectangle((-50,30,50,50))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_overlap_B.BoundingBox)
+        expected_target_space_overlap = nornir_imageregistration.Rectangle((-50,-10,50,10))
+        numpy.testing.assert_array_equal(overlap.overlapping_target_rect.BoundingBox, expected_target_space_overlap.BoundingBox)
+        expected_source_space_overlap_A = nornir_imageregistration.Rectangle((0,0,100,20))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_source_space_overlap_A.BoundingBox)
+        expected_source_space_overlap_B = nornir_imageregistration.Rectangle((0,80,100,100))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_source_space_overlap_B.BoundingBox)
         return
     
     def test_tile_overlaps_vertical(self):
@@ -46,13 +52,16 @@ class Test(unittest.TestCase):
         
         tile_A = self.create_tile(A_fixed_center, A_shape)
         tile_B = self.create_tile(B_fixed_center, B_shape)
-                
+          
         overlap = nornir_imageregistration.tile_overlap.TileOverlap(tile_A, tile_B, 1, 1)
 #        plot_tile_overlap(overlap) 
-        expected_overlap_A = nornir_imageregistration.Rectangle((-50,-50,-30,50))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_overlap_A.BoundingBox)
-        expected_overlap_B = nornir_imageregistration.Rectangle((30,-50,50,50))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_overlap_B.BoundingBox)
+        expected_target_space_overlap = nornir_imageregistration.Rectangle((-10,-50,10,50))
+        numpy.testing.assert_array_equal(overlap.overlapping_target_rect.BoundingBox, expected_target_space_overlap.BoundingBox)
+        expected_source_space_overlap_A = nornir_imageregistration.Rectangle((0,0,20,100))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_source_space_overlap_A.BoundingBox)
+        expected_source_space_overlap_B = nornir_imageregistration.Rectangle((80,0,100,100))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_source_space_overlap_B.BoundingBox)
+        return
         return
     
     def test_tile_overlaps_diagonal(self):
@@ -63,13 +72,15 @@ class Test(unittest.TestCase):
         
         tile_A = self.create_tile(A_fixed_center, A_shape)
         tile_B = self.create_tile(B_fixed_center, B_shape)
-                
+         
         overlap = nornir_imageregistration.tile_overlap.TileOverlap(tile_A, tile_B, 1, 1)
- #       plot_tile_overlap(overlap) 
-        expected_overlap_A = nornir_imageregistration.Rectangle((-50,-50, 30, -30))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_overlap_A.BoundingBox)
-        expected_overlap_B = nornir_imageregistration.Rectangle((-30,30,50,50))
-        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_overlap_B.BoundingBox)
+ #       plot_tile_overlap(overlap) 8
+        expected_target_space_overlap = nornir_imageregistration.Rectangle((-40,-10,40,10))
+        numpy.testing.assert_array_equal(overlap.overlapping_target_rect.BoundingBox, expected_target_space_overlap.BoundingBox)
+        expected_source_space_overlap_A = nornir_imageregistration.Rectangle((0,0,80,20))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_A.BoundingBox, expected_source_space_overlap_A.BoundingBox)
+        expected_source_space_overlap_B = nornir_imageregistration.Rectangle((20,80,100,100))
+        numpy.testing.assert_array_equal(overlap.scaled_overlapping_source_rect_B.BoundingBox, expected_source_space_overlap_B.BoundingBox)
         return
     
     

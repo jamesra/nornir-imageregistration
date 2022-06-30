@@ -4,11 +4,9 @@ Created on Apr 26, 2019
 @author: u0490822
 '''
 
-import nornir_imageregistration
-from nornir_imageregistration.spatial.indicies import iPoint, iPoint3
-import nornir_imageregistration.spatial.rectangle 
-import nornir_imageregistration.spatial.boundingbox 
 import numpy
+import nornir_imageregistration
+from nornir_imageregistration.spatial.indicies import iPoint, iPoint3  
 
 def ArcAngle(origin, A, B):
     '''

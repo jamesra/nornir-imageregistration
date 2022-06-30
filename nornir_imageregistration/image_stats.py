@@ -236,8 +236,8 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
     else:
         feature_coverage_percent = 100 - feature_coverage_percent
         assert(feature_coverage_percent <= 100 and feature_coverage_percent >= 0)
-         
-    Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float32)
+    
+    Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float16)
 # #     Im_filtered = scipy.ndimage.filters.median_filter(Im, size=3)
 # #     sx = scipy.ndimage.sobel(Im_filtered, axis=0, mode='nearest')
 # #     sy = scipy.ndimage.sobel(Im_filtered, axis=1, mode='nearest')
@@ -340,7 +340,6 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
 #         return None
 
     Im = nornir_imageregistration.ImageParamToImageArray(filename)
-    # Imb = nornir_imageregistration.LoadImage(filename)
     (Height, Width) = Im.shape
 
     StdDevList = []

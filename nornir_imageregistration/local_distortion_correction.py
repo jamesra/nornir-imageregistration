@@ -8,7 +8,7 @@ This module performs local distortions of images to refine alignments of mosaics
 
 import nornir_pools
 import nornir_imageregistration
-import nornir_imageregistration.views.grid_data
+#import nornir_imageregistration.views.grid_data
 
 from nornir_shared import prettyoutput
 
@@ -34,22 +34,17 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     
     Using the remaining points a mesh transform is generated for the tile. 
     '''
-    
-    if imageScale is None:
-        imageScale = 1.0
-
+     
     if subregion_shape is None:
-        subregion_shape = np.array([128, 128])
-        
-    # downsample = 1.0 / imageScale
+        subregion_shape = np.array([128, 128]) 
     
-    tiles = nornir_imageregistration.tile.CreateTiles(transforms, imagepaths)
+    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths)
     list_tiles = list(tiles.values())
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
     
     if imageScale is None:
-        imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms, imagepaths)
+        imageScale = 1.0 / tiles.image_to_source_space_scale
     
     layout = nornir_imageregistration.layout.Layout()
     for t in list_tiles:
@@ -451,7 +446,7 @@ def RefineTransform(stosTransform,
     return finalTransform
      
 
-def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.Base,
+def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.ITransform,
                                  finalized:dict,
                                  settings:nornir_imageregistration.settings.GridRefinement):
     '''
@@ -523,7 +518,7 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
     return _RefinePointsForTwoImages(transform, [tuple(row) for row in grid_data.coords], grid_data.SourcePoints, grid_data.TargetPoints, settings)
 
 
-def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.Base,
+def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.ITransform,
                                  keys:list,
                                  sourcePoints:np.ndarray,
                                  targetPoints:np.ndarray,
@@ -650,7 +645,7 @@ def _alignment_records_to_composite_scores(alignment_records):
     A helper function to produce an ndarray of measurements for alignment records
     :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
     '''
-    weights_distance = np.asarray(list(map(lambda a: (a.weight, np.linalg.norm(a.peak)), alignment_records)))
+    weights_distance = np.asarray(list(map(lambda a: (a.weight, np.sqrt(a.peak.dot(a.peak))), alignment_records)))
     max_weight_distance = np.max(weights_distance, 0)
     # I don't want a random near zero travel distance accidentally reducing a bad alignment score, so the
     # minimum travel distance is 1 for calculating the distance weight 
@@ -988,8 +983,8 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
         # record = task_tuple[1]
         # refined_align_record = task.wait_return()
         chosen_record = record
-        
-        if refined_align_record.weight > record.weight and np.linalg.norm(refined_align_record.peak) < settings.max_travel_for_finalization:
+        magnitude = np.sqrt(refined_align_record.peak.dot(refined_align_record.peak))
+        if refined_align_record.weight > record.weight and magnitude < settings.max_travel_for_finalization:
             # oldPSDDelta = record.PSDDelta
             # record = nornir_imageregistration.EnhancedAlignmentRecord(ID=record.ID,
             #                                                              TargetPoint=record.TargetPoint,

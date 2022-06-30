@@ -12,8 +12,8 @@ import tempfile
 import threading
 
 import nornir_imageregistration
-import nornir_imageregistration.assemble  as assemble
-import nornir_imageregistration.spatial as spatial
+import nornir_imageregistration.mosaic_tileset as mosaic_tileset
+import nornir_imageregistration.assemble as assemble 
 import nornir_imageregistration.tileset as tiles
 import nornir_imageregistration.transforms.utils as tutils
 import nornir_imageregistration.transformed_image_data 
@@ -71,13 +71,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
      
     if minY == maxY or minX == maxX:
         raise ValueError("Buffers have zero dimensions")
-    # iNewIndex = np.zeros(FullImage.shape, dtype=np.bool)
 
-    # iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
-    # iNewIndex[minY:maxY, minX:maxX] = iUpdate
-    # FullImage[iNewIndex] = SubImage[iUpdate]
-    # FullZBuffer[iNewIndex] = SubZBuffer[iUpdate]
-    
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] > SubZBuffer
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
     FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate] 
@@ -212,7 +206,7 @@ def EmptyDistanceBuffer(shape, dtype=np.float16):
 #     return (fullImage, fullImageZbuffer)
 
 
-def __CreateOutputBufferForArea(Height, Width, target_space_scale=None):
+def __CreateOutputBufferForArea(Height, Width, dtype, target_space_scale=None):
     '''Create output images using the passed width and height
     '''
     global use_memmap
@@ -223,15 +217,15 @@ def __CreateOutputBufferForArea(Height, Width, target_space_scale=None):
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             # print("Open %s" % (fullimage_array_path))
-            fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
+            fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
             fullImage[:] = 0
         except: 
             prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
             raise 
     else:
-        fullImage = np.zeros(fullImage_shape, dtype=np.float16)
+        fullImage = np.zeros(fullImage_shape, dtype=dtype)
 
-    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype) 
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=np.float16) 
     return (fullImage, fullImageZbuffer)
 
 
@@ -280,21 +274,21 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
     return __GetOrCreateCachedDistanceImage(imageShape)
 
 
-def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=None, source_space_scale=None):
+def TilesToImage(mosaic_tileset, TargetRegion=None, target_space_scale=None):
     '''
     Generate an image of the TargetRegion.
+    :param MosaicTileset mosaic_tileset: Tileset to assemble
     :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
     :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
-    :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
+    :param float source_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
     4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
     '''
-
-    assert(len(transforms) == len(imagepaths))
+    
+    if target_space_scale is not None and target_space_scale > 1.0:
+        raise ValueError("It isn't impossible this is what the caller requests, but this value expands the resulting image beyond full resolution of the transform.")
 
     # logger = logging.getLogger(__name__ + '.TilesToImage')
-    if source_space_scale is None:
-        source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
-        
+    source_space_scale = 1.0 / mosaic_tileset.image_to_source_space_scale
     if target_space_scale is None:
         target_space_scale = source_space_scale
 
@@ -302,21 +296,26 @@ def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=N
     original_fixed_rect_floats = None
     
     if not TargetRegion is None:
-        if isinstance(TargetRegion, spatial.Rectangle):
+        if isinstance(TargetRegion, nornir_imageregistration.Rectangle):
             original_fixed_rect_floats = TargetRegion
         else: 
-            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
+            original_fixed_rect_floats = nornir_imageregistration.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
     else:
-        original_fixed_rect_floats = tutils.FixedBoundingBox(transforms)
+        original_fixed_rect_floats = mosaic_tileset.TargetBoundingBox
         
     scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
-    targetRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale)
+    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+    
+    tiles = list(mosaic_tileset.values())
+    output_dtype = tiles[0].Image.dtype
+    
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale=target_space_scale, dtype=output_dtype)
 
-    for i, transform in enumerate(transforms): 
+    for i, tile in enumerate(mosaic_tileset.values()):
+        #transform = tile.Transform
         regionToRender = None
-        original_transform_fixed_rect = spatial.Rectangle(transform.FixedBoundingBox)
+        original_transform_fixed_rect = tile.TargetSpaceBoundingBox
         transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
         
         regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
@@ -324,16 +323,14 @@ def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=N
             continue
         
         if regionToRender.Area == 0:
-            continue 
+            continue
         
         scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
         scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
-                      
-        imagefullpath = imagepaths[i]
+                       
+        distanceImage = __GetOrCreateDistanceImage(distanceImage, tile.ImageSize)
         
-        distanceImage = __GetOrCreateDistanceImage(distanceImage, nornir_imageregistration.GetImageSize(imagefullpath))
-        
-        transformedImageData = TransformTile(transform, imagefullpath, distanceImage, target_space_scale=target_space_scale, TargetRegion=regionToRender, SingleThreadedInvoke=True)
+        transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale, TargetRegion=regionToRender, SingleThreadedInvoke=True)
         if transformedImageData.image is None:
             #logger = logging.getLogger('TilesToImageParallel')
             prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
@@ -364,17 +361,20 @@ def TilesToImage(transforms, imagepaths, TargetRegion=None, target_space_scale=N
     return (fullImage, mask)
 
 
-def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space_scale=None, source_space_scale=None, pool=None):
+def TilesToImageParallel(mosaic_tileset, TargetRegion=None, target_space_scale=None, pool=None):
     '''Assembles a set of transforms and imagepaths to a single image using parallel techniques.
+    :param MosaicTileset mosaic_tileset: Tileset to assemble
     :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
     :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
     :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
     4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
     '''
-
-    assert(len(transforms) == len(imagepaths))
-
+  
     logger = logging.getLogger('TilesToImageParallel')
+    
+    if  target_space_scale is not None and target_space_scale > 1.0:
+        raise ValueError("It isn't impossible this is what the caller requests, but a target_space_scale value > 1 expands the resulting image beyond full resolution of the transform.")
+
   
     if pool is None:
         pool = nornir_pools.GetGlobalMultithreadingPool()
@@ -382,32 +382,35 @@ def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space
     # pool = nornir_pools.GetGlobalSerialPool()
 
     tasks = []
-    if source_space_scale is None:
-        source_space_scale = tiles.MostCommonScalar(transforms, imagepaths)
-        
+    source_space_scale = 1.0 / mosaic_tileset.image_to_source_space_scale
     if target_space_scale is None:
         target_space_scale = source_space_scale
 
     original_fixed_rect_floats = None
     
     if not TargetRegion is None:
-        if isinstance(TargetRegion, spatial.Rectangle):
+        if isinstance(TargetRegion, nornir_imageregistration.Rectangle):
             original_fixed_rect_floats = TargetRegion
         else: 
-            original_fixed_rect_floats = spatial.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
+            original_fixed_rect_floats = nornir_imageregistration.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
     else:
-        original_fixed_rect_floats = tutils.FixedBoundingBox(transforms)
+        original_fixed_rect_floats = mosaic_tileset.TargetBoundingBox 
         
     scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
-    targetRect = nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale)
+    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+    
+    tiles = list(mosaic_tileset.values())
+    output_dtype = tiles[0].Image.dtype
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width, target_space_scale=target_space_scale, dtype=output_dtype)
 
     CheckTaskInterval = 16
-
-    for i, transform in enumerate(transforms):
+    
+    for i, tile in enumerate(tiles):
+        transform = tile.Transform 
         regionToRender = None
-        original_transform_target_rect = spatial.Rectangle(transform.FixedBoundingBox)
+        #original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
+        original_transform_target_rect = tile.TargetSpaceBoundingBox
         transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
         
         regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
@@ -419,12 +422,10 @@ def TilesToImageParallel(transforms, imagepaths, TargetRegion=None, target_space
         
         scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
         scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
-                      
-        imagefullpath = imagepaths[i]
-
-        task = pool.add_task("TransformTile" + imagefullpath,
-                              TransformTile, transform=transform, 
-                              imagefullpath=imagefullpath, distanceImage=None,
+           
+        task = pool.add_task(f"TransformTile {tile.ImagePath}",
+                              TransformTile, tile=tile, 
+                              distanceImage=None,
                               target_space_scale=target_space_scale, TargetRegion=regionToRender,
                               SingleThreadedInvoke=False)
         task.transform = transform
@@ -518,8 +519,36 @@ def __AddTransformedTileTaskToComposite(task, transformedImageData, fullImage, f
     
     return 
 
+def __CreateScalableTransformCopy(transform):
+    if not isinstance(transform, nornir_imageregistration.transforms.ITransform):
+        raise ValueError("Expected transform to be an ITransform type")
+    
+    if isinstance(transform, nornir_imageregistration.transforms.ITransformScaling):
+        return copy.deepcopy(transform)
 
-def TransformTile(transform, imagefullpath, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
+    #Handle cases where we know how to adjust the transform to make it scalable 
+    if isinstance(transform, nornir_imageregistration.transforms.RigidNoRotation):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
+                                                                                 source_rotation_center=None,
+                                                                                 angle=0,
+                                                                                 scalar=1.0)
+        
+    if isinstance(transform, nornir_imageregistration.transforms.Rigid):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
+                                                                                 source_rotation_center=None,
+                                                                                 angle=0,
+                                                                                 scalar=1.0)
+        
+    elif isinstance(transform, nornir_imageregistration.transforms.Rigid):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
+                                                                                 source_rotation_center=transform.source_rotation_center,
+                                                                                 angle=transform.angle,
+                                                                                 scalar=1.0)
+        
+    raise ValueError("Transform does not support ITransformScaling and does not have a hand-coded mapping here")        
+
+
+def TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
     '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 
@@ -538,71 +567,101 @@ def TransformTile(transform, imagefullpath, distanceImage=None, target_space_sca
             TargetRegion = list(TargetRegion.ToTuple())
         else:
             TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromBounds(TargetRegion)
-            
-        spatial.RaiseValueErrorOnInvalidBounds(TargetRegion)
-
-    if not os.path.exists(imagefullpath):
-        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
+    else:
+        TargetRegion = tile.TargetSpaceBoundingBox
+        TargetRegionRect = TargetRegion
+    
+    del TargetRegion
+    
+    nornir_imageregistration.spatial.RaiseValueErrorOnInvalidBounds(TargetRegionRect)
+        
+    #if not os.path.exists(imagefullpath):
+    #    return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg='Tile does not exist ' + imagefullpath)
  
     # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
     # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
     #   transform = triangulation.Triangulation(transform.points)
-
-    warpedImage = nornir_imageregistration.ImageParamToImageArray(imagefullpath, dtype=np.float32)
+    warpedImage = None
+    try:
+        #warpedImage = nornir_imageregistration.ImageParamToImageArray(tile.Image, dtype=np.float32)
+        warpedImage = tile.Image
+    except IOError:
+        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg='Tile does not exist ' + tile.Image)
+    except ValueError as ve:
+        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg=f'{ve}')
+    
     warpedImage = nornir_imageregistration.ForceGrayscale(warpedImage)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
-    source_space_scale = tiles.__DetermineTransformScale(transform, warpedImage.shape)
+    source_space_scale = 1.0 / tile.image_to_source_space_scale#Pass tile to this function and use the image_to_source_space attribute  #tiles.__DetermineTransformScale(transform, warpedImage.shape)
 
     if target_space_scale is None:
         target_space_scale = source_space_scale
-     
-    Scaled_TargetRegionRect = TargetRegionRect
+         
+    ########## Scale the transform output to fit the input image coordspace ####
+    transform = tile.Transform
     if source_space_scale == target_space_scale:
         if source_space_scale != 1.0:
-            scaledTransform = copy.deepcopy(transform)
+            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
+            
             scaledTransform.Scale(source_space_scale)
             transform = scaledTransform
             
     else:
         if source_space_scale != 1.0:
-            scaledTransform = copy.deepcopy(transform)
+            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
             scaledTransform.ScaleWarped(source_space_scale)
             transform = scaledTransform
      
         if target_space_scale != 1.0:
-            scaledTransform = copy.deepcopy(transform)
+            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
             scaledTransform.ScaleFixed(target_space_scale)
             transform = scaledTransform
             
-    if not TargetRegion is None and target_space_scale != 1.0:
-        TargetRegion = np.array(TargetRegion) * target_space_scale
+    ############################################################################
+    Scaled_TargetRegionRect = TargetRegionRect
+    if target_space_scale != 1.0:
+        #TargetRegion = np.array(TargetRegion) * target_space_scale
         Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(TargetRegionRect, target_space_scale)
         Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
-
-    (width, height, minX, minY) = (0, 0, 0, 0)
-
-    if TargetRegion is None:
-        if hasattr(transform, 'FixedBoundingBox'):
-            width = transform.FixedBoundingBox.Width
-            height = transform.FixedBoundingBox.Height
-            
-            TargetRegionRect = transform.FixedBoundingBox
-            TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
-            Scaled_TargetRegionRect = TargetRegionRect
-            
-            (minY, minX, maxY, maxX) = TargetRegionRect.ToTuple()
-        else:
-            width = warpedImage.shape[1]
-            height = warpedImage.shape[0]
-            TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), warpedImage.shape)
-            Scaled_TargetRegionRect = TargetRegionRect
     else:
-        assert(len(TargetRegion) == 4)
-        (minY, minX, maxY, maxX) = Scaled_TargetRegionRect.ToTuple()
-        height = maxY - minY
-        width = maxX - minX
+        Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
+
+    (width, height, minX, minY) = (Scaled_TargetRegionRect.Width, 
+                                   Scaled_TargetRegionRect.Height, 
+                                   Scaled_TargetRegionRect.MinX,
+                                   Scaled_TargetRegionRect.MinY)
+    
+    # if TargetRegion is None:
+    #     TargetRegion = nornir_imageregistration.Rectangle.SafeRound(tile.TargetSpaceBoundingBox)
+    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(tile.TargetSpaceBoundingBox, target_space_scale)
+    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
+    #
+    #     width = Scaled_TargetRegionRect.Width
+    #     height = Scaled_TargetRegionRect.Height
         
+    # if TargetRegion is None:
+    #     if hasattr(transform, 'FixedBoundingBox'):
+    #         width = transform.FixedBoundingBox.Width
+    #         height = transform.FixedBoundingBox.Height
+    #
+    #         TargetRegionRect = transform.FixedBoundingBox
+    #         TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
+    #         Scaled_TargetRegionRect = TargetRegionRect
+    #
+    #         (minY, minX, maxY, maxX) = TargetRegionRect.ToTuple()
+    #     else:
+    #         width = warpedImage.shape[1]
+    #         height = warpedImage.shape[0]
+    #         TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), warpedImage.shape)
+    #         Scaled_TargetRegionRect = TargetRegionRect
+    # else:
+    #     assert(len(TargetRegion) == 4)
+    #     (minY, minX, maxY, maxX) = Scaled_TargetRegionRect.ToTuple()
+    #     height = maxY - minY
+    #     width = maxX - minX
+        
+    #Round up to the nearest integer value
     height = np.ceil(height)
     width = np.ceil(width)
 
@@ -618,7 +677,7 @@ def TransformTile(transform, imagefullpath, distanceImage=None, target_space_sca
     del warpedImage
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage.astype(np.float16),
+    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage,
                                        centerDistanceImage.astype(np.float16),
                                        transform,
                                        source_space_scale,

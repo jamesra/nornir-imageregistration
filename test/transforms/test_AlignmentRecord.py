@@ -200,8 +200,51 @@ class TestAlignmentRecord(unittest.TestCase):
 
 
 class TestIO(test.setup_imagetest.ImageTestBase):
+    
+    def testReadWriteTransformSimple(self):
+        '''A simple test of a transform which maps points from a 10,10 image to a 100,100 without translation or rotation'''
+        WarpedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
+        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        FixedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
+        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-    def testReadWriteTransform(self):
+        FixedSize = (10, 10)
+        WarpedSize = (10, 10)
+
+        arecord = nornir_imageregistration.AlignmentRecord(peak=(0, 0), weight=100, angle=0)
+        alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
+
+        self.assertEqual(FixedSize[0], nornir_imageregistration.GetImageSize(FixedImagePath)[0])
+        self.assertEqual(FixedSize[1], nornir_imageregistration.GetImageSize(FixedImagePath)[1])
+        self.assertEqual(WarpedSize[0], nornir_imageregistration.GetImageSize(WarpedImagePath)[0])
+        self.assertEqual(WarpedSize[1], nornir_imageregistration.GetImageSize(WarpedImagePath)[1])
+
+        TransformCheck(self, alignmentTransform, [[0, 0]], [[0, 0]])
+        TransformCheck(self, alignmentTransform, [[9, 9]], [[9, 9]])
+        TransformCheck(self, alignmentTransform, [[0, 9]], [[0, 9]])
+        TransformCheck(self, alignmentTransform, [[9, 0]], [[9, 0]])
+
+        # OK, try to save the stos file and reload it.  Make sure the transforms match
+        savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
+        self.assertIsNotNone(savedstosObj)
+        stosfilepath = os.path.join(self.VolumeDir, 'TestRWScaleOnly.stos')
+        savedstosObj.Save(stosfilepath)
+
+        loadedStosObj = StosFile.Load(stosfilepath)
+        self.assertIsNotNone(loadedStosObj)
+
+        loadedTransform = nornir_imageregistration.transforms.LoadTransform(loadedStosObj.Transform)
+        self.assertIsNotNone(loadedTransform)
+
+        if hasattr(alignmentTransform, 'points'):
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+
+        TransformCheck(self, loadedTransform, [[0, 0]], [[0, 0]])
+        TransformCheck(self, loadedTransform, [[9, 9]], [[9, 9]])
+        TransformCheck(self, loadedTransform, [[0, 9]], [[0, 9]])
+        TransformCheck(self, loadedTransform, [[9, 0]], [[9, 0]])
+
+    def testReadWriteTransformSizeMismatch(self):
         '''A simple test of a transform which maps points from a 10,10 image to a 100,100 without translation or rotation'''
         WarpedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
@@ -234,7 +277,8 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         loadedTransform = nornir_imageregistration.transforms.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
-        self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+        if hasattr(alignmentTransform, 'points'):
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
 
         TransformCheck(self, loadedTransform, [[0, 0]], [[45, 495]])
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
@@ -269,7 +313,8 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         loadedTransform = nornir_imageregistration.transforms.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
-        self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+        if hasattr(alignmentTransform, 'points'):
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
 
 #    def TestReadWriteAlignment(self):
 #

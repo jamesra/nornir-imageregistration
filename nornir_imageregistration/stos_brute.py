@@ -55,15 +55,22 @@ def SliceToSliceBruteForce(FixedImageInput,
         
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, FixedImageMaskPath, dtype=np.float32)        
-        imFixed = nornir_imageregistration.ReplaceImageExtramaWithNoise(imFixed, ImageMedian=0.5, ImageStdDev=0.25)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float32)
+        imFixedMask = None 
+        if FixedImageMaskPath is not None:
+            imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
+                    
+        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed,  imagemask=imWarpedMask, ImageMedian=0.5, ImageStdDev=0.25, Copy=False)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
         imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
-        imWarped = nornir_imageregistration.ReplaceImageExtramaWithNoise(imWarped, ImageMedian=0.5, ImageStdDev=0.25)
+        imWarpedMask = None
+        if imWarpedMask is not None:
+            imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
+        imWarped = nornir_imageregistration.ReplaceImageExtremaWithNoise(imWarped, imagemask=imWarpedMask, Copy=False)
         if WarpedImageScalingRequired:
             imWarped = nornir_imageregistration.ResizeImage(imWarped, WarpedImageScaleFactors)
     else:
@@ -82,7 +89,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
-        AngleSearchRange = list(range(-178, 180, 2))
+        AngleSearchRange = list(range(-178, 182, 2))
 
     BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, Cluster=Cluster)
 

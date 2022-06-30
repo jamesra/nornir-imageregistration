@@ -18,7 +18,7 @@ import nornir_shared.histogram as histogram
 import nornir_shared.plot as plot
 import nornir_shared.images 
 
-from . import setup_imagetest
+import setup_imagetest
 
 
 class ImageStatsBase(setup_imagetest.ImageTestBase):

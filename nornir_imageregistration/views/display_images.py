@@ -5,14 +5,13 @@ import nornir_imageregistration
 import numpy as np
 import math
 import matplotlib.colors 
-import matplotlib.gridspec 
+import matplotlib.gridspec
 
-def ShowGrayscale(input_params, title=None,PassFail=False):
+def ShowGrayscale(input_params, title=None, PassFail=False):
     '''
     :param list input_params: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     '''
-    from matplotlib.widgets import Button
  
     def set_title_for_single_image(title):
         if not title is None:
@@ -22,22 +21,7 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
     def set_title_for_multi_image(fig, title):
         if not title is None:
             fig.suptitle(title)
-        return
-
-    class PassFailInput(object):
-        
-        def __init__(self, fig):
-            self.Pass = None
-            self.fig = fig
-            
-
-        def OnPassButton(self, event):
-            self.Pass = True   
-            return
-
-        def OnFailButton(self, event):
-            self.Pass = False 
-            return
+        return 
                 
     fig = None
     axes = None
@@ -45,7 +29,7 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
     image_data = _ConvertParamsToImageList(input_params)
     grid_dims = _GridLayoutDims(image_data)
     
-    if grid_dims == (1,1): 
+    if grid_dims == (1, 1): 
         (fig, ax) = _DisplayImageSingle(image_data)
         set_title_for_single_image(title)
     elif grid_dims[1] == 1:
@@ -56,8 +40,8 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
         set_title_for_multi_image(fig, title)
         
     elif isinstance(input_params, collections.abc.Iterable):
-        #OK, we have a list of images or a list of lists
-        #TODO: Why doesn't this use the DisplayImageList2D function?
+        # OK, we have a list of images or a list of lists
+        # TODO: Why doesn't this use the DisplayImageList2D function?
         
             height, width = _GridLayoutDims(input_params)
             gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
@@ -73,7 +57,6 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
 
                     print("Row %d Col %d" % (iRow, iCol))
                     
-                    
                     ax = fig.add_subplot(gs[iRow, iCol])
 #                     if height > 1:
 #                         ax = axes[iRow, iCol ]
@@ -83,40 +66,25 @@ def ShowGrayscale(input_params, title=None,PassFail=False):
                     ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
     else:
         return
-
-    callback = PassFailInput(fig)
-    
+ 
     fig.tight_layout()
 
     if PassFail == True:
-        axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
-        axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
-
-        bnext = Button(axnext, 'Pass', color='#00FF80')
-        bnext.on_clicked(callback.OnPassButton)
-        bprev = Button(axprev, 'Fail', color='#FF0000')
-        bprev.on_clicked(callback.OnFailButton)
-        #plt.tight_layout(pad=1.0)  
-        fig.show()
-        
-        while callback.Pass is None:
-            fig.waitforbuttonpress()
-            
-        plt.close(fig)
+        return nornir_imageregistration.ShowWithPassFail(fig)
 
     else:
-        #plt.tight_layout(pad=1.0)  
+        # plt.tight_layout(pad=1.0)  
         fig.show()
     # Do not call clf or we get two windows on the next call 
     # plt.clf()
  
     fig = None
 
-    return callback.Pass
+    return 
 
 
 def _ConvertParamsToImageList(param):
-    output=None
+    output = None
     if isinstance(param, str):
         loaded_image = nornir_imageregistration.ImageParamToImageArray(param)
         output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
@@ -141,14 +109,15 @@ def _GridLayoutDims(imagelist):
             return len(param)
                 
     if isinstance(imagelist, np.ndarray):
-        return (1,1)
+        return (1, 1)
     elif isinstance(imagelist, collections.abc.Iterable):
         lengths = [_NumImages(p) for p in imagelist]
         max_len = np.max(lengths)
         return (len(imagelist), max_len)
 
+
 def _ImageList1DGridDims(imagelist):
-    #OK, a 1D list, so figure out how to spread the images across a grid
+    # OK, a 1D list, so figure out how to spread the images across a grid
     numImages = len(imagelist)
     width = math.ceil(math.sqrt(numImages))
     height = math.ceil(numImages / width)
@@ -160,6 +129,7 @@ def _ImageList1DGridDims(imagelist):
 
     return (int(height), int(width))
 
+
 def _DisplayImageSingle(input_param, title=None):
     fig, ax = plt.subplots()
     ax.imshow(input_param, cmap=plt.gray(), aspect='equal', norm=matplotlib.colors.NoNorm())
@@ -167,6 +137,7 @@ def _DisplayImageSingle(input_param, title=None):
         ax.set_title(title)
     
     return (fig, ax)
+
     
 def _DisplayImageList1D(input_params, title=None): 
         
@@ -177,7 +148,7 @@ def _DisplayImageList1D(input_params, title=None):
         iRow = i // width
         iCol = (i - (iRow * width)) % width
 
-        #print("Row %d Col %d" % (iRow, iCol))
+        # print("Row %d Col %d" % (iRow, iCol))
 
         if height > 1:
             ax = axes[iRow, iCol ]
@@ -187,29 +158,29 @@ def _DisplayImageList1D(input_params, title=None):
         ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())   
             
     return (fig, axes)
+
     
 def _DisplayImageList2D(input_params, grid_dims, title=None):
     (height, width) = grid_dims
     gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
     fig = plt.figure()
-    #, axes = plt.subplots(height, width)
+    # , axes = plt.subplots(height, width)
 
     for (iRow, row_list) in enumerate(input_params):
         
         if isinstance(row_list, np.ndarray):
-            ax = fig.add_subplot(gs[iRow,:])#axes[iRow, 0]
+            ax = fig.add_subplot(gs[iRow,:])  # axes[iRow, 0]
             ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
             continue 
         
         numCols = len(row_list)
         for iCol, image in enumerate(row_list):
-            #print("Row %d Col %d" % (iRow, iCol))
+            # print("Row %d Col %d" % (iRow, iCol))
             
-            if iCol == numCols-1 and numCols < width:
+            if iCol == numCols - 1 and numCols < width:
                 ax = fig.add_subplot(gs[iRow, iCol:])
             else:
                 ax = fig.add_subplot(gs[iRow, iCol])
-                
 
  #           if height > 1:
 #                ax = fig.add_subplot(gs[iRow, iCol]
