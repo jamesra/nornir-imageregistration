@@ -16,9 +16,7 @@ import nornir_shared.prettyoutput as prettyoutput
 from . import alignment_record
 from . import core
 from . import spatial 
-from operator import itemgetter
-import mosaic_tileset
-from msilib.schema import Property
+from operator import itemgetter 
 
 ID_Value = collections.namedtuple('ID_Magnitude', ['ID', 'Value'])
 
