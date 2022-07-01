@@ -76,7 +76,12 @@ class ImageStats():
     def __init__(self):
         self._median = None
         self._mean = None
-        self._stddev = None
+        self._std = None
+        self._min = None
+        self._max = None
+        
+    def __str__(self):
+        return f'mean: {self._mean} std: {self._std} min: {self._min} max: {self._max}'
 
     def __getstate__(self):
         d = {}
@@ -131,13 +136,13 @@ class ImageStats():
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
-        data = (numpy.random.randn(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
+        data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
     
-        if self.median - (self.std * 2) < self.min:
-            data[data < self.min] = self.min
+        #if self.median - (self.std * 4) < self.min:
+        data[data < self.min] = self.min
         
-        if self.median + (self.std * 2) > self.max:
-            data[data > self.max] = self.max
+        #if self.median + (self.std * 4) > self.max:
+        data[data > self.max] = self.max
              
         return data
 
