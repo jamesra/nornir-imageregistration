@@ -118,6 +118,6 @@ class StosOverrideArgs(object):
             stos.ControlMaskFullPath = self.fixedMask
 
         if not self.warpedMask is None:
-            self.MappedMaskFullPath = self.warpedMask
+            stos.MappedMaskFullPath = self.warpedMask
 
         return stos
