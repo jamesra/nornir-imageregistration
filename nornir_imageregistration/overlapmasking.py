@@ -98,7 +98,7 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
     QuadrantSize = np.asarray((CorrelationImageSize[0] / 2.0, CorrelationImageSize[1] / 2.0), dtype=np.float64)
     isOddDimension = np.mod(QuadrantSize, 1) > 0
     QuadrantSize = np.ceil(QuadrantSize).astype(np.int32)
-    Mask = np.zeros(QuadrantSize, dtype=np.bool)
+    Mask = np.zeros(QuadrantSize, dtype=bool)
 
     Mask = _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)
 #     for ix in range(0, HalfCorrelationSize[1]):

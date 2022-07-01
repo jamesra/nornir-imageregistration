@@ -60,15 +60,15 @@ def SliceToSliceBruteForce(FixedImageInput,
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
                     
-        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed,  imagemask=imWarpedMask, ImageMedian=0.5, ImageStdDev=0.25, Copy=False)
+        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed,  imagemask=imFixedMask, Copy=False)
     else:
         imFixed = FixedImageInput
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, WarpedImageMaskPath, dtype=np.float32)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float32)
         imWarpedMask = None
-        if imWarpedMask is not None:
+        if WarpedImageMaskPath is not None:
             imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
         imWarped = nornir_imageregistration.ReplaceImageExtremaWithNoise(imWarped, imagemask=imWarpedMask, Copy=False)
         if WarpedImageScalingRequired:
@@ -85,8 +85,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         imWarped = nornir_imageregistration.ReduceImage(imWarped, scalar)
 
     # Replace extrema with noise
-    
-
+     
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = list(range(-178, 182, 2))
@@ -159,6 +158,7 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
         imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle, cval=np.nan)
         imWarpedEmptyIndicies = np.isnan(imWarped)
         imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
+        np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
 
 

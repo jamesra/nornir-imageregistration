@@ -130,8 +130,8 @@ def __RefineTileAlignmentRemote(A, B, scaled_overlapping_source_rect_A, scaled_o
     B_image = nornir_imageregistration.RandomNoiseMask(BTransformedImageData.image, BTransformedImageData.centerDistanceImage < np.finfo(BTransformedImageData.centerDistanceImage.dtype).max, Copy=True)
     
     # OK, create tiles from the overlapping regions
-    # A_image = nornir_imageregistration.ReplaceImageExtramaWithNoise(ATransformedImageData.image)
-    # B_image = nornir_imageregistration.ReplaceImageExtramaWithNoise(BTransformedImageData.image)
+    # A_image = nornir_imageregistration.ReplaceImageExtremaWithNoise(ATransformedImageData.image)
+    # B_image = nornir_imageregistration.ReplaceImageExtremaWithNoise(BTransformedImageData.image)
     # nornir_imageregistration.ShowGrayscale([A_image,B_image])
     A_tiles = nornir_imageregistration.ImageToTiles(A_image, subregion_shape, cval='random')
     B_tiles = nornir_imageregistration.ImageToTiles(B_image, subregion_shape, cval='random')
