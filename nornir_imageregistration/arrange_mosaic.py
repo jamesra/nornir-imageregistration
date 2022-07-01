@@ -15,8 +15,7 @@ import nornir_imageregistration
 import nornir_pools
 import numpy as np
 
-import nornir_shared.plot 
-from Tools.scripts.make_ctype import values
+import nornir_shared.plot  
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                                 'overlap_ID iTile overlapping_rect')
