@@ -1072,7 +1072,9 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray, size_cutoff, minima=N
         maxima = image.max()
 
     extrema_mask = np.logical_or(image == maxima, image == minima)
-    extrema_mask = np.logical_or(extrema_mask, np.logical_not(mask))
+    
+    if mask is not None:
+        extrema_mask = np.logical_or(extrema_mask, np.logical_not(mask))
 
     if size_cutoff is None:
         return extrema_mask
