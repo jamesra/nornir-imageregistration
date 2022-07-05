@@ -1054,7 +1054,7 @@ def RandomNoiseMask(image, Mask, imageStats=None, Copy=False):
     return MaskedImage
 
 
-def CreateExtremaMask(image: np.ndarray, mask: np.ndarray, size_cutoff, minima=None, maxima=None):
+def CreateExtremaMask(image: np.ndarray, mask: np.ndarray=None, size_cutoff=0.001, minima=None, maxima=None):
     """
     Returns a mask for features above a set size that are at max or min pixel value
     :param numpy.ndarray mask: Pixels we wish to not include in the analysis
@@ -1412,15 +1412,18 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     # nornir_imageregistration.ShowGrayscale([image, OverlapMask, ThresholdImage])
 
     [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
-    LabelSums = scipy.ndimage.sum_labels(ThresholdImage, LabelImage, list(range(0, NumLabels)))
+    #The first interesting label starts at 1, 0 is the background
+    LabelSums = scipy.ndimage.sum_labels(ThresholdImage, LabelImage, list(range(1, NumLabels+1))) 
     if LabelSums.sum() == 0:  # There are no peaks identified
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
         PeakStrength = 0
         return scaled_offset, PeakStrength
     else:
         PeakValueIndex = LabelSums.argmax()
-        PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex)
         PeakStrength = LabelSums[PeakValueIndex]
+        #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
+        PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex+1)
+        
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
 
         del LabelImage
