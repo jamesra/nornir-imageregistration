@@ -85,7 +85,7 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         Tile127Filename = "127.png"
         Tile148Filename = "148.png"
 
-        self.RunAlignment(Tile127Filename, Tile148Filename, (-2, (4096 - 466) / Downsample), epsilon=Downsample, min_overlap=0.05)
+        self.RunAlignment(Tile127Filename, Tile148Filename, (-2, (4096 - 466) / Downsample), epsilon=Downsample*2, min_overlap=0.05)
         
     def test_Alignment_RPC2_989_87_88(self):
 
@@ -96,7 +96,7 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         TileAFilename = "087.png"
         TileBFilename = "088.png"
 
-        self.RunAlignment(TileAFilename, TileBFilename, ((4096 - 320) / Downsample, 4 / Downsample), epsilon=Downsample, min_overlap=0.05)
+        self.RunAlignment(TileAFilename, TileBFilename, ((4096 - 320) / Downsample, 4 / Downsample), epsilon=Downsample*2, min_overlap=0.05)
 
     def test_Alignment_RPC2_989_87_98(self):
 
@@ -107,7 +107,7 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         TileAFilename = "087.png"
         TileBFilename = "098.png"
 
-        self.RunAlignment(TileAFilename, TileBFilename, (40 / Downsample, (4096 - 360) / Downsample), epsilon=Downsample, min_overlap=0.05)
+        self.RunAlignment(TileAFilename, TileBFilename, (40 / Downsample, (4096 - 360) / Downsample), epsilon=Downsample*2, min_overlap=0.05)
 
 
     def test_MismatchSizeAlignments(self):
@@ -346,7 +346,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
         downsamplePath = '%03d' % downsample
         
-        minWeight = 0
+        minWeight = 0.1
         maxWeight = 1.0
         
         mosaicBaseName = os.path.basename(mosaicFilePath)
@@ -756,28 +756,28 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #
     #     print("All done")
 
-    def test_RPC2_1013_Mosaic(self):
-    
-        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\1013\\TEM\\Stage.mosaic",
-                                 TilePyramidDir="D:\\Data\\RPC2\\1013\\TEM\\Leveled\\TilePyramid",
-                                 downsample=4,
-                                 max_relax_iterations=500,
-                                 openwindow=False)
-    
-        print("All done")
-    
-    
-    
-    # def test_RPC2_0989_Mosaic(self):
+    # def test_RPC2_1013_Mosaic(self):
     #
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\1013\\TEM\\Stage.mosaic",
+    #                              TilePyramidDir="D:\\Data\\RPC2\\1013\\TEM\\Leveled\\TilePyramid",
     #                              downsample=4,
-    #                              max_relax_tension_cutoff=0.001,
     #                              max_relax_iterations=500,
     #                              openwindow=False)
     #
     #     print("All done")
+    
+    
+    
+    def test_RPC2_0989_Mosaic(self):
+    
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
+                                 TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+                                 downsample=4,
+                                 max_relax_tension_cutoff=0.001,
+                                 max_relax_iterations=500,
+                                 openwindow=False)
+    
+        print("All done")
          
     # def test_RC3_0203_Mosaic(self):
     #

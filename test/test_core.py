@@ -246,7 +246,7 @@ class TestCore(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
-        updatedImage = nornir_imageregistration.ReplaceImageExtramaWithNoise(image)
+        updatedImage = nornir_imageregistration.ReplaceImageExtremaWithNoise(image)
         
         minima = 0
         maxima = 1.0
@@ -263,7 +263,7 @@ class TestCore(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         image = imread(self.FixedImagePath)
-        updatedImage = nornir_imageregistration.ReplaceImageExtramaWithNoise(image)
+        updatedImage = nornir_imageregistration.ReplaceImageExtremaWithNoise(image)
         
         minima = 0
         maxima = 1.0

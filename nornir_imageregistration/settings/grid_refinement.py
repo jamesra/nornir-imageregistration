@@ -61,18 +61,22 @@ class GridRefinement(object):
         target_image = nornir_imageregistration.ImageParamToImageArray(target_image, dtype=np.float16)
         source_image = nornir_imageregistration.ImageParamToImageArray(source_image, dtype=np.float16)
         
-        #Create extrema masks
-        target_extrema_mask = nornir_imageregistration.CreateExtremaMask(target_image, int(np.prod(cell_size)))
-        source_extrema_mask = nornir_imageregistration.CreateExtremaMask(source_image, int(np.prod(cell_size)))
-        
         if target_mask is not None:
             target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=np.bool)
+        
+        if source_mask is not None:
+            source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
+            
+        #Create extrema masks
+        target_extrema_mask = nornir_imageregistration.CreateExtremaMask(target_image,target_mask, size_cutoff=int(np.prod(cell_size)))
+        source_extrema_mask = nornir_imageregistration.CreateExtremaMask(source_image,source_mask, size_cutoff=int(np.prod(cell_size)))
+        
+        if target_mask is not None:
             self.target_mask = np.logical_and(target_mask, target_extrema_mask)
         else:
             self.target_mask = target_extrema_mask 
      
         if source_mask is not None:
-            source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=np.bool)
             self.source_mask = np.logical_and(source_mask, source_extrema_mask)
         else:
             self.source_mask = source_extrema_mask

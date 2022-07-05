@@ -606,7 +606,7 @@ def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_ex
     #box, load that in, mask it, and then expand the boundaries a second time for the remaining area.
     #masked_fraction = 0
     if mask_extrema:
-        extremaMask = nornir_imageregistration.CreateExtremaMask(image, 0.01) 
+        extremaMask = nornir_imageregistration.CreateExtremaMask(image, size_cutoff=0.01) 
         
     cropped = nornir_imageregistration.CropImage(image,
                                               Xo=int(scaled_rect.BottomLeft[1]), 
@@ -668,8 +668,8 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     valid_mask_fraction_B = OverlappingRegionB_extremaMask.sum() / (OverlappingRegionB_extremaMask.shape[0] * OverlappingRegionB_extremaMask.shape[1])
     valid_mask_fraction_scalar = min(valid_mask_fraction_A, valid_mask_fraction_B)
     
-    #extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA_original, 0.01)
-    #extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB_original, 0.01)
+    #extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA_original, size_cutoff=0.01)
+    #extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB_original, size_cutoff=0.01)
     
     #OverlappingRegionA_original = nornir_imageregistration.RandomNoiseMask(OverlappingRegionA_original, extremaMaskA, Copy=False)
     #OverlappingRegionB_original = nornir_imageregistration.RandomNoiseMask(OverlappingRegionB_original, extremaMaskB, Copy=False)
@@ -836,7 +836,7 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
             (OverlappingRegionA.max() == 0) or \
             (OverlappingRegionB.min() == OverlappingRegionB.max()) or \
             (OverlappingRegionB.max() == 0):
-            return np.ffinfo(dtype).max
+            return np.finfo(dtype).max
         
         OverlappingRegionA -= OverlappingRegionA.min()
         OverlappingRegionA /= OverlappingRegionA.max()
@@ -845,8 +845,8 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         OverlappingRegionB /= OverlappingRegionB.max()
         
         #Mask off small regions of max values
-        extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA, 0.001)
-        extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB, 0.001)
+        extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA, size_cutoff=0.001)
+        extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB, size_cutoff=0.001)
         
         extremaMask = np.logical_and(extremaMaskA, extremaMaskB) #Must be valid in both images to be scored
         

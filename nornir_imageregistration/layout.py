@@ -35,7 +35,7 @@ def CreatePairID(A, B=None):
     :return: A tuple where the lowest ID number is in the first position and IDs are cast to integers
     '''
     
-    if isinstance(A, collections.Iterable) and B is None:
+    if isinstance(A, collections.abc.Iterable) and B is None:
         B = A[1]
         A = A[0]
         
