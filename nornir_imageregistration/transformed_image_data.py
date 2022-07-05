@@ -10,13 +10,18 @@ import tempfile
 import numpy as np
 import nornir_pools
 import logging 
+import shutil
 
 import atexit
 import nornir_shared.files
 
 _sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=tempfile.gettempdir())
 
-atexit.register(nornir_shared.files.rmtree, _sharedTempRoot)
+#When porting to Python 3.10 there was a regression where
+#concurrent.futures.ThreadPoolExecutor system could not function in atext calls
+#So I reverted to shutil until it is fixed
+#atexit.register(nornir_shared.files.rmtree, _sharedTempRoot)
+atexit.register(shutil.rmtree, _sharedTempRoot)
 
 class TransformedImageData(object):
     '''
