@@ -434,7 +434,11 @@ def RefineTransform(stosTransform,
             final_pass = True 
             
     # Make one more pass to see if we can improve finalized points
-    finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+    # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved. 
+    if len(finalized_points) >= 3:
+        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+    else:
+        finalTransform = updatedTransform
     
     (nudged_finalized_points, nudged_point_keys) = TryToImproveAlignments(finalTransform, finalized_points, settings)
     prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
@@ -484,9 +488,14 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
     grid_data.RemoveCellsUsingSourceImageMask(settings.source_mask, settings.min_unmasked_area)
     # nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.SourcePoints, source_mask, OutputFilename=None)
     
+    if grid_data.num_points == 0:
+        #There is nothing to refine, perhaps the image is too small for the grid cell size?
+        #prettyoutput.LogErr("No points meet criteria for grid refinement")
+        raise ValueError("No points meet criteria for grid refinement")
+
     grid_data.PopulateTargetPoints(transform)
     grid_data.RemoveCellsUsingTargetImageMask(settings.target_mask, settings.min_unmasked_area)
-    
+
     # nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.TargetPoints, target_mask, OutputFilename=None)
     # grid_data.ApplyWarpedImageMask(source_mask)
 #     valid_inbounds = np.logical_and(np.all(FixedPoi4nts >= np.asarray((0, 0)), 1), np.all(TargetPoints < target_mask.shape, 1))
