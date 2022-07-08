@@ -686,6 +686,9 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         super(Triangulation, self).__init__()
 
         self._points = np.asarray(pointpairs, dtype=np.float32)
+        if(self._points.shape[0] < 3):
+            raise ValueError("Triangulation transform must have at least three points to function")
+        
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
         self._fixedtri = None
