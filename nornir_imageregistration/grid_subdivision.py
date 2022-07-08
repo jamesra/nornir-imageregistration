@@ -50,7 +50,7 @@ class GridDivisionBase(object):
         
         if self.TargetPoints is not None:
             self.TargetPoints = self.TargetPoints[mask,:]
-        
+         
     def ApplyTargetImageMask(self, target_mask):
         if target_mask is not None:
             self.FilterOutofBoundsTargetPoints(target_mask.shape)
@@ -64,6 +64,9 @@ class GridDivisionBase(object):
         :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
         '''
+        
+        if points.shape[0] == 0:
+            raise ValueError("points must have non-zero length")
         
         if min_unmasked_area is None:
             min_unmasked_area = 0
@@ -167,6 +170,9 @@ class ITKGridDivision(GridDivisionBase):
         self.SourcePoints = self.coords * self.grid_spacing
         self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
         
+        if self.SourcePoints.shape[0] == 0:
+            raise ValueError("No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
+        
         self.source_shape = source_shape
         
         if transform is not None:
@@ -212,9 +218,7 @@ class CenteredGridDivision(GridDivisionBase):
              
         self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in range(self.grid_dims[1])]
         self.coords = np.vstack(self.coords)
-        
-        
-        
+          
         self.SourcePoints = self.coords * self.grid_spacing
         self.SourcePoints = self.SourcePoints + (self.grid_spacing / 2.0)
         #Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
@@ -222,6 +226,9 @@ class CenteredGridDivision(GridDivisionBase):
         self.SourcePoints = np.round(self.SourcePoints - overage).astype(np.int64)
         
         self.source_shape = source_shape
+        
+        if self.SourcePoints.shape[0] == 0:
+            raise ValueError("No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
         
         if transform is not None:
             self.TargetPoints = self.PopulateTargetPoints(transform)
