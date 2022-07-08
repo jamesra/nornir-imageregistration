@@ -12,6 +12,9 @@ from collections.abc import Iterable
 def InvalidIndicies(points):
     '''Removes rows with a NAN value and returns a list of indicies'''
 
+    if points is None:
+        raise ValueError("points must not be None")
+    
     numPoints = points.shape[0]
 
     nan1D = np.isnan(points).any(axis=1)
