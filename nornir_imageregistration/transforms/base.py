@@ -74,6 +74,16 @@ class IDiscreteTransform(ITransform):
         '''Bounding box of fixed space points'''
         raise NotImplementedError()
 
+class IControlPoints:
+    @abstractproperty
+    def SourcePoints(self):
+        raise NotImplementedError()
+    
+    @abstractproperty
+    def TargetPoints(self):
+        raise NotImplementedError()
+    
+
 class DefaultTransformChangeEvents(ITransformChangeEvents, ABC):
     def __init__(self):
         self.OnChangeEventListeners = []

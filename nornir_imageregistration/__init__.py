@@ -162,7 +162,7 @@ from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedA
  
 import nornir_imageregistration.settings as settings
 import nornir_imageregistration.transforms as transforms
-from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, IDiscreteTransform, ITransformScaling
+from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, IDiscreteTransform, ITransformScaling, IControlPoints
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms

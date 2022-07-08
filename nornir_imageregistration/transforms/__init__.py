@@ -14,7 +14,7 @@ import nornir_imageregistration.transforms.factory as factory
 import nornir_imageregistration.transforms.rbftransform as rbftransform
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 
-from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, IDiscreteTransform, ITransformScaling
+from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, IDiscreteTransform, ITransformScaling, IControlPoints
 from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_imageregistration.transforms.factory import TransformToIRToolsString, LoadTransform
