@@ -52,11 +52,25 @@ class GridRefinement(object):
             self.cell_size = np.array((128, 128))
         elif isinstance(cell_size, int):
             self.cell_size = np.array((cell_size, cell_size))
+        elif isinstance(cell_size, np.ndarray):
+            self.cell_size = cell_size
+        else:
+            self.cell_size = np.array(cell_size)
+        
+        if self.cell_size.shape[0] != 2:
+            raise ValueError(f'cell_size is supposed to be an array with two entries, got: {self.cell_size}')
         
         if grid_spacing is None:
             self.grid_spacing = np.array((96, 96))
         elif isinstance(grid_spacing, int):
             self.grid_spacing = np.array((grid_spacing, grid_spacing))
+        elif isinstance(grid_spacing, np.ndarray):
+            self.grid_spacing = grid_spacing
+        else:
+            self.grid_spacing = np.array(grid_spacing)
+            
+        if self.grid_spacing.shape[0] != 2:
+            raise ValueError(f'grid_spacing is supposed to be an array with two entries, got: {self.grid_spacing}')
         
         target_image = nornir_imageregistration.ImageParamToImageArray(target_image, dtype=np.float16)
         source_image = nornir_imageregistration.ImageParamToImageArray(source_image, dtype=np.float16)
