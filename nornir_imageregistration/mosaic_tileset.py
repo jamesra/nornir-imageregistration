@@ -352,7 +352,7 @@ class MosaicTileset(dict):
                                                  min_overlap=min_overlap,
                                                  first_pass_inter_tile_distance_scale=first_pass_inter_tile_distance_scale,
                                                  inter_tile_distance_scale=inter_tile_distance_scale)
-        return layout.ToMosaic(tiles)
+        return layout.ToMosaicTileset(tiles)
     
     def RefineLayout(self):
 
