@@ -1,6 +1,7 @@
 import os
 import sys
 
+import nornir_imageregistration 
 from nornir_shared import checksum, prettyoutput
 import nornir_shared.images as images
 
@@ -10,7 +11,7 @@ class MosaicFile(object):
 
     @classmethod
     def LoadChecksum(cls, path):
-        #assert(os.path.exists(path))
+        # assert(os.path.exists(path))
         mosaicObj = MosaicFile.Load(path)
         if mosaicObj is None:
             return None
@@ -64,7 +65,6 @@ class MosaicFile(object):
 
         return FoundInvalid
 
-
     @classmethod
     def GetInfo(cls, filename):
         '''Parses a filename and returns what we have learned if it follows the convention
@@ -77,7 +77,6 @@ class MosaicFile(object):
 
         baseName = os.path.basename(filename)
         [baseName, ext] = os.path.splitext(baseName)
-
 
         parts = baseName.split("_")
 
@@ -110,7 +109,6 @@ class MosaicFile(object):
             prettyoutput.Log('Could not determine mosaic downsample: ' + str(filename))
 
         return [SectionNumber, Channel, MosaicType, Downsample]
-
 
     @classmethod
     def Load(cls, filename):
@@ -163,7 +161,6 @@ class MosaicFile(object):
         except:
             prettyoutput.LogErr(f"Error in {filename} on or above line #{iLine}\n{lines[iLine]}\n")
             raise 
-            
 
         return obj
 
@@ -181,7 +178,7 @@ class MosaicFile(object):
         if ImageSize is None:
             ImageSize = [(4080, 4080)] * len(Entries)
         elif not isinstance(ImageSize, list):
-            assert (len(ImageSize) == 2),  "Expect tuple or list indicating image size"
+            assert (len(ImageSize) == 2), "Expect tuple or list indicating image size"
             ImageSize = ImageSize * len(Entries)
         else:
             # A list of two entries for the size
@@ -193,7 +190,6 @@ class MosaicFile(object):
                 raise Exception("Unexpected list format for ImageSize argument")
 
         prettyoutput.CurseString('Stage', "WriteMosaicFile " + OutfilePath)
-
 
         # TODO - find min/max values and center image in .mosaic file
         minX = sys.maxsize
@@ -249,9 +245,14 @@ class MosaicFile(object):
 
                 # Remove dirname from key
                 key = os.path.basename(key)
+                
+                tile_transform = nornir_imageregistration.transforms.RigidNoRotation((Y, X))
 
-                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(tilesize[0] / 2) + ' ' + str(tilesize[1] / 2)
-                OutFile.write(outstr + '\n')
+                transform_string = tile_transform.ToITKString()
+            
+                #transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {X} {Y} {tilesize[0] / 2} {tilesize[1] / 2}'
+                outstr = f'image:\n{key}\n{transform_string}\n'
+                OutFile.write(outstr)
 
             OutFile.close()
 
@@ -303,6 +304,52 @@ class MosaicFile(object):
                     OutputTransformStr = OutputTransformStr + outStr + NeededSpace
 
             self.ImageToTransformString[FileKey] = OutputTransformStr
+            
+    def HasTransformsNotUnderstoodByIrTools(self):
+        outputMosaic = MosaicFile()
+        output = outputMosaic.ImageToTransformString
+        
+        for (image, transformStr) in self.ImageToTransformString.items():
+            if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
+                return True
+            
+        return False
+        
+    
+    def CreateCorrectedXYMosaicForStupidITKWorkaround(self):
+        """For some reason the original SCI ir-refine-grid, and probably other tools,
+        appears to reverse the X,Y coordinates compared to the ITK documentation in
+        serialized transforms in string for certain transform types.  This function
+        generates a copy of the mosaic file with the X,Y coordinates swapped"""
+        outputMosaic = MosaicFile()
+        output = outputMosaic.ImageToTransformString
+        
+        for (image, transformStr) in self.ImageToTransformString.items():
+            if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
+                t = nornir_imageregistration.transforms.LoadTransform(transformStr, pixelSpacing=self.pixel_spacing)
+                outTrans = None
+                if isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
+                    outTrans = nornir_imageregistration.transforms.RigidNoRotation((t.target_offset[1], t.target_offset[0]))
+                elif isinstance(t, nornir_imageregistration.transforms.Rigid):
+                    outTrans = nornir_imageregistration.transforms.Rigid(target_offset=(t.target_offset[1], t.target_offset[0]),
+                                                                         source_rotation_center=(t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                                                                         angle=t.angle)
+                elif isinstance(t, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
+                    outTrans = nornir_imageregistration.transforms.Rigid(target_offset=(t.target_offset[1], t.target_offset[0]),
+                                                                         source_rotation_center=(t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                                                                         angle=t.angle,
+                                                                         scalar=t.scalar)
+                else:
+                    raise ValueError(f"Unexpected transform type: {t.__class__}")
+                
+                #output[image] = outTrans.ToITKString()
+                transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {t.target_offset[1]} {t.target_offset[0]} 1 1'
+                output[image] = transform_string
+            else:
+                output[image] = transformStr 
+        
+        return outputMosaic
+        
 
     def Save(self, filename):
 
