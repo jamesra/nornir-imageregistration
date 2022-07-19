@@ -353,7 +353,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)     
 
         scale = 1.0 / float(downsample)
-        imageScale = scale
+        image_to_source_space_scale = scale
         
         debug_output_downsample = None
         if downsample < 4:
@@ -394,7 +394,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         # tilesPathList = sorted(mosaic.CreateTilesPathList(TilesDir))
         # transforms = list(mosaic._TransformsSortedByKey())
         
-        # imageScale = self.ReadOrCreateVariable(self.id() + "_imageScale_%03d" % downsample, tileset.MostCommonScalar, transforms=transforms, imagepaths=tilesPathList)
+        # image_to_source_space_scale = self.ReadOrCreateVariable(self.id() + "_imageScale_%03d" % downsample, tileset.MostCommonScalar, transforms=transforms, imagepaths=tilesPathList)
         first_pass_excess_scalar = 3  # This needs to be 3 to ensure we can detect any offset, otherwise quadrant of the peak is ambiguous
         excess_scalar = first_pass_excess_scalar
         
@@ -405,7 +405,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         if inter_tile_distance_scale is None:
             inter_tile_distance_scale = 1.0
         
-        # tile_overlap_feature_scores = arrange.ScoreTileOverlaps(tiles=initial_tiles, imageScale=imageScale)
+        # tile_overlap_feature_scores = arrange.ScoreTileOverlaps(tiles=initial_tiles, image_to_source_space_scale=image_to_source_space_scale)
         last_pass_overlaps = None
         translated_layout = None
         
@@ -426,6 +426,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
             new_or_updated_overlaps = list(new_overlaps)
             new_or_updated_overlaps.extend(updated_overlaps)
+            # If there is nothing to update we are done
+            if len(new_or_updated_overlaps) == 0:
+                break
             
             arrange.ScoreTileOverlaps(distinct_overlaps)
 
@@ -442,7 +445,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #         tile_overlap_feature_scores = self.ReadOrCreateVariable(self.id() + "tile_overlap_feature_scores_%03d_%03g" % (downsample, first_pass_excess_scalar),
     #                                                       arrange.GenerateScoredTileOverlaps,
     #                                                       tiles=initial_tiles,
-    #                                                       imageScale=imageScale)
+    #                                                       image_to_source_space_scale=image_to_source_space_scale)
             
             Scores = []
             for overlap in distinct_overlaps: 
@@ -459,7 +462,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             # pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             # pool.add_task('Plot prune histogram', nornir_shared.plot.Histogram,h, ImageFilename=mosaicBaseName + "_PrunePlotHistogram.png", Title="Tile overlap feature scores")
             
-            # self.assertAlmostEqual(imageScale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
+            # self.assertAlmostEqual(image_to_source_space_scale, 1.0 / downsample, "Calculated image scale should match downsample value passed to test")
         
             # Create a list of offsets requiring updates
             filtered_overlaps_needing_offsets = []
@@ -499,7 +502,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
                                                           tile_offsets_to_update=filtered_overlaps_needing_offsets,
                                                           all_tile_offsets=filtered_distinct_offsets,
                                                           excess_scalar=excess_scalar,
-                                                          imageScale=imageScale,
+                                                          image_to_source_space_scale=image_to_source_space_scale,
                                                           existing_layout=translated_layout)
             excess_scalar = 3.0
             # Each tile should contain a dictionary with the known offsets.  Show the overlapping images using the calculated offsets
