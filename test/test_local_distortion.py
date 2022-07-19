@@ -418,7 +418,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 '-angles', '0',
                 '-travel_cutoff', '0.5']
         
-        # nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
+        nornir_imageregistration.scripts.nornir_stos_grid_refinement.Execute(args)
         return
     
     def _rotate_points(self, points, rotcenter, rangle):
