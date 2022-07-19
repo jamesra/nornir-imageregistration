@@ -50,6 +50,8 @@ def float_to_shortest_string(val, precision=6):
     
 def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
+    if not isinstance(Transform, nornir_imageregistration.IControlPoints):
+        raise ValueError("Transform must implement IControlPoints to generate an ITK Grid transform")
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
@@ -76,6 +78,9 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
 
 
 def _TransformToIRToolsString(Transform, bounds=None):
+    if not isinstance(Transform, nornir_imageregistration.IControlPoints):
+        raise ValueError("Transform must implement IControlPoints to generate an ITK Mesh transform")
+    
     numPoints = Transform.points.shape[0]
 
     # Find the extent of the mapped boundaries
@@ -281,8 +286,15 @@ def ParseRigid2DTransform(parts, pixelSpacing=None):
     
     x_center = float(FixedParameters[0])
     y_center = float(FixedParameters[1])
-    
-    return nornir_imageregistration.transforms.Rigid(target_offset=(yoffset, xoffset), source_center=(y_center, x_center), angle=angle)
+
+    target_offset=(yoffset, xoffset)
+        
+    if angle == 0:
+        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+    else:
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_offset, 
+                                                         source_center=(y_center, x_center),
+                                                         angle=angle)
 
 def ParseCenteredSimilarity2DTransform(parts, pixelSpacing=None):
 
@@ -294,13 +306,23 @@ def ParseCenteredSimilarity2DTransform(parts, pixelSpacing=None):
 
     scale = float(VariableParameters[0])
     angle = float(VariableParameters[1])
-    x_center = float(FixedParameters[2])
-    y_center = float(FixedParameters[3])
+    x_center = float(VariableParameters[2])
+    y_center = float(VariableParameters[3])
     xoffset = float(VariableParameters[4])
     yoffset = float(VariableParameters[5])
     
-    return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=(yoffset, xoffset),
-                                                                             source_center=(y_center, x_center),
+    target_offset=(yoffset, xoffset)
+    source_center=(y_center, x_center)
+    
+    if scale == 1.0 and angle == 0:
+        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+    elif scale == 1.0:
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
+                                                         source_rotation_center=source_center,
+                                                         angle=angle)
+    else:
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
+                                                                             source_center=source_center,
                                                                              angle=angle,
                                                                              scale=scale)
 
