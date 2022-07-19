@@ -10,7 +10,7 @@ import operator
  
 import nornir_imageregistration 
 from . import utils
-from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents
+from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents, IControlPoints
 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
@@ -133,7 +133,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, eps
         return AToB_mapped_Transform
 
 
-class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents):
+class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation, IControlPoints, DefaultTransformChangeEvents):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
