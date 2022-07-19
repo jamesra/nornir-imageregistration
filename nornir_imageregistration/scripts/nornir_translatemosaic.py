@@ -93,11 +93,11 @@ def Execute(ExecArgs=None):
     mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath) 
 
  
-    timer = TaskTimer()
-    timer.Start("ArrangeTiles " + Args.tilepath)
-    translated_mosaic = mosaic.ArrangeTilesWithTranslate(Args.tilepath, usecluster=False)
-    timer.End("ArrangeTiles " + Args.tilepath, True)
-    translated_mosaic.SaveToMosaicFile(Args.outputpath)
+    #timer = TaskTimer()
+    #timer.Start("ArrangeTiles " + Args.tilepath)
+    translated_mosaic_tileset = mosaic.ArrangeTilesWithTranslate(Args.tilepath, usecluster=False)
+    #timer.End("ArrangeTiles " + Args.tilepath, True)
+    translated_mosaic_tileset.SaveMosaic(Args.outputpath)
    
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
