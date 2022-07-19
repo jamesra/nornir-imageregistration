@@ -12,8 +12,7 @@ import nornir_pools
 import numpy as np
 
 import nornir_shared.prettyoutput as prettyoutput
-
-from . import alignment_record
+ 
 from . import core
 from . import spatial 
 from operator import itemgetter 
@@ -700,6 +699,7 @@ class Layout(object):
         return
     
     def TranslateToZeroOrigin(self):
+        """Translates the layout so the min X/Y of all tile positions is 0,0"""
         positions = self.GetPositions()
         origin_offset = np.min(positions, 0)
         self.Translate(-origin_offset) 
