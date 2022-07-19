@@ -444,7 +444,8 @@ def RefineTransform(stosTransform,
     prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
      
     # Return a transform built from the finalized points
-    finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+    if len(nudged_finalized_points) >= 3:
+        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
                         AlignRecordsToControlPoints(nudged_finalized_points.values()))
          
     return finalTransform
