@@ -247,28 +247,38 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
         pixelSpacing = 1.0
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
+    
+    X = FixedParameters[0]
+    Y = FixedParameters[1]
+    target_offset = (Y,X)
+    
+    #if VariableParameters[0]
+    if not np.array_equal(np.array(VariableParameters), np.array([1, 0, 1, 1, 1, 0])):  
+        raise ValueError("We don't support anything but translation from polynomical transforms")
+    
+    return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
 
-    # We don't support anything but translation from this transform at the moment:
-    # assert(VariableParameters == [1, 0, 1, 1, 1, 0])  # Sequence for transform only transformation
-
-    Left = 0 * pixelSpacing
-    Bottom = 0 * pixelSpacing
-    ImageWidth = float(FixedParameters[2]) * pixelSpacing * 2.0
-    ImageHeight = float(FixedParameters[3]) * pixelSpacing * 2.0
-
-    array = np.array([[Left, Bottom],
-                  [Left, Bottom + ImageHeight],
-                  [Left + ImageWidth, Bottom],
-                  [Left + ImageWidth, Bottom + ImageHeight]])
-    PointPairs = []
-
-    for i in range(0, 4):
-        mappedX, mappedY = array[i, :]
-        ControlX = (FixedParameters[0] * pixelSpacing) + mappedX
-        ControlY = (FixedParameters[1] * pixelSpacing) + mappedY
-        PointPairs.append((ControlY, ControlX, mappedY, mappedX))
-
-    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
+    # # We don't support anything but translation from this transform at the moment:
+    # # assert(VariableParameters == [1, 0, 1, 1, 1, 0])  # Sequence for transform only transformation
+    #
+    # Left = 0 * pixelSpacing
+    # Bottom = 0 * pixelSpacing
+    # ImageWidth = float(FixedParameters[2]) * pixelSpacing * 2.0
+    # ImageHeight = float(FixedParameters[3]) * pixelSpacing * 2.0
+    #
+    # array = np.array([[Left, Bottom],
+    #               [Left, Bottom + ImageHeight],
+    #               [Left + ImageWidth, Bottom],
+    #               [Left + ImageWidth, Bottom + ImageHeight]])
+    # PointPairs = []
+    #
+    # for i in range(0, 4):
+    #     mappedX, mappedY = array[i, :]
+    #     ControlX = (FixedParameters[0] * pixelSpacing) + mappedX
+    #     ControlY = (FixedParameters[1] * pixelSpacing) + mappedY
+    #     PointPairs.append((ControlY, ControlX, mappedY, mappedX))
+    #
+    # T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
