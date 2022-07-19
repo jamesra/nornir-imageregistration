@@ -159,9 +159,9 @@ def TranslateTiles2(tileset,
     max_passes = min_translate_iterations * 4
     pass_count = 0
     inter_tile_distance_scale_this_pass = first_pass_inter_tile_distance_scale
-    inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
+    #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
     
-    first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
+    #first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
     
     stage_reported_overlaps = None
     relaxed_layout = None
@@ -205,7 +205,7 @@ def TranslateTiles2(tileset,
 #         if inter_tile_distance_scale_last_pass != inter_tile_distance_scale_this_pass:
 #             new_or_updated_overlaps = distinct_overlaps
             
-        inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
+        #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
                 
         # Create a list of offsets requiring updates
         filtered_overlaps_needing_offsets = []
@@ -217,7 +217,7 @@ def TranslateTiles2(tileset,
                     translated_layout.RemoveOverlap(overlap)
             
         translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar=excess_scalar,
-                                             imageScale=tileset.image_to_source_space_scale,
+                                             image_to_source_space_scale=tileset.image_to_source_space_scale,
                                              existing_layout=translated_layout)
         
         scaled_translated_layout = translated_layout.copy()
@@ -233,10 +233,10 @@ def TranslateTiles2(tileset,
         
         #Should we do a shorter pass on the first run?
         relax_iterations = max_relax_iterations
-        if iPass == min_translate_iterations:
-            relax_iterations = relax_iterations // 4
-            if relax_iterations < 10:
-                relax_iterations = max_relax_iterations // 2
+        # if iPass == min_translate_iterations:
+        #     relax_iterations = relax_iterations // 4
+        #     if relax_iterations < 10:
+        #         relax_iterations = max_relax_iterations // 2
                 
         relaxed_layouts = []
         for layout in translated_final_layouts:
@@ -254,13 +254,14 @@ def TranslateTiles2(tileset,
         for ID, node in relaxed_layout.nodes.items():
             tnode = translated_layout.nodes[ID]
             tnode.Position = node.Position
-            
+          
         iPass = iPass - 1
         pass_count = pass_count + 1
     
     # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 
     # Create a mosaic file using the tile paths and transforms
+    relaxed_layout.TranslateToZeroOrigin()
     return (relaxed_layout, tileset)
 
 
@@ -493,7 +494,7 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_sco
 #     return (layout, tiles)
             
             
-def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_layout=None):
+def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=None, existing_layout=None):
     '''Populates the OffsetToTile dictionary for tiles
     :param list tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param float imageScale: downsample level if known.  None causes it to be calculated.
@@ -501,10 +502,15 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, imageScale=None, existing_lay
     :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
     '''
     
-    if imageScale is None:
-        imageScale = 1.0
+    if image_to_source_space_scale is None:
+        image_to_source_space_scale = 1.0
         
-    downsample = 1.0 / imageScale
+    if image_to_source_space_scale < 1.0: 
+        raise ValueError("This might be OK... but images are almost always downsampled.  This exception was added to migrate from old code to this class because at that time all scalars were positive.  For example a downsampled by 4 image must have coordinates multiplied by 4 to match the full-res source space of the transform.")
+ 
+    downsample = image_to_source_space_scale
+    
+    
 
     # idx = tileset.CreateSpatialMap([t.FixedBoundingBox for t in tiles], tiles)
 
