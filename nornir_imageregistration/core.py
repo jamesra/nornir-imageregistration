@@ -1389,7 +1389,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     """
 
     if Cutoff is None:
-        Cutoff = 0.9999
+        Cutoff = 0.995
     #        num_pixels = np.prod(image.shape)
 
     #        if (1.0 - Cutoff) * num_pixels > 1000:
