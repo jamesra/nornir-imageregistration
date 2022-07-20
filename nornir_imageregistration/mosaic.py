@@ -115,14 +115,14 @@ class Mosaic(object):
     def FixedBoundingBox(self):
         '''Calculate the bounding box of the warped position for a set of transforms
            (minX, minY, maxX, maxY)'''
-
+        DeprecationWarning("Use TargetBoundingBox of mosaic_tileset instead")
         return tutils.FixedBoundingBox(list(self.ImageToTransform.values()))
 
     @property
     def MappedBoundingBox(self):
         '''Calculate the bounding box of the warped position for a set of transforms
            (minX, minY, maxX, maxY)'''
-
+        DeprecationWarning("Use SourceBoundingBox of mosaic_tileset instead")
         return tutils.MappedBoundingBox(list(self.ImageToTransform.values()))
 
     

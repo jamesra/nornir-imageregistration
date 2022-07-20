@@ -118,6 +118,11 @@ class MosaicTileset(dict):
         transforms = self.values()
         self._source_space_bounding_box = nornir_imageregistration.Rectangle.Union([t.SourceSpaceBoundingBox for t in transforms])
         return self._source_space_bounding_box
+    
+    @property
+    def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        DeprecationWarning("FixedBoundingBox")
+        return self.TargetBoundingBox
         
     @property
     def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
