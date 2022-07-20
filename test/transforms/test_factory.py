@@ -15,6 +15,9 @@ import nornir_imageregistration.mosaic as mosaic
 import nornir_imageregistration.spatial as spatial
 import nornir_imageregistration.transforms.factory as factory
 import numpy as np
+from nornir_imageregistration.transforms.base import IControlPoints,\
+    IDiscreteTransform
+from nornir_imageregistration.transforms.rigid import RigidNoRotation, Rigid
 
 
 tau = math.pi * 2.0
@@ -91,16 +94,17 @@ class TestIO(test.setup_imagetest.TransformTestBase):
 
             self.LoadSaveTransform(transform)
 
-            MappedBounds = transform.MappedBoundingBox
+            if isinstance(transform, IDiscreteTransform):
+                MappedBounds = transform.MappedBoundingBox
 
-            imageBoundRect = spatial.Rectangle.CreateFromPointAndArea((0, 0), (height, width))
+                imageBoundRect = spatial.Rectangle.CreateFromPointAndArea((0, 0), (height, width))
+                
+                mappedBoundRect = spatial.Rectangle.CreateFromBounds(MappedBounds)
 
-            mappedBoundRect = spatial.Rectangle.CreateFromBounds(MappedBounds)
+                self.assertTrue(spatial.Rectangle.contains(MappedBounds, imageBoundRect), "Mapped points should fall inside the image mapped for mosaic files")
 
-            self.assertTrue(spatial.Rectangle.contains(MappedBounds, imageBoundRect), "Mapped points should fall inside the image mapped for mosaic files")
-
-            self.assertGreaterEqual(imageBoundRect.Width, mappedBoundRect.Width)
-            self.assertGreaterEqual(imageBoundRect.Height, mappedBoundRect.Height)
+                self.assertGreaterEqual(imageBoundRect.Width, mappedBoundRect.Width)
+                self.assertGreaterEqual(imageBoundRect.Height, mappedBoundRect.Height)
 
 
     def LoadSaveTransform(self, transform):
@@ -109,13 +113,25 @@ class TestIO(test.setup_imagetest.TransformTestBase):
 
         loadedTransform = factory.LoadTransform(transformString)
 
-        pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.5)
+        if isinstance(transform, IControlPoints):
+            self.assertTrue(isinstance(loadedTransform, IControlPoints), "Loaded transform must have same interface as saved transform")
+            pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.5)
+            self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
 
-        self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
-
-        self.assertTrue(numpy.allclose(transform.FixedBoundingBox.ToArray(), loadedTransform.FixedBoundingBox.ToArray(), rtol=1e-04), "Fixed bounding box should match after converting transform to string and back")
-        self.assertTrue(numpy.allclose(transform.MappedBoundingBox.ToArray(), loadedTransform.MappedBoundingBox.ToArray(), rtol=1e-04), "Mapped bounding box should match after converting transform to string and back")
-
+        if isinstance(transform, IDiscreteTransform):
+            self.assertTrue(isinstance(loadedTransform, IDiscreteTransform), "Loaded transform must have same interface as saved transform")
+            self.assertTrue(numpy.allclose(transform.FixedBoundingBox.ToArray(), loadedTransform.FixedBoundingBox.ToArray(), rtol=1e-04), "Fixed bounding box should match after converting transform to string and back")
+            self.assertTrue(numpy.allclose(transform.MappedBoundingBox.ToArray(), loadedTransform.MappedBoundingBox.ToArray(), rtol=1e-04), "Mapped bounding box should match after converting transform to string and back")
+            
+        if isinstance(transform, RigidNoRotation):
+            self.assertTrue(isinstance(loadedTransform, RigidNoRotation), "Loaded transform must have same interface as saved transform")
+            self.assertTrue(numpy.allclose(transform.target_offset, loadedTransform.target_offset))
+        
+        if isinstance(transform, Rigid):
+            self.assertTrue(isinstance(loadedTransform, Rigid), "Loaded transform must have same interface as saved transform")
+            self.assertTrue(numpy.allclose(transform.angle, loadedTransform.angle))
+            self.assertTrue(numpy.allclose(transform.source_space_center_of_rotation, loadedTransform.source_space_center_of_rotation))
+            
         secondString = factory.TransformToIRToolsString(loadedTransform)
         self.assertTrue(secondString == transformString, "Converting transform to string twice should produce identical string")
 

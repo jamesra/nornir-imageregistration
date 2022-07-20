@@ -319,9 +319,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             if i >= 2:
                 del mosaic.ImageToTransform[k]
     
-    def CalculateOffsetsForTiles(self, tile_offsets_to_update, all_tile_offsets, excess_scalar, imageScale, existing_layout):
+    def CalculateOffsetsForTiles(self, tile_offsets_to_update, all_tile_offsets, excess_scalar, image_to_source_space_scale, existing_layout):
      
-        translate_layout = arrange._FindTileOffsets(tile_offsets_to_update, excess_scalar, imageScale, existing_layout)
+        translate_layout = arrange._FindTileOffsets(tile_offsets_to_update, excess_scalar, image_to_source_space_scale, existing_layout)
         
         self.__CheckNoOffsetsToSelf(translate_layout)
         self.__CheckAllOffsetsPresent(translate_layout, all_tile_offsets)
@@ -353,7 +353,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)     
 
         scale = 1.0 / float(downsample)
-        image_to_source_space_scale = scale
+        image_to_source_space_scale = downsample
         
         debug_output_downsample = None
         if downsample < 4:

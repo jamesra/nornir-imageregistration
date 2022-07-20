@@ -15,6 +15,8 @@ from nornir_shared.tasktimer import TaskTimer
 import numpy as np
 
 import test_assemble_tiles
+from nornir_imageregistration.mosaic_tileset import MosaicTileset
+import mosaic_tileset
 
   
 class BasicTests(test_assemble_tiles.TestMosaicAssemble):
@@ -83,14 +85,16 @@ class BasicTests(test_assemble_tiles.TestMosaicAssemble):
 
     def test_MosaicBoundsEachMosaicType(self):
 
-        for m in self.GetMosaicFiles():
-
+        downsamplePath = '004'
+        tilesDir = self.GetTileFullPath(downsamplePath)
+        for m in self.GetMosaicFiles(): 
             mosaic = Mosaic.LoadFromMosaicFile(m)
+            mosaic_tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic, image_folder=tilesDir, image_to_source_space_scale=int(downsamplePath))
 
-            self.assertIsNotNone(mosaic.MappedBoundingBox, "No bounding box returned for mosiac")
+            self.assertIsNotNone(mosaic_tileset.SourceBoundingBox, "No bounding box returned for mosiac")
 
-            self.Logger.info(m + " mapped bounding box: " + str(mosaic.MappedBoundingBox))
+            self.Logger.info(m + " mapped bounding box: " + str(mosaic_tileset.SourceBoundingBox))
 
-            self.assertIsNotNone(mosaic.FixedBoundingBox, "No bounding box returned for mosiac")
+            self.assertIsNotNone(mosaic_tileset.TargetBoundingBox, "No bounding box returned for mosiac")
 
-            self.Logger.info(m + " fixed bounding box: " + str(mosaic.FixedBoundingBox))
+            self.Logger.info(m + " fixed bounding box: " + str(mosaic_tileset.TargetBoundingBox))
