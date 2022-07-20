@@ -114,23 +114,24 @@ def _TransformToIRToolsString(Transform, bounds=None):
 def __ParseParameters(parts):
     '''Input is a transform split on white space, returns the variable and fixed parameters as a list'''
 
-    iVP = 0
-    iFP = 0
-
+    iVP = None
+    iFP = None
+      
     VariableParameters = []
     FixedParameters = []
 
     for i, val in enumerate(parts):
         if val == 'vp':
             iVP = i
+            iFP = None
         elif val == 'fp':
             iFP = i
-        elif iFP > 0 and i > iFP + 1:
+            iVP = None
+        elif iFP is not None and iFP > 0 and i > iFP + 1:
             FixedParameters.append(float(val))
             if FixedParameters[-1] >= 1.79769e+308:
                 raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
-
-        elif iVP > 0 and i > iVP + 1:
+        elif iVP is not None and iVP > 0 and i > iVP + 1:
             VariableParameters.append(float(val))
             if VariableParameters[-1] >= 1.79769e+308:
                 raise ValueError("Unexpected value in transform, probably invalid output from ir-tools")
@@ -254,7 +255,7 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     
     #if VariableParameters[0]
     if not np.array_equal(np.array(VariableParameters), np.array([1, 0, 1, 1, 1, 0])):  
-        raise ValueError("We don't support anything but translation from polynomical transforms")
+        raise ValueError("We don't support anything but translation from polynomial transforms")
     
     return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
 
