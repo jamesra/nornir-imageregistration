@@ -303,9 +303,10 @@ def TilesToImage(mosaic_tileset, TargetRegion=None, target_space_scale=None):
     else:
         original_fixed_rect_floats = mosaic_tileset.TargetBoundingBox
         
+    targetRect = nornir_imageregistration.Rectangle.SafeRound(original_fixed_rect_floats)
     scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
-    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+      #original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
     
     tiles = list(mosaic_tileset.values())
     output_dtype = tiles[0].Image.dtype
@@ -316,9 +317,10 @@ def TilesToImage(mosaic_tileset, TargetRegion=None, target_space_scale=None):
         #transform = tile.Transform
         regionToRender = None
         original_transform_fixed_rect = tile.TargetSpaceBoundingBox
-        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
+        #transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
         
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
+        #regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
+        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, original_transform_fixed_rect)
         if regionToRender is None:
             continue
         
@@ -395,10 +397,11 @@ def TilesToImageParallel(mosaic_tileset, TargetRegion=None, target_space_scale=N
             original_fixed_rect_floats = nornir_imageregistration.Rectangle.CreateFromPointAndArea((TargetRegion[0], TargetRegion[1]), (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
     else:
         original_fixed_rect_floats = mosaic_tileset.TargetBoundingBox 
-        
+    
+    targetRect = nornir_imageregistration.Rectangle.SafeRound(original_fixed_rect_floats) 
     scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats, target_space_scale)
-    scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)  
-    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
+    scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)
+    #    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
     
     tiles = list(mosaic_tileset.values())
     output_dtype = tiles[0].Image.dtype
@@ -509,10 +512,10 @@ def __AddTransformedTileTaskToComposite(task, transformedImageData, fullImage, f
         CompositeImageWithZBuffer(fullImage, fullImageZBuffer,
                                   transformedImageData.image, transformedImageData.centerDistanceImage,
                                   CompositeOffset)
-    except ValueError:
+    except ValueError as e:
         # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
         #logger = logging.getLogger('TilesToImageParallel')
-        prettyoutput.LogErr('Transformed tile mapped to negative coordinates ' + str(transformedImageData))
+        prettyoutput.LogErr(f'Could not add tile to composite: {transformedImageData}\n{e}')
         pass
     
     transformedImageData.Clear()
