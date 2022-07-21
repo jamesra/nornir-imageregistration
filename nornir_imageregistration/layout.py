@@ -738,9 +738,8 @@ class Layout(object):
             weights = node.Weights
             weight_sum = np.sum(weights) / node.NumConnections
             #magnitude = np.sqrt(vector.dot(vector))
-            # vectors[ID] = vector
-            row = np.array([node.ID, vector[0], vector[1], weight_sum])
-            node_movement[i,:] = row
+            # vectors[ID] = vector 
+            node_movement[i,:] = np.array([node.ID, vector[0], vector[1], weight_sum])
         #     i += 1
         
         sort_by_weight = np.argsort(node_movement[:, 3])
