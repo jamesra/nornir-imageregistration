@@ -650,6 +650,12 @@ class Rectangle(object):
         bottomleft = np.floor(A.BottomLeft)
         topright = bottomleft + np.ceil(A.Size)
         
+        if topright[0] < A.TopRight[0]:
+            topright[0] += 1
+        
+        if topright[1] < A.TopRight[1]:
+            topright[1] += 1
+        
         return cls.CreateFromPointAndArea(bottomleft, topright - bottomleft)        
          
 
