@@ -880,7 +880,9 @@ def StartAttemptAlignPoint(pool, taskname, transform,
                                                                              area=alignmentArea)
 
     FixedRectangle = nornir_imageregistration.Rectangle.SafeRound(FixedRectangle)
-    FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea)
+    
+    #Make sure the rectangle is the correct size, with an origino on an integer boundary
+    FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea, integer_origin=True)
     
     # Pull image subregions 
     sourceImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,

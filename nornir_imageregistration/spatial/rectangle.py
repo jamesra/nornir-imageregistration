@@ -631,13 +631,18 @@ class Rectangle(object):
         return cls.CreateFromBounds(A.BoundingBox * scale)
     
     @classmethod
-    def change_area(cls, A, new_size):
+    def change_area(cls, A, new_size, integer_origin=False):
         '''
-        Returns a rectangle with the area of new_shape, but the same center
+        :param bool integer_origin: If true, the bottom left will remain as integers, prevents a rectangle shifting 0.5 units to keep the center perfectly positioned
+        :Returns: A rectangle with the area of new_shape, but the same center
         '''
         if not isinstance(new_size, np.ndarray):
             new_size = np.array(new_size)
         bottom_left = A.Center - (new_size / 2.0)
+        
+        if integer_origin:
+            bottom_left = np.floor(bottom_left)
+            
         return cls.CreateFromPointAndArea(bottom_left, new_size)
     
     @classmethod
