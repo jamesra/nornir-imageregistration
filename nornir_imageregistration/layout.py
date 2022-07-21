@@ -725,7 +725,7 @@ class Layout(object):
         
         # vectors = {}
         
-        min_tension_node_id = layout_obj.MinWeightedNetTensionMagnitude[0]  # The node with the least tension 
+        #min_tension_node_id = layout_obj.MinWeightedNetTensionMagnitude[0]  # The node with the least tension 
         nodes = layout_obj.nodes.values()
         
         # Todo: Sort highest to lowest tension vectors, then adjust movement in that order
@@ -737,7 +737,7 @@ class Layout(object):
             
             weights = node.Weights
             weight_sum = np.sum(weights) / node.NumConnections
-            magnitude = np.sqrt(vector.dot(vector))
+            #magnitude = np.sqrt(vector.dot(vector))
             # vectors[ID] = vector
             row = np.array([node.ID, vector[0], vector[1], weight_sum])
             node_movement[i,:] = row
