@@ -130,6 +130,15 @@ class LayoutPosition(object):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight]
     
+    @property
+    def IDToIndex(self):
+        if self._IDToIndex is None:
+            self._IDToIndex = {}
+            for (i,ID) in enumerate(self._OffsetArray[:,0]):
+                self._IDToIndex[ID] = i
+            
+        return self._IDToIndex
+    
     def SetOffset(self, ID, offset, weight):
         '''Set the offset for the specified Layout position ID.  
            This means that when we subtract our position from the other ID's position we hope to obtain this offset value. 
@@ -151,6 +160,8 @@ class LayoutPosition(object):
                 self._OffsetArray = np.reshape(self._OffsetArray, (1, self._OffsetArray.shape[0]))
             else:
                 self._OffsetArray = _sort_array_on_column(self._OffsetArray, 0, ascending=True)
+                
+            self._IDToIndex = None
         return
     
     def RemoveOffset(self, ID):
@@ -161,6 +172,7 @@ class LayoutPosition(object):
         iKnown = self.ConnectedIDs == ID
         if np.any(iKnown):
             self._OffsetArray = self._OffsetArray[iKnown == False,:]
+            self._IDToIndex = None
         
         Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
         return 
@@ -173,8 +185,8 @@ class LayoutPosition(object):
         if connected_nodes is None:
             iRows = np.array(range(0, len(self.ConnectedIDs)), dtype=np.int)
         else:
-            connected_IDs = [n.ID for n in connected_nodes]
-            iRows = nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
+            #connected_IDs = [n.ID for n in connected_nodes]
+            iRows = np.array([self.IDToIndex[n.ID] for n in connected_nodes]) #nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
             return iRows
     
     def TensionVectors(self, connected_nodes=None):
@@ -303,6 +315,7 @@ class LayoutPosition(object):
         self.Position = position
         self._OffsetArray = np.empty((0, 4), dtype=np.float64)  # dtype=LayoutPosition.offset_dtype)
         self._dims = dims
+        self._IDToIndex = None
         
     def __eq__(self, other):
         if isinstance(other, LayoutPosition):
@@ -505,12 +518,17 @@ class Layout(object):
             IDs = list(self.nodes.keys())
             IDs.sort()
             
-        if isinstance(IDs, int):
-            IDs = [IDs]  
+        elif isinstance(IDs, int):
+            IDs = [IDs]
             
-        positions = np.empty((len(IDs), 2))
-        for i, tileID in enumerate(IDs):
-            positions[i,:] = self.nodes[tileID].Position 
+        if len(IDs) == 0:
+            return np.empty((0, 2))
+            
+        positions = np.vstack([self.nodes[tileID].Position for tileID in IDs])
+        #
+        #positions = np.empty((len(IDs), 2))
+        #for i, tileID in enumerate(IDs):
+            #positions[i,:] = self.nodes[tileID].Position 
                                          
         return positions
     
@@ -519,14 +537,14 @@ class Layout(object):
         
         if IDs is None:
             IDs = list(self.nodes.keys())
-            IDs.sort()
-            
-        if isinstance(IDs, int):
+            IDs.sort()  
+        elif isinstance(IDs, int):
             IDs = [IDs]  
             
-        nodes = [None] * len(IDs)
-        for i, tileID in enumerate(IDs):
-            nodes[i] = self.nodes[tileID] 
+        nodes = [self.nodes[tileID] for tileID in IDs]
+        #nodes = [None] * len(IDs)
+        #for i, tileID in enumerate(IDs):
+            #nodes[i] = self.nodes[tileID] 
                                          
         return nodes
     
