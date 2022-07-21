@@ -8,6 +8,7 @@ import nornir_imageregistration
 import numpy as np
 from nornir_shared import prettyoutput
 from collections.abc import Iterable
+
  
 def InvalidIndicies(points):
     '''Removes rows with a NAN value and returns a list of indicies'''
@@ -35,10 +36,12 @@ def RotationMatrix(rangle):
         raise ValueError("Angle must not be none")
     return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
 
+
 def IdentityMatrix():
     '''
     '''
-    return np.matrix([[1,0,0], [0,1,0], [0, 0, 1]])
+    return np.matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
 
 def TranslateMatrixXY(offset):
     '''
@@ -50,6 +53,7 @@ def TranslateMatrixXY(offset):
         return np.matrix([[1, 0, 0], [0, 1, 0], [offset[0], offset[1], 1]])
     
     raise NotImplementedError("Unexpected argument")
+
 
 def ScaleMatrixXY(scale):
     '''
@@ -63,6 +67,7 @@ def ScaleMatrixXY(scale):
         return np.matrix([[scale[1], 0, 0], [0, scale[0], 0], [0, 0, 1]])
     
     raise NotImplementedError("Unexpected argument")
+
 
 if __name__ == '__main__':
     pass
@@ -83,6 +88,7 @@ def PointBoundingBox(points):
     (maxZ, maxY, maxX) = np.max(points, 0)
     return (minZ, minY, minX, maxZ, maxY, maxX)
 
+
 def FixedOriginOffset(transforms):
     '''
     This is a fairly specific function to move a mosaic to have an origin at 0,0
@@ -94,16 +100,19 @@ def FixedOriginOffset(transforms):
         # Copy the data instead of passing the transforms object
         return nornir_imageregistration.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
 
-    mins = np.zeros((len(transforms),2)) 
-    for (i,t) in enumerate(transforms):
+    mins = np.zeros((len(transforms), 2)) 
+    for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mins[i,:] = t.FixedBoundingBox.BottomLeft
         elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
             mins[i,:] = t.target_offset
+        elif hasattr(t, 'FixedBoundingBox'):
+            mins[i,:] = t.FixedBoundingBox.BottomLeft
         else:
             raise ValueError(f"Unexpected transform type {t} at index {i}")
 
-    return np.min(mins,0)
+    return np.min(mins, 0)
+
   
 def FixedBoundingBox(transforms, images=None):
     '''Calculate the bounding box of the warped position for a set of transforms
@@ -130,22 +139,25 @@ def FixedBoundingBox(transforms, images=None):
                 raise ValueError(f"images list not of equal length as transforms list. Transforms: {len(transforms)} Images: {len(images)}")
         elif not isinstance(images, Iterable): 
             raise ValueError("If not none or a single 1x2 array the images parameter must be an iterable of equal length as transform array.")
-            
     
-    mbb = np.zeros((len(transforms),4))
-    for (i,t) in enumerate(transforms):
+    mbb = np.zeros((len(transforms), 4))
+    for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mbb[i,:] = t.FixedBoundingBox.ToArray()
         elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
-            #Figure out if images is an iterable or just a single size for all tiles
-            size=None
+            # Figure out if images is an iterable or just a single size for all tiles
+            size = None
             if is_images_param_single_size:
                 size = images
             else:
                 size = nornir_imageregistration.GetImageSize(images[i])
                 
             mbb[i,:2] = t.target_offset
-            mbb[i,2:] = t.target_offset + size
+            mbb[i, 2:] = t.target_offset + size
+        elif hasattr(t, 'FixedBoundingBox'):
+            mbb[i,:] = t.FixedBoundingBox.ToArray()
+        else:
+            raise ValueError(f"Unexpected type passed to FixedBoundingBox {t.__class__}")
 
     minX = np.min(mbb[:, 1])
     minY = np.min(mbb[:, 0])
@@ -163,8 +175,8 @@ def MappedBoundingBox(transforms):
         return nornir_imageregistration.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
 
     discrete_found = False
-    mbb = np.zeros((len(transforms),4))
-    for (i,t) in enumerate(transforms):
+    mbb = np.zeros((len(transforms), 4))
+    for (i, t) in enumerate(transforms):
         if not isinstance(t, nornir_imageregistration.IDiscreteTransform):
             continue
         
@@ -192,11 +204,11 @@ def IsOriginAtZero(transforms):
         prettyoutput.LogErr("Could not determine origin of transforms, continuing")
         return True
 
+
 def TranslateToZeroOrigin(transforms):
     '''
     Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.
-    :return: A Rectangle object describing the new fixed space bounding box
-    :rtype: Rectangle
+    :return: The offset the mosaic was translated by
     '''
     
     origin = None
@@ -204,19 +216,22 @@ def TranslateToZeroOrigin(transforms):
         origin = FixedOriginOffset(transforms)
     except ValueError:
         prettyoutput.LogErr("Could not determine origin of transforms, continuing")
-        return True
+        return np.zeros((2,))
     
     if origin is None:
-        return 
+        return
+    
+    if np.array_equal(origin, np.zeros(2,)):
+        return
     
     for t in transforms:
         t.TranslateFixed(-origin)
         
-    #translated_bbox = nornir_imageregistration.Rectangle.translate(bbox, -bbox.BottomLeft)
-    #assert(np.array_equal(translated_bbox.BottomLeft, np.asarray((0,0)))) 
-    #return translated_bbox
+    # translated_bbox = nornir_imageregistration.Rectangle.translate(bbox, -bbox.BottomLeft)
+    # assert(np.array_equal(translated_bbox.BottomLeft, np.asarray((0,0)))) 
+    # return translated_bbox
     
-    return None
+    return -origin
 
 
 def FixedBoundingBoxWidth(transforms):
