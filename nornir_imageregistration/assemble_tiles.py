@@ -589,7 +589,7 @@ def TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegio
         #warpedImage = nornir_imageregistration.ImageParamToImageArray(tile.Image, dtype=np.float32)
         warpedImage = tile.Image
     except IOError:
-        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg='Tile does not exist ' + tile.Image)
+        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg='Tile does not exist ' + tile.ImagePath)
     except ValueError as ve:
         return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg=f'{ve}')
     
