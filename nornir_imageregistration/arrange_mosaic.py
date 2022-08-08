@@ -149,7 +149,7 @@ def TranslateTiles2(tileset,
         single_tile_layout.CreateNode(tileset[0].ID, np.zeros((2)))
         return (single_tile_layout, tileset)
     
-    minOffsetWeight = 0
+    minOffsetWeight = 0.1
     maxOffsetWeight = 1.0
     
     last_pass_overlaps = None
