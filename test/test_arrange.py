@@ -647,7 +647,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
         mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         mosaicBaseName = os.path.basename(mosaicFilePath)
-
+        
+        
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
 
         TilesDir = None
@@ -655,24 +656,27 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             TilesDir = os.path.join(self.ImportedDataPath, self.Dataset, 'Leveled', 'TilePyramid', downsamplePath)
         else:
             TilesDir = os.path.join(TilePyramidDir, downsamplePath)
-
-        mosaic.TranslateToZeroOrigin()
+            
+        mosaictileset = mosaic_tileset.CreateFromMosaic(mosaic,
+                                                        image_folder=TilesDir,
+                                                        image_to_source_space_scale=downsample)
+        mosaictileset.TranslateToZeroOrigin()
         
-        original_score = mosaic.QualityScore(TilesDir)
+        original_score = mosaic.QualityScore(TilesDir, downsample)
 
         # self.__RemoveExtraImages(mosaic)
 
-        assembleScale = tileset.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(TilesDir))
+        #assembleScale = tileset.MostCommonScalar(mosaic.ImageToTransform.values(), mosaic.TileFullPaths(TilesDir))
 
-        expectedScale = 1.0 / float(downsamplePath)
+        #expectedScale = 1.0 / float(downsamplePath)
 
-        self.assertEqual(assembleScale, expectedScale, "Scale for assemble does not match the expected scale")
+        #self.assertEqual(assembleScale, expectedScale, "Scale for assemble does not match the expected scale")
 
         timer = TaskTimer()
 
         timer.Start("ArrangeTiles " + TilesDir)
 
-        translated_mosaic = mosaic.ArrangeTilesWithTranslate(TilesDir, excess_scalar=1.5,
+        translated_mosaic = mosaictileset.ArrangeTilesWithTranslate(TilesDir, excess_scalar=None,
                                                              min_translate_iterations=min_translate_iterations,
                                                              max_relax_iterations=max_relax_iterations,
                                                              max_relax_tension_cutoff=max_relax_tension_cutoff,
@@ -681,14 +685,16 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
         timer.End("ArrangeTiles " + TilesDir, True)
         
-        translated_score = translated_mosaic.QualityScore(TilesDir)
+        OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '_translated.mosaic')
+        OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
+        
+        translated_mosaic.SaveMosaic(OutputDir)
+        
+        translated_score = translated_mosaic.QualityScore()
         
         print("Original Quality Score: %g" % (original_score))
         print("Translate Quality Score: %g" % (translated_score))
-        
-        OutputDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.mosaic')
-        OutputMosaicDir = os.path.join(self.TestOutputPath, mosaicBaseName + '.png')
-
+         
         if openwindow:
             self._ShowMosaic(translated_mosaic, OutputMosaicDir)
          
@@ -771,21 +777,41 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     
     
     
-    def test_RPC2_0989_Mosaic(self):
-    
-        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
-                                 TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
-                                 downsample=4,
-                                 max_relax_tension_cutoff=0.001,
-                                 max_relax_iterations=500,
-                                 openwindow=False)
-    
-        print("All done")
+    # def test_RPC2_0989_Mosaic(self):
+    #
+    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
+    #                              TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+    #                              downsample=4,
+    #                              max_relax_tension_cutoff=0.001,
+    #                              max_relax_iterations=500,
+    #                              openwindow=False)
+    #
+    #     print("All done")
          
     # def test_RC3_0203_Mosaic(self):
     #
     #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\0203\\TEM\\Stage.mosaic",
     #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\0203\\TEM\\Leveled\\TilePyramid",
+    #                              downsample=4,
+    #                              max_relax_iterations=500,
+    #                              openwindow=False)
+    #
+    #     print("All done")
+    
+    def test_RC3_1154_Mosaic(self):
+    
+        self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
+                                 TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
+                                 downsample=4,
+                                 max_relax_iterations=500,
+                                 openwindow=False)
+    
+        print("All done")
+    
+    # def test_RC3_1154_Mosaic_Direct(self):
+    #
+    #     self.ArrangeMosaicDirect(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
+    #                              TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
     #                              downsample=4,
     #                              max_relax_iterations=500,
     #                              openwindow=False)

@@ -97,36 +97,13 @@ class GridRefinement(object):
             
         self.target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask, Copy=False)
         self.source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask, Copy=False)
-              
-        if angles_to_search is None:
-            self.angles_to_search = [0]
-        else:
-            self.angles_to_search = angles_to_search
-            
-        if final_pass_angles is None:
-            self.final_pass_angles = [0]
-        else:
-            self.final_pass_angles = final_pass_angles
-            
-        if num_iterations is None:
-            self.num_iterations = 10
-        else:
-            self.num_iterations = num_iterations
-            
-        if max_travel_for_finalization is None:
-            self.max_travel_for_finalization = np.sqrt(np.max(cell_size))
-        else:
-            self.max_travel_for_finalization = max_travel_for_finalization
-            
-        if min_alignment_overlap is None:
-            self.min_alignment_overlap = 0.5
-        else:
-            self.min_alignment_overlap = min_alignment_overlap
-            
-        if min_unmasked_area is None:
-            self.min_unmasked_area = 0.49
-        else:
-            self.min_unmasked_area = min_unmasked_area
+             
+        self.angles_to_search            = [0] if angles_to_search is None else angles_to_search
+        self.final_pass_angles           = [0] if final_pass_angles is None else final_pass_angles
+        self.num_iterations              = 10 if num_iterations is None else num_iterations
+        self.max_travel_for_finalization = np.sqrt(np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization
+        self.min_alignment_overlap       = 0.5 if min_alignment_overlap is None else min_alignment_overlap
+        self.min_unmasked_area           = 0.24 if min_unmasked_area is None else min_unmasked_area
             
     def __str__(self):
         return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'
