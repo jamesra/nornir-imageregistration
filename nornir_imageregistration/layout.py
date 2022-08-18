@@ -967,6 +967,9 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
             node.OffsetArray[:, LayoutPosition.iOffsetWeight] = max_allowed_weight
         return
     
+    #Workaround for all weights being pretty decent and therefore a weight is artificially considered bad
+    minWeight = 0
+    
     maxWeight -= minWeight
     
     allowed_weight_range = max_allowed_weight - min_allowed_weight
