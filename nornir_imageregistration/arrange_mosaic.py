@@ -99,7 +99,8 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
 def TranslateTiles2(tileset,
                     first_pass_excess_scalar=None, excess_scalar=None,
                     feature_score_threshold=None,
-                    min_translate_iterations=None, offset_acceptance_threshold=None,
+                    min_translate_iterations=None, max_translate_iterations=None,
+                    offset_acceptance_threshold=None,
                     max_relax_iterations=None, max_relax_tension_cutoff=None,
                     min_overlap=None, 
                     first_pass_inter_tile_distance_scale=None, inter_tile_distance_scale=None):
@@ -150,14 +151,22 @@ def TranslateTiles2(tileset,
         single_tile_layout.CreateNode(tileset[0].ID, np.zeros((2)))
         return (single_tile_layout, tileset)
     
+    if min_translate_iterations is None:
+        min_translate_iterations = 1
+        
+    if max_translate_iterations is None:
+        max_translate_iterations = min_translate_iterations * 4
+        
+    if min_translate_iterations > max_translate_iterations:
+        raise ValueError("min_translate_iterations > max_translate_iterations")
+    
     minOffsetWeight = 0.1
     maxOffsetWeight = 1.0
     
     last_pass_overlaps = None
     translated_layout = None
     iPass = min_translate_iterations
-    
-    max_passes = min_translate_iterations * 4
+     
     pass_count = 0
     inter_tile_distance_scale_this_pass = first_pass_inter_tile_distance_scale
     #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
