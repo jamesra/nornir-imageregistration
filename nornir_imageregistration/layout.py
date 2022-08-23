@@ -1036,7 +1036,8 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         if min_improvement is not None and delta_mean < min_improvement:
             break
         
-        prettyoutput.CurseProgress(f'Pass #{i:d} Max: {max_tension:0.4g}', i)
+        if i <= 10 or i % 25 == 0:
+            prettyoutput.CurseProgress(f'Pass #{i:d} Max: {max_tension:0.4g}', i)
         # sys.stdout.write('\b' * len(last_output))
         # output_str = "\tPass #%d %g" % (i, max_tension)
         # sys.stdout.write(output_str)

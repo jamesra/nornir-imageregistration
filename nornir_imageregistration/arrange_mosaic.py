@@ -16,6 +16,7 @@ import nornir_pools
 import numpy as np
 
 import nornir_shared.plot  
+from nornir_buildmanager.exceptions import NornirUserException
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                                 'overlap_ID iTile overlapping_rect')
@@ -193,7 +194,10 @@ def TranslateTiles2(tileset,
             for ID in removed_overlap_IDs:
                 translated_layout.RemoveOverlap(ID)
             for ID in nonoverlapping_tile_IDs:
-                self.assertTrue(translated_layout.nodes[ID].ConnectedIDs.shape[0] == 0, "Non-overlapping node should not have overlaps")
+                if translated_layout.nodes[ID].ConnectedIDs.shape[0] != 0:
+                    raise NornirUserException("Non-overlapping node should not have overlaps")
+                
+                #self.assertTrue(translated_layout.nodes[ID].ConnectedIDs.shape[0] == 0, "Non-overlapping node should not have overlaps")
 #                    translated_layout.RemoveNode(ID)    
         
         # Expand the area we search if we are adding and removing tileset
