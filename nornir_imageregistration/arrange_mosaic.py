@@ -202,9 +202,9 @@ def TranslateTiles2(tileset,
         if translated_layout is not None:
             for ID in removed_overlap_IDs:
                 translated_layout.RemoveOverlap(ID)
-            for ID in nonoverlapping_tile_IDs:
-                if translated_layout.nodes[ID].ConnectedIDs.shape[0] != 0:
-                    raise NornirUserException("Non-overlapping node should not have overlaps")
+            #for ID in nonoverlapping_tile_IDs:
+            #    if translated_layout.nodes[ID].ConnectedIDs.shape[0] != 0:
+            #        raise NornirUserException("Non-overlapping node should not have overlaps")
                 
                 #self.assertTrue(translated_layout.nodes[ID].ConnectedIDs.shape[0] == 0, "Non-overlapping node should not have overlaps")
 #                    translated_layout.RemoveNode(ID)    
