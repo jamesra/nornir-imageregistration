@@ -365,7 +365,8 @@ def NearestSection(sectionNumbers, reqnumber):
 
         foundNumber = None
 
-        nearest = (sectionNumbers[-1] - sectionNumbers[0]) + reqnumber
+        maxSectionNumber = max(sectionNumbers)
+        nearest = maxSectionNumber + reqnumber #Just setting a value that is well out of range
         for s in sectionNumbers:
             dist = abs(reqnumber - s)
             if dist < nearest:
