@@ -16,7 +16,7 @@ import nornir_pools
 import numpy as np
 
 import nornir_shared.plot  
-from nornir_buildmanager.exceptions import NornirUserException
+
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                                 'overlap_ID iTile overlapping_rect')
