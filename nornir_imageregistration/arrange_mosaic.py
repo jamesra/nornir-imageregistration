@@ -125,7 +125,7 @@ def TranslateTiles2(tileset,
         max_relax_tension_cutoff = 1.0
         
     if feature_score_threshold is None:
-        feature_score_threshold = 0.035
+        feature_score_threshold = 0.5
         
     if offset_acceptance_threshold is None:
         offset_acceptance_threshold = 1.0
@@ -160,15 +160,15 @@ def TranslateTiles2(tileset,
     if min_translate_iterations > max_translate_iterations:
         raise ValueError("min_translate_iterations > max_translate_iterations")
     
-    minOffsetWeight = 0.1
-    maxOffsetWeight = 1.0
+    min_offset_weight = 0.1
+    max_offset_weight = 1.0
     
     last_pass_overlaps = None
     translated_layout = None
     iPass = min_translate_iterations
      
     pass_count = 0
-    inter_tile_distance_scale_this_pass = first_pass_inter_tile_distance_scale
+    inter_tile_distance_scale_this_pass = inter_tile_distance_scale #first_pass_inter_tile_distance_scale
     #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
     
     #first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
@@ -177,7 +177,7 @@ def TranslateTiles2(tileset,
     relaxed_layout = None
     
     while iPass >= 0:
-        (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, nonoverlapping_tile_IDs) = GenerateTileOverlaps(tileset=tileset,
+        (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = GenerateTileOverlaps(tileset=tileset,
                                                              existing_overlaps=last_pass_overlaps,
                                                              offset_epsilon=offset_acceptance_threshold,
                                                              min_overlap=min_overlap,
@@ -235,8 +235,8 @@ def TranslateTiles2(tileset,
         
         scaled_translated_layout = translated_layout.copy()
         nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
-                                                                           min_allowed_weight=minOffsetWeight,
-                                                                           max_allowed_weight=maxOffsetWeight)
+                                                                           min_allowed_weight=min_offset_weight,
+                                                                           max_allowed_weight=max_offset_weight)
 
 #        nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout)
         
