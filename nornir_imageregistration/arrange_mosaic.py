@@ -160,7 +160,7 @@ def TranslateTiles2(tileset,
     if min_translate_iterations > max_translate_iterations:
         raise ValueError("min_translate_iterations > max_translate_iterations")
     
-    min_offset_weight = 0.1
+    min_offset_weight = 0
     max_offset_weight = 1.0
     
     last_pass_overlaps = None
@@ -234,9 +234,13 @@ def TranslateTiles2(tileset,
                                              existing_layout=translated_layout)
         
         scaled_translated_layout = translated_layout.copy()
-        nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
-                                                                           min_allowed_weight=min_offset_weight,
-                                                                           max_allowed_weight=max_offset_weight)
+        #nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
+        nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout,
+                                                                            min_allowed_weight=min_offset_weight,
+                                                                            max_allowed_weight=max_offset_weight)
+        # nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
+        #                                                                    min_allowed_weight=min_offset_weight,
+        #                                                                    max_allowed_weight=max_offset_weight)
 
 #        nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout)
         

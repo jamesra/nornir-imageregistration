@@ -764,13 +764,13 @@ class Layout(object):
         
         sorted_node_movement = node_movement[sort_by_weight,:]
         
-        for i in range(0, sorted_node_movement.shape[0]):
+        for i in range(0, sorted_node_movement.shape[0]-1): #The node under least tension never moves, serving as an anchor
             nodeId = sorted_node_movement[i, 0]
             vector = layout_obj.WeightedNetTensionVector(nodeId) * vector_scalar
             
             node = layout_obj.nodes[nodeId]
             node.Position = node.Position + vector
-        
+            
         # OK, move all of the nodes according to the net movement
         # for (i, node) in enumerate(nodes): 
         #     # Skip the node with the smallest amount of tension, the others can move around it as an anchor
@@ -919,7 +919,7 @@ def ScaleOffsetWeightsByPosition(original_layout):
     return
 
 
-def NormalizeOffsetWeights(original_layout):
+def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
     '''
     Proportionally scale offset weights so the highest weight is 1.0
     '''
@@ -947,6 +947,12 @@ def NormalizeOffsetWeights(original_layout):
                 
     return 
 
+def SetOffsetWeights(original_layout, weight_value):
+    for node in original_layout.nodes.values():
+        if node.IsIsolated:
+            continue
+        
+        node.OffsetArray[:, LayoutPosition.iOffsetWeight] = weight_value
 
 def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
     '''
@@ -968,8 +974,6 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
         return
     
     #Workaround for all weights being pretty decent and therefore a weight is artificially considered bad
-    minWeight = 0
-    
     maxWeight -= minWeight
     
     allowed_weight_range = max_allowed_weight - min_allowed_weight

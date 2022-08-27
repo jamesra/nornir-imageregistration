@@ -58,7 +58,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     Test layouts of entire mosaics
     See test_TileToTileAlignment to explore individual tile to tile registration when debugging
     '''
-     
+
     @property
     def TestName(self):
         return self.__name__
@@ -251,7 +251,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
         downsamplePath = '%03d' % downsample
         
-        min_offset_weight = 0.1
+        min_offset_weight = 0.0
         max_offset_weight = 1.0
         
         mosaicBaseName = os.path.basename(mosaicFilePath)
@@ -434,9 +434,13 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
             
             # mosaic.ArrangeTilesWithTranslate(TilesDir, usecluster=parallel)
             scaled_translated_layout = translated_layout.copy() 
-            nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
-                                                                               min_allowed_weight=min_offset_weight,
-                                                                               max_allowed_weight=max_offset_weight)   
+            #nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
+            nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout,
+                                                                            min_allowed_weight=min_offset_weight,
+                                                                            max_allowed_weight=max_offset_weight)
+            #nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
+                                                                               #min_allowed_weight=min_offset_weight,
+                                                                               #max_allowed_weight=max_offset_weight)   
             
 #            nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout)
             
@@ -483,7 +487,6 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
                 tnode.Position = node.Position
                     
             nornir_pools.WaitOnAllPools()
-            return
             
         # self.CreateSaveShowMosaic(mosaicBaseName + "_{0:d}pass_relaxed".format(iPass), relaxed_layout, initial_tiles, openwindow)
             
@@ -689,6 +692,26 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #                              openwindow=False)
     #
     #     print("All done")
+    
+    # def test_RC3_0001_Mosaic(self):
+    #
+    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\0001\\TEM\\Stage.mosaic",
+    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\0001\\TEM\\Leveled\\TilePyramid",
+    #                              downsample=4,
+    #                              max_relax_iterations=500,
+    #                              openwindow=False)
+    #
+    #     print("All done")
+    #
+    def test_RC3_0001_Mosaic_Production(self):
+    
+        self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RC3\\TEM\\0001\\TEM\\Stage.mosaic",
+                                 TilePyramidDir="D:\\Data\\RC3\\TEM\\0001\\TEM\\Leveled\\TilePyramid",
+                                 downsample=4,
+                                 max_relax_iterations=500,
+                                 openwindow=False)
+    
+        print("All done")
          
     # def test_RC3_0203_Mosaic(self):
     #
@@ -720,15 +743,15 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     
         print("All done")
     
-    # def test_RC3_1154_Mosaic(self):
-    #
-    #     self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
-    #                              TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
-    #                              downsample=4,
-    #                              max_relax_iterations=500,
-    #                              openwindow=False)
-    #
-    #     print("All done")
+    def test_RC3_1154_Mosaic(self):
+    
+        self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
+                                 TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
+                                 downsample=4,
+                                 max_relax_iterations=500,
+                                 openwindow=False)
+    
+        print("All done")
     
     # def test_RC3_1154_Mosaic_Direct(self):
     #
