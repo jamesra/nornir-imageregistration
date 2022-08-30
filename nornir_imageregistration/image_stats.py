@@ -222,7 +222,7 @@ def ScoreImageWithPowerSpectralDensity(image):
     Im_centered = image - adjustment_value   
     fft = numpy.fft.rfft2(Im_centered)
     # fft = numpy.fft.fftshift(fft) 
-    total_amp = numpy.sum(numpy.abs(fft).flat)
+    total_amp = numpy.sum(numpy.abs(fft))
     score = total_amp / numpy.prod(Im_centered.shape)
     return score
 
