@@ -594,7 +594,22 @@ class Rectangle(object):
         if overlapping_rect is None:
             return 0.0
           
-        return overlapping_rect.Area / Rectangle.max_overlap_area(A, B)
+        return overlapping_rect.Area / Rectangle.max_overlap_area(A, B) 
+    
+    @classmethod
+    def is_diagonal_overlap(cls, A, B):
+        '''
+        A helper function.  An overlap is considered diagonal if the center of each rectangle is outside both of the min/max values for both axes of the partner rectangle
+        '''
+        
+        AC = A.Center
+        if not ((AC[0] >= B.MinY and AC[0] <= B.MaxY) or (AC[1] >= B.MinX and AC[1] <= B.MaxX)):
+            BC = B.Center
+            if not ((BC[0] >= A.MinY and BC[0] <= A.MaxY) or (BC[1] >= A.MinX and BC[1] <= A.MaxX)):
+                return True
+            
+        return False 
+            
     
     @classmethod
     def translate(cls, A, offset):
