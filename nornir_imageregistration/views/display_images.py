@@ -43,27 +43,27 @@ def ShowGrayscale(input_params, title=None, PassFail=False):
         # OK, we have a list of images or a list of lists
         # TODO: Why doesn't this use the DisplayImageList2D function?
         
-            height, width = _GridLayoutDims(input_params)
-            gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
-            fig = plt.figure()
-            set_title_for_multi_image(fig, title)
-
-            for i, image in enumerate(input_params):
-                # fig = figure()
-                if isinstance(image, np.ndarray):
-                    # ax = fig.add_subplot(101 + ((len(input_params) - (i)) * 10))
-                    iRow = i // width
-                    iCol = (i - (iRow * width)) % width
-
-                    print("Row %d Col %d" % (iRow, iCol))
-                    
-                    ax = fig.add_subplot(gs[iRow, iCol])
-#                     if height > 1:
-#                         ax = axes[iRow, iCol ]
-#                     else:
-#                         ax = axes[iCol]
-
-                    ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
+        height, width = _GridLayoutDims(input_params)
+        gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
+        fig = plt.figure()
+        set_title_for_multi_image(fig, title)
+        
+        for i, image in enumerate(input_params):
+            # fig = figure()
+            if isinstance(image, np.ndarray):
+                # ax = fig.add_subplot(101 + ((len(input_params) - (i)) * 10))
+                iRow = i // width
+                iCol = (i - (iRow * width)) % width
+        
+                print("Row %d Col %d" % (iRow, iCol))
+                
+                ax = fig.add_subplot(gs[iRow, iCol])
+        #                     if height > 1:
+        #                         ax = axes[iRow, iCol ]
+        #                     else:
+        #                         ax = axes[iCol]
+        
+                ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
     else:
         return
  
@@ -114,18 +114,74 @@ def _GridLayoutDims(imagelist):
         lengths = [_NumImages(p) for p in imagelist]
         max_len = np.max(lengths)
         return (len(imagelist), max_len)
+    
+def get_aspect(ax=None):
+    remove_plot = False
+    if ax is None:
+        ax = plt.gca()
+        remove_plot = True
+    fig = ax.figure
+
+    ll, ur = ax.get_position() * fig.get_size_inches()
+    width, height = ur - ll
+    axes_ratio = height / width
+    aspect = axes_ratio / ax.get_data_ratio()
+
+    if remove_plot:
+        plt.close(fig)
+        
+    return aspect
 
 
 def _ImageList1DGridDims(imagelist):
     # OK, a 1D list, so figure out how to spread the images across a grid
     numImages = len(imagelist)
-    width = math.ceil(math.sqrt(numImages))
-    height = math.ceil(numImages / width)
+    
+    aspect_ratio = get_aspect()
+    #Assume 
+    # N = Num Images
+    # R = Ratio
+    # W = Width
+    # H = Height
+    #
+    # W * H = N
+    # W / H = R
+    #
+    # H = W / R
+    # W * (W / R) = W^2 / R
+    # sqrt(N * R) = W^2
+    #
+    
+    A = math.ceil(math.sqrt(numImages * aspect_ratio))
+    B = math.ceil(numImages / A)
 
-    if height > width:
-        tempH = height
-        height = width
-        height = tempH
+    if len(imagelist) == 0:
+        return (0,0)
+    
+    width = None
+    height = None
+    
+    #Use the first image dimensions to determine if we have more rows or columns
+    if A != B:
+        imshapetotal = imagelist[0].shape
+        for im in imagelist[1:]:
+            imshapetotal = np.add(imshapetotal,im.shape)
+        
+        if imshapetotal[0] * aspect_ratio > imshapetotal[1]: #Images are taller than the are wide
+            width = max(A,B)
+            height = min(A,B)
+        else:
+            width = min(A,B)
+            height = max(A,B)
+            
+    if width is None:
+        if aspect_ratio > 1:    
+            width = max(A,B)
+            height = min(A,B)
+        else:
+            width = min(A,B)
+            height = max(A,B)
+         
 
     return (int(height), int(width))
 
@@ -142,7 +198,10 @@ def _DisplayImageSingle(input_param, title=None):
 def _DisplayImageList1D(input_params, title=None): 
         
     (height, width) = _ImageList1DGridDims(input_params)
+    
     fig, axes = plt.subplots(height, width)
+    
+    total_plots = height * width
 
     for i, image in enumerate(input_params):
         iRow = i // width
@@ -155,7 +214,21 @@ def _DisplayImageList1D(input_params, title=None):
         else:
             ax = axes[iCol]
 
-        ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())   
+        ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+    
+    i += 1
+    while i < total_plots:
+        iRow = i // width
+        iCol = (i - (iRow * width)) % width
+        
+        if height > 1:
+            ax = axes[iRow, iCol ]
+        else:
+            ax = axes[iCol]
+            
+        ax.remove()
+            
+        i += 1
             
     return (fig, axes)
 
@@ -187,7 +260,7 @@ def _DisplayImageList2D(input_params, grid_dims, title=None):
 #            else:
 #                ax = fig.add_subplot([iCol]
 
-            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())    
+            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm()) 
     
     return (fig, gs)
     
