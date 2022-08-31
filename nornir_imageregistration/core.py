@@ -637,7 +637,7 @@ def _Image_To_Uint8(image):
     if image.dtype == np.uint8:
         return image
 
-    elif image.dtype == np.bool:
+    elif image.dtype == bool:
         image = image.astype(np.uint8) * 255
 
     elif nornir_imageregistration.IsFloatArray(image.dtype):
@@ -1424,6 +1424,14 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
         PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex+1)
         
+         
+        FalsePeakStrength = np.sum(LabelSums[:PeakValueIndex]) + np.sum(LabelSums[PeakValueIndex+1:])
+        
+        if FalsePeakStrength == 0:
+            Weight = PeakStrength
+        else:
+            Weight = PeakStrength / FalsePeakStrength
+         
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
 
         del LabelImage
@@ -1435,7 +1443,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
-        return scaled_offset, PeakStrength
+        return scaled_offset, Weight
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
