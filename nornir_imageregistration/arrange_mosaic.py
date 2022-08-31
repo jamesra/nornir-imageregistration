@@ -28,7 +28,7 @@ TileOverlapFeatureScore = collections.namedtuple('TileOverlapFeatureScore',
                                                      'overlap_ID iTile image feature_score')
 
 
-def __CreateTileToOverlapsDict(tile_overlaps):
+def CreateTileToOverlapsDict(tile_overlaps):
     '''
     Returns a dictionary containing a list of tuples with (TileIndex, OverlapObject)
     TileIndex records if the tile is the first or second tile (A or B)
@@ -96,14 +96,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, mosaic_tileset)
 
 
-def TranslateTiles2(tileset,
-                    first_pass_excess_scalar=None, excess_scalar=None,
-                    feature_score_threshold=None,
-                    min_translate_iterations=None, max_translate_iterations=None,
-                    offset_acceptance_threshold=None,
-                    max_relax_iterations=None, max_relax_tension_cutoff=None,
-                    min_overlap=None, 
-                    first_pass_inter_tile_distance_scale=None, inter_tile_distance_scale=None):
+def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateSettings):
     '''
     Finds the optimal translation of a set of tileset to construct a larger seemless mosaic.
     :param list transforms: list of transforms for tileset
@@ -117,58 +110,19 @@ def TranslateTiles2(tileset,
     :param float inter_tile_distance_scale: A scalar from 0 to 1.  1 indicates to trust the overlap reported by the transforms.  0 indicates to test the entire tile for overlaps.  Use this value to increase the area searched for correlations if the stage input is not reliable. 
     :return: (offsets_collection, tileset) tuple
     '''
-    
-    if max_relax_iterations is None:
-        max_relax_iterations = 150
-    
-    if max_relax_tension_cutoff is None:
-        max_relax_tension_cutoff = 1.0
-        
-    if feature_score_threshold is None:
-        feature_score_threshold = 0.5
-        
-    if offset_acceptance_threshold is None:
-        offset_acceptance_threshold = 1.0
-        
-    if min_translate_iterations is None:
-        min_translate_iterations = 5
-        
-    if inter_tile_distance_scale is None:
-        inter_tile_distance_scale = 1.0
-    
-    if first_pass_inter_tile_distance_scale is None:
-        first_pass_inter_tile_distance_scale = inter_tile_distance_scale / 2
-        
-    if first_pass_excess_scalar is None:
-        first_pass_excess_scalar = 3.0
-        
-    if excess_scalar is None:
-        excess_scalar = 3.0 
-        
+      
     if len(tileset) == 1:
         #If there is only one tile then just return it
         single_tile_layout = nornir_imageregistration.layout.Layout()
         single_tile_layout.CreateNode(tileset[0].ID, np.zeros((2)))
         return (single_tile_layout, tileset)
-    
-    if min_translate_iterations is None:
-        min_translate_iterations = 1
-        
-    if max_translate_iterations is None:
-        max_translate_iterations = min_translate_iterations * 4
-        
-    if min_translate_iterations > max_translate_iterations:
-        raise ValueError("min_translate_iterations > max_translate_iterations")
-    
-    min_offset_weight = 0
-    max_offset_weight = 1.0
-    
+       
     last_pass_overlaps = None
     translated_layout = None
-    iPass = min_translate_iterations
+    iPass = config.max_translate_iterations
      
     pass_count = 0
-    inter_tile_distance_scale_this_pass = inter_tile_distance_scale #first_pass_inter_tile_distance_scale
+    inter_tile_distance_scale_this_pass = config.inter_tile_distance_scale #first_pass_inter_tile_distance_scale
     #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
     
     #first_pass_overlaps = None #The set of offsets for each tile pair from the first-pass.  Used to align layouts that are not connected.
@@ -179,9 +133,10 @@ def TranslateTiles2(tileset,
     while iPass >= 0:
         (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = GenerateTileOverlaps(tileset=tileset,
                                                              existing_overlaps=last_pass_overlaps,
-                                                             offset_epsilon=offset_acceptance_threshold,
-                                                             min_overlap=min_overlap,
-                                                             inter_tile_distance_scale=inter_tile_distance_scale_this_pass)
+                                                             offset_epsilon=config.offset_acceptance_threshold,
+                                                             min_overlap=config.min_overlap,
+                                                             inter_tile_distance_scale=inter_tile_distance_scale_this_pass,
+                                                             exclude_diagonal_overlaps=config.exclude_diagonal_overlaps)
         
         if stage_reported_overlaps is None:
             stage_reported_overlaps = {to.ID: to.offset for to in new_overlaps}
@@ -197,6 +152,7 @@ def TranslateTiles2(tileset,
         #    iPass = min_translate_iterations
         
         ScoreTileOverlaps(distinct_overlaps)
+        NormalizeOverlapFeatureScores(distinct_overlaps)
         
         # If this is the second pass remove any overlaps from the layout that no longer qualify
         if translated_layout is not None:
@@ -210,7 +166,7 @@ def TranslateTiles2(tileset,
 #                    translated_layout.RemoveNode(ID)    
         
         # Expand the area we search if we are adding and removing tileset
-        inter_tile_distance_scale_this_pass = inter_tile_distance_scale
+        inter_tile_distance_scale_this_pass = config.inter_tile_distance_scale
 #         if pass_count < min_translate_iterations and iPass == min_translate_iterations:
 #             inter_tile_distance_scale_this_pass = inter_tile_distance_scale
             
@@ -223,21 +179,22 @@ def TranslateTiles2(tileset,
         # Create a list of offsets requiring updates
         filtered_overlaps_needing_offsets = []
         for overlap in new_or_updated_overlaps:
-            if overlap.feature_scores[0] >= feature_score_threshold and overlap.feature_scores[1] >= feature_score_threshold:
+            if overlap.feature_scores[0] >= config.feature_score_threshold and overlap.feature_scores[1] >= config.feature_score_threshold:
                 filtered_overlaps_needing_offsets.append(overlap)
             else:
                 if translated_layout is not None:
                     translated_layout.RemoveOverlap(overlap)
             
-        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar=excess_scalar,
+        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar=config.excess_scalar,
                                              image_to_source_space_scale=tileset.image_to_source_space_scale,
-                                             existing_layout=translated_layout)
+                                             existing_layout=translated_layout,
+                                             use_feature_score=config.use_feature_score)
         
         scaled_translated_layout = translated_layout.copy()
         #nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
         nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout,
-                                                                            min_allowed_weight=min_offset_weight,
-                                                                            max_allowed_weight=max_offset_weight)
+                                                                            min_allowed_weight=config.min_offset_weight,
+                                                                            max_allowed_weight=config.max_offset_weight)
         # nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
         #                                                                    min_allowed_weight=min_offset_weight,
         #                                                                    max_allowed_weight=max_offset_weight)
@@ -249,7 +206,7 @@ def TranslateTiles2(tileset,
         #translated_final_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(translated_final_layouts, stage_reported_overlaps) 
         
         #Should we do a shorter pass on the first run?
-        relax_iterations = max_relax_iterations
+        relax_iterations = config.max_relax_iterations
         # if iPass == min_translate_iterations:
         #     relax_iterations = relax_iterations // 4
         #     if relax_iterations < 10:
@@ -259,7 +216,7 @@ def TranslateTiles2(tileset,
         for layout in translated_final_layouts:
             relaxed_layout = nornir_imageregistration.layout.RelaxLayout(layout,
                                             max_iter=relax_iterations,
-                                            max_tension_cutoff=max_relax_tension_cutoff)
+                                            max_tension_cutoff=config.max_relax_tension_cutoff)
             relaxed_layouts.append(relaxed_layout)
             
         relaxed_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(relaxed_layouts, stage_reported_overlaps)
@@ -282,7 +239,7 @@ def TranslateTiles2(tileset,
     return (relaxed_layout, tileset)
 
 
-def GenerateTileOverlaps(tileset, existing_overlaps=None, offset_epsilon=1.0, min_overlap=None, inter_tile_distance_scale=None):
+def GenerateTileOverlaps(tileset, existing_overlaps=None, offset_epsilon=1.0, min_overlap=None, inter_tile_distance_scale=None, exclude_diagonal_overlaps=False):
     '''
     Create a list of TileOverlap objects for each overlapping region in the mosaic.  Assign a feature score to the regions from each image that overlap.
     :param MosaicTileset tiles: A dictionary of Tile objects or MosaicTileset
@@ -306,7 +263,7 @@ def GenerateTileOverlaps(tileset, existing_overlaps=None, offset_epsilon=1.0, mi
     generated_overlaps = list(nornir_imageregistration.tile_overlap.CreateTileOverlaps(tileset,
                                                                                tileset.image_to_source_space_scale,
                                                                                min_overlap=min_overlap,
-                                                                               inter_tile_distance_scale=inter_tile_distance_scale))
+                                                                               inter_tile_distance_scale=inter_tile_distance_scale, exclude_diagonal_overlaps=exclude_diagonal_overlaps))
     
     removed_offset_IDs = []
     new_overlaps = []
@@ -382,23 +339,26 @@ def ScoreTileOverlaps(tile_overlaps):
     :return: The TileOverlap object list
     '''
 
-    tile_to_overlaps_dict = __CreateTileToOverlapsDict(tile_overlaps)
+    tile_to_overlaps_dict = CreateTileToOverlapsDict(tile_overlaps)
     
     tile_feature_score_list = []
     
     tasks = []
-    pool = nornir_pools.GetGlobalLocalMachinePool()
+    tile_to_overlaps_keys = list(tile_to_overlaps_dict.keys())
     
-    for tile_ID in list(tile_to_overlaps_dict.keys()):
+    if len(tile_overlaps) > 1:
+        pool = nornir_pools.GetGlobalLocalMachinePool()
+    else:
+        pool = nornir_pools.GetGlobalSerialPool()
+    
+    for tile_ID in tile_to_overlaps_keys:
         tile_overlaps_dict = tile_to_overlaps_dict[tile_ID]
         
         params = []  # Build a list of overlaps that need to be scored
         for (iTile, tile_overlap) in tile_overlaps_dict.values():
             if tile_overlap.feature_scores[iTile] is None:
                 params.append(TileOverlapDetails(overlap_ID=tile_overlap.ID, iTile=iTile, overlapping_rect=tile_overlap.scaled_overlapping_source_rects[iTile]))
-        
-        # tile_feature_scores = _CalculateTileFeatures(tiles[tile_ID].ImagePath, params)
-        # tile_feature_score_list.append(tile_feature_scores)
+         
         if len(params) == 0:
             continue
         
@@ -438,6 +398,23 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_sco
     
     #del image
     return ImageDataList
+
+def NormalizeOverlapFeatureScores(tile_overlaps):
+    '''
+    Adds or updates a normalized_feature_score to all overlaps
+    :param list tile_overlaps: list of TileOverlap objects
+    :return: The TileOverlap object list
+    '''
+    
+    max_score = 0
+    
+    for tile_overlap in tile_overlaps:
+        
+        max_score = max(max_score, max(tile_overlap.feature_scores))
+        
+    for tile_overlap in tile_overlaps:
+        tile_overlap.normalized_feature_scores = tile_overlap.feature_scores / max_score
+        
 
 # 
 # def RefineTranslations(transforms, imagepaths, imageScale=None, subregion_shape=None):
@@ -511,7 +488,7 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_sco
 #     return (layout, tiles)
             
             
-def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=None, existing_layout=None):
+def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=None, existing_layout=None, use_feature_score=False):
     '''Populates the OffsetToTile dictionary for tiles
     :param list tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param float imageScale: downsample level if known.  None causes it to be calculated.
@@ -535,8 +512,11 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
     
     # _CalculateImageFFTs(tiles)
   
-    #pool = nornir_pools.GetGlobalSerialPool()
-    pool = nornir_pools.GetGlobalMultithreadingPool()
+    if len(tile_overlaps) == 1:
+        pool = nornir_pools.GetGlobalSerialPool()
+    else:
+        pool = nornir_pools.GetGlobalMultithreadingPool()
+        
     tasks = list()
     
     layout = existing_layout
@@ -588,8 +568,12 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
         
         #diff = ActualOffset - PredictedOffset
         #distance = np.sqrt(np.sum(diff ** 2))
-        f_score = min(tile_overlap.feature_scores)
-        final_weight = offset.weight * f_score
+        
+        final_weight = offset.weight #* f_score
+        if use_feature_score:
+            f_score = min(tile_overlap.normalized_feature_scores)
+            final_weight *= f_score
+            
         #print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
         
         layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight) 

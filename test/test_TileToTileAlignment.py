@@ -29,12 +29,74 @@ import nornir_shared.plot
 import nornir_shared.histogram
 from nornir_shared.tasktimer import TaskTimer
 import numpy as np
+import pickle
 
 from nornir_imageregistration.views import plot_tile_overlap
 
 import setup_imagetest
 import mosaic_tileset
+from arrange_mosaic import ScoreTileOverlaps
+import tile_overlap
+ 
+import test_arrange
 
+class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
+    @property 
+    def TestName(self):
+        return self.__class__.__name__
+    
+    def test_Alignment_RC3_0001(self):
+        
+        volume_dir = os.path.join("D:\\", "Data", "RC3","TEM","0001","TEM")
+        
+        layout_files_dir = os.path.join(volume_dir,"Layouts","Min_0.0")
+        mosaic_tileset_filepath = os.path.join(layout_files_dir, "mosaic_tileset.pickle")
+        with open(mosaic_tileset_filepath, "rb") as mosaic_tileset_file:
+            mosaic_tileset = pickle.load(mosaic_tileset_file)
+        
+        self.align_two_tiles(mosaic_tileset, volume_dir, 0, 898, 899)
+        self.align_two_tiles(mosaic_tileset, volume_dir, 0, 847, 848)
+        self.align_two_tiles(mosaic_tileset, volume_dir, 0, 868, 869)
+        self.align_two_tiles(mosaic_tileset, volume_dir, 0, 776, 802)
+        self.align_two_tiles(mosaic_tileset, volume_dir, 2, 372, 394)
+        
+    
+    def align_two_tiles(self, mosaic_tileset, volume_dir, iPass, TileA_ID, TileB_ID):
+        layout_files_dir = os.path.join(volume_dir,"Layouts","Min_0.0")
+        layout_file = os.path.join(layout_files_dir, f"pass_{iPass}_tile_overlaps.pickle")
+         
+        self.assertTrue(os.path.exists(layout_file), f"Input layout file does not exist: {layout_file}")
+        with open(layout_file, "rb") as input_layout_file:
+            layout = pickle.load(input_layout_file) 
+            every_overlap = layout[0]
+            del layout
+            
+        tile_to_overlaps_dict = nornir_imageregistration.arrange_mosaic.CreateTileToOverlapsDict(every_overlap)
+          
+        overlap_dict = tile_to_overlaps_dict[TileA_ID]
+        tile_overlap = overlap_dict[(TileA_ID,TileB_ID)].tile_overlap
+         
+        Downsample = 4
+        DownsampleString = "%03d" % Downsample 
+        self.TilesPath = os.path.join(volume_dir, "Leveled", "TilePyramid", DownsampleString)
+  
+        nornir_imageregistration.arrange_mosaic.ScoreTileOverlaps([tile_overlap])
+        
+        translated_layout = nornir_imageregistration.arrange_mosaic._FindTileOffsets(tile_overlaps=[tile_overlap],
+                                                                 excess_scalar=3.0,
+                                                                 image_to_source_space_scale=Downsample, 
+                                                                 existing_layout=None)
+        
+        test_arrange.ShowTilesWithOffset(self, translated_layout, mosaic_tileset,
+                                     TileA_ID, TileB_ID,
+                                     self.TestOutputPath,
+                                     "OutputImage-{TileA_ID}-{TileB_ID}",
+                                     image_to_source_space_scale=Downsample,
+                                     openwindow=True,
+                                     weight=None)
+
+        #self.RunAlignment(Tile127Filename, Tile148Filename, (-2, (4096 - 466) / Downsample), epsilon=Downsample*2, min_overlap=0.05)
+        
 class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
 
     @property 
@@ -90,6 +152,18 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         TileBFilename = "098.png"
 
         self.RunAlignment(TileAFilename, TileBFilename, (40 / Downsample, (4096 - 360) / Downsample), epsilon=Downsample*2, min_overlap=0.05)
+        
+    def test_Alignment_RC3_372_394(self):
+
+        Downsample = 4
+        DownsampleString = "%03d" % Downsample 
+        self.TilesPath = os.path.join(self.TestInputPath, "Images", "Alignment", "RPC2", DownsampleString)
+
+        TileAFilename = "087.png"
+        TileBFilename = "098.png"
+
+        self.RunAlignment(TileAFilename, TileBFilename, (40 / Downsample, (4096 - 360) / Downsample), epsilon=Downsample*2, min_overlap=0.05)
+
 
 
     def test_MismatchSizeAlignments(self):

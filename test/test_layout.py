@@ -260,15 +260,18 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         for ID in spring_layout.nodes.keys():
             self.assertTrue(setup_imagetest.array_distance(spring_layout.NetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
         
-        self.assertTrue(np.allclose(spring_layout.GetPosition(0), positions[0,:], atol=max_vector_magnitude))
-        self.assertTrue(np.allclose(spring_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude)) 
-        self.assertTrue(np.allclose(spring_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))  
- 
         print("Node Positions")
         print(spring_layout.GetPositions())
         
         result = nornir_imageregistration.views.plot_layout(spring_layout, title="A weighted triangle", PassFail=True)
         self.assertTrue(result)
+        
+        positions -= positions.min(0)
+        
+        self.assertTrue(np.allclose(spring_layout.GetPosition(0), positions[0,:], atol=max_vector_magnitude))
+        self.assertTrue(np.allclose(spring_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude)) 
+        self.assertTrue(np.allclose(spring_layout.GetPosition(2), positions[2,:], atol=max_vector_magnitude))  
+ 
         
     def test_uneven_weighted_line(self):
         '''
@@ -303,8 +306,11 @@ class TestLayoutPosition(setup_imagetest.TestBase):
                       max_tension_cutoff=max_vector_magnitude,
                       max_iter=100) 
 
+        result = nornir_imageregistration.views.plot_layout(spring_layout, title="A triangle", PassFail=True)
+        self.assertTrue(result)
+        
         for ID in spring_layout.nodes.keys():
-            self.assertTrue(setup_imagetest.array_distance(spring_layout.NetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
+            self.assertTrue(setup_imagetest.array_distance(spring_layout.WeightedNetTensionVector(ID)) < max_vector_magnitude, "Node %d should have net tension vector below relax cutoff")
 
         self.assertTrue(np.allclose(spring_layout.GetPosition(0) - spring_layout.GetPosition(1), (-8.333, -5), atol=max_vector_magnitude * 2))  # Since the nodes at the ends both move we expect equilibrium at 8.33 instead of 7.5
         self.assertTrue(np.allclose(spring_layout.GetPosition(0) - spring_layout.GetPosition(2), (8.333, -5), atol=max_vector_magnitude * 2))
@@ -312,8 +318,6 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         print("Node Positions")
         print(spring_layout.GetPositions())
         
-        result = nornir_imageregistration.views.plot_layout(spring_layout, title="A triangle", PassFail=True)
-        self.assertTrue(result)
 
         
 class TestLayout(setup_imagetest.TestBase):

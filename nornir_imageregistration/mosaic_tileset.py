@@ -333,31 +333,11 @@ class MosaicTileset(dict):
           
         return
     
-    def ArrangeTilesWithTranslate(self, 
-                                   first_pass_excess_scalar=None,
-                                   excess_scalar=None,
-                                   min_overlap=None,
-                                   feature_score_threshold=None,
-                                   min_translate_iterations=None, max_translate_iterations=None,
-                                   offset_acceptance_threshold=None,
-                                   max_relax_iterations=None,
-                                   max_relax_tension_cutoff=None,
-                                   first_pass_inter_tile_distance_scale=None,
-                                   inter_tile_distance_scale=None):
+    def ArrangeTilesWithTranslate(self,  
+                                  config:nornir_imageregistration.settings.TranslateSettings):
         
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = nornir_imageregistration.TranslateTiles2(self,
-                                                 first_pass_excess_scalar=first_pass_excess_scalar,
-                                                 excess_scalar=excess_scalar,
-                                                 feature_score_threshold=feature_score_threshold,
-                                                 min_translate_iterations=min_translate_iterations,
-                                                 max_translate_iterations=max_translate_iterations,
-                                                 offset_acceptance_threshold=offset_acceptance_threshold,
-                                                 max_relax_iterations=max_relax_iterations,
-                                                 max_relax_tension_cutoff=max_relax_tension_cutoff,
-                                                 min_overlap=min_overlap,
-                                                 first_pass_inter_tile_distance_scale=first_pass_inter_tile_distance_scale,
-                                                 inter_tile_distance_scale=inter_tile_distance_scale)
+        (layout, tiles) = nornir_imageregistration.TranslateTiles2(self, config=config)
         return layout.ToMosaicTileset(tiles)
     
     def RefineLayout(self):

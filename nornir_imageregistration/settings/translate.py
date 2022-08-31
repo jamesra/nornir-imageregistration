@@ -4,6 +4,7 @@ Created on Aug 4, 2022
 @author: u0490822
 '''
 
+
 class TranslateSettings(object):
     '''
     Settings for translating a mosaic
@@ -25,8 +26,9 @@ class TranslateSettings(object):
                  max_offset_weight:float=None,
                  excess_scalar:float=None,
                  use_feature_score:bool=False,
-                 exclude_diagonal_overlaps=True,
-                 known_offsets:list=None):
+                 exclude_diagonal_overlaps:bool=True,
+                 known_offsets:list=None): 
+                 #**kwargs): #Catcher for serialized deprecated arguments
         '''
         :param float min_overlap: The percentage of area that two tileset must overlap before being considered by the layout model
         :param int max_relax_iterations: Maximum number of iterations in the relax stage
@@ -59,8 +61,8 @@ class TranslateSettings(object):
         self.min_offset_weight = 0   if min_offset_weight is None else min_offset_weight
         self.max_offset_weight = 1.0 if max_offset_weight is None else max_offset_weight
         self.excess_scalar = 3.0 if excess_scalar is None else excess_scalar
-        self.use_feature_score = use_feature_score
-        self.exclude_diagonal_overlaps = exclude_diagonal_overlaps
+        self.use_feature_score = False if use_feature_score is None else use_feature_score
+        self.exclude_diagonal_overlaps = True if exclude_diagonal_overlaps is None else exclude_diagonal_overlaps
         
         if self.min_translate_iterations > self.max_translate_iterations:
             raise ValueError("min_translate_iterations > max_translate_iterations")
