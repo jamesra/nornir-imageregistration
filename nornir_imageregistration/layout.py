@@ -5,21 +5,18 @@ import warnings
 import copy
 
 import collections
-import nornir_imageregistration.tile
-
-import nornir_imageregistration.transforms.factory as tfactory
-import nornir_pools
-import numpy as np
-
-import nornir_shared.prettyoutput as prettyoutput
- 
-from . import core
-from . import spatial 
 from operator import itemgetter 
-
+import numpy as np
+import nornir_shared.prettyoutput as prettyoutput
+import nornir_pools
+import nornir_imageregistration 
+from build.lib.nornir_imageregistration.layout import LayoutPosition
+  
 ID_Value = collections.namedtuple('ID_Magnitude', ['ID', 'Value'])
 
+TileOffset = collections.namedtuple('TileOffset', ('A', 'B', 'Y', 'X'))
 
+ 
 def _sort_array_on_column(a, iCol, ascending=False):
     '''Sort the numpy array on the specfied column'''
     
@@ -70,7 +67,7 @@ class LayoutPosition(object):
     iOffsetX = 2 
     iOffsetWeight = 3
     
-    # offset_dtype = np.dtype([('ID', np.int32), ('Y', np.float32), ('X', np.float32), ('Weight', np.float32)])
+    offset_dtype = np.dtype([('ID', int), ('Y', float), ('X', float), ('Weight', float)])
          
     @property
     def ID(self):
@@ -128,13 +125,13 @@ class LayoutPosition(object):
     
     def GetWeight(self, ID):
         iKnown = self.ConnectedIDs == ID
-        return self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight]
+        return float(self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight])
     
     @property
     def IDToIndex(self):
         if self._IDToIndex is None:
             self._IDToIndex = {}
-            for (i,ID) in enumerate(self._OffsetArray[:,0]):
+            for (i, ID) in enumerate(self._OffsetArray[:, 0]):
                 self._IDToIndex[ID] = i
             
         return self._IDToIndex
@@ -185,8 +182,8 @@ class LayoutPosition(object):
         if connected_nodes is None:
             iRows = np.array(range(0, len(self.ConnectedIDs)), dtype=np.int)
         else:
-            #connected_IDs = [n.ID for n in connected_nodes]
-            iRows = np.array([self.IDToIndex[n.ID] for n in connected_nodes]) #nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
+            # connected_IDs = [n.ID for n in connected_nodes]
+            iRows = np.array([self.IDToIndex[n.ID] for n in connected_nodes])  # nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
             return iRows
     
     def TensionVectors(self, connected_nodes=None):
@@ -401,16 +398,16 @@ class Layout(object):
     def MaxWeightedNetTensionMagnitude(self):
         '''Returns the (ID, Magnitude) of the node with the largest weighted net tension vector.'''
         net_tension_vectors = self.WeightedNetTensionVectors()
-        tension_magnitude = core.array_distance(net_tension_vectors[:, 1:]) 
+        tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:]) 
         i_max = np.argmax(tension_magnitude)
         return ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
-        # return np.max(core.array_distance(net_tension_vectors))
+        # return np.max(nornir_imageregistration.array_distance(net_tension_vectors))
     
     @property    
     def MaxNetTensionMagnitude(self):
         '''Returns the (ID, Magnitude) of the node with the largest net tension vector.'''
         net_tension_vectors = self.NetTensionVectors()
-        tension_magnitude = core.array_distance(net_tension_vectors[:, 1:]) 
+        tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:]) 
         i_max = np.argmax(tension_magnitude)
         return ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
     
@@ -422,7 +419,7 @@ class Layout(object):
         '''
         
         tension_vectors = self.MaxTensionVectors
-        tension_magnitude = core.array_distance(tension_vectors[:, 2:4]) 
+        tension_magnitude = nornir_imageregistration.array_distance(tension_vectors[:, 2:4]) 
         if len(tension_magnitude) == 0:
             return None
         
@@ -437,7 +434,7 @@ class Layout(object):
         '''
         
         tension_vectors = self.MinTensionVectors
-        tension_magnitude = core.array_distance(tension_vectors[:, 2:4])
+        tension_magnitude = nornir_imageregistration.array_distance(tension_vectors[:, 2:4])
         if len(tension_magnitude) == 0:
             return None
          
@@ -448,10 +445,10 @@ class Layout(object):
     def MinWeightedNetTensionMagnitude(self):
         '''Returns the (ID, Magnitude) of the node with the largest weighted net tension vector.'''
         net_tension_vectors = self.WeightedNetTensionVectors()
-        tension_magnitude = core.array_distance(net_tension_vectors[:, 1:]) 
+        tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:]) 
         i_min = np.argmin(tension_magnitude)
         return ID_Value(net_tension_vectors[i_min, 0], tension_magnitude[i_min])
-        # return np.max(core.array_distance(net_tension_vectors))
+        # return np.max(nornir_imageregistration.array_distance(net_tension_vectors))
     
     def __str__(self):
         return "Layout {0} nodes {1} Connections {2}".format(self.ID, len(self.nodes.keys()), len(self.linked_nodes))
@@ -526,9 +523,9 @@ class Layout(object):
             
         positions = np.vstack([self.nodes[tileID].Position for tileID in IDs])
         #
-        #positions = np.empty((len(IDs), 2))
-        #for i, tileID in enumerate(IDs):
-            #positions[i,:] = self.nodes[tileID].Position 
+        # positions = np.empty((len(IDs), 2))
+        # for i, tileID in enumerate(IDs):
+            # positions[i,:] = self.nodes[tileID].Position 
                                          
         return positions
     
@@ -542,9 +539,9 @@ class Layout(object):
             IDs = [IDs]  
             
         nodes = [self.nodes[tileID] for tileID in IDs]
-        #nodes = [None] * len(IDs)
-        #for i, tileID in enumerate(IDs):
-            #nodes[i] = self.nodes[tileID] 
+        # nodes = [None] * len(IDs)
+        # for i, tileID in enumerate(IDs):
+            # nodes[i] = self.nodes[tileID] 
                                          
         return nodes
     
@@ -736,36 +733,38 @@ class Layout(object):
         
         # TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
         
-        node_movement = np.zeros((len(layout_obj.nodes), 4))
+        node_movement = np.zeros((len(layout_obj.nodes), 2))
         
         if vector_scalar is None:
-            vector_scalar = 1
+            vector_scalar = 1.0
         
         # vectors = {}
         
-        #min_tension_node_id = layout_obj.MinWeightedNetTensionMagnitude[0]  # The node with the least tension 
-        nodes = layout_obj.nodes.values()
+        # min_tension_node_id = layout_obj.MinWeightedNetTensionMagnitude[0]  # The node with the least tension 
+        # nodes = layout_obj.nodes.values()
         
         # Todo: Sort highest to lowest tension vectors, then adjust movement in that order
-        for (i, node) in enumerate(nodes):
+        for (i, node_id) in enumerate(layout_obj.nodes):
+            node = layout_obj.nodes[node_id]
             if node.NumConnections == 0:
                 continue
             
-            vector = layout_obj.WeightedNetTensionVector(node.ID) * vector_scalar
+            vector = layout_obj.WeightedNetTensionVector(node.ID) 
             
             weights = node.Weights
             weight_sum = np.sum(weights) / node.NumConnections
-            #magnitude = np.sqrt(vector.dot(vector))
+            magnitude = np.sqrt(vector.dot(vector))
+            weight_sum *= magnitude  # If it wants to go a long ways, and has a high weight, I want to move it first
             # vectors[ID] = vector 
-            node_movement[i,:] = np.array([node.ID, vector[0], vector[1], weight_sum])
+            node_movement[i,:] = np.array([node.ID, weight_sum])
         #     i += 1
         
-        sort_by_weight = np.argsort(node_movement[:, 3])
+        sort_by_weight_asc = np.argsort(node_movement[:, 1])
         
-        sorted_node_movement = node_movement[sort_by_weight,:]
+        sorted_node_movement = node_movement[sort_by_weight_asc, 0]
         
-        for i in range(0, sorted_node_movement.shape[0]-1): #The node under least tension never moves, serving as an anchor
-            nodeId = sorted_node_movement[i, 0]
+        for i in range(sorted_node_movement.shape[0] - 1, -1, -1):  # Reversing the range calls saves me a np.flip and this function is a bottleneck
+            nodeId = sorted_node_movement[i]
             vector = layout_obj.WeightedNetTensionVector(nodeId) * vector_scalar
             
             node = layout_obj.nodes[nodeId]
@@ -802,7 +801,7 @@ class Layout(object):
         #                                      source_image_shape=OriginalImageSize,
         #                                      rangle=0,
         #                                      warped_offset=self.GetPosition(ID)) 
-        return tfactory.CreateRigidTransform(target_image_shape=full_res_image_shape,
+        return nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=full_res_image_shape,
                                              source_image_shape=full_res_image_shape,
                                              rangle=0,
                                              warped_offset=self.GetPosition(ID)) 
@@ -947,12 +946,14 @@ def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_we
                 
     return 
 
+
 def SetOffsetWeights(original_layout, weight_value):
     for node in original_layout.nodes.values():
         if node.IsIsolated:
             continue
         
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] = weight_value
+
 
 def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
     '''
@@ -973,7 +974,7 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
             node.OffsetArray[:, LayoutPosition.iOffsetWeight] = max_allowed_weight
         return
     
-    #Workaround for all weights being pretty decent and therefore a weight is artificially considered bad
+    # Workaround for all weights being pretty decent and therefore a weight is artificially considered bad
     maxWeight -= minWeight
     
     allowed_weight_range = max_allowed_weight - min_allowed_weight
@@ -1038,6 +1039,7 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         
         # Stop the loop if we aren't making good progress
         if min_improvement is not None and delta_mean < min_improvement:
+            prettyoutput.CurseProgress(f'Min improvement threshold not met, delta was {delta_mean:.4f}, which is below {min_improvement:0.4f}, stopping.')
             break
         
         if i <= 10 or i % 25 == 0:
@@ -1048,22 +1050,22 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         # sys.stdout.flush()
         # last_output = output_str
         Layout.RelaxNodes(layout_obj, vector_scalar=vector_scale)
-        layout_obj.TranslateToZeroOrigin()
         max_tension = layout_obj.MaxWeightedNetTensionMagnitude[1]
         
-        plotting_max_tension = max(min_plotting_tension, max_tension)
-        
         if plotting_output_path is not None and (i % plotting_interval == 0 or i < plotting_interval):
+            plotting_max_tension = max(min_plotting_tension, max_tension)
             filename = os.path.join(plotting_output_path, "%d.svg" % i)
 #             nornir_imageregistration.views.plot_layout( 
 #                            layout_obj=layout_obj.copy(),
 #                            OutputFilename=filename,
 #                            max_tension=plotting_max_tension)
+            layout_obj_copy = layout_obj.copy()
+            layout_obj_copy.TranslateToZeroOrigin()
             pool.add_task("Plot step #%d" % (i),
                           nornir_imageregistration.views.plot_layout,
-                          layout_obj=layout_obj.copy(),
+                          layout_obj=layout_obj_copy,
                           OutputFilename=filename,
-                          max_tension=plotting_max_tension)   
+                          max_tension=plotting_max_tension)
         
         # node_distance = setup_imagetest.array_distance(node_movement[:,1:3])             
         # max_distance = np.max(node_distance,0)
@@ -1074,16 +1076,18 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
             delta_avg.append(delta)
             
             if len(delta_avg) > num_in_avg:
-                del delta_avg[0]
-                
-            delta_mean = np.array(delta_avg).mean()
-            
+                del delta_avg[0] 
+                delta_mean = np.array(delta_avg).mean()
+        
+        last_max_tension = max_tension
+        
         i += 1
         
         # nornir_shared.plot.VectorField(layout_obj.GetPositions(), layout_obj.NetTensionVectors(), OutputFilename=filename)
         # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), OutputFilename=filename)
     
     prettyoutput.Log("\n")
+    layout_obj.TranslateToZeroOrigin()
     return layout_obj
         
 
