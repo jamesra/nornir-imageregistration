@@ -2,7 +2,7 @@
 import nornir_imageregistration 
 import numpy as np 
 
-def _IterateOverlappingTiles(list_tiles, min_overlap=None):
+def _IterateOverlappingTiles(list_tiles, min_overlap:float=None, exclude_diagonal_overlaps:bool=False):
     '''Return all tiles which overlap'''
     
     list_rects = [tile.FixedBoundingBox for tile in list_tiles]        
@@ -12,12 +12,17 @@ def _IterateOverlappingTiles(list_tiles, min_overlap=None):
         if min_overlap is None:
             yield (list_tiles[A], list_tiles[B])
         elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > min_overlap:
+            
+            #Check for diagonal overlap if we've requested to exclude them
+            if exclude_diagonal_overlaps and nornir_imageregistration.Rectangle.is_diagonal_overlap(list_rects[A], list_rects[B]):
+                continue
+            
             yield (list_tiles[A], list_tiles[B])
             
-def IterateTileOverlaps(list_tiles, image_to_source_space_scale=1.0, min_overlap=None, inter_tile_distance_scale=1.0):
-    yield from CreateTileOverlaps(list_tiles, image_to_source_space_scale, min_overlap, inter_tile_distance_scale=inter_tile_distance_scale)
+def IterateTileOverlaps(list_tiles, image_to_source_space_scale:float=1.0, min_overlap:float=None, inter_tile_distance_scale:float=1.0, exclude_diagonal_overlaps:bool=False):
+    yield from CreateTileOverlaps(list_tiles, image_to_source_space_scale, min_overlap, inter_tile_distance_scale=inter_tile_distance_scale, exclude_diagonal_overlaps=exclude_diagonal_overlaps)
             
-def CreateTileOverlaps(list_tiles, image_to_source_space_scale=1.0, min_overlap=None, inter_tile_distance_scale=1.0):
+def CreateTileOverlaps(list_tiles, image_to_source_space_scale:float=1.0, min_overlap:float=None, inter_tile_distance_scale:float=1.0, exclude_diagonal_overlaps:bool=False):
     '''
     :param float imageScale: Downsample factor of image files
     :param float min_overlap: 0 to 1.0 indicating amount of area that must overlap between tiles
@@ -26,7 +31,7 @@ def CreateTileOverlaps(list_tiles, image_to_source_space_scale=1.0, min_overlap=
     if isinstance(list_tiles, dict):
         list_tiles = list(list_tiles.values())
     
-    for (A, B) in _IterateOverlappingTiles(list_tiles,min_overlap=min_overlap):
+    for (A, B) in _IterateOverlappingTiles(list_tiles,min_overlap=min_overlap, exclude_diagonal_overlaps=exclude_diagonal_overlaps):
         overlap_data = TileOverlap(A,B,image_to_source_space_scale=image_to_source_space_scale, inter_tile_distance_scale=inter_tile_distance_scale)
         if overlap_data.has_overlap:
             yield overlap_data
