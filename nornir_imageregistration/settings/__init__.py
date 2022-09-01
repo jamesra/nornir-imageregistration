@@ -3,6 +3,8 @@ import json
 
 from .grid_refinement import GridRefinement
 from .translate import TranslateSettings
+from .mosaic_tile_offset import TileOffset, LoadMosaicOffsets, SaveMosaicOffsets
+ 
 
 def GetOrSaveTranslateSettings(settings:TranslateSettings, path:str):
     '''
@@ -15,5 +17,5 @@ def GetOrSaveTranslateSettings(settings:TranslateSettings, path:str):
             return TranslateSettings(**data)
     except:
         with open(path, 'w') as jsonfile:
-            json_data = json.dump(settings.__dict__, jsonfile, sort_keys=True)
+            json_data = json.dump(settings.__dict__, jsonfile, sort_keys=True, indent=2)
         return settings
