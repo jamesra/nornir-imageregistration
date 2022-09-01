@@ -2,7 +2,7 @@
 Created on Aug 4, 2022
 
 @author: u0490822
-'''
+''' 
 
 
 class TranslateSettings(object):
@@ -63,6 +63,7 @@ class TranslateSettings(object):
         self.excess_scalar = 3.0 if excess_scalar is None else excess_scalar
         self.use_feature_score = False if use_feature_score is None else use_feature_score
         self.exclude_diagonal_overlaps = True if exclude_diagonal_overlaps is None else exclude_diagonal_overlaps
+        self.known_offsets = [] if known_offsets is None else known_offsets
         
         if self.min_translate_iterations > self.max_translate_iterations:
             raise ValueError("min_translate_iterations > max_translate_iterations")
