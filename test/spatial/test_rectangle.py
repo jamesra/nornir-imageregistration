@@ -18,7 +18,7 @@ from . import rectangles
 class Test(unittest.TestCase):
     
     def setUp(self):
-        unittest.TestCase.setUp(self)
+        super(Test, self).setUp()
         
         self.ARects = {"A1" : spatial.Rectangle.CreateFromPointAndArea((0, 0), (10, 5)),
                   "A1Duplicate" : spatial.Rectangle.CreateFromPointAndArea((0, 0), (10, 5)),

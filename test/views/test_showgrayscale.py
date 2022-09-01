@@ -12,6 +12,8 @@ class Test(unittest.TestCase):
 
 
     def setUp(self):
+        super(Test, self).setUp()
+        
         self.imageA = np.random.rand(64, 64)
         self.imageB = np.random.rand(64, 64)
         self.imageC = np.random.rand(64, 64)
@@ -41,6 +43,7 @@ class Test(unittest.TestCase):
         self.list_6x1 = [self.imageA, self.imageB, self.imageC, self.imageD, self.imageE, self.imageF]
 
     def tearDown(self):
+        super(Test, self).tearDown()
         pass
     
     def testShowGrayscaleFailButton(self): 

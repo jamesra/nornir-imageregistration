@@ -122,6 +122,7 @@ class TestBase(unittest.TestCase, ABC):
         return os.path.join(self.TestOutputPath, self._testMethodName + '.profile')
 
     def setUp(self):
+        super(TestBase, self).setUp()
         self.VolumeDir = self.TestOutputPath
 
         # Remove output of earlier tests
@@ -156,7 +157,8 @@ class TestBase(unittest.TestCase, ABC):
         if not self.profiler is None:
             self.profiler.dump_stats(self.TestProfilerOutputPath)
 
-        unittest.TestCase.tearDown(self)
+        
+        super(TestBase, self).tearDown()
 
 
 class ImageTestBase(TestBase):

@@ -42,12 +42,12 @@ class TestTranslationTransformAddition(TransformTestBase):
     def setUp(self):
         
         self.assertIsNotNone(self.CreateTransformFromTemplate(0,1))
-        
+        super(TestTranslationTransformAddition, self).setUp()
         pass
 
 
     def tearDown(self):
-        
+        super(TestTranslationTransformAddition, self).tearDown()
         pass
  
     def test_transformSimpleIdentityAddition(self):
