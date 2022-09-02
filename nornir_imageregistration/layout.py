@@ -9,8 +9,7 @@ from operator import itemgetter
 import numpy as np
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_pools
-import nornir_imageregistration 
-from build.lib.nornir_imageregistration.layout import LayoutPosition
+import nornir_imageregistration  
   
 ID_Value = collections.namedtuple('ID_Magnitude', ['ID', 'Value'])
 
