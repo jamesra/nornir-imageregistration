@@ -67,10 +67,10 @@ class LayoutPosition(object):
     iOffsetX = 2 
     iOffsetWeight = 3
     
-    offset_dtype = np.dtype([('ID', int), ('Y', float), ('X', float), ('Weight', float)])
+    # offset_dtype = np.dtype([('ID', int), ('Y', float), ('X', float), ('Weight', float)])
          
     @property
-    def ID(self):
+    def ID(self) -> int:
         return self._ID
     
     @property
@@ -84,7 +84,7 @@ class LayoutPosition(object):
         return self._OffsetArray
     
     @property
-    def IsIsolated(self):
+    def IsIsolated(self) -> bool:
         '''Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no offsets'''
         return len(self._OffsetArray) == 0
     
@@ -105,10 +105,13 @@ class LayoutPosition(object):
         
     @property
     def ConnectedIDs(self):
-        return self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int)
+        if self._connected_id_cache is None:
+            self._connected_id_cache = self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int)
+        
+        return self._connected_id_cache
     
     @property
-    def NumConnections(self):
+    def NumConnections(self) -> int:
         return self._OffsetArray.shape[0]
     
     @property
@@ -119,16 +122,16 @@ class LayoutPosition(object):
         iKnown = self.ConnectedIDs == ID
         return self.OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
     
-    def ContainsOffset(self, ID):
+    def ContainsOffset(self, ID) -> bool:
         iKnown = self.ConnectedIDs == ID
         return np.any(iKnown)
     
-    def GetWeight(self, ID):
+    def GetWeight(self, ID) -> float:
         iKnown = self.ConnectedIDs == ID
         return float(self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight])
     
     @property
-    def IDToIndex(self):
+    def IDToIndex(self) -> {int:int}:
         if self._IDToIndex is None:
             self._IDToIndex = {}
             for (i, ID) in enumerate(self._OffsetArray[:, 0]):
@@ -150,8 +153,7 @@ class LayoutPosition(object):
             # Update a row
             self._OffsetArray[iKnown] = new_row            
         else:
-            # Insert a new row
-            
+            # Insert a new row 
             self._OffsetArray = np.vstack((self._OffsetArray, new_row))
             if self._OffsetArray.ndim == 1:
                 self._OffsetArray = np.reshape(self._OffsetArray, (1, self._OffsetArray.shape[0]))
@@ -159,6 +161,8 @@ class LayoutPosition(object):
                 self._OffsetArray = _sort_array_on_column(self._OffsetArray, 0, ascending=True)
                 
             self._IDToIndex = None
+            self._connected_id_cache = None
+            self._irow_cache = None
         return
     
     def RemoveOffset(self, ID):
@@ -170,7 +174,9 @@ class LayoutPosition(object):
         if np.any(iKnown):
             self._OffsetArray = self._OffsetArray[iKnown == False,:]
             self._IDToIndex = None
-        
+            self._connected_id_cache = None
+            self._irow_cache = None
+            
         Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
         return 
     
@@ -180,7 +186,9 @@ class LayoutPosition(object):
         :return: A numpy array of row indicies
         '''
         if connected_nodes is None:
-            iRows = np.array(range(0, len(self.ConnectedIDs)), dtype=np.int)
+            if self._irow_cache is None:
+                self._irow_cache = np.array(range(0, len(self.ConnectedIDs)), dtype=np.int)
+            return self._irow_cache
         else:
             # connected_IDs = [n.ID for n in connected_nodes]
             iRows = np.array([self.IDToIndex[n.ID] for n in connected_nodes])  # nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
@@ -314,6 +322,9 @@ class LayoutPosition(object):
         self._dims = dims
         self._IDToIndex = None
         
+        self._connected_id_cache = None
+        self._irow_cache = None
+        
     def __eq__(self, other):
         if isinstance(other, LayoutPosition):
             return self._ID == other.ID  # change that to your needs 
@@ -361,7 +372,7 @@ class Layout(object):
             return param
     
     @property
-    def nodes(self):
+    def nodes(self) -> {int:LayoutPosition}:
         '''
         :return: A dictionary mapping ID to LayoutPosition objects
         '''
@@ -395,7 +406,7 @@ class Layout(object):
         return avg_center
 
     @property    
-    def MaxWeightedNetTensionMagnitude(self):
+    def MaxWeightedNetTensionMagnitude(self) -> ID_Value:
         '''Returns the (ID, Magnitude) of the node with the largest weighted net tension vector.'''
         net_tension_vectors = self.WeightedNetTensionVectors()
         tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:]) 
@@ -404,7 +415,7 @@ class Layout(object):
         # return np.max(nornir_imageregistration.array_distance(net_tension_vectors))
     
     @property    
-    def MaxNetTensionMagnitude(self):
+    def MaxNetTensionMagnitude(self) -> ID_Value:
         '''Returns the (ID, Magnitude) of the node with the largest net tension vector.'''
         net_tension_vectors = self.NetTensionVectors()
         tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:]) 
@@ -412,7 +423,7 @@ class Layout(object):
         return ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
     
     @property    
-    def MaxTensionMagnitude(self):
+    def MaxTensionMagnitude(self) -> ID_Value:
         '''
         The largest single tension between any two nodes in the layout
         :return: An array of (A,B,Magnitude) where A,B are IDs
@@ -427,7 +438,7 @@ class Layout(object):
         return ID_Value(CreatePairID(tension_vectors[i_max, 0:2]), tension_magnitude[i_max])
     
     @property    
-    def MinTensionMagnitude(self):
+    def MinTensionMagnitude(self) -> ID_Value:
         '''
         The smallest tension between any two nodes in the layout
         :return: A tuple of (A,B,Magnitude) where A,B are IDs
@@ -469,7 +480,7 @@ class Layout(object):
         A.SetOffset(B.ID, offset, weight)
         B.SetOffset(A.ID, -offset, weight)
         
-    def ContainsOffset(self, overlap):
+    def ContainsOffset(self, overlap) -> bool:
         ''':return: True if the layout has an offset between the two nodes'''
         (A_ID, B_ID) = Layout._parameter_to_offset_IDs(overlap)
         
@@ -533,15 +544,11 @@ class Layout(object):
         '''Return the sorted subset of nodes by IDs as a list'''
         
         if IDs is None:
-            IDs = list(self.nodes.keys())
-            IDs.sort()  
+            IDs = sorted(self.nodes.keys())
         elif isinstance(IDs, int):
             IDs = [IDs]  
             
-        nodes = [self.nodes[tileID] for tileID in IDs]
-        # nodes = [None] * len(IDs)
-        # for i, tileID in enumerate(IDs):
-            # nodes[i] = self.nodes[tileID] 
+        nodes = [self.nodes[tileID] for tileID in IDs] 
                                          
         return nodes
     
@@ -723,7 +730,6 @@ class Layout(object):
         '''Merge layout directly into our layout'''
          
         self.nodes.update(layoutB.copy().nodes)
-         
     
     @classmethod
     def RelaxNodes(cls, layout_obj, vector_scalar=None):
@@ -1167,10 +1173,9 @@ def MergeDisconnectedLayouts(layout_list):
     if len(layout_list) == 1:
         return layout_list[0]
     
-    #Find the nearest two tiles from both layouts. 
-    #Create an artificial link between the tiles based on current coordinates
-    #Then merge the nodes
-    
+    # Find the nearest two tiles from both layouts. 
+    # Create an artificial link between the tiles based on current coordinates
+    # Then merge the nodes
     
     merged_layout = layout_list[0].copy()
     A = [(n.ID, n.Position) for n in merged_layout.nodes.values()]
@@ -1185,8 +1190,8 @@ def MergeDisconnectedLayouts(layout_list):
         matrix_B = np.vstack([row[1] for row in B])
         
         distances = scipy.spatial.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
-        A_min = np.min(distances,1)
-        B_min = np.min(distances,0)
+        A_min = np.min(distances, 1)
+        B_min = np.min(distances, 0)
         iA = np.argmin(A_min)
         iB = np.argmin(B_min)
         A_ID = A[iA][0]
@@ -1194,9 +1199,9 @@ def MergeDisconnectedLayouts(layout_list):
         
         offset = matrix_B[iB,:] - matrix_A[iA,:] 
         merged_layout.Merge(other_layout)
-        merged_layout.SetOffset(A_ID,B_ID,offset,1.0)
+        merged_layout.SetOffset(A_ID, B_ID, offset, 1.0)
         
-        A.extend(B) #Add the entries in B for the next loop
+        A.extend(B)  # Add the entries in B for the next loop
         matrix_A = np.vstack((matrix_A, matrix_B))
         
     return merged_layout
