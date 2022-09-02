@@ -3,12 +3,9 @@ Created on Aug 31, 2022
 
 @author: u0490822
 '''
-
-from collections import namedtuple
-import csv 
-import json
-
-#tile_offset = namedtuple("tile_offset",('A','B','X','Y', 'Comment'))
+ 
+import csv  
+ 
 class TileOffset(object):
     
     @property
@@ -67,12 +64,7 @@ class TileOffset(object):
     def __lt__(self, other):
         return self.ID.__lt__(other.ID)
 
-def LoadMosaicOffsets(path:str):
-    
-    # with open(path, 'r') as f:
-    #     offsets = json.load(fp=f)
-    #     return offsets
-    #
+def LoadMosaicOffsets(path:str): 
 
     offsets = []
     
@@ -114,11 +106,7 @@ def LoadMosaicOffsets(path:str):
     
     return offsets
 
-def SaveMosaicOffsets(offsets:list[TileOffset], path:str):
-    # with open(path,'w') as offsets_file:
-    #     #header = f"A B X Y Weight"
-    #     #offsets_file.write(header)
-    #     json.dump(obj=obj, fp=offsets_file, indent=2)
+def SaveMosaicOffsets(offsets:[TileOffset], path:str): 
     if offsets is None:
         offsets = []
         
