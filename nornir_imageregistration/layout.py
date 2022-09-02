@@ -1038,7 +1038,7 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         
         # Stop the loop if we aren't making good progress
         if min_improvement is not None and delta_mean < min_improvement:
-            prettyoutput.CurseProgress(f'Min improvement threshold not met, delta was {delta_mean:.4f}, which is below {min_improvement:0.4f}, stopping.')
+            prettyoutput.Log(f'Min improvement threshold not met, delta was {delta_mean:.4f}, which is below {min_improvement:0.4f}, stopping.')
             break
         
         if i <= 10 or i % 25 == 0:
