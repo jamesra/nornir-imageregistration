@@ -125,7 +125,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
         
         
         feature_scores = getattr(overlap, 'feature_scores', None)
-        if feature_scores is not None:
+        if feature_scores is not None and feature_scores[0] is not None:
             label_str = label_str + '\nScores: {0:.2f} {1:.2f}'.format(feature_scores[0], feature_scores[1])
             
         text_rotation = 0

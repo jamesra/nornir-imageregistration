@@ -151,9 +151,6 @@ def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateS
         # if (len(new_overlaps) > 0 or len(removed_overlap_IDs) > 0) and pass_count < max_passes:
         #    iPass = min_translate_iterations
         
-        ScoreTileOverlaps(distinct_overlaps)
-        NormalizeOverlapFeatureScores(distinct_overlaps)
-        
         # If this is the second pass remove any overlaps from the layout that no longer qualify
         if translated_layout is not None:
             for ID in removed_overlap_IDs:
@@ -164,31 +161,30 @@ def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateS
                 
                 #self.assertTrue(translated_layout.nodes[ID].ConnectedIDs.shape[0] == 0, "Non-overlapping node should not have overlaps")
 #                    translated_layout.RemoveNode(ID)    
-        
-        # Expand the area we search if we are adding and removing tileset
+                  
         inter_tile_distance_scale_this_pass = config.inter_tile_distance_scale
-#         if pass_count < min_translate_iterations and iPass == min_translate_iterations:
-#             inter_tile_distance_scale_this_pass = inter_tile_distance_scale
-            
-        # Recalculate all offsets if we changed the overlaps
-#         if inter_tile_distance_scale_last_pass != inter_tile_distance_scale_this_pass:
-#             new_or_updated_overlaps = distinct_overlaps
-            
-        #inter_tile_distance_scale_last_pass = inter_tile_distance_scale_this_pass
-                
+        
         # Create a list of offsets requiring updates
         filtered_overlaps_needing_offsets = []
-        for overlap in new_or_updated_overlaps:
-            if overlap.feature_scores[0] >= config.feature_score_threshold and overlap.feature_scores[1] >= config.feature_score_threshold:
-                filtered_overlaps_needing_offsets.append(overlap)
-            else:
-                if translated_layout is not None:
-                    translated_layout.RemoveOverlap(overlap)
+        if False == config.feature_score_calculations_required:
+            filtered_overlaps_needing_offsets = new_or_updated_overlaps
+        else:
+            ScoreTileOverlaps(distinct_overlaps)
+            NormalizeOverlapFeatureScores(distinct_overlaps)
+    
             
-        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets, excess_scalar=config.excess_scalar,
-                                             image_to_source_space_scale=tileset.image_to_source_space_scale,
-                                             existing_layout=translated_layout,
-                                             use_feature_score=config.use_feature_score)
+            for overlap in new_or_updated_overlaps:
+                if overlap.feature_scores[0] >= config.feature_score_threshold and overlap.feature_scores[1] >= config.feature_score_threshold:
+                    filtered_overlaps_needing_offsets.append(overlap)
+                else:
+                    if translated_layout is not None:
+                        translated_layout.RemoveOverlap(overlap)
+                
+        translated_layout = _FindTileOffsets(filtered_overlaps_needing_offsets,
+                                            excess_scalar=config.excess_scalar,
+                                            image_to_source_space_scale=tileset.image_to_source_space_scale,
+                                            existing_layout=translated_layout,
+                                            use_feature_score=config.use_feature_score)
         
         scaled_translated_layout = translated_layout.copy()
         #nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
@@ -220,7 +216,7 @@ def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateS
             relaxed_layouts.append(relaxed_layout)
             
         relaxed_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(relaxed_layouts, stage_reported_overlaps)
-        
+        relaxed_layout.TranslateToZeroOrigin()
         relaxed_layout.UpdateTileTransforms(tileset)
         last_pass_overlaps = distinct_overlaps
         

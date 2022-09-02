@@ -9,6 +9,10 @@ class TranslateSettings(object):
     '''
     Settings for translating a mosaic
     '''
+    
+    @property
+    def feature_score_calculations_required(self):
+        return self.feature_score_threshold is not None or self.use_feature_score is True
 
 
     def __init__(self, 
@@ -27,13 +31,13 @@ class TranslateSettings(object):
                  excess_scalar:float=None,
                  use_feature_score:bool=False,
                  exclude_diagonal_overlaps:bool=True,
-                 known_offsets:list=None): 
+                 known_offsets:[]=None): 
                  #**kwargs): #Catcher for serialized deprecated arguments
         '''
         :param float min_overlap: The percentage of area that two tileset must overlap before being considered by the layout model
         :param int max_relax_iterations: Maximum number of iterations in the relax stage
         :param int max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
-        :param int feature_score_threshold: The minimum average power spectral density per pixel measurement required to believe there is enough texture in overlapping regions for registration algorithms
+        :param int feature_score_threshold: The minimum average power spectral density per pixel measurement required to believe there is enough texture in overlapping regions for registration algorithms.  If None, no feature score is calculated which may speed up runtime.  A feature score will still be calculated if use_feature_score is true. 
         :param int offset_acceptance_threshold: The distance the expected offset between tiles has to change before we recalculate feature scores and registration.  If the difference in offset magnitude from predicted to measured falls below this value the previous registration will be used if it exists.
         :param int min_translate_iterations: The min number of iterations of the alignment+relaxation cycle that will be run even if we hit a cutoff value first
         :param int min_translate_iterations: The max number of iterations of the alignment+relaxation cycle that will be run unless we hit a cutoff value first 
@@ -51,7 +55,7 @@ class TranslateSettings(object):
         self.min_overlap = 0.02 if min_overlap is None else min_overlap
         self.max_relax_iterations = 150 if max_relax_iterations is None else max_relax_iterations
         self.max_relax_tension_cutoff = 1.0 if max_relax_tension_cutoff is None else max_relax_tension_cutoff
-        self.feature_score_threshold = 0.035 if feature_score_threshold is None else feature_score_threshold
+        self.feature_score_threshold = feature_score_threshold
         self.offset_acceptance_threshold = 1.0 if offset_acceptance_threshold is None else offset_acceptance_threshold
         self.min_translate_iterations = 1 if min_translate_iterations is None else min_translate_iterations
         self.max_translate_iterations = self.min_translate_iterations * 4 if max_translate_iterations is None else max_translate_iterations
