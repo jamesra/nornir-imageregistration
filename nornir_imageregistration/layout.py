@@ -7,6 +7,7 @@ import copy
 import collections
 from operator import itemgetter 
 import numpy as np
+import scipy
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_pools
 import nornir_imageregistration  
@@ -720,7 +721,9 @@ class Layout(object):
     
     def Merge(self, layoutB):
         '''Merge layout directly into our layout'''
+         
         self.nodes.update(layoutB.copy().nodes)
+         
     
     @classmethod
     def RelaxNodes(cls, layout_obj, vector_scalar=None):
@@ -1086,7 +1089,6 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
         # pool.add_task("Plot step #%d" % (i), nornir_shared.plot.VectorField,layout_obj.GetPositions(), layout_obj.WeightedNetTensionVectors(), OutputFilename=filename)
     
     prettyoutput.Log("\n")
-    layout_obj.TranslateToZeroOrigin()
     return layout_obj
         
 
@@ -1165,13 +1167,37 @@ def MergeDisconnectedLayouts(layout_list):
     if len(layout_list) == 1:
         return layout_list[0]
     
+    #Find the nearest two tiles from both layouts. 
+    #Create an artificial link between the tiles based on current coordinates
+    #Then merge the nodes
+    
+    
     merged_layout = layout_list[0].copy()
- 
-    for (i, layout) in enumerate(layout_list):
+    A = [(n.ID, n.Position) for n in merged_layout.nodes.values()]
+    matrix_A = np.vstack([row[1] for row in A])
+    
+    for (i, other_layout) in enumerate(layout_list):
         if i == 0:
             continue
         
-        merged_layout.Merge(layout)
+        B = [(n.ID, n.Position) for n in other_layout.nodes.values()]
+        
+        matrix_B = np.vstack([row[1] for row in B])
+        
+        distances = scipy.spatial.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
+        A_min = np.min(distances,1)
+        B_min = np.min(distances,0)
+        iA = np.argmin(A_min)
+        iB = np.argmin(B_min)
+        A_ID = A[iA][0]
+        B_ID = B[iB][0]
+        
+        offset = matrix_B[iB,:] - matrix_A[iA,:] 
+        merged_layout.Merge(other_layout)
+        merged_layout.SetOffset(A_ID,B_ID,offset,1.0)
+        
+        A.extend(B) #Add the entries in B for the next loop
+        matrix_A = np.vstack((matrix_A, matrix_B))
         
     return merged_layout
 
