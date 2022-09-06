@@ -48,6 +48,24 @@ def __CreateArgParser(ExecArgs=None):
                         help='Minimum overlap from 0 to 1 we expect tiles to have before being considered overlapping.',
                         dest='min_overlap'
                         )
+    
+    parser.add_argument('-d', '-downsample',
+                        action='store',
+                        required=False,
+                        type=float,
+                        default=None,
+                        help='Downsample level of image folder being passed.  If not specified the program will attempt to convert the folder name to to a number',
+                        dest='downsample'
+                        )
+    
+    parser.add_argument('-s', '-addscores',
+                        action='store_true',
+                        required=False, 
+                        default=False,
+                        help='If true, add feature scores to the output file',
+                        dest='addscores'
+                        )
+    
 
     return parser
 
@@ -111,21 +129,28 @@ def Execute(ExecArgs=None):
     
     TilesDir = GenerateAbsOrMosaicRelativePath(Args.tilepath, Args.inputpath)
     output_file = GenerateAbsOrMosaicRelativePath(Args.outputpath, Args.inputpath)
-            
-    tilesPathList = sorted(mosaic.CreateTilesPathList(TilesDir))
-    transforms = list(mosaic._TransformsSortedByKey())
-            
-    #imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms=transforms, imagepaths=tilesPathList)
-    initial_tiles = nornir_imageregistration.mosaic_tileset.MosaicTileset.Create( transforms=transforms, imagepaths=tilesPathList)
-        
-    (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = nornir_imageregistration.arrange_mosaic.GenerateTileOverlaps(tiles=initial_tiles,
-                                                             existing_overlaps=None,
-                                                             offset_epsilon=1.0,
-                                                             image_scale=imageScale,
-                                                             min_overlap=Args.min_overlap,
-                                                             inter_tile_distance_scale=1)
     
-    nornir_imageregistration.arrange_mosaic.ScoreTileOverlaps(new_overlaps)
+    downsample = Args.downsample
+    
+    if downsample is None:
+        try:
+            folder_name = os.path.basename(TilesDir)
+            downsample = float(folder_name) 
+        except ValueError:
+            print("downsample not specified and could not be determined from filename.  Please pass the downsample parameter.")
+            return
+             
+    initial_tiles = nornir_imageregistration.mosaic_tileset.CreateFromMosaic( mosaic, image_folder=TilesDir, image_to_source_space_scale=downsample)
+        
+    (distinct_overlaps, new_overlaps, updated_overlaps, removed_overlap_IDs, non_overlapping_IDs) = nornir_imageregistration.arrange_mosaic.GenerateTileOverlaps(initial_tiles,
+                                                             existing_overlaps=None,
+                                                             offset_epsilon=1.0, 
+                                                             min_overlap=Args.min_overlap,
+                                                             inter_tile_distance_scale=1,
+                                                             exclude_diagonal_overlaps=True)
+    
+    if Args.addscores:
+        nornir_imageregistration.arrange_mosaic.ScoreTileOverlaps(new_overlaps)
 
     
     nornir_imageregistration.views.plot_tile_overlaps(new_overlaps,
