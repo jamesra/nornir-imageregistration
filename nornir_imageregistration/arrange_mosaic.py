@@ -15,8 +15,8 @@ import nornir_imageregistration
 import nornir_pools
 import numpy as np
 
-import nornir_shared.plot  
-
+import nornir_shared.prettyoutput
+from build.lib.nornir_shared import prettyoutput
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                                 'overlap_ID iTile overlapping_rect')
@@ -543,36 +543,43 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
                           tile_overlap.scaled_offset,
                           excess_scalar)
         
-        t.tile_overlap = tile_overlap
+        t.tile_overlap = tile_overlap 
         tasks.append(t)
         CalculationCount += 1
         # print("Start alignment %d -> %d" % (A.ID, B.ID))
 
     for t in tasks:
+        tile_overlap = t.tile_overlap
+        
         try:
             offset = t.wait_return()
         except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
-            print("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
+            prettyoutput.LogErr("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
             
             # Create an alignment record using only stage position and a weight of zero 
             offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.scaled_offset, weight=0)
+            layout.RemoveOverlap(tile_overlap)
+        except ValueError as e:
+            nornir_shared.prettyoutput.LogErr(f"Could not find overlap between:\n\t{t.tile_overlap.A.ImagePath}\n\t{t.tile_overlap.B.ImagePath,}\nConsider using a feature threshold for this section if results are poor.  This message often caused by aligning blank tiles.\n{e}")
+            offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.scaled_offset, weight=0)
+            layout.RemoveOverlap(tile_overlap)
+        
+        if offset is not None:
+            # Figure out what offset we found vs. what offset we expected
+            #PredictedOffset = tile_overlap.B.FixedBoundingBox.Center - tile_overlap.A.FixedBoundingBox.Center
+            ActualOffset = offset.peak * downsample
             
-        tile_overlap = t.tile_overlap
-        # Figure out what offset we found vs. what offset we expected
-        #PredictedOffset = tile_overlap.B.FixedBoundingBox.Center - tile_overlap.A.FixedBoundingBox.Center
-        ActualOffset = offset.peak * downsample
-        
-        #diff = ActualOffset - PredictedOffset
-        #distance = np.sqrt(np.sum(diff ** 2))
-        
-        final_weight = offset.weight #* f_score
-        if use_feature_score:
-            f_score = min(tile_overlap.normalized_feature_scores)
-            final_weight *= f_score
+            #diff = ActualOffset - PredictedOffset
+            #distance = np.sqrt(np.sum(diff ** 2))
             
-        #print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
-        
-        layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight) 
+            final_weight = offset.weight #* f_score
+            if use_feature_score:
+                f_score = min(tile_overlap.normalized_feature_scores)
+                final_weight *= f_score
+                
+            #print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
+            
+            layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight) 
         
     pool.wait_completion()
     

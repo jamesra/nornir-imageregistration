@@ -726,6 +726,16 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #                              config=config)
     #
     #     print("All done")
+        
+    def test_RC3_1619_Mosaic(self): 
+        config = self.GetStandardTranslateSettings() 
+        self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\1619\\TEM\\Stage.mosaic",
+                                 TilePyramidDir="D:\\Data\\RC3\\TEM\\1619\\TEM\\Leveled\\TilePyramid",
+                                 downsample=4, 
+                                 openwindow=False,
+                                 config=config)
+    
+        print("All done")
     
     # def test_RC3_1492_Mosaic(self):
     #     config = self.GetStandardTranslateSettings() 
@@ -748,18 +758,18 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #
     #     print("All done")
     #
-    def test_RC3_1154_Mosaic(self):
-    
-        config = self.GetStandardTranslateSettings()
-        config.feature_score_threshold = None
-        config.use_feature_score = None 
-        self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
-                                 TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
-                                 downsample=4,
-                                 openwindow=False,
-                                 config=config)
-    
-        print("All done")
+    # def test_RC3_1154_Mosaic(self):
+    #
+    #     config = self.GetStandardTranslateSettings()
+    #     config.feature_score_threshold = None
+    #     config.use_feature_score = None 
+    #     self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
+    #                              TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
+    #                              downsample=4,
+    #                              openwindow=False,
+    #                              config=config)
+    #
+    #     print("All done")
     
     # def test_RC3_1154_Mosaic_Direct(self):
     #
