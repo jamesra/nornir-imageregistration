@@ -15,8 +15,7 @@ import nornir_imageregistration
 import nornir_pools
 import numpy as np
 
-import nornir_shared.prettyoutput
-from build.lib.nornir_shared import prettyoutput
+import nornir_shared.prettyoutput 
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                                 'overlap_ID iTile overlapping_rect')
@@ -554,7 +553,7 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
         try:
             offset = t.wait_return()
         except FloatingPointError as e:  # Very rarely the overlapping region is entirely one color and this error is thrown.
-            prettyoutput.LogErr("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
+            nornir_shared.prettyoutput.LogErr("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
             
             # Create an alignment record using only stage position and a weight of zero 
             offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.scaled_offset, weight=0)
