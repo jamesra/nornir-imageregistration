@@ -202,6 +202,8 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
         plt.savefig(OutputFilename)
     else:
         plt.show(block=True)
+        
+    plt.close(fig)
          
 
 if __name__ == '__main__':
