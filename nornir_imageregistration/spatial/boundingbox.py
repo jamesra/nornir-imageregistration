@@ -70,11 +70,10 @@ class BoundingBox(object):
     @property
     def RectangleXY(self):
         '''Returns a rectangle based on the XY plane of the box'''
-        return Rectangle.CreateFromBounds([self._bounds[iBox.MinY],
+        return Rectangle.CreateFromBounds((self._bounds[iBox.MinY],
                                           self._bounds[iBox.MinX],
                                           self._bounds[iBox.MaxY],
-                                          self._bounds[iBox.MaxX]])
-
+                                          self._bounds[iBox.MaxX]))
 
     def __init__(self, bounds):
         '''
@@ -107,13 +106,15 @@ class BoundingBox(object):
 
     @classmethod
     def PrimitiveToBox(cls, primitive):
-        '''Privitive can be a list of (Z,Y,X) or (MinZ, MinY, MinX, MaxZ, MaxY, MaxX) or a BoundingBox'''
+        '''Privitive can be a list of (Y,X) or (Z,Y,X) or (MinZ, MinY, MinX, MaxZ, MaxY, MaxX) or a BoundingBox'''
 
         if isinstance(primitive, BoundingBox):
             return primitive
 
-        if len(primitive) == 3:
-            return BoundingBox(primitive[0], primitive[1], primitive[0], primitive[1])
+        if len(primitive) == 2:
+            return BoundingBox((0, primitive[0], primitive[1], 0, primitive[0], primitive[1]))
+        elif len(primitive) == 3:
+            return BoundingBox((primitive[0], primitive[1], primitive[2], primitive[0], primitive[1], primitive[2]))
         elif len(primitive) == 6:
             return BoundingBox(primitive)
         else:

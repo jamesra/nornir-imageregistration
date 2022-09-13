@@ -38,7 +38,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     if subregion_shape is None:
         subregion_shape = np.array([128, 128]) 
     
-    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths)
+    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths, image_to_source_space_scale=imageScale)
     list_tiles = list(tiles.values())
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
@@ -986,7 +986,7 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
     #
     # pool.wait_completion()
     
-    output = dict();
+    output = dict()
     improved_alignments = []
     for refined_align_record in refined_alignments:
         key = refined_align_record.ID

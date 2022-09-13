@@ -112,7 +112,7 @@ class AlignmentRecord(object):
         if self.peak is None:
             self.peak = (0, 0)
 
-        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(FixedImageShape, MovingImageShape)
+        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=self.peak, FixedImageShape=FixedImageShape, MovingImageShape=MovingImageShape)
 
     def GetTransformedCornerPoints(self, warpedImageSize):
         '''

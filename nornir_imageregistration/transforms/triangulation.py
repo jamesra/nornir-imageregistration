@@ -140,8 +140,7 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
     '''
 
     def __getstate__(self):
-        odict = {}
-        odict['_points'] = self._points
+        odict = {'_points': self._points}
 
         return odict
 

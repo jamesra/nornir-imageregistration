@@ -103,7 +103,7 @@ class TestBase(unittest.TestCase, ABC):
             TestOutputDir = os.environ["TESTOUTPUTPATH"]
             return os.path.join(TestOutputDir, self.classname, self._testMethodName)
         else:
-            self.fail("TESTOUTPUTPATH environment variable should specfify input data directory")
+            self.fail("TESTOUTPUTPATH environment variable should specify output data directory")
 
         return None
 

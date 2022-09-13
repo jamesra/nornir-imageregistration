@@ -3,7 +3,6 @@ scipy image arrays are indexed [y,x]
 """
 
 import ctypes
-import logging
 import math
 import multiprocessing.sharedctypes
 import os
@@ -16,6 +15,7 @@ import scipy.misc
 import scipy.ndimage.measurements
 
 import nornir_pools
+import nornir_imageregistration.image_stats
 import nornir_imageregistration
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
@@ -115,11 +115,11 @@ def array_distance(array):
 #    return shared_images.GetImageBpp(File)
 
 
-def ApproxEqual(A, B, epsilon=None):
+def ApproxEqual(a, b, epsilon=None):
     if epsilon is None:
         epsilon = 0.01
 
-    return np.abs(A - B) < epsilon
+    return np.abs(a - b) < epsilon
 
 
 def ImageParamToImageArray(imageparam, dtype=None):
@@ -198,11 +198,11 @@ def SafeROIRange(start, count, maxVal, minVal=0):
         return list()
 
     if maxVal < minVal:
-        raise ValueError(f"maxVal must be greater than minVal. {maxVal} > {minVal}");
+        raise ValueError(f"maxVal must be greater than minVal. {maxVal} > {minVal}")
 
     if maxVal - minVal < count:
         raise ValueError(
-            f"Not enough room to return a ROI of requested size.  maxVal - minVal must be >= count. {maxVal} - {minVal} >= {count}");
+            f"Not enough room to return a ROI of requested size.  maxVal - minVal must be >= count. {maxVal} - {minVal} >= {count}")
 
     r = None
 
@@ -275,7 +275,7 @@ def Shrink(InFile, OutFile, Scalar, **kwargs):
     """
     (root, ext) = os.path.splitext(InFile)
     if ext == '.npy':
-        _ShrinkNumpyImageFile(InFile, OutFile, Scalar, **kwargs)
+        _ShrinkNumpyImageFile(InFile, OutFile, Scalar)
     else:
         _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs)
 
@@ -450,9 +450,6 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
             except OSError as e:
                 prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
                 pass
-            except IOError as e:
-                prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
-                pass
 
     if not pool is None:
         pool.wait_completion()
@@ -467,7 +464,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
+def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -505,7 +502,7 @@ def CropImage(imageparam, Xo, Yo, Width, Height, cval=None):
         raise ValueError("Negative dimensions are not allowed")
 
     image_rectangle = nornir_imageregistration.Rectangle([0, 0, image.shape[0], image.shape[1]])
-    crop_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea([Yo, Xo], [Height, Width])
+    crop_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(  (Yo, Xo), (Height, Width))
 
     overlap_rectangle = nornir_imageregistration.Rectangle.overlap_rect(image_rectangle, crop_rectangle)
 
@@ -601,9 +598,9 @@ def GenRandomData(height, width, mean, standardDev, min_val, max_val):
     return image
 
 
-def GetImageSize(image_param: str):
+def GetImageSize(image_param: str | np.ndarray | Iterable):
     """
-    :param image_param str: Either a path to an image file, an ndarray, or a list
+    :param image_param: Either a path to an image file, an ndarray, or a list
     of paths/ndimages
     :returns: The image's (height, width) or [(height,width),...] for a list
     :rtype: tuple
@@ -748,9 +745,9 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
                 if ext.lower() == '.png':
                     im = uint16_img_from_uint16_array(image)
                 else:
-                    im = Image.fromarray(image, mode="I;{0}".format(bpp))
+                    im = Image.fromarray(image, mode=f"I;{bpp}")
             else:
-                im = Image.fromarray(image, mode="I".format(bpp))
+                im = Image.fromarray(image, mode=f"I;{bpp}")
 
         im.save(ImageFullPath, **kwargs)
 
@@ -942,10 +939,10 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid
 
 
-def ImageToTilesGenerator(source_image, tile_size, grid_shape=None, coord_offset=None, cval=0):
+def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.ndarray=None, coord_offset=None, cval=0):
     """An iterator generating all tiles for an image
-    :param array tile_size: Shape of each tile
-    :param array grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+    :param np.ndarray tile_size: Shape of each tile
+    :param np.ndarray grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
@@ -1003,7 +1000,7 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
     return source_image[StartY:EndY, StartX:EndX]
 
 
-def RandomNoiseMask(image, Mask, imageStats=None, Copy=False):
+def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats.ImageStats=None, Copy=False):
     """
     Fill the masked area with random noise with gaussian distribution about the image
     mean and with standard deviation matching the image's standard deviation.  Mask
@@ -1011,7 +1008,7 @@ def RandomNoiseMask(image, Mask, imageStats=None, Copy=False):
 
     :param ndimage image: Input image
     :param ndimage Mask: Mask, zeros are replaced with noise.  Ones pull values from input image
-    :param ImageStats imageStats: Image stats.  Calculated from image if none    
+    :param ImageStats imagestats: Image stats.  Calculated from image if none
     :param bool Copy: Returns a copy of input image if true, otherwise write noise to the input image
     :rtype: ndimage
     """
@@ -1032,7 +1029,7 @@ def RandomNoiseMask(image, Mask, imageStats=None, Copy=False):
         # Entire image is masked, there is no noise to create
         return MaskedImage
     
-    if imageStats is None:
+    if imagestats is None:
         # Create masked array for accurate stats
         if numValidPixels == 0:
             raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
@@ -1041,10 +1038,10 @@ def RandomNoiseMask(image, Mask, imageStats=None, Copy=False):
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
     
         UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=np.float64).compressed()
-        imageStats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
+        imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 
-    NoiseData = imageStats.GenerateNoise(np.array((1, numInvalidPixels)))
+    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)))
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
     Image1D[iPixelsToReplace] = NoiseData
@@ -1103,24 +1100,25 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray=None, size_cutoff=0.00
 
         # nornir_imageregistration.ShowGrayscale((image, extrema_mask, extrema_mask_minus_small_features))
 
-        return extrema_mask_minus_small_features
+            return extrema_mask_minus_small_features
+        else:
+            raise NotImplemented()
 
 
-def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None, imageStats= None,
+def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None, imagestats:nornir_imageregistration.image_stats.ImageStats= None,
                                  size_cutoff: float = 0.001, Copy=True):
     """
     Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions. 
     It is usually best to pass None for statistical parameters since the function will calculate the statistics with the extrema removed.
     :param numpy.ndarray imagemask: Additional pixels we wish to be included in the extrema mask
-    :param float ImageMedian: Median pixel value, if known, to use for random noise output.  Will be calculated if not passed.  
-    :param float ImageStdDev: Standard Deviation of pixel value, if known, to use for random noise output.  Will be calculated if not passed
+    :param nornir_imageregistration.ImageStats imagestats: Image statistics. Will be calculated if not passed.
     :param size_cutoff: 0 to 1.0, determines how large a continuos min or max region must be before it is masked. If None all min/max are masked regardless of size.  Defaults to 0.001, None will mask all min/max
     """
 
     # If profiling shows this is slow there are older implementations in git
     mask = CreateExtremaMask(image, imagemask, size_cutoff=size_cutoff)
       
-    noised_image = nornir_imageregistration.RandomNoiseMask(image, mask, imageStats, Copy=Copy)
+    noised_image = nornir_imageregistration.RandomNoiseMask(image, mask, imagestats, Copy=Copy)
     return noised_image
 
 
@@ -1176,7 +1174,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     :param ndarray image: Input image
     :param float MinOverlap: Minimum overlap allowed between the input image and images it will be registered to
-    :param float ImageMean: Median value of noise, calculated or pulled from cache if none
+    :param float ImageMedian: Median value of noise, calculated or pulled from cache if none
     :param float ImageStdDev: Standard deviation of noise, calculated or pulled from cache if none
     :param tuple OriginalShape: The original size of the image, if None the shape of the input image is used.  Set this if the image has been previously been padded to prevent over-padding
     :param int NewWidth: Pad input image to this dimension if not none
@@ -1314,8 +1312,8 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
 
     Dimensions of Fixed and Moving images must match
 
-    :param ndarray FixedImage: grayscale image
-    :param ndarray MovingImage: grayscale image
+    :param ndarray FFTFixed: grayscale image
+    :param ndarray FFTMoving: grayscale image
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
 
@@ -1563,7 +1561,7 @@ if __name__ == '__main__':
         FixedA = PadImageForPhaseCorrelation(imA)
         MovingB = PadImageForPhaseCorrelation(imB)
 
-        record = FindOffset(FixedA, MovingB, FixedImageShape=imA.shape, MovingImage=imB.shape)
+        record = FindOffset(FixedA, MovingB, FixedImageShape=imA.shape, MovingImageShape=imB.shape)
         print(str(record))
 
         stos = record.ToStos(FilenameA, FilenameB)

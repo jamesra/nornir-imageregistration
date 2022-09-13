@@ -1,8 +1,8 @@
-'''
+"""
 Created on Mar 2, 2015
 
 @author: u0490822
-'''
+"""
 import unittest 
 
 from nornir_imageregistration.layout import *
@@ -11,8 +11,6 @@ import nornir_pools
 import nornir_shared.plot 
 import nornir_imageregistration
 import numpy as np
-
-import os
 
 from . import setup_imagetest
 from . import test_arrange
@@ -25,18 +23,18 @@ def _MaxTension(layout):
 
 
 def _random_weight_proportional_offset():
-    '''
+    """
     Returns a weight proportional to the error rate in the offset
-    '''
+    """
     weight = np.random.rand()
     offset_range = 1.0 - weight
     offset = (_random_in_range(-offset_range, offset_range),_random_in_range(-offset_range, offset_range))
     return (weight, offset)
 
 def _random_in_range(min:float=-1,max:float=1):
-    '''
+    """
     :return: A value in the range
-    '''
+    """
     val = np.random.rand() 
     val *= (max-min)
     val += min
@@ -109,8 +107,8 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         B.SetOffset(A.ID, -offset, weight)
 
     def test_LayoutPosition_Basics(self):
-        '''
-        Test the creation of Layout Positions and setting offsets without a Layout object'''
+        """
+        Test the creation of Layout Positions and setting offsets without a Layout object"""
         
         p_position = (0, 0)
         p = nornir_imageregistration.layout.LayoutPosition(1, p_position)
@@ -127,9 +125,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         return 
     
     def test_cross(self):
-        '''
+        """
         Create a cross of five positions that should perfectly cancel to produce an offset vector of zero for the center
-        '''
+        """
         
         spring_layout = nornir_imageregistration.layout.Layout()
         
@@ -166,9 +164,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         self.assertTrue(result)
     
     def test_singularity(self):
-        '''
+        """
         Same as test_cross, but position all of the points at the same location
-        '''
+        """
         spring_layout = nornir_imageregistration.layout.Layout()
         
         positions = np.array([[0, 0],
@@ -232,9 +230,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         # Todo: translate layout to (0,0) and ensure nodes are within a pixel of the expected position
     
     def test_weighted_line(self):
-        '''
+        """
         Three points on a line
-        '''
+        """
         spring_layout = nornir_imageregistration.layout.Layout()
         
         positions = np.array([[0, 0],
@@ -274,9 +272,9 @@ class TestLayoutPosition(setup_imagetest.TestBase):
  
         
     def test_uneven_weighted_line(self):
-        '''
+        """
         Three points on a line with inconsistent desired offsets and weights
-        '''
+        """
         spring_layout = nornir_imageregistration.layout.Layout()
 
         positions = np.array([[0, 0],
@@ -324,11 +322,11 @@ class TestLayout(setup_imagetest.TestBase):
     
     @staticmethod
     def enumerate_eight_adjacent(pos, grid_dims):
-        '''
+        """
         yields coordinates of all 8-way adjacent cells on a grid
         :param tuple pos: (Y,X) position on a grid
         :param tuple grid_dims: (Y,X) size of grid
-        '''
+        """
         (y, x) = pos
         
         min_x = x - 1
@@ -354,12 +352,12 @@ class TestLayout(setup_imagetest.TestBase):
                     
     @staticmethod
     def enumerate_four_adjacent(pos, grid_dims):
-        '''
+        """
         yields coordinates of all 8-way adjacent cells on a grid
         :param tuple pos: (Y,X) position on a grid
         :param tuple grid_dims: (Y,X) size of grid
         :returns: (adjacentY, adjacentX) as array
-        '''
+        """
         (y, x) = pos
         
         min_x = x - 1
@@ -386,7 +384,7 @@ class TestLayout(setup_imagetest.TestBase):
           
     @hypothesis.given(hypothesis.strategies.integers(1, 15), hypothesis.strategies.integers(1, 15))
     def test_layout_with_properties(self, num_cols, num_rows):
-        '''Generate a 10x10 grid of tiles with fixed positions and correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
+        """Generate a 10x10 grid of tiles with fixed positions and correct tension vectors. Ensure relax can move the tiles to approximately correct positions"""
         self.do_layout(num_cols, num_rows)
          
     def do_layout(self, num_cols, num_rows):
@@ -490,10 +488,10 @@ class TestLayout(setup_imagetest.TestBase):
 
     @classmethod
     def flood_fill(cls, bit_mask, origin, checked_mask=None, desired_value=None):
-        '''
+        """
         An iterator that yields all indicies connected to true bits of the mask
         If the origin is over a false bit, then only the origin is returned
-        '''
+        """
         
         if checked_mask is None:
             checked_mask = np.zeros(bit_mask.shape, dtype=np.bool)
@@ -534,13 +532,13 @@ class TestLayout(setup_imagetest.TestBase):
         self._run_layout_relax_into_grid(lambda: (np.random.rand(), (_random_in_range(), _random_in_range())), 0.2, "Random weights and offsets")
         
     def test_layout_relax_into_grid_random_offset_propoportinal_weight(self):
-        '''
+        """
         Uses a random weight, but the amount of offset is proportional to the weight.  A low weight is a larger error in the offset
-        '''
+        """
         self._run_layout_relax_into_grid(_random_weight_proportional_offset, 0.2, "Random weights and proportional offsets")
     
     def _run_layout_relax_into_grid(self, weight_distance_generator_func, error_scalar, description):
-        '''Generate a 10x10 grid of tiles with random positions but correct tension vectors. Ensure relax can move the tiles to approximately correct positions'''
+        """Generate a 10x10 grid of tiles with random positions but correct tension vectors. Ensure relax can move the tiles to approximately correct positions"""
         num_cols = 5
         num_rows = 5
         grid_dims = (num_rows, num_cols)

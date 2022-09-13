@@ -59,9 +59,8 @@ def _TransformToIRToolsGridString(Transform, XDim, YDim, bounds=None):
     image_width =  (right - left) + 1 #We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
     image_height = (top - bottom) + 1 
     
-    output = []
-    output.append("GridTransform_double_2_2 vp " + str(numPoints * 2))
-     
+    output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
+
     # template = " %(cx).3f %(cy).3f"
     template = " %(cx)s %(cy)s"
 
@@ -88,8 +87,7 @@ def _TransformToIRToolsString(Transform, bounds=None):
     image_width =  (right - left) + 1 #We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
     image_height = (top - bottom) + 1 
 
-    output = []
-    output.append("MeshTransform_double_2_2 vp " + str(numPoints * 4))
+    output = ["MeshTransform_double_2_2 vp " + str(numPoints * 4)]
 
     # template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
     template = " %(mx)s %(my)s %(cx)s %(cy)s"

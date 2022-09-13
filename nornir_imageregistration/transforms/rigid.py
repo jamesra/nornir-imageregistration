@@ -64,11 +64,9 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         
         
     def __getstate__(self):
-        odict = {}
-        odict['_angle'] = self._angle
-        odict['target_offset'] = (self.target_offset[0], self.target_offset[1])
-        odict['source_space_center_of_rotation'] = (self.source_space_center_of_rotation[0],
-                                                    self.source_space_center_of_rotation[1])
+        odict = {'_angle': self._angle, 'target_offset': (self.target_offset[0], self.target_offset[1]),
+                 'source_space_center_of_rotation': (self.source_space_center_of_rotation[0],
+                                                     self.source_space_center_of_rotation[1])}
         return odict
 
     def __setstate__(self, dictionary):

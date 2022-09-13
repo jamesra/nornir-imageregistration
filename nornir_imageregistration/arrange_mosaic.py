@@ -84,7 +84,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
 
     mosaic_tileset = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths, imageScale)
  
-    tile_layout = _FindTileOffsets(mosaic_tileset, excess_scalar, imageScale=imageScale)
+    tile_layout = _FindTileOffsets(mosaic_tileset, excess_scalar, image_to_source_space_scale=imageScale)
     
     nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(tile_layout, min_allowed_weight=0, max_allowed_weight=1.0)
     nornir_imageregistration.layout.RelaxLayout(tile_layout, max_tension_cutoff=max_relax_tension_cutoff, max_iter=max_relax_iterations)
@@ -604,7 +604,8 @@ def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_ex
     
     Width = overlapping_rect.Width * excess_scalar
     Height = overlapping_rect.Height * excess_scalar
-    scaled_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(overlapping_rect.Center, [Height, Width])
+    scaled_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(overlapping_rect.Center,
+                                                                                  (Height, Width))
     
     #scaled_rect = nornir_imageregistration.Rectangle.scale_on_center(overlapping_rect, excess_scalar)
     scaled_rect = nornir_imageregistration.Rectangle.SafeRound(scaled_rect)

@@ -202,18 +202,27 @@ def _DisplayImageList1D(input_params, title=None):
     fig, axes = plt.subplots(height, width)
     
     total_plots = height * width
-
+    
+    ndim = len(axes.shape)
+    
     for i, image in enumerate(input_params):
-        iRow = i // width
-        iCol = (i - (iRow * width)) % width
-
-        # print("Row %d Col %d" % (iRow, iCol))
-
-        if height > 1:
-            ax = axes[iRow, iCol ]
+        
+        ax = None
+        
+        if ndim == 1:
+            ax = axes[i]
+        elif ndim == 2:
+            iRow = i // width
+            iCol = (i - (iRow * width)) % width
+            # print("Row %d Col %d" % (iRow, iCol))
+    
+            if height > 1:
+                ax = axes[iRow, iCol ]
+            else:
+                ax = axes[iCol] 
         else:
-            ax = axes[iCol]
-
+            raise NotImplemented("What in the world?  3D Display or something?")
+        
         ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
     
     i += 1

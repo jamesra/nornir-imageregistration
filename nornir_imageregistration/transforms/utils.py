@@ -25,7 +25,7 @@ def InvalidIndicies(points):
 
     assert(points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
-    return (points, invalidIndicies);
+    return (points, invalidIndicies)
 
 
 def RotationMatrix(rangle):

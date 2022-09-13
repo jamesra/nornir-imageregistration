@@ -507,7 +507,7 @@ class Layout(object):
             node = self.nodes[node_ID]
             
             for connected_ID in node.ConnectedIDs:
-                self.RemoveOverlap(node_ID, connected_ID)
+                self.RemoveOverlap((node_ID, connected_ID))
                 
             del self.nodes[node_ID]
             
@@ -1226,8 +1226,8 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
     :param dict tile_offset_dict: Keys are (A,B) values are offsets [Y,X]
     '''
     if layout_list is None or len(layout_list) == 0:
-        return None;
-    
+        return None
+
     if len(layout_list) == 1:
         return layout_list[0]
     
@@ -1340,7 +1340,7 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
     for layout in layout_list:
         if layout.ID in distinct_IDs:
             unmerged_layouts.append(layout)
-            distinct_IDs = distinct_IDs - set([layout.ID])
+            distinct_IDs = distinct_IDs - {layout.ID}
         
     return MergeDisconnectedLayouts(unmerged_layouts)
     

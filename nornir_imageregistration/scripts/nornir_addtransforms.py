@@ -45,13 +45,14 @@ def __CreateArgParser(ExecArgs=None):
                         dest='warpedpath'
                         )
 
-    return parser;
+    return parser
+
 
 def ParseArgs(ExecArgs=None):
     if ExecArgs is None:
-        ExecArgs = sys.argv;
+        ExecArgs = sys.argv
 
-    parser = __CreateArgParser();
+    parser = __CreateArgParser()
 
     return parser.parse_known_args(args=ExecArgs)
 
@@ -84,7 +85,7 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    MToVStos = stosfile.AddStosTransforms(Args.warpedpath, Args.fixedpath)
+    MToVStos = stosfile.AddStosTransforms(Args.warpedpath, Args.fixedpath, EnrichTolerance=None)
     MToVStos.Save(Args.outputpath)
 
     if os.path.exists(Args.outputpath):
@@ -95,10 +96,10 @@ def Execute(ExecArgs=None):
 
 if __name__ == '__main__':
 
-    (args, extra) = ParseArgs();
+    (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
-    Execute();
+    Execute()
 
     pass

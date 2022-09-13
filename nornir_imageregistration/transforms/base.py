@@ -3,6 +3,7 @@ Created on Oct 18, 2012
 
 @author: Jamesan
 '''
+import abc
 
 import nornir_pools
 from abc import ABC, ABCMeta, abstractproperty, abstractmethod, abstractstaticmethod, abstractclassmethod
@@ -19,8 +20,8 @@ class ITransform(ABC):
         '''Map points from the fixed space to mapped space. Nornir is gradually transitioning to a target space to source space naming convention.'''
         pass
       
-    @abstractclassmethod
-    def Load(cls, TransformString, pixelSpacing=None):
+    @abc.abstractmethod
+    def Load(self, TransformString, pixelSpacing=None):
         '''
         Creates an instance of the transform from the TransformString
         '''
@@ -64,22 +65,22 @@ class ITransformScaling(ABC):
         raise NotImplementedError()
     
 class IDiscreteTransform(ITransform):
-    @abstractproperty
+    @abc.abstractmethod
     def MappedBoundingBox(self):
         '''Bounding box of mapped space points'''
         raise NotImplementedError()
  
-    @abstractproperty
+    @abc.abstractmethod
     def FixedBoundingBox(self):
         '''Bounding box of fixed space points'''
         raise NotImplementedError()
 
 class IControlPoints:
-    @abstractproperty
+    @abc.abstractmethod
     def SourcePoints(self):
         raise NotImplementedError()
     
-    @abstractproperty
+    @abc.abstractmethod
     def TargetPoints(self):
         raise NotImplementedError()
     

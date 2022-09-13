@@ -33,7 +33,6 @@ import numpy as np
 from nornir_imageregistration.views import plot_tile_overlap
 
 import setup_imagetest
-import mosaic_tileset
 
 
 # from pylab import *

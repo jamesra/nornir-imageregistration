@@ -185,6 +185,7 @@ class StosFile(object):
 #                                         None,
 #                                         None,
 #                                         'Filename of Control Image Mask')
+        self._Transform = None
 
         self.ControlImagePath = None
         self.MappedImagePath = None
@@ -307,7 +308,7 @@ class StosFile(object):
             PrettyOutput.LogErr("stos file not found: " + filename)
             return
         except Exception as error:
-            PrettyOutput.LogErr("Unexpected error {0} while opening stos file {1}" % (str(error), filename))
+            PrettyOutput.LogErr(f"Unexpected error {error} while opening stos file {filename}")
             return
             
         if len(lines) < 7:

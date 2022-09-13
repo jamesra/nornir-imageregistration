@@ -41,13 +41,13 @@ def GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOve
     if MaskIndex in __known_overlap_masks:
         return __known_overlap_masks[MaskIndex]
 
-    Mask = __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap, MaxOverlap)
-    __known_overlap_masks[MaskIndex] = Mask
+    mask = __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap, MaxOverlap)
+    __known_overlap_masks[MaskIndex] = mask
 
-    return Mask
+    return mask
 
 
-def __CreateFullMaskFromQuadrant(Mask, isOddDimension):
+def __CreateFullMaskFromQuadrant(Mask:np.ndarray, isOddDimension:np.ndarray):
     '''
     Given an image, replicates the image symetrically around both the X and Y axis to create a full mask
     :param array isOddDimension: True if the axis has an odd dimension in the input.

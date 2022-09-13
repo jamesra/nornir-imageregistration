@@ -236,8 +236,6 @@ class Tile(object):
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
         '''
 
-        global __nextID
-        
         if transform is None: 
             raise ValueError("transform is None")
         if imagepath is None: 
@@ -281,14 +279,10 @@ class Tile(object):
 
             
     def __getstate__(self):
-        odict = {}
-        odict['_transform'] = self._transform
-        odict['_imagepath'] = self._imagepath
-        odict['_source_bounding_box'] = self._source_bounding_box
-        odict['_target_bounding_box'] = self._target_bounding_box
-        odict['image_to_source_space_scale'] = self.image_to_source_space_scale
-        odict['_image_size'] = self._image_size
-        odict['_ID'] = self._ID
+        odict = {'_transform': self._transform, '_imagepath': self._imagepath,
+                 '_source_bounding_box': self._source_bounding_box, '_target_bounding_box': self._target_bounding_box,
+                 'image_to_source_space_scale': self.image_to_source_space_scale, '_image_size': self._image_size,
+                 '_ID': self._ID}
 
         return odict
 

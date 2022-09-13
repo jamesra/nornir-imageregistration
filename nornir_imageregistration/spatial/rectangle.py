@@ -327,8 +327,8 @@ class Rectangle(object):
         elif isinstance(other, np.array):
             return np.array_equal(self._bounds, other)
         
-        return False;
-    
+        return False
+
     def __ne__(self, other):
         return self.__eq__(other) == False
             
@@ -373,8 +373,7 @@ class Rectangle(object):
         return 
     
     def __getstate__(self):
-        d = {}
-        d['_bounds'] = self._bounds 
+        d = {'_bounds': self._bounds}
         return d
 
     def __setstate__(self, state):
@@ -445,7 +444,7 @@ class Rectangle(object):
         return Rectangle.CreateFromBounds((minY, minX, maxY, maxX))
 
     @classmethod
-    def _AreBoundsValid(cls, bounds):
+    def _AreBoundsValid(cls, bounds:np.ndarray):
         return isinstance(bounds, np.ndarray) and \
                bounds.size == 4 and \
                np.issubdtype(bounds.dtype, np.floating) 
@@ -494,12 +493,12 @@ class Rectangle(object):
         return Rectangle(bounds=(point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height], point[iPoint.X] + area[iArea.Width]))
 
     @staticmethod
-    def CreateFromBounds(Bounds):
+    def CreateFromBounds(bounds:tuple | np.ndarray):
         '''
         :param tuple Bounds: (MinY,MinX,MaxY,MaxX)
         '''
         # return Rectangle(Bounds[1], Bounds[0], Bounds[3], Bounds[2])
-        return Rectangle(Bounds)
+        return Rectangle(bounds)
 
     @classmethod
     def PrimitiveToRectange(cls, primitive):
@@ -514,7 +513,7 @@ class Rectangle(object):
 
         if len(primitive) == 2:
             Warning("This constructor appears odd, investigate this path")
-            return Rectangle(primitive[0], primitive[1], primitive[0], primitive[1])
+            return Rectangle((primitive[0], primitive[1], primitive[0], primitive[1]))
         elif len(primitive) == 4:
             return Rectangle(primitive)
         else:

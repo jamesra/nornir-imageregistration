@@ -57,13 +57,14 @@ def __CreateArgParser(ExecArgs=None):
                         help="Output path for log files",
                         dest="logpath")
     
-    return parser;
+    return parser
+
 
 def ParseArgs(ExecArgs=None):
     if ExecArgs is None:
-        ExecArgs = sys.argv;
+        ExecArgs = sys.argv
 
-    parser = __CreateArgParser();
+    parser = __CreateArgParser()
 
     return parser.parse_known_args(args=ExecArgs)
 
@@ -122,11 +123,11 @@ def Execute(ExecArgs=None):
 
 if __name__ == '__main__':
 
-    (args, extra) = ParseArgs();
+    (args, extra) = ParseArgs()
 
     if not args.logpath is None:
         nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.logpath), "Logs"))
 
-    Execute();
+    Execute()
 
     pass
