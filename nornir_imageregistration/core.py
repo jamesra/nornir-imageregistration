@@ -1080,7 +1080,7 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray=None, size_cutoff=0.00
         if nLabels == 0:  # If there are no labels, do not mask anything
             return np.ones(image.shape, extrema_mask.dtype)
 
-        label_sums = scipy.ndimage.measurements.sum_labels(extrema_mask, extrema_mask_label, list(range(0, nLabels)))
+        label_sums = scipy.ndimage.sum_labels(extrema_mask, extrema_mask_label, list(range(0, nLabels)))
 
         cutoff_value = None
         # if cutoff value is less than one treat it as a fraction of total area
