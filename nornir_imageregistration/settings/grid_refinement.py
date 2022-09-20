@@ -95,8 +95,8 @@ class GridRefinement(object):
         else:
             self.source_mask = source_extrema_mask
             
-        self.target_image = nornir_imageregistration.RandomNoiseMask(target_image, target_mask, Copy=False)
-        self.source_image = nornir_imageregistration.RandomNoiseMask(source_image, source_mask, Copy=False)
+        self.target_image = nornir_imageregistration.RandomNoiseMask(target_image, self.target_mask, Copy=False)
+        self.source_image = nornir_imageregistration.RandomNoiseMask(source_image, self.source_mask, Copy=False)
              
         self.angles_to_search            = [0] if angles_to_search is None else angles_to_search
         self.final_pass_angles           = [0] if final_pass_angles is None else final_pass_angles
