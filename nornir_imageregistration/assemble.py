@@ -1,8 +1,8 @@
-'''
+"""
 Created on Apr 22, 2013
 
 
-'''
+"""
 
 import os
  
@@ -41,16 +41,16 @@ def GetROICoords(botleft, area):
     return coordArray
 
 def DestinationROI_to_SourceROI(transform, botleft, area, extrapolate=False):
-    ''' 
+    """
     Apply a transform to a region of interest within an image. Center and area are in fixed space
-    
+
+    :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
     :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
     :param 1x2_array area: The (Height, Width) of the region of interest
-    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
-    :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
+e coordinates.
     :rtype: tuple(Nx2 array,Nx2 array)
-    '''
+    """
 
     DstSpace_coordArray = GetROICoords(botleft, area)
 
@@ -66,16 +66,16 @@ def DestinationROI_to_SourceROI(transform, botleft, area, extrapolate=False):
 
 
 def SourceROI_to_DestinationROI(transform, botleft, area, extrapolate=False):
-    '''
+    """
     Apply an inverse transform to a region of interest within an image. Center and area are in fixed space
-    
+
+    :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
     :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
     :param 1x2_array area: The (Height, Width) of the region of interest
-    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
-    :return: Tuple of arrays.  First array is fixed space coordinates.  Second array is warped space coordinates.
+e coordinates.
     :rtype: tuple(Nx2 array,Nx2 array)
-    '''
+    """
 
     SrcSpace_coordArray = GetROICoords(botleft, area)
 
@@ -91,16 +91,17 @@ def SourceROI_to_DestinationROI(transform, botleft, area, extrapolate=False):
 
 
 def ExtractRegion(image, botleft=None, area=None, cval=0):
-    '''
+    """
     Extract a region from an image
-    
+
+    :param cval:
     :param ndarray image: Source image
     :param 1x2_array botleft: The (Y,X) coordinates of the bottom left corner
     :param 1x2_array area: The (Height, Width) of the region of interest
     :return: Image of requested region
     :rtype: ndarray
-    
-    '''
+
+    """
     
     raise DeprecationWarning("Deprecated __ExtractRegion call being used, use nornir_imageregistration.CropImage instead")
 #     if botleft is None:
@@ -123,14 +124,14 @@ def __ExtractRegion(image, botleft, area):
 
 
 def __CropImageToFitCoords(input_image, coordinates, cval=0):
-    '''For large images we only need a specific range of coordinates from the image.  However Scipy calls such as map_coordinates will 
-       send the entire image through a spline_filter first.  To avoid this we crop the image with a padding of one and adjust the 
+    """For large images we only need a specific range of coordinates from the image.  However Scipy calls such as map_coordinates will
+       send the entire image through a spline_filter first.  To avoid this we crop the image with a padding of one and adjust the
        coordinates appropriately
        :param ndarray input_image: image we will be extracting data from at the specfied coordinates
        :param ndarray coordinates: Nx2 array of points indexing into the image
        :param float cval: Value to use for regions outside the existing image when padding
        :return: (cropped_image, translated_coordinates)
-       '''
+       """
     minCoord = np.floor(np.min(coordinates, 0)) - np.array([1, 1])
     maxCoord = np.ceil(np.max(coordinates, 0)) + np.array([1, 1])
     
@@ -170,13 +171,14 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
 
 
 def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, WarpedImage, area=None, cval=0):
-    '''Use the passed coordinates to create a warped image
+    """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
     :Param FixedImageArea: Dimensions of fixed space
     :Param WarpedImage: Image to read pixel values from while creating fixed space images
     :Param area: Expected dimensions of output
-    :Param cval: Value to place in unmappable regions, defaults to zero.'''
+    :Param cval: Value to place in unmappable regions, defaults to zero.
+    """
 
     if area is None:
         area = FixedImageArea
@@ -248,7 +250,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
        
 
 def _ReplaceFilesWithImages(listImages):
-    '''Replace any filepath strings in the passed parameter with loaded images.'''
+    """Replace any filepath strings in the passed parameter with loaded images."""
     
     if isinstance(listImages, list):
         for i, value in enumerate(listImages):
@@ -260,16 +262,16 @@ def _ReplaceFilesWithImages(listImages):
 
 
 def FixedImageToWarpedSpace(transform, WarpedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
-    '''Warps every image in the DataToTransform list using the provided transform.
-    :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
-    :Param FixedImageArea: Size of fixed space region to map pixels into
-    :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
-    :Param botleft: Origin of region to map
-    :Param area: Expected dimensions of output
-    :Param cval: Value to place in unmappable regions, defaults to zero.
-    :param bool exrapolate: If true map points that fall outside the bounding box of the transform
-    '''
-    
+    """Warps every image in the DataToTransform list using the provided transform.
+    :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
+    :param FixedImageArea: Size of fixed space region to map pixels into
+    :param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
+    :param botleft: Origin of region to map
+    :param area: Expected dimensions of output
+    :param cval: Value to place in unmappable regions, defaults to zero.
+    :param bool extrapolate: If true map points that fall outside the bounding box of the transform
+    """
+
     if botleft is None:
         botleft = (0, 0)
 
@@ -302,7 +304,13 @@ def FixedImageToWarpedSpace(transform, WarpedImageArea, DataToTransform, botleft
 
 def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
 
-    '''Warps every image in the DataToTransform list using the provided transform.
+    """Warps every image in the DataToTransform list using the provided transform.
+    :param transform:
+    :param FixedImageArea:
+    :param DataToTransform:
+    :param botleft:
+    :param area:
+    :param cval:
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :Param FixedImageArea: Size of fixed space region to map pixels into
     :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
@@ -310,7 +318,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
     :param bool extrapolate: If true map points that fall outside the bounding box of the transform
-    '''
+    """
     
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)  
     
@@ -352,10 +360,10 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
 
 
 def ParameterToStosTransform(transformData):
-    '''
+    """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
     :return: A transform
-    '''
+    """
     stostransform = None 
     
     if isinstance(transformData, str):
@@ -373,14 +381,14 @@ def ParameterToStosTransform(transformData):
 
 
 def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
-    '''Assembles an image based on the passed transform.
+    """Assembles an image based on the passed transform.
+    :param transformData:
+    :param OutputFilename:
     :param str fixedImage: Image describing the size we want the warped image to fill, either a string or ndarray
     :param str warpedImage: Image we will warp into fixed space, either a string or ndarray
     :param float scalar: Amount to scale the transform before passing the image through
     :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
-    :param bool Dicreet: True causes points outside the defined transform region to be clipped instead of interpolated
-    :return: transformed image
-    '''
+    """
 
     stos = None
     stostransform = ParameterToStosTransform(transformData)
@@ -412,13 +420,14 @@ def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedIma
 
 
 def TransformImage(transform, fixedImageShape, warpedImage, CropUndefined):
-    '''Cut image into tiles, assemble small chunks
+    """
+    Cut image into tiles, assemble small chunks
     :param transform transform: Transform to apply to point to map from warped image to fixed space
     :param ndarray fixedImageShape: Width and Height of the image to create
     :param ndarray warpedImage: Image to transform to fixed space
     :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
     :return: An ndimage array of the transformed image
-    '''
+    """
     
     if CropUndefined:
         transform = triangulation.Triangulation(pointpairs=transform.points)

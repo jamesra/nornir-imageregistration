@@ -153,6 +153,11 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft, TopRight, Botto
 
 def CreateOneTilesetTileWithPillow(TileDims, TopLeft, TopRight, BottomLeft, BottomRight, OutputFileFullPath ):
     '''Create a single tile by merging four tiles from a higher resolution and downsampling
+    :param TopLeft:
+    :param TopRight:
+    :param BottomLeft:
+    :param BottomRight:
+    :param OutputFileFullPath:
     :param tuple TileDims: (Height, Width) of tiles'''
     
     TileSize = numpy.asarray((TileDims[1], TileDims[0]), dtype=numpy.int64) #Pillow uses the opposite ordering of axis

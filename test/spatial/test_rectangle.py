@@ -146,7 +146,8 @@ class Test(unittest.TestCase):
         overlap_rect_list = list(self.OverlapRects.values())
         self.EnumerateOverlappingRectangles(overlap_rect_list)
         
-    @hypothesis.given(rects=rectangles(0,128, shapeRange=(1,100)))
+    @hypothesis.given(rects=rectangles(0,64, shapeRange=(1,100)))
+    @hypothesis.settings(deadline=3000)
     def testRectangleSetWithHypothesis(self, rects):
         self.EnumerateOverlappingRectangles(rect_list=rects)
         

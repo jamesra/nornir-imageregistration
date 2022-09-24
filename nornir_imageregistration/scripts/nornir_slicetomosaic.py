@@ -19,21 +19,21 @@ def __CreateArgParser(ExecArgs=None):
 
 
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
-    parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file");
+    parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file")
 
     parser.add_argument('-input', '-i',
                         action='store',
                         required=True,
                         type=str,
                         help='Input .stos file path',
-                        dest='inputpath');
+                        dest='inputpath')
 
     parser.add_argument('-output', '-o',
                         action='store',
                         required=True,
                         type=str,
                         help='Output image file path',
-                        dest='outputpath');
+                        dest='outputpath')
 
     parser.add_argument('-fixed', '-f',
                         action='store',
@@ -42,7 +42,7 @@ def __CreateArgParser(ExecArgs=None):
                         default=None,
                         help='Fixed image path, overrides .stos file fixed image entry',
                         dest='fixedimagepath'
-                        );
+                        )
 
     parser.add_argument('-warped', '-w',
                         action='store',
@@ -51,7 +51,7 @@ def __CreateArgParser(ExecArgs=None):
                         default=None,
                         help='Warping image path, overrides .stos file fixed image entry',
                         dest='warpedimagepath'
-                        );
+                        )
 
     parser.add_argument('-scale', '-s',
                         action='store',
@@ -60,15 +60,16 @@ def __CreateArgParser(ExecArgs=None):
                         default=1.0,
                         help='The input images are a different size than the transform, scale the transform by the specified factor',
                         dest='scalar'
-                        );
+                        )
 
-    return parser;
+    return parser
+
 
 def ParseArgs(ExecArgs=None):
     if ExecArgs is None:
-        ExecArgs = sys.argv;
+        ExecArgs = sys.argv
 
-    parser = __CreateArgParser();
+    parser = __CreateArgParser()
 
     return parser.parse_known_args(args=ExecArgs)
 
@@ -108,10 +109,10 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    nornir_imageregistration.assemble.TransformStos(transformFullpath=Args.inputpath,
+    nornir_imageregistration.assemble.TransformStos(transformData=Args.inputpath,
                                    OutputFilename=Args.outputpath,
-                                   fixedImageFilename=Args.fixedimagepath,
-                                   warpedImageFilename=Args.warpedimagepath,
+                                   fixedImage=Args.fixedimagepath,
+                                   warpedImage=Args.warpedimagepath,
                                    scalar=Args.scalar,
                                    CropUndefined=False)
 
@@ -123,10 +124,10 @@ def Execute(ExecArgs=None):
 
 if __name__ == '__main__':
 
-    (args, extra) = ParseArgs();
+    (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
-    Execute();
+    Execute()
 
     pass

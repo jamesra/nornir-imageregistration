@@ -275,14 +275,13 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
 
 
 def TilesToImage(mosaic_tileset, TargetRegion=None, target_space_scale=None):
-    '''
+    """
     Generate an image of the TargetRegion.
     :param MosaicTileset mosaic_tileset: Tileset to assemble
     :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
     :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
-    :param float source_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
-    4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
-    '''
+    """
+
     
     if target_space_scale is not None and target_space_scale > 1.0:
         raise ValueError("It isn't impossible this is what the caller requests, but this value expands the resulting image beyond full resolution of the transform.")
@@ -364,13 +363,14 @@ def TilesToImage(mosaic_tileset, TargetRegion=None, target_space_scale=None):
 
 
 def TilesToImageParallel(mosaic_tileset, TargetRegion=None, target_space_scale=None, pool=None):
-    '''Assembles a set of transforms and imagepaths to a single image using parallel techniques.
+    """Assembles a set of transforms and imagepaths to a single image using parallel techniques.
+    :param pool:
     :param MosaicTileset mosaic_tileset: Tileset to assemble
     :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
     :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
     :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
     4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
-    '''
+    """
   
     logger = logging.getLogger('TilesToImageParallel')
     
@@ -551,17 +551,18 @@ def __CreateScalableTransformCopy(transform):
     raise ValueError("Transform does not support ITransformScaling and does not have a hand-coded mapping here")        
 
 
-def TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
-    '''Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
+def TransformTile(tile:nornir_imageregistration.Tile, distanceImage:np.ndarray=None, target_space_scale:float=None, TargetRegion=None, SingleThreadedInvoke:bool=False):
+    """
+       Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
        transform.  A scale will be calculated in this case and if it does not match the required scale the tile will 
        not be transformed.
-       :param transform transform: Transformation used to map pixels from source image to output image
-       :param str imagefullpath: Full path to the image on disk
-       :param ndarray distanceImage: Optional pre-allocated array to contain the distance of each pixel from the center for use as a depth mask
-       :param float target_space_scale: Optional pre-calculated scalar to apply to the transforms target space control points.  If None the scale is calculated based on the difference
+get_space_scale: Optional pre-calculated scalar to apply to the transforms target space control points.  If None the scale is calculated based on the difference
                                    between input image size and the image size of the transform. i.e.  If the source_space is downsampled by 4 then the target_space will be downsampled to match
+       :param tile:
+       :param SingleThreadedInvoke:
        :param array TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
+    """
 
     TargetRegionRect = None
     if not TargetRegion is None:

@@ -1,4 +1,3 @@
-import os
 import json
 
 from .grid_refinement import GridRefinement
@@ -17,5 +16,5 @@ def GetOrSaveTranslateSettings(settings:TranslateSettings, path:str):
             return TranslateSettings(**data)
     except:
         with open(path, 'w') as jsonfile:
-            json_data = json.dump(settings.__dict__, jsonfile, sort_keys=True, indent=2)
+            json.dump(settings.__dict__, jsonfile, sort_keys=True, indent=2)
         return settings

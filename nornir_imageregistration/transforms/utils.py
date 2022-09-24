@@ -6,6 +6,7 @@ Created on Apr 4, 2013
 
 import nornir_imageregistration
 import numpy as np
+from numpy.typing import NDArray
 from nornir_shared import prettyoutput
 from collections.abc import Iterable
 
@@ -25,7 +26,7 @@ def InvalidIndicies(points):
 
     assert(points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
-    return (points, invalidIndicies);
+    return (points, invalidIndicies)
 
 
 def RotationMatrix(rangle):
@@ -43,10 +44,11 @@ def IdentityMatrix():
     return np.matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-def TranslateMatrixXY(offset):
+def TranslateMatrixXY(offset: tuple[float, float] | NDArray):
     '''
-    :param float scale: An offset to translate by, either tuple of (Y,X) or an array
+    :param offset: An offset to translate by, either tuple of (Y,X) or an array
     '''
+
     if offset is None:
         raise ValueError("Angle must not be none") 
     elif hasattr(offset, "__iter__"):
@@ -55,7 +57,7 @@ def TranslateMatrixXY(offset):
     raise NotImplementedError("Unexpected argument")
 
 
-def ScaleMatrixXY(scale):
+def ScaleMatrixXY(scale: float):
     '''
     :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
     '''

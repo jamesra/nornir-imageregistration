@@ -63,6 +63,8 @@ class TransformWarpView:
         
     def GenerateWarpImage(self, RenderToSourceSpace=True, title=None, outputfullpath=None, maxAngle=None):
         '''Generate a plot for the change in angles for verticies
+        :param RenderToSourceSpace:
+        :param title:
         :param str outputfullpath: Filename to save, if None then display interactively
         :param float maxAngle: The angle that maps to the highest value in the temperature map of the output.  Defaults to maximum angle found
         '''

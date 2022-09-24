@@ -1,15 +1,12 @@
-'''
+"""
 Created on Oct 18, 2012
 
 @author: Jamesan
-'''
-
-import math
+"""
 
 import nornir_imageregistration 
 from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
 import numpy
-import scipy.interpolate
 
 import nornir_pools 
 from .triangulation import Triangulation
@@ -18,9 +15,9 @@ from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
 class MeshWithRBFFallback(Triangulation):
-    '''
+    """
     classdocs
-    '''
+    """
     
     def __getstate__(self):
         
@@ -63,8 +60,8 @@ class MeshWithRBFFallback(Triangulation):
 
 
     def ClearDataStructures(self):
-        '''Something about the transform has changed, for example the points. 
-           Clear out our data structures so we do not use bad data'''
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
 
         super(MeshWithRBFFallback, self).ClearDataStructures()
 
@@ -83,17 +80,17 @@ class MeshWithRBFFallback(Triangulation):
         self._ReverseRBFInstance = None
 
     def Transform(self, points, **kwargs):
-        '''
+        """
         Transform from warped space to fixed space
-        
-        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...] 
-        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
-        '''
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+        """
+
+
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
-            return [];
+            return []
 
         TransformedPoints = super(MeshWithRBFFallback, self).Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -103,34 +100,33 @@ class MeshWithRBFFallback(Triangulation):
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if(len(InvalidIndicies) == 0):
-            return TransformedPoints;
+            return TransformedPoints
         else:
             if len(points) > 1:
                 # print InvalidIndicies;
-                BadPoints = points[InvalidIndicies];
+                BadPoints = points[InvalidIndicies]
             else:
-                BadPoints = points;
+                BadPoints = points
 
-        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32);
+        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
             
-        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints);
+        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
 
-        TransformedPoints[InvalidIndicies] = FixedPoints;
-        return TransformedPoints;
+        TransformedPoints[InvalidIndicies] = FixedPoints
+        return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''
+        """
         Transform from fixed space to warped space
-        
-        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
-        ''' 
+        :param points:
+        """
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
-            return [];
+            return []
 
         TransformedPoints = super(MeshWithRBFFallback, self).InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -138,7 +134,7 @@ class MeshWithRBFFallback(Triangulation):
             return TransformedPoints
 
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
- 
+
         if(len(InvalidIndicies) == 0):
             return TransformedPoints
         else:
@@ -156,9 +152,9 @@ class MeshWithRBFFallback(Triangulation):
         return TransformedPoints
 
     def __init__(self, pointpairs):
-        ''' 
+        """
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
-        '''
+        """
         super(MeshWithRBFFallback, self).__init__(pointpairs)
 
         self._ReverseRBFInstance = None
@@ -175,62 +171,58 @@ if __name__ == '__main__':
                   [10, 0, -10, 0],
                   [10, 10, -10, -10]])
 
-    (Fixed, Moving) = numpy.hsplit(p, 2);
-    T = RBFWithLinearCorrection(Fixed, Moving);
+    (Fixed, Moving) = numpy.hsplit(p, 2)
+    T = RBFWithLinearCorrection(Fixed, Moving)
 
-    warpedPoints = [[0, 0], [-5, -5]];
-    fp = T.ViewTransform(warpedPoints);
+    warpedPoints = [[0, 0], [-5, -5]]
+    fp = T.ViewTransform(warpedPoints)
     print(("__Transform " + str(warpedPoints) + " to " + str(fp)))
-    wp = T.InverseTransform(fp);
-
+    wp = T.InverseTransform(fp)
 
     print("Fixed Verts")
-    print(T.FixedTriangles);
+    print(T.FixedTriangles)
     print("\nWarped Verts")
-    print(T.WarpedTriangles);
+    print(T.WarpedTriangles)
 
-    T.AddPoint([5, 5, -5, -5]);
+    T.AddPoint([5, 5, -5, -5])
     print("\nPoint added")
     print("Fixed Verts")
-    print(T.FixedTriangles);
+    print(T.FixedTriangles)
     print("\nWarped Verts")
-    print(T.WarpedTriangles);
+    print(T.WarpedTriangles)
 
-    T.AddPoint([5, 5, 5, 5]);
+    T.AddPoint([5, 5, 5, 5])
     print("\nDuplicate Point added")
     print("Fixed Verts")
-    print(T.FixedTriangles);
+    print(T.FixedTriangles)
     print("\nWarped Verts")
-    print(T.WarpedTriangles);
+    print(T.WarpedTriangles)
 
-    warpedPoint = [[-5, -5]];
-    fp = T.ViewTransform(warpedPoint);
+    warpedPoint = [[-5, -5]]
+    fp = T.ViewTransform(warpedPoint)
     print(("__Transform " + str(warpedPoint) + " to " + str(fp)))
-    wp = T.InverseTransform(fp);
+    wp = T.InverseTransform(fp)
 
-    T.UpdatePoint(3, [10, 15, -10, -15]);
+    T.UpdatePoint(3, [10, 15, -10, -15])
     print("\nPoint updated")
     print("Fixed Verts")
-    print(T.FixedTriangles);
+    print(T.FixedTriangles)
     print("\nWarped Verts")
-    print(T.WarpedTriangles);
+    print(T.WarpedTriangles)
 
-    warpedPoint = [[-9, -14]];
-    fp = T.ViewTransform(warpedPoint);
+    warpedPoint = [[-9, -14]]
+    fp = T.ViewTransform(warpedPoint)
     print(("__Transform " + str(warpedPoint) + " to " + str(fp)))
-    wp = T.InverseTransform(fp);
+    wp = T.InverseTransform(fp)
 
-    T.RemovePoint(1);
+    T.RemovePoint(1)
     print("\nPoint removed")
     print("Fixed Verts")
-    print(T.FixedTriangles);
+    print(T.FixedTriangles)
     print("\nWarped Verts")
-    print(T.WarpedTriangles);
-
-
-
+    print(T.WarpedTriangles)
 
     print("\nFixedPointsInRect")
-    print(T.GetFixedPointsRect([-1, -1, 14, 4]));
+    print(T.GetFixedPointsRect([-1, -1, 14, 4]))
 
 

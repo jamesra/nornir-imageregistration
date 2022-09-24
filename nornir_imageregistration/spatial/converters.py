@@ -5,8 +5,10 @@ Created on Apr 26, 2019
 '''
 
 import numpy
+from numpy.typing import NDArray
 import nornir_imageregistration
-from nornir_imageregistration.spatial.indicies import iPoint, iPoint3  
+from nornir_imageregistration.spatial import *
+
 
 def ArcAngle(origin, A, B):
     '''
@@ -28,7 +30,7 @@ def ArcAngle(origin, A, B):
 
     greaterthanpi = angle > numpy.pi
     angle[greaterthanpi] = angle[greaterthanpi] - (numpy.pi * 2)
-    
+
     return angle
 
 
@@ -40,16 +42,19 @@ def BoundsArrayFromPoints(points):
     min_point = numpy.min(points, 0)
     max_point = numpy.max(points, 0)
 
-    if(points.shape[1] == 2):
+    if (points.shape[1] == 2):
         return numpy.array((min_point[iPoint.Y], min_point[iPoint.X], max_point[iPoint.Y], max_point[iPoint.X]))
-    elif(points.shape[1] == 3):
-        return  numpy.array((min_point[iPoint3.Z], min_point[iPoint3.Y], min_point[iPoint3.X], max_point[iPoint3.Z], max_point[iPoint3.Y], max_point[iPoint3.X]))
+    elif (points.shape[1] == 3):
+        return numpy.array((min_point[iPoint3.Z], min_point[iPoint3.Y], min_point[iPoint3.X], max_point[iPoint3.Z],
+                            max_point[iPoint3.Y], max_point[iPoint3.X]))
     else:
         raise Exception("PointBoundingBox: Unexpected number of dimensions in point array" + str(points.shape))
 
-def BoundingPrimitiveFromPoints(points):
+
+def BoundingPrimitiveFromPoints(
+        points: NDArray) ->  Rectangle |  BoundingBox:
     '''Return either a rectangle or bounding box for a set of points'''
-    
+
     bounds = BoundsArrayFromPoints(points)
     if bounds.shape[0] == 4:
         return nornir_imageregistration.Rectangle.CreateFromBounds(bounds)

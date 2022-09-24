@@ -164,7 +164,7 @@ def Execute(ExecArgs=None):
          
 
 if __name__ == '__main__':
-    (args, extra) = ParseArgs();
+    (args, extra) = ParseArgs()
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(os.path.dirname(args.inputpath)), "Logs"))
 
     Execute()

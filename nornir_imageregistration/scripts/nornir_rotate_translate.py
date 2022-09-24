@@ -9,8 +9,6 @@ import logging
 import os
 import sys
 
-import nornir_imageregistration
-
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 

@@ -33,6 +33,13 @@ def SliceToSliceBruteForce(FixedImageInput,
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
        
+       :param FixedImageInput:
+       :param WarpedImageInput:
+       :param FixedImageMaskPath:
+       :param WarpedImageMaskPath:
+       :param SingleThread:
+       :param Cluster:
+       :param TestFlip:
        :param int LargestDimension: The input images should be scaled so the largest image dimension is equal to this value, default is None
        :param float MinOverlap: The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
@@ -186,14 +193,15 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
         RotatedPaddedWarped = RotatedWarped
     else:
         RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
-        
+
+    assert (np.array_equal(PaddedFixed.shape, RotatedPaddedWarped.shape))
+
     #if OKToDelimWarped:
     del imWarped 
     del imFixed
 
     del RotatedWarped
 
-    assert(PaddedFixed.shape == RotatedPaddedWarped.shape)
 
     CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 

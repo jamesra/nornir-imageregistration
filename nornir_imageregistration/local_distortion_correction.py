@@ -1,10 +1,10 @@
-'''
+"""
 Created on Apr 7, 2015
 
 @author: u0490822
 
 This module performs local distortions of images to refine alignments of mosaics and sections
-'''
+"""
 
 import nornir_pools
 import nornir_imageregistration
@@ -27,18 +27,18 @@ class DistortionCorrection:
 
     
 def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
-    '''
-    Locate overlapping regions between tiles in a mosaic and align multiple small subregions within.  This generates a set of control points. 
-    
-    More than one tile may overlap, for example corners.  To solve this the set of control points is merged into a KD tree.  Points closer than a set distance (less than subregion size) are averaged to create a single offset. 
-    
-    Using the remaining points a mesh transform is generated for the tile. 
-    '''
+    """
+    Locate overlapping regions between tiles in a mosaic and align multiple small subregions within.  This generates a set of control points.
+
+    More than one tile may overlap, for example corners.  To solve this the set of control points is merged into a KD tree.  Points closer than a set distance (less than subregion size) are averaged to create a single offset.
+
+    Using the remaining points a mesh transform is generated for the tile.
+    """
      
     if subregion_shape is None:
         subregion_shape = np.array([128, 128]) 
     
-    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths)
+    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths, image_to_source_space_scale=imageScale)
     list_tiles = list(tiles.values())
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = list()
@@ -54,7 +54,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
         # OK... add some small neighborhoods and register those...
         # (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
 #          
-        task = pool.add_task("Align %d -> %d" % (A.ID, B.ID),
+        task = pool.add_task("Align %d -> %d" % (tile_overlap.A.ID, tile_overlap.B.ID),
                             __RefineTileAlignmentRemote,
                             tile_overlap.A,
                             tile_overlap.B,
@@ -104,7 +104,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     return (layout, tiles)
 
 
-def __RefineTileAlignmentRemote(A, B, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B, OffsetAdjustment, imageScale, subregion_shape=None):
+def __RefineTileAlignmentRemote(A:nornir_imageregistration.Tile, B:nornir_imageregistration.Tile, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B, OffsetAdjustment, imageScale, subregion_shape=None):
     
     if subregion_shape is None:
         subregion_shape = np.array([128, 128])
@@ -119,8 +119,12 @@ def __RefineTileAlignmentRemote(A, B, scaled_overlapping_source_rect_A, scaled_o
     overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.FixedBoundingBox, B.FixedBoundingBox)
     overlapping_rect = nornir_imageregistration.Rectangle.change_area(overlapping_rect, grid_dim * subregion_shape * downsample)
         
-    ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=A.Transform, imagefullpath=A.ImagePath, distanceImage=None, target_space_scale=imageScale, TargetRegion=overlapping_rect.ToArray())
-    BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(transform=B.Transform, imagefullpath=B.ImagePath, distanceImage=None, target_space_scale=imageScale, TargetRegion=overlapping_rect.ToArray())
+    ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=A, distanceImage=None,
+                                                                                  target_space_scale=imageScale,
+                                                                                  TargetRegion=overlapping_rect.ToArray())
+    BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=B, distanceImage=None,
+                                                                                  target_space_scale=imageScale,
+                                                                                  TargetRegion=overlapping_rect.ToArray())
       
     # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
@@ -203,11 +207,12 @@ def __RefineTileAlignmentRemote(A, B, scaled_overlapping_source_rect_A, scaled_o
 
 
 def SplitDisplacements(A, B, point_pairs):
-    '''
+    """
+    :param B:
     :param tile A: Tile A, point_pairs are registered relative to this tile
     :param tile A: Tile B, the tile that point pairs register A onto
     :param ndarray point_pairs: A set of point pairs from a grid refinement
-    '''
+    """
     
     raise NotImplementedError()
 
@@ -224,22 +229,22 @@ def RefineStosFile(InputStos, OutputStosPath,
                    SaveImages=False,
                    SavePlots=False,
                    **kwargs):
-    '''
+    """
     Refines an inputStos file and produces the OutputStos file.
-    
+
     Places a regular grid of control points across the target image.  These corresponding points on the
-    source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
+    source image are then adjusted to create a mapping from Source To Fixed Space for the source image.
+    :param final_pass_angles:
+    :param max_travel_for_finalization:
+    :param min_alignment_overlap:
+    :param min_unmasked_area:
     :param StosFile InputStos: Either a file path or StosFile object.  This is the stosfile to be refined.
     :param OutputStosPath: Path to save the refined stos file at.
-    :param ndarray target_image: A file path indicating where to save the refined stos file
-    :param int num_iterations: The maximum number of iterations to perform
-    :param tuple cell_size: (width, height) area of image around control points to use for registration
+cell_size: (width, height) area of image around control points to use for registration
     :param tuple grid_spacing: (width, height) of separation between control points on the grid
     :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-    :param float min_alighment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
-    :param bool SaveImages: Saves registered images of each iteration in the output path for debugging purposes
-    :param bool SavePlots: Saves histograms and vector plots of each iteration in the output path for debugging purposes        
-    '''
+r plots of each iteration in the output path for debugging purposes
+    """
     
     outputDir = os.path.dirname(OutputStosPath)
      
@@ -282,28 +287,17 @@ def RefineTransform(stosTransform,
                     SaveImages: bool=False,
                     SavePlots: bool=False,
                     outputDir: str=None):
-    '''
+    """
     Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
     takes an initial transform and creates a regular grid of points.  Points covered more than 
     
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
+    :param settings:
     :param stosTransform: The transform to refine
-    :param target_image: ndarray or path to file, fixed space image
-    :param source_image: ndarray or path to file, source space image
-    :param target_mask: ndarray or path to file, fixed space image mask
-    :param source_mask: ndarray or path to file, source space image mask
-    :param int num_iterations: The maximum number of iterations to perform
-    :param tuple cell_size: (width, height) area of image around control points to use for registration
-    :param tuple grid_spacing: (width, height) of separation between control points on the grid
-    :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-    :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
-    :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
-    :param float min_unmasked_area: Amount of cell area that must be unmasked to utilize the cell
-    :param bool SaveImages: Saves registered images of each iteration in the output path for debugging purposes
-    :param bool SavePlots: Saves histograms and vector plots of each iteration in the output path for debugging purposes     
-    :param str outputDir: Directory to save images and plots if requested.  Must not be null if SaveImages or SavePlots are true   
-    '''
+    """
+
+
         
     if (SavePlots or SaveImages) and outputDir is None:
         raise ValueError("outputDir must be specified if SavePlots or SaveImages is true.")
@@ -454,14 +448,14 @@ def RefineTransform(stosTransform,
 def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.ITransform,
                                  finalized:dict,
                                  settings:nornir_imageregistration.settings.GridRefinement):
-    '''
+    """
     Places a regular grid of control points across the target image.  These corresponding points on the
-    source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
-    
+    source image are then adjusted to create a mapping from Source To Fixed Space for the source image.
+
     :param transform transform: Transform that maps from source to target space
     :param dict finalized: A dictionary of points, indexed by Target Space Coordinates, that are finalized and do not need to be checked
-    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations    
-    '''
+    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations
+    """
         
     # Mark a grid along the fixed image, then find the points on the warped image
     
@@ -533,14 +527,14 @@ def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.ITra
                                  sourcePoints:np.ndarray,
                                  targetPoints:np.ndarray,
                                  settings:nornir_imageregistration.settings.GridRefinement):
-    '''
+    """
     Registers a set of points using regions from both images. These corresponding points on the
-    target image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
-    
+    target image are then adjusted to create a mapping from Source To Fixed Space for the source image.
+
     :param transform transform: Transform that maps from source to target space
-    :param points: dict of {key:(targetpoint)} where targetpoint is a 1x2 ndarray describing a point on the target image.  These coordinates are passed through the transform to determine the point on the source image.  Key is used for return dictionary. 
-    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations    
-    '''
+    :param points: dict of {key:(targetpoint)} where targetpoint is a 1x2 ndarray describing a point on the target image.  These coordinates are passed through the transform to determine the point on the source image.  Key is used for return dictionary.
+    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations
+    """
     
     if len(keys) != targetPoints.shape[0]:
         raise ValueError("keys must have equal number of entries as points")
@@ -637,11 +631,11 @@ def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.ITra
 
     
 def AlignRecordsToControlPoints(alignment_records):
-    '''
+    """
     Convert alignment records to a numpy array of control points
     :param alignment_records: list of alignment records
     :return: ndarray of control points
-    '''
+    """
     
     SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
     TargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, alignment_records)))
@@ -651,10 +645,10 @@ def AlignRecordsToControlPoints(alignment_records):
 
 
 def _alignment_records_to_composite_scores(alignment_records):
-    '''
+    """
     A helper function to produce an ndarray of measurements for alignment records
     :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
-    '''
+    """
     weights_distance = np.asarray(list(map(lambda a: (a.weight, np.sqrt(a.peak.dot(a.peak))), alignment_records)))
     max_weight_distance = np.max(weights_distance, 0)
     # I don't want a random near zero travel distance accidentally reducing a bad alignment score, so the
@@ -666,14 +660,14 @@ def _alignment_records_to_composite_scores(alignment_records):
 
     
 def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=None, cutoff:float=None):
-    '''
+    """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
     :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
     :param fixed_points: Control points that will always be included and not measured in metrics
     :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
     :param float cutoff: Cutoff value, if set, percentile is ignored
     :return: (Transform, used_alignment_records, cutoff) The transform, the alignment_records used in the transform, and the cutoff value used/calculated
-    '''
+    """
     num_fixed = 0
     if fixed_points is not None:
         if False == isinstance(fixed_points, np.ndarray):
@@ -747,9 +741,9 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=
 
 
 def ConvertTransformToGridTransform(Transform, source_image_shape, cell_size=None, grid_dims=None, grid_spacing=None):
-    '''
+    """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
-    '''
+    """
     
     if isinstance(Transform, str):
         Transform = nornir_imageregistration.transforms.factory.LoadTransform(Transform, 1)
@@ -794,13 +788,14 @@ def AlignmentRecordsToDict(alignment_records):
 
 
 def CalculateFinalizedAlignmentPointsMask(alignment_records, percentile=0.5, max_travel_distance=1.0, weight_cutoff=None):
-    '''
+    """
+    :param alignment_records:
+    :param weight_cutoff:
     :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
-    :param float cutoff: Cutoff value, if set, percentile is ignored
-    :param max_travel_distance: Maximum distance an alignment point can be offset before it is not eligible for finalization
+an be offset before it is not eligible for finalization
     :return (array, cutoff): logical mask indicating which points meet the threshold to be finalized and cutoff value used/calculated
-    
-    '''
+
+    """
     weights_distance = _alignment_records_to_composite_scores(alignment_records)   
     # invert the weights to multiply by distance to promote low distance alignments 
     
@@ -832,9 +827,9 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records, percentile=0.5, max
      
      
 def ApproximateRigidTransform(input_transform, target_points):
-    '''
+    """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
-    '''
+    """
 
     target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
     
@@ -936,10 +931,10 @@ def StartAttemptAlignPoint(pool, taskname, transform,
 
 
 def TryToImproveAlignments(transform, alignment_records, settings:nornir_imageregistration.settings.GridRefinement):
-    '''
-    Given a set of alignment points, try to align the points again.  If we get a stronger score then 
+    """
+    Given a set of alignment points, try to align the points again.  If we get a stronger score then
     replace the alignment with the higher scoring result
-    '''
+    """
     
     items = alignment_records.items()
     
@@ -986,7 +981,7 @@ def TryToImproveAlignments(transform, alignment_records, settings:nornir_imagere
     #
     # pool.wait_completion()
     
-    output = dict();
+    output = dict()
     improved_alignments = []
     for refined_align_record in refined_alignments:
         key = refined_align_record.ID

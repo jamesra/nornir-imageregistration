@@ -153,6 +153,7 @@ class Mosaic(object):
     def EnsureTransformsHaveMappedBoundingBoxes(self, image_scale, image_path, all_same_dims=True):
         '''
         If a transform does not have a mapped bounding box, define it using the image dimensions
+        :param image_path:
         :param float image_scale: Downsample factor of image files
         :parma str image_path: Directory containing image files
         :param bool all_same_dims: If true, cache image dimensions and re-use for all transforms. 

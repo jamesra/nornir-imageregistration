@@ -4,20 +4,13 @@ Created on Jun 26, 2012
 @author: James Anderson
 '''
 
-from collections import deque
-import logging
-import multiprocessing
 import os
-import subprocess
-import sys
+
+import numpy as np
 from PIL import Image
 
 import numpy
-from pylab import median, mean, std, sqrt, imread, ceil, floor, mod
-import scipy.misc
-import scipy.ndimage
-import scipy.ndimage.measurements
-import scipy.stats
+from pylab import ceil, mod
 
 import nornir_pools
 import nornir_shared.histogram
@@ -25,9 +18,6 @@ import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 
 import nornir_imageregistration
-import nornir_imageregistration.im_histogram_parser  
-from numpy import int32
-import matplotlib.pyplot as plt 
 
 
 class ImageStats():
@@ -84,12 +74,7 @@ class ImageStats():
         return f'mean: {self._mean} std: {self._std} min: {self._min} max: {self._max}'
 
     def __getstate__(self):
-        d = {}
-        d['_median'] = self._median 
-        d['_mean'] = self._mean
-        d['_std'] = self._std
-        d['_min'] = self._min
-        d['_max'] = self._max
+        d = {'_median': self._median, '_mean': self._mean, '_std': self._std, '_min': self._min, '_max': self._max}
         return d
 
     def __setstate__(self, state):
@@ -131,7 +116,7 @@ class ImageStats():
 #        image.__IrtoolsImageStats__ = obj
         return obj
     
-    def GenerateNoise(self, shape):
+    def GenerateNoise(self, shape:np.ndarray):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 

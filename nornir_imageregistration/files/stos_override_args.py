@@ -17,6 +17,7 @@ class StosOverrideArgs(object):
     def ExtendParser(cls, parser, RequireInputImages):
         '''
         Adds the common command line parameters to the parser
+        :param RequireInputImages:
         :param argparse.ArgumentParser parser: The command-line argument parser to extend
         '''
         

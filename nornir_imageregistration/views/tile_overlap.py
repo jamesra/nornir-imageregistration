@@ -15,18 +15,15 @@ def _plot_mapped_space_overlap(ax, tile, overlap_rect, color=None):
         if color is None:
             color = 'red'
             
-        patches = []
-        patches.append(mpatches.Rectangle(numpy.flip(overlap_rect.BottomLeft),
-                                          overlap_rect.Width,
-                                          overlap_rect.Height,
-                                          color=color))
-        
-        patches.append(mpatches.Rectangle(numpy.flip(tile.MappedBoundingBox.BottomLeft),
-                                          tile.MappedBoundingBox.Width,
-                                          tile.MappedBoundingBox.Height,
-                                          color='gray',
-                                          fill=False))
-        
+        patches = [mpatches.Rectangle(numpy.flip(overlap_rect.BottomLeft),
+                                      overlap_rect.Width,
+                                      overlap_rect.Height,
+                                      color=color), mpatches.Rectangle(numpy.flip(tile.MappedBoundingBox.BottomLeft),
+                                                                       tile.MappedBoundingBox.Width,
+                                                                       tile.MappedBoundingBox.Height,
+                                                                       color='gray',
+                                                                       fill=False)]
+
         collection = PatchCollection(patches, True, alpha=0.3)
         ax.add_collection(collection)
         ax.axis('equal')

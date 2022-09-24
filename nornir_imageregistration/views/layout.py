@@ -113,7 +113,7 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
          
     if isinstance(shapes, str):
         shapes = shapes
-        mask = numpy.ones(Points.shape[0], dtype=numpy.bool)
+        mask = numpy.ones(Points.shape[0], dtype=bool)
         __PlotVectorOriginShape(mask, shapes, Points, weights)
     else:
         try:

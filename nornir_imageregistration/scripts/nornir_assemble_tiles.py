@@ -102,7 +102,9 @@ def Execute(ExecArgs=None):
     ValidateArgs(Args)
 
     mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath) 
-    mosaicTileset = nornir_imageregistration.MosaicTileset(mosaic, Args.tilepath, source_space_scale=1.0 / Args.scalar)
+    mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic=mosaic,
+                                                                             image_folder=Args.tilepath,
+                                                                             image_to_source_space_scale=1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
     
     mosaicImage = mosaicTileset.AssembleImage(Args.tilepath)
@@ -111,9 +113,6 @@ def Execute(ExecArgs=None):
         Args.outputpath = Args.outputpath + '.png'
 
     nornir_imageregistration.SaveImage(Args.outputpath, mosaicImage)
-    self.assertTrue(os.path.exists(Args.outputpath), "OutputImage not found")
-
-     
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
     else:

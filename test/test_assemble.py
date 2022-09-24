@@ -252,7 +252,7 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
     def RunStosAssemble(self, stosFullPath):
-        OutputPath = os.path.join(self.VolumeDir, "test_StosAssemble.png");
+        OutputPath = os.path.join(self.VolumeDir, "test_StosAssemble.png")
 
         warpedImage = assemble.TransformStos(stosFullPath, OutputPath, self.FixedImagePath, self.WarpedImagePath)
         self.assertIsNotNone(warpedImage)

@@ -76,7 +76,7 @@ class Volume(object):
 
         (numRows, numCols) = points.shape()
         assert(numCols == 3)
-        sorted_points, unsorted_indicies = _SortArrayByColumn(points, ColumnNumber=2)
+        sorted_points, unsorted_indicies = _SortArrayByColumn(points, SortColumn=2)
 
         # sectionNumbers, sectionIndicies = np.unique(points[:, 2], return_index=False, return_inverse=True)
         iRow = 0
