@@ -1,1 +1,1 @@
-import setup_imagetest
+import setup_imagetest as setup

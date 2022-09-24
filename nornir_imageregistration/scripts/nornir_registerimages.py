@@ -12,7 +12,6 @@ import sys
 import numpy
 
 import nornir_imageregistration.core as core
-import nornir_imageregistration.files.stosfile as stosfile
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.misc
 

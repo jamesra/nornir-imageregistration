@@ -5,6 +5,7 @@ Created on Sep 14, 2018
 '''
 
 import numpy as np
+from numpy.typing import NDArray
 from nornir_imageregistration import Rectangle
 
 #Collection of masks we have already calculated
@@ -21,11 +22,11 @@ def __CreateMaskLookupIndex(FixedImageShape, WarpedImageShape, CorrelationImageS
     return tuple(full_index) 
 
 
-def GetOverlapMask(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+def GetOverlapMask(FixedImageSize: NDArray, MovingImageSize: NDArray, CorrelationImageSize: NDArray, MinOverlap: float = 0.0, MaxOverlap: float = 1.0):
     '''Defines a mask that determines which peaks should be considered
-    :param array FixedImageSize: Shape of fixed image, before padding
-    :param array MovingImageSize: Shape of moving image, before padding
-    :param array CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
+    :param NDArray FixedImageSize: Shape of fixed image, before padding
+    :param NDArray MovingImageSize: Shape of moving image, before padding
+    :param NDArray CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
     :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
     :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
     :return: An mxn image mask, with 1 indicating allowed peak locations

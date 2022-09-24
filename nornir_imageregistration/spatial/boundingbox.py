@@ -5,12 +5,14 @@ Points are represented as (Y,X)
 
 '''
 
-from .converters import BoundsArrayFromPoints
+from typing import *
 
 import numpy as np
-
-from .indicies import *
-from .rectangle import Rectangle
+from numpy.typing import * 
+ 
+import nornir_imageregistration.spatial
+from nornir_imageregistration.spatial import *
+from nornir_imageregistration.spatial.indicies import *
 
 
 class BoundingBox(object):
@@ -19,22 +21,22 @@ class BoundingBox(object):
     '''
 
     @property
-    def Width(self):
+    def Width(self) -> float:
         return self._bounds[iBox.MaxX] - self._bounds[iBox.MinX]
 
     @property
-    def Height(self):
+    def Height(self) -> float:
         return self._bounds[iBox.MaxY] - self._bounds[iBox.MinY]
 
     @property
-    def Depth(self):
+    def Depth(self) -> float:
         return self._bounds[iBox.MaxZ] - self._bounds[iBox.MinZ]
 
     @property
-    def BottomLeftFront(self):
+    def BottomLeftFront(self) -> NDArray:
         return np.array([self._bounds[iBox.MinZ], self._bounds[iBox.MinY], self._bounds[iBox.MinX]])
     @property
-    def TopRightBack(self):
+    def TopRightBack(self) -> NDArray:
         return np.array([self._bounds[iBox.MaxZ], self._bounds[iBox.MaxY], self._bounds[iBox.MaxX]])
 
     @property
@@ -56,10 +58,10 @@ class BoundingBox(object):
     def __delslice__(self, i, j, sequence):
         raise Exception("Spatial objects should not have elements deleted from the array")
 
-    def ToArray(self):
+    def ToArray(self) -> NDArray:
         return np.array(self._bounds)
     
-    def ToTuple(self):
+    def ToTuple(self) -> (float, float, float, float, float, float):
         return (self._bounds[iBox.MinZ],
                 self._bounds[iBox.MinY],
                 self._bounds[iBox.MinX],
@@ -68,7 +70,7 @@ class BoundingBox(object):
                 self._bounds[iBox.MaxX])
 
     @property
-    def RectangleXY(self):
+    def RectangleXY(self) -> Rectangle:
         '''Returns a rectangle based on the XY plane of the box'''
         return Rectangle.CreateFromBounds((self._bounds[iBox.MinY],
                                           self._bounds[iBox.MinX],
@@ -84,28 +86,28 @@ class BoundingBox(object):
 
 
     @classmethod
-    def CreateFromPoints(cls, points):
+    def CreateFromPoints(cls, points) -> BoundingBox:
         boundingArray = BoundsArrayFromPoints(points)
         return BoundingBox(bounds=boundingArray)
 
     @classmethod
-    def CreateFromPointAndVolume(cls, point, vol):
+    def CreateFromPointAndVolume(cls, point, vol) -> BoundingBox:
         '''
+        :param vol: (Depth, Height, Area)
         :param tuple point: (Z,Y,X)
-        :param tuple volume: (Depth, Height, Area)
-        :rtype: BoundingBox
         '''
+
         return BoundingBox(bounds=(point[iPoint3.Z], point[iPoint3.Y], point[iPoint3.X], point[iPoint3.Z] + vol[iVolume.Depth], point[iPoint3.Y] + vol[iVolume.Height], point[iPoint.X] + vol[iVolume.Width]))
 
     @classmethod
-    def CreateFromBounds(cls, Bounds):
+    def CreateFromBounds(cls, Bounds) -> BoundingBox:
         '''
         :param tuple Bounds: (MinZ,MinY,MinX,MaxZ,MaxY,MaxX)
         '''
         return BoundingBox(Bounds)
 
     @classmethod
-    def PrimitiveToBox(cls, primitive):
+    def PrimitiveToBox(cls, primitive) -> BoundingBox:
         '''Privitive can be a list of (Y,X) or (Z,Y,X) or (MinZ, MinY, MinX, MaxZ, MaxY, MaxX) or a BoundingBox'''
 
         if isinstance(primitive, BoundingBox):
@@ -121,7 +123,7 @@ class BoundingBox(object):
             raise ValueError("Unknown primitve type %s" % str(primitive))
 
     @classmethod
-    def contains(cls, A, B):
+    def contains(cls, A: BoundingBox, B: BoundingBox) -> bool:
         '''If len == 2 primitive is a point,
            if len == 4 primitive is a rect [left bottom right top]'''
 

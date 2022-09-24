@@ -113,9 +113,6 @@ def Execute(ExecArgs=None):
         Args.outputpath = Args.outputpath + '.png'
 
     nornir_imageregistration.SaveImage(Args.outputpath, mosaicImage)
-    self.assertTrue(os.path.exists(Args.outputpath), "OutputImage not found")
-
-     
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
     else:

@@ -4,19 +4,18 @@ Created on Feb 27, 2019
 @author: u0490822
 '''
 
-import numpy as np
+#import numpy as np
 import matplotlib.pyplot as plt
-import nornir_shared.plot
+#import nornir_shared.plot
 
 def PlotGridPositionsAndMask(source_coords, source_image=None, OutputFilename=None, ylim=None, xlim=None, attrib=None):
-    '''
+    """
     Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
-    :param list new_alignment_records: A list of EnhancedAlignmentRecords to render, uses a square to represent alignments in progress
-    :param list finalized_alignment_records: A list of EnhancedAlignmentRecords to render, uses a circle to represent alignments are fixed
-    :param bool filename: Filename to save plot as
-    :param float ylim: y-limit of plot
-    :param float xlim: x-limit of plot    
-    '''
+    :param source_coords:
+    :param source_image:
+    :param OutputFilename:
+    :param attrib:
+    """
     
     #if attrib is None:
     #    attrib = 'weight'

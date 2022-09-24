@@ -1,15 +1,12 @@
-'''
+"""
 Created on Oct 18, 2012
 
 @author: Jamesan
-'''
-
-import math
+"""
 
 import nornir_imageregistration 
 from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
 import numpy
-import scipy.interpolate
 
 import nornir_pools 
 from .triangulation import Triangulation
@@ -18,9 +15,9 @@ from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
 class MeshWithRBFFallback(Triangulation):
-    '''
+    """
     classdocs
-    '''
+    """
     
     def __getstate__(self):
         
@@ -63,8 +60,8 @@ class MeshWithRBFFallback(Triangulation):
 
 
     def ClearDataStructures(self):
-        '''Something about the transform has changed, for example the points. 
-           Clear out our data structures so we do not use bad data'''
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
 
         super(MeshWithRBFFallback, self).ClearDataStructures()
 
@@ -83,12 +80,12 @@ class MeshWithRBFFallback(Triangulation):
         self._ReverseRBFInstance = None
 
     def Transform(self, points, **kwargs):
-        '''
+        """
         Transform from warped space to fixed space
-        
-        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...] 
-        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
-        '''
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+        """
+
+
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
@@ -121,11 +118,10 @@ class MeshWithRBFFallback(Triangulation):
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''
+        """
         Transform from fixed space to warped space
-        
-        :param bool extrapolate: Set to false if points falling outside the convex hull of control points should be removed from the return values
-        ''' 
+        :param points:
+        """
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
@@ -138,7 +134,7 @@ class MeshWithRBFFallback(Triangulation):
             return TransformedPoints
 
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
- 
+
         if(len(InvalidIndicies) == 0):
             return TransformedPoints
         else:
@@ -156,9 +152,9 @@ class MeshWithRBFFallback(Triangulation):
         return TransformedPoints
 
     def __init__(self, pointpairs):
-        ''' 
+        """
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
-        '''
+        """
         super(MeshWithRBFFallback, self).__init__(pointpairs)
 
         self._ReverseRBFInstance = None

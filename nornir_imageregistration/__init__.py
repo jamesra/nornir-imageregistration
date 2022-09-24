@@ -23,9 +23,10 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
-
-import numpy as np
+import numpy.typing
 from PIL import Image
+
+from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -37,7 +38,7 @@ import matplotlib.pyplot as plt
 plt.ioff()
 
 
-def ParamToDtype(param):
+def ParamToDtype(param) -> DTypeLike:
     if param is None:
         raise ValueError("'None' cannot be converted to a dtype")
 
@@ -48,21 +49,21 @@ def ParamToDtype(param):
     return dtype
 
 
-def IsFloatArray(param):
+def IsFloatArray(param) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.floating)
 
 
-def IsIntArray(param):
+def IsIntArray(param) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.integer)
 
 
-def ImageMaxPixelValue(image):
+def ImageMaxPixelValue(image) -> int:
     '''The maximum value that can be stored in an image represented by integers'''
     probable_bpp = int(image.itemsize * 8)
     if probable_bpp > 8:
@@ -71,7 +72,7 @@ def ImageMaxPixelValue(image):
     return (1 << probable_bpp) - 1
 
 
-def ImageBpp(image):
+def ImageBpp(image) -> int:
     probable_bpp = int(image.itemsize * 8)
     # if probable_bpp > 8:
     #    if 'i' == dt.kind: #Signed integers we use a smaller probable_bpp
@@ -79,19 +80,18 @@ def ImageBpp(image):
     return probable_bpp
 
 
-def IndexOfValues(A, values):
+def IndexOfValues(A, values) -> numpy.typing.NDArray:
     '''
     :param array A: Array of length N that we want to return indicies into
-    :param array Values: Array of length M containing values we need to find in A
-    :return: Array of length M containing the first index in A where the Values occur, or None
+    :param array values: Array of length M containing values we need to find in A
+    :returns: An array of length M containing the first index in A where the Values occur, or None
     '''
 
     sorter = np.argsort(A)
-    indicies = np.searchsorted(A, values, side='left', sorter=sorter)
-    return indicies
+    return np.searchsorted(A, values, side='left', sorter=sorter)
 
 
-def EnsurePointsAre1DNumpyArray(points, dtype=None):
+def EnsurePointsAre1DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -113,7 +113,7 @@ def EnsurePointsAre1DNumpyArray(points, dtype=None):
     return points
 
 
-def EnsurePointsAre2DNumpyArray(points, dtype=None):
+def EnsurePointsAre2DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -135,7 +135,7 @@ def EnsurePointsAre2DNumpyArray(points, dtype=None):
     return points
 
 
-def EnsurePointsAre4xN_NumpyArray(points, dtype=None):
+def EnsurePointsAre4xN_NumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -172,6 +172,7 @@ import nornir_imageregistration.alignment_record as alignment_record
 from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord
 
 import nornir_imageregistration.settings as settings
+
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints
@@ -192,6 +193,8 @@ from nornir_imageregistration.tile import Tile
 import nornir_imageregistration.tile_overlap as tile_overlap
 
 import nornir_imageregistration.tileset as tileset
+from nornir_imageregistration.tileset import ShadeCorrectionTypes
+
 import nornir_imageregistration.image_stats as image_stats
 import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.assemble_tiles as assemble_tiles
@@ -209,7 +212,6 @@ from nornir_imageregistration.overlapmasking import GetOverlapMask
 from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineStosFile, RefineTransform
 
 from nornir_imageregistration.spatial.indicies import *
-from nornir_imageregistration.tileset import ShadeCorrectionTypes
 from nornir_imageregistration.views import ShowWithPassFail
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
@@ -222,4 +224,6 @@ from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKG
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
-__all__ = ['image_stats', 'core', 'files', 'geometry', 'transforms', 'spatial']
+__all__ = ['image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
+           'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']
+

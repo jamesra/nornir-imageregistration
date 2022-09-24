@@ -1,15 +1,10 @@
-'''
+"""
 Created on Jul 10, 2012
 
 @author: Jamesan
-'''
- 
-import itertools
-import collections
-import math
-from operator import attrgetter
-import os
+"""
 
+import collections
 import nornir_imageregistration   
    
 import nornir_pools
@@ -28,11 +23,11 @@ TileOverlapFeatureScore = collections.namedtuple('TileOverlapFeatureScore',
 
 
 def CreateTileToOverlapsDict(tile_overlaps):
-    '''
+    """
     Returns a dictionary containing a list of tuples with (TileIndex, OverlapObject)
     TileIndex records if the tile is the first or second tile (A or B)
     described in the overlap object
-    '''
+    """
     
     if isinstance(tile_overlaps, dict):
         tile_overlaps = list(tile_overlaps.values())
@@ -46,9 +41,9 @@ def CreateTileToOverlapsDict(tile_overlaps):
 
 
 def _CalculateImageFFTs(tiles):
-    '''
+    """
     Ensure all tiles have FFTs calculated and cached
-    '''
+    """
     pool = nornir_pools.GetGlobalLocalMachinePool()
      
     fft_tasks = [] 
@@ -62,7 +57,7 @@ def _CalculateImageFFTs(tiles):
      
      
 def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_relax_iterations=None, max_relax_tension_cutoff=None):
-    '''
+    """
     Finds the optimal translation of a set of tiles to construct a larger seemless mosaic.
     :param list transforms: list of transforms for tiles
     :param list imagepaths: list of paths to tile images, must be same length as transforms list
@@ -71,7 +66,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     :param int max_relax_iterations: Maximum number of iterations in the relax stage
     :param float max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
     :return: (offsets_collection, tiles) tuple
-    '''
+    """
     
     if max_relax_iterations is None:
         max_relax_iterations = 150
@@ -80,7 +75,7 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
         max_relax_tension_cutoff = 1.0
         
     if imageScale is None:
-        imageScale = tileset.MostCommonScalar(transforms, imagepaths)
+        imageScale = nornir_imageregistration.tileset.MostCommonScalar(transforms, imagepaths)
 
     mosaic_tileset = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths, imageScale)
  
@@ -95,20 +90,15 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
     return (tile_layout, mosaic_tileset)
 
 
-def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateSettings):
-    '''
+def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTileset, config:nornir_imageregistration.settings.TranslateSettings):
+    """
     Finds the optimal translation of a set of tileset to construct a larger seemless mosaic.
-    :param list transforms: list of transforms for tileset
-    :param list imagepaths: list of paths to tile images, must be same length as transforms list
-    :param float excess_scalar: How much additional area should we pad the overlapping regions with.  Increase this value if you want larger offsets to be found.
-    :param float feature_score_threshold: The minimum average power spectral density per pixel measurement required to believe there is enough texture in overlapping regions for registration algorithms 
-    :param float imageScale: The downsampling of the images in imagepaths.  If None then this is calculated based on the difference in the transform and the image file dimensions
-    :param int max_relax_iterations: Maximum number of iterations in the relax stage
-    :param float max_relax_tension_cutoff: Stop relaxation stage if the maximum tension vector is below this value
-    :param float min_overlap: The percentage of area that two tileset must overlap before being considered by the layout model
-    :param float inter_tile_distance_scale: A scalar from 0 to 1.  1 indicates to trust the overlap reported by the transforms.  0 indicates to test the entire tile for overlaps.  Use this value to increase the area searched for correlations if the stage input is not reliable. 
-    :return: (offsets_collection, tileset) tuple
-    '''
+    :param tileset:
+    :param config:
+    """
+
+
+
       
     if len(tileset) == 1:
         #If there is only one tile then just return it
@@ -234,18 +224,25 @@ def TranslateTiles2(tileset, config:nornir_imageregistration.settings.TranslateS
     return (relaxed_layout, tileset)
 
 
-def GenerateTileOverlaps(tileset, existing_overlaps=None, offset_epsilon=1.0, min_overlap=None, inter_tile_distance_scale=None, exclude_diagonal_overlaps=False):
-    '''
+def GenerateTileOverlaps(tileset: nornir_imageregistration.mosaic_tileset.MosaicTileset,
+                         existing_overlaps: list | None = None,
+                         offset_epsilon: float = 1.0,
+                         min_overlap: float | None = None,
+                         inter_tile_distance_scale: float | None = None,
+                         exclude_diagonal_overlaps: bool = False):
+    """
     Create a list of TileOverlap objects for each overlapping region in the mosaic.  Assign a feature score to the regions from each image that overlap.
-    :param MosaicTileset tiles: A dictionary of Tile objects or MosaicTileset
-    :param list existing_overlaps: A list of overlaps created previously.  Scores for these offsets will be copied into the generated offsets if the difference in offset between the tiles
+    :param inter_tile_distance_scale:
+    :param exclude_diagonal_overlaps:
+    :param MosaicTileset tileset: A dictionary of Tile objects or MosaicTileset
+    :param existing_overlaps: A list of overlaps created previously.  Scores for these offsets will be copied into the generated offsets if the difference in offset between the tiles
                                    is less than offset_epsilon.
-    :param float offset_epsilon: The distance the expected offset between tiles has to change before we recalculate feature scores and registration 
+    :param float offset_epsilon: The distance the expected offset between tiles has to change before we recalculate feature scores and registration
     :param float min_overlap: Tiles that overlap less than this amount percentage of area will not be included
-    
-    :return: Returns a four-component tuple composed of all found overlaps, the new overlaps, the overlaps that require updating, the deleted overlaps from the existing set, and the IDs of non-overlapping tiles. 
+
+    :return: Returns a four-component tuple composed of all found overlaps, the new overlaps, the overlaps that require updating, the deleted overlaps from the existing set, and the IDs of non-overlapping tiles.
              None of the returned overlaps are the same objects as those in the original set
-    '''
+    """
     if not isinstance(tileset, dict):
         raise ValueError(f'tileset parameter is expected to be a dictionary of tiles or a MosaicTileset')
       
@@ -324,15 +321,15 @@ def GenerateTileOverlaps(tileset, existing_overlaps=None, offset_epsilon=1.0, mi
     print("{0} overlaps removed".format(len(removed_offset_IDs)))
     print("\n")
         
-    return (generated_overlaps, new_overlaps, updated_overlaps, removed_offset_IDs, nonoverlapping_tile_IDs)
+    return generated_overlaps, new_overlaps, updated_overlaps, removed_offset_IDs, nonoverlapping_tile_IDs
 
 
 def ScoreTileOverlaps(tile_overlaps):
-    '''
+    """
     Assigns feature scores to TileOverlap objects without scores.
     :param list tile_overlaps: list of TileOverlap objects
     :return: The TileOverlap object list
-    '''
+    """
 
     tile_to_overlaps_dict = CreateTileToOverlapsDict(tile_overlaps)
     
@@ -395,11 +392,11 @@ def _CalculateTileFeatures(image_path, list_overlap_tuples, feature_coverage_sco
     return ImageDataList
 
 def NormalizeOverlapFeatureScores(tile_overlaps):
-    '''
+    """
     Adds or updates a normalized_feature_score to all overlaps
     :param list tile_overlaps: list of TileOverlap objects
     :return: The TileOverlap object list
-    '''
+    """
     
     max_score = 0
     
@@ -484,12 +481,12 @@ def NormalizeOverlapFeatureScores(tile_overlaps):
             
             
 def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=None, existing_layout=None, use_feature_score=False):
-    '''Populates the OffsetToTile dictionary for tiles
+    """Populates the OffsetToTile dictionary for tiles
     :param list tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param float imageScale: downsample level if known.  None causes it to be calculated.
     :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
     :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
-    '''
+    """
     
     if image_to_source_space_scale is None:
         image_to_source_space_scale = 1.0
@@ -588,10 +585,10 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
 
 
 def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_extrema=False, cval=None, dtype=None):
-    '''
+    """
     Crop the tile's image so it contains the specified rectangle
     :param bool mask_extrema: if true, mask large regions of continuous extrema regions and replace with noise
-    '''
+    """
     
     if cval is None:
         cval = 'random'
@@ -643,16 +640,16 @@ def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_ex
  
 
 def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B, OffsetAdjustment, excess_scalar):
-    '''
+    """
     :param A_Filename: Path to tile A
     :param B_Filename: Path to tile B
     :param scaled_overlapping_source_rect_A: Region of overlap on tile A with tile B
     :param scaled_overlapping_source_rect_B: Region of overlap on tile B with tile A
-    :param OffsetAdjustment: scaled_offset to account for the (center) position of tile B relative to tile A.  If the overlapping rectangles are perfectly aligned the reported offset would be (0,0).  OffsetAdjustment would be added to that (0,0) result to ensure Tile B remained in the same position. 
+    :param OffsetAdjustment: scaled_offset to account for the (center) position of tile B relative to tile A.  If the overlapping rectangles are perfectly aligned the reported offset would be (0,0).  OffsetAdjustment would be added to that (0,0) result to ensure Tile B remained in the same position.
     :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
     Return the offset required to align to image files.
     This function exists to minimize the inter-process communication
-    '''
+    """
     
     MinOverlap = 0.25
     MaxOverlap = 1
@@ -760,7 +757,7 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     return adjusted_record
 
 def BuildOverlappingTileDict(list_tiles, minOverlap=0.05):
-    ''':return: A map of tile ID to all overlapping tile IDs'''
+    """:return: A map of tile ID to all overlapping tile IDs"""
     
     list_rects = []
     for tile in list_tiles:
@@ -771,9 +768,9 @@ def BuildOverlappingTileDict(list_tiles, minOverlap=0.05):
     
 
 def ScoreMosaicQuality(mosaicTileset):
-    '''
-    Walk each overlapping region between tiles.  Subtract the 
-    '''
+    """
+    Walk each overlapping region between tiles.  Subtract the
+    """
         
     list_tiles = list(mosaicTileset.values())
     total_score = 0
@@ -828,7 +825,7 @@ def ScoreMosaicQuality(mosaicTileset):
 
 
 def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B):
-    '''Returns the difference between the images'''
+    """Returns the difference between the images"""
     
     dtype = np.float16
     try: 
@@ -898,10 +895,10 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
 
 
 def TranslateFiles(fileDict):
-    '''Translate Images expects a dictionary of images, their position and size in pixel space.  It moves the images to what it believes their optimal position is for alignment 
-       and returns a dictionary of the same form.  
+    """Translate Images expects a dictionary of images, their position and size in pixel space.  It moves the images to what it believes their optimal position is for alignment
+       and returns a dictionary of the same form.
        Input: dict[ImageFileName] = [x y width height]
-       Output: dict[ImageFileName] = [x y width height]'''
+       Output: dict[ImageFileName] = [x y width height]"""
 
     # We do not want to load each image multiple time, and we do not know how many images we will get so we should not load them all at once.
     # Therefore our first action is building a matrix of each image and their overlapping counterparts

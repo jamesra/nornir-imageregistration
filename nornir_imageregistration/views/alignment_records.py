@@ -29,6 +29,7 @@ def PlotWeightHistogram(alignment_records, filename, cutoff):
 def PlotPeakList(new_alignment_records, finalized_alignment_records, filename, ylim=None, xlim=None, attrib=None):
     '''
     Converts a set of EnhancedAlignmentRecord peaks from the RefineTwoImages function into a transform
+    :param attrib:
     :param list new_alignment_records: A list of EnhancedAlignmentRecords to render, uses a square to represent alignments in progress
     :param list finalized_alignment_records: A list of EnhancedAlignmentRecords to render, uses a circle to represent alignments are fixed
     :param bool filename: Filename to save plot as

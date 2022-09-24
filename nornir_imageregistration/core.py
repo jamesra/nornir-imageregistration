@@ -23,6 +23,7 @@ import nornir_shared.prettyoutput as prettyoutput
 import matplotlib.pyplot as plt
 
 import numpy as np
+from numpy.typing import NDArray
 # import numpy.fft.fftpack as fftpack
 import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
@@ -234,13 +235,13 @@ def ConstrainedRange(start, count, maxVal, minVal=0):
     return r
 
 
-def _ShrinkNumpyImageFile(InFile, OutFile, Scalar):
+def _ShrinkNumpyImageFile(InFile: str, OutFile: str, Scalar: float):
     image = nornir_imageregistration.LoadImage(InFile)
     resized_image = nornir_imageregistration.ResizeImage(image, Scalar)
     nornir_imageregistration.SaveImage(OutFile, resized_image)
 
 
-def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
+def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
     resample = kwargs.pop('resample', None)
 
     if resample is None:
@@ -269,10 +270,12 @@ def _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs):
 def Shrink(InFile, OutFile, Scalar, **kwargs):
     """Shrinks the passed image file.  If Pool is not None the
        task is returned. kwargs are passed on to Pillow's image save function
+       :param Scalar:
        :param str InFile: Path to input file
        :param str OutFile: Path to output file
-       :param float ShrinkFactor: Multiplier for image dimensions
     """
+
+
     (root, ext) = os.path.splitext(InFile)
     if ext == '.npy':
         _ShrinkNumpyImageFile(InFile, OutFile, Scalar)
@@ -857,6 +860,7 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
     """
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
 
+    :param dtype:
     :param str ImageFullPath: Path to image
     :param str ImageMaskFullPath: Path to mask, dimension should match input image
     :param MaxDimension: Limit the largest dimension of the returned image to this size.  Downsample if necessary.
@@ -909,11 +913,16 @@ def NormalizeImage(image):
     return (miniszeroimage * scalar).astype(typecode)
 
 
-def TileGridShape(source_image_shape, tile_size):
+def TileGridShape(source_image_shape: nornir_imageregistration.Rectangle | tuple[float, float] | NDArray,
+                  tile_size: tuple[float, float] | NDArray):
     """Given an image and tile size, return the dimensions of the grid"""
 
     if isinstance(source_image_shape, nornir_imageregistration.Rectangle):
         source_image_shape = source_image_shape.shape
+    elif isinstance(source_image_shape, np.ndarray):
+        pass
+    else:
+        source_image_shape = np.asarray(source_image_shape)
 
     if not isinstance(tile_size, np.ndarray):
         tile_shape = np.asarray(tile_size)
@@ -941,6 +950,7 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
 
 def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.ndarray=None, coord_offset=None, cval=0):
     """An iterator generating all tiles for an image
+    :param source_image:
     :param np.ndarray tile_size: Shape of each tile
     :param np.ndarray grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
@@ -1054,6 +1064,9 @@ def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats
 def CreateExtremaMask(image: np.ndarray, mask: np.ndarray=None, size_cutoff=0.001, minima=None, maxima=None):
     """
     Returns a mask for features above a set size that are at max or min pixel value
+    :param image:
+    :param minima:
+    :param maxima:
     :param numpy.ndarray mask: Pixels we wish to not include in the analysis
     :param size_cutoff: Determines how large a continous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
     """
@@ -1110,6 +1123,8 @@ def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None
     """
     Replaced the min/max values in the image with random noise.  This is useful when aligning images composed mostly of dark or bright regions. 
     It is usually best to pass None for statistical parameters since the function will calculate the statistics with the extrema removed.
+    :param image:
+    :param Copy:
     :param numpy.ndarray imagemask: Additional pixels we wish to be included in the extrema mask
     :param nornir_imageregistration.ImageStats imagestats: Image statistics. Will be calculated if not passed.
     :param size_cutoff: 0 to 1.0, determines how large a continuos min or max region must be before it is masked. If None all min/max are masked regardless of size.  Defaults to 0.001, None will mask all min/max
@@ -1128,6 +1143,7 @@ def NearestPowerOfTwo(val):
 
 def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
     """
+    :param val:
     :param float overlap: Minimum amount of overlap possible between images, from 0 to 1.  Values greater than 0.5 require no increase to image size.
     :return: Same as DimensionWithOverlap, but output dimension is increased to the next power of two for faster FFT operations
     """
@@ -1312,6 +1328,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
 
     Dimensions of Fixed and Moving images must match
 
+    :param delete_input:
     :param ndarray FFTFixed: grayscale image
     :param ndarray FFTMoving: grayscale image
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.

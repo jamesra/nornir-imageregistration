@@ -1,4 +1,3 @@
-import os
 import json
 
 from .grid_refinement import GridRefinement

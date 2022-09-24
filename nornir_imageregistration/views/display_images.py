@@ -9,6 +9,7 @@ import matplotlib.gridspec
 
 def ShowGrayscale(input_params, title=None, PassFail=False):
     '''
+    :param PassFail:
     :param list input_params: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     '''

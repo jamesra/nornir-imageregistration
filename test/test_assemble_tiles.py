@@ -22,8 +22,6 @@ from nornir_shared.tasktimer import TaskTimer
 import numpy as np
 
 import setup_imagetest
-from mosaic_tileset import MosaicTileset
-import mosaic_tileset
 
 
 # from pylab import *
@@ -109,7 +107,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         self.assertIsNotNone(mosaicObj, "Mosaic not loaded")
         
-        mosaicTileset = mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, downsample)
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, downsample)
         mosaicTileset.TranslateToZeroOrigin()
 
         mosaicObj.TranslateToZeroOrigin()
@@ -323,7 +321,7 @@ class IDOCTests(TestMosaicAssemble):
         tilesDir = self.GetTileFullPath(downsamplePath)
          
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
-        mosaicTileset = mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
         
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=2)

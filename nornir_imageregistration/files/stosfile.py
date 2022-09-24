@@ -495,6 +495,12 @@ class StosFile(object):
                                            MappedMaskFullPath,
                                            create_copy=True):
         '''
+        :param oldspacing:
+        :param newspacing:
+        :param ControlImageFullPath:
+        :param MappedImageFullPath:
+        :param ControlMaskFullPath:
+        :param MappedMaskFullPath:
         :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
         '''
         if oldspacing == newspacing and \
@@ -651,6 +657,7 @@ def AddStosTransforms(A_To_B,
                       B_To_C, 
                       EnrichTolerance: bool) -> StosFile:
     '''
+    :param EnrichTolerance:
     :param A_To_B: Commonly a single section transform, "4->3"
     :param B_To_C: Commonly the transform to the center of a volume, "3->1"
     '''

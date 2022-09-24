@@ -19,7 +19,6 @@ import nornir_shared.images as images
 
 from . import setup_imagetest
 
-
 def CheckAlignmentRecord(test, arecord, angle, X, Y, flipud=False, adelta=None, sdelta=None):
         '''Verifies that an alignment record is more or less equal to expected values'''
 

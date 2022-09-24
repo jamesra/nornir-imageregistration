@@ -4,7 +4,7 @@
 import os
 
 import numpy as np
-from scipy import pi
+from math import pi
 
 import nornir_imageregistration 
 
@@ -109,10 +109,11 @@ class AlignmentRecord(object):
 
     def CorrectPeakForOriginalImageSize(self, FixedImageShape, MovingImageShape):
 
+        offset = self.peak
         if self.peak is None:
-            self.peak = (0, 0)
+            offset = (0,0)
 
-        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=self.peak, FixedImageShape=FixedImageShape, MovingImageShape=MovingImageShape)
+        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=offset, FixedImageShape=FixedImageShape, MovingImageShape=MovingImageShape)
 
     def GetTransformedCornerPoints(self, warpedImageSize):
         '''

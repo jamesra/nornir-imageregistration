@@ -5,7 +5,6 @@ Created on Aug 31, 2018
 '''
 
 import numpy
-import nornir_imageregistration
 from nornir_imageregistration.spatial import ArcAngle
 from . import triangulation, utils
 
