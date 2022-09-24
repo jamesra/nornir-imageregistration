@@ -97,7 +97,7 @@ def _create_tile_target_space_patch(tile, **kwargs):
                                   **kwargs)
 
     
-def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
+def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlaps=True):
     
     fig = plt.figure(dpi=600)
     gs = gridspec.GridSpec(nrows=1, ncols=1)
@@ -113,7 +113,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None):
         
     for (i,overlap) in enumerate(overlaps):
         #label_str = f'{overlap.A.ID}-{overlap.B.ID} {overlap.overlap * 100:.1f}%  {overlap.offset[0]:.1f}y {overlap.offset[1]:.1f}x'
-        label_str = f'{overlap.overlap * 100:.1f}%  {overlap.offset[0]:.1f}y {overlap.offset[1]:.1f}x'
+        label_str = f'{overlap.overlap * 100:.1f}%  {overlap.offset[0]:.1f}y {overlap.offset[1]:.1f}x' if label_overlaps else None
         patches.append(mpatches.Rectangle(numpy.flip(overlap.overlapping_target_rect.BottomLeft),
                                       overlap.overlapping_target_rect.Width,
                                       overlap.overlapping_target_rect.Height,
