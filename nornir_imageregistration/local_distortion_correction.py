@@ -255,6 +255,8 @@ r plots of each iteration in the output path for debugging purposes
         InputStos.TryConvertRelativePathsToAbsolutePaths(stosDir)
     
     stosTransform = nornir_imageregistration.transforms.factory.LoadTransform(InputStos.Transform, 1)
+    if stosTransform is None:
+        raise ValueError(f"Could not load transform: {InputStos} - {InputStos.Transform}")
     
     settings = nornir_imageregistration.settings.GridRefinement(target_image=InputStos.ControlImageFullPath,
                                                                 source_image=InputStos.MappedImageFullPath,
@@ -462,7 +464,8 @@ def _RefineGridPointsForTwoImages(transform:nornir_imageregistration.transforms.
     # grid_data = nornir_imageregistration.grid_subdivision.CenteredGridRefinementCells(target_image.shape, cell_size)
     grid_data = nornir_imageregistration.ITKGridDivision(settings.source_image.shape,
                                                                           cell_size=settings.cell_size,
-                                                                          grid_spacing=settings.grid_spacing)
+                                                                          grid_spacing=settings.grid_spacing,
+                                                                          transform=transform)
     
     # Remove finalized points from refinement consideration
     if finalized is not None and len(finalized) > 0:
@@ -680,7 +683,7 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile:float=
         raise ValueError("Need at one new alignment_record to improve a transform")
         
     if num_alignments + num_fixed < 3:
-        raise ValueError(f"Need at least three points to make a transform.  Got {len(alignment_record)} alignments and {num_fixed} fixed points")
+        raise ValueError(f"Need at least three points to make a transform.  Got {len(alignment_records)} alignments and {num_fixed} fixed points")
         
     # TargetPoints = np.asarray(list(map(lambda a: a.TargetPoint, alignment_records)))
     OriginalSourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))

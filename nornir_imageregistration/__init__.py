@@ -23,6 +23,8 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
+from typing import Iterable
+import numpy as np
 import numpy.typing
 from PIL import Image
 
@@ -91,7 +93,7 @@ def IndexOfValues(A, values) -> numpy.typing.NDArray:
     return np.searchsorted(A, values, side='left', sorter=sorter)
 
 
-def EnsurePointsAre1DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
+def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -113,7 +115,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[f
     return points
 
 
-def EnsurePointsAre2DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
+def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -135,7 +137,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | list, dtype=None) -> NDArray[f
     return points
 
 
-def EnsurePointsAre4xN_NumpyArray(points: NDArray | list, dtype=None) -> NDArray[float]:
+def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")

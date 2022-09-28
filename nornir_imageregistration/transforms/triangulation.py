@@ -7,6 +7,10 @@ Created on Oct 18, 2012
 import copy
 import logging 
 import operator
+
+import numpy as np
+from numpy.typing import NDArray
+
  
 import nornir_imageregistration 
 from . import utils
@@ -17,7 +21,7 @@ import scipy
 from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInterpolator
 import scipy.spatial
  
-import numpy as np 
+ 
 
 def distance(A, B):
     '''Distance between two arrays of points with equal numbers'''
@@ -597,7 +601,7 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         return self.MappedBoundingBox.Height
 
     @property
-    def points(self):
+    def points(self) -> NDArray:
         return self._points
 
     @points.setter

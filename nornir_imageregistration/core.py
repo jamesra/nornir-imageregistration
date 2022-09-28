@@ -326,7 +326,7 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     if MinMax is not None:
         (min_val, max_val) = MinMax
 
-        if nornir_imageregistration.IsIntArray(original_dtype) == True:
+        if nornir_imageregistration.IsIntArray(original_dtype) is True:
             min_val = min_val / max_possible_int_val
             max_val = max_val / max_possible_int_val
 
@@ -355,7 +355,7 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     if Invert is not None and Invert:
         image = 1.0 - image
 
-    if nornir_imageregistration.IsIntArray(original_dtype) == True:
+    if nornir_imageregistration.IsIntArray(original_dtype) is True:
         image = image * max_possible_int_val
 
     image = image.astype(original_dtype)
@@ -454,7 +454,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
                 prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
                 pass
 
-    if not pool is None:
+    if pool is not None:
         pool.wait_completion()
         pool.shutdown()
         pool = None
@@ -914,7 +914,7 @@ def NormalizeImage(image):
 
 
 def TileGridShape(source_image_shape: nornir_imageregistration.Rectangle | tuple[float, float] | NDArray,
-                  tile_size: tuple[float, float] | NDArray):
+                  tile_size: tuple[float, float] | tuple[int, int] | NDArray):
     """Given an image and tile size, return the dimensions of the grid"""
 
     if isinstance(source_image_shape, nornir_imageregistration.Rectangle):

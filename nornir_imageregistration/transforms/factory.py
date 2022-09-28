@@ -294,10 +294,17 @@ def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: fl
 
     vp = [float(vp) for vp in VariableParameters]
 
-    src_rotation_center_x = vp[4]
-    src_rotation_center_y = vp[5]
+    post_transform_translation_x = vp[4]
+    post_transform_translation_y = vp[5]
 
     matrix = np.array(((vp[1], vp[0]), (vp[3], vp[2])))
+    post_transform_translation = np.array( (post_transform_translation_y, post_transform_translation_x) )
+    
+    return nornir_imageregistration.transforms.AffineMatrixTransform(matrix = matrix, 
+                                                                     pre_transform_translation = np.array((-src_image_center_y, -src_image_center_x)),
+                                                                     post_transform_translation = post_transform_translation )
+    
+    
 
 
 def ParseRigid2DTransform(parts: list[str], pixelSpacing: float = None):

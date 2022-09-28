@@ -91,6 +91,26 @@ class IControlPoints:
     def TargetPoints(self) -> NDArray:
         raise NotImplementedError()
 
+    @abc.abstractmethod
+    def points(self) -> NDArray:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+        '''
+        Return the fixed points nearest to the query points
+        :return: Distance, Index
+        '''
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+        '''
+        Return the warped points nearest to the query points
+        :return: Distance, Index
+        '''
+        raise NotImplementedError()
+
 
 class DefaultTransformChangeEvents(ITransformChangeEvents, ABC):
     def __init__(self):

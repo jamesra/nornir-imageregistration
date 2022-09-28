@@ -28,4 +28,7 @@ from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrec
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
 
+import nornir_imageregistration.transforms.matrixtransform as matrixtransform
+from nornir_imageregistration.transforms.matrixtransform import AffineMatrixTransform
+
 
