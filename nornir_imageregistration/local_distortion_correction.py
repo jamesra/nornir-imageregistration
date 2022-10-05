@@ -5,7 +5,10 @@ Created on Apr 7, 2015
 
 This module performs local distortions of images to refine alignments of mosaics and sections
 """
-
+import os
+from typing import Iterable
+import numpy as np
+from numpy.typing import NDArray
 import nornir_pools
 import nornir_imageregistration
 #import nornir_imageregistration.views.grid_data
@@ -13,11 +16,7 @@ import nornir_imageregistration
 from nornir_shared import prettyoutput
 
 from nornir_imageregistration.transforms.triangulation import Triangulation
- 
-import numpy as np
-import scipy
-import scipy.ndimage
-import os   
+
 
  
 class DistortionCorrection:
@@ -864,12 +863,14 @@ def ApproximateRigidTransform(input_transform, target_points):
     return output_transforms
 
     
-def StartAttemptAlignPoint(pool, taskname, transform,
-                           targetImage, sourceImage,
-                           controlpoint,
-                           alignmentArea,
-                           anglesToSearch=None,
-                           min_alignment_overlap=0.5):
+def StartAttemptAlignPoint(pool,
+                           taskname: str,
+                           transform: nornir_imageregistration.ITransform,
+                           targetImage: NDArray, sourceImage: NDArray,
+                           controlpoint: NDArray | tuple[float, float],
+                           alignmentArea: NDArray | tuple[float, float],
+                           anglesToSearch: Iterable[float] | None = None,
+                           min_alignment_overlap: float = 0.5) -> nornir_pools.Task:
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
         

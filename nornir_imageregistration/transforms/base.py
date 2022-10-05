@@ -5,6 +5,7 @@ Created on Oct 18, 2012
 """
 import abc
 
+import nornir_imageregistration
 import nornir_pools
 from numpy.typing import *
 from abc import ABC, abstractmethod
@@ -13,12 +14,12 @@ from abc import ABC, abstractmethod
 class ITransform(ABC):
 
     @abstractmethod
-    def Transform(self, point: NDArray, **kwargs):
+    def Transform(self, point: NDArray, **kwargs) -> NDArray:
         """Map points from the mapped space to fixed space. Nornir is gradually transitioning to a source space to target space naming convention."""
         pass
 
     @abstractmethod
-    def InverseTransform(self, point: NDArray, **kwargs):
+    def InverseTransform(self, point: NDArray, **kwargs) -> NDArray:
         """Map points from the fixed space to mapped space. Nornir is gradually transitioning to a target space to source space naming convention."""
         pass
 
@@ -72,12 +73,12 @@ class ITransformScaling(ABC):
 
 class IDiscreteTransform(ITransform):
     @abc.abstractmethod
-    def MappedBoundingBox(self):
+    def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of mapped space points"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def FixedBoundingBox(self):
+    def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of fixed space points"""
         raise NotImplementedError()
 

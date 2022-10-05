@@ -11,7 +11,7 @@ import operator
 import numpy as np
 from numpy.typing import NDArray
 
- 
+import nornir_pools
 import nornir_imageregistration 
 from . import utils
 from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents, IControlPoints
