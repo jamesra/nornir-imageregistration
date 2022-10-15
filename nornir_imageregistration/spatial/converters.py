@@ -7,7 +7,7 @@ Created on Apr 26, 2019
 import numpy
 from numpy.typing import NDArray
 import nornir_imageregistration
-from nornir_imageregistration.spatial import *
+from nornir_imageregistration.spatial import iPoint, iPoint3, Rectangle, BoundingBox
 
 
 def ArcAngle(origin, A, B):
@@ -57,8 +57,8 @@ def BoundingPrimitiveFromPoints(
 
     bounds = BoundsArrayFromPoints(points)
     if bounds.shape[0] == 4:
-        return nornir_imageregistration.Rectangle.CreateFromBounds(bounds)
+        return Rectangle.CreateFromBounds(bounds)
     if bounds.shape[0] == 7:
-        return nornir_imageregistration.BoundingBox.CreateFromBounds(bounds)
+        return BoundingBox.CreateFromBounds(bounds)
 
     raise ValueError("Expected either 4 or 6 bounding values")
