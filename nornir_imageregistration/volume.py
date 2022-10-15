@@ -4,7 +4,7 @@ Created on Jan 27, 2014
 @author: u0490822
 '''
 
-import nornir_imageregistration.transforms.utils as tutils
+import nornir_imageregistration.transforms.utils
 import numpy as np
 
 
@@ -102,11 +102,11 @@ class Volume(object):
     @property
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
-        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
     
     def IsOriginAtZero(self):
-        return tutils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
-        return tutils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())

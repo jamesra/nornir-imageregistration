@@ -54,7 +54,7 @@ class TransformWarpView:
     @property
     def angle_delta(self):
         if self._angle_delta is None:
-            self._angle_delta = metrics.TriangleVertexAngleDelta(self.transform)
+            self._angle_delta = nornir_imageregistration.transforms.metrics.TriangleVertexAngleDelta(self.transform)
             
         return self._angle_delta
     

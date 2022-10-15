@@ -357,9 +357,9 @@ class MosaicFile(object):
             prettyoutput.LogErr("No tiles present in mosaic " + filename + "\nThe save request was aborted")
             return
 
-        fMosaic = open(filename, 'w')
-        fMosaic.write(self.MosaicStr())
-        fMosaic.close()
+        with open(filename, 'w') as fMosaic:
+            fMosaic.write(self.MosaicStr())
+            fMosaic.close()
 
     def MosaicStr(self):
         OutStrList = list()

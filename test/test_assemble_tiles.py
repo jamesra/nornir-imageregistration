@@ -132,8 +132,10 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         cluster_delta = np.abs(clustertileImage - tileImage)
         cluster_delta_sum = np.sum(cluster_delta.flat) 
         if cluster_delta_sum >= 0.65:
-            nornir_imageregistration.ShowGrayscale([cluster_delta], 
-                        title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).", PassFail=False)
+            nornir_imageregistration.ShowGrayscale([cluster_delta, cluster_delta > 0],
+                        title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.", PassFail=False)
+            
+        #10-13-2022: This test passes if the cluster composites the tiles in the same order as the single-threaded assembly.
         self.assertTrue(cluster_delta_sum < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
         self.assertTrue(np.array_equal(clustertileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
@@ -312,7 +314,7 @@ class IDOCTests(TestMosaicAssemble):
     
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
-    def test_AssembleTilesIDoc(self):
+    def test_AssembleOptimizedTilesIDoc(self):
         '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
@@ -327,8 +329,35 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=2)
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=3)
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=1)
-        self.CreateAssembleOptimizedTileTwo(mosaicTileset)
-        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset) 
+        
+    def test_AssembleAndTransformTileIDoc(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+         
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+        
+        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))  
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
+    
+    def test_AssembleOptimizedTileIDoc(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+         
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+         
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
         
         

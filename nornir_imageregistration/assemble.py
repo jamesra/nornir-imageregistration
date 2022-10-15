@@ -127,7 +127,7 @@ def __CropImageToFitCoords(input_image, coordinates, cval=0):
     """For large images we only need a specific range of coordinates from the image.  However Scipy calls such as map_coordinates will
        send the entire image through a spline_filter first.  To avoid this we crop the image with a padding of one and adjust the
        coordinates appropriately
-       :param ndarray input_image: image we will be extracting data from at the specfied coordinates
+       :param ndarray input_image: image we will be extracting data from at the specified coordinates
        :param ndarray coordinates: Nx2 array of points indexing into the image
        :param float cval: Value to use for regions outside the existing image when padding
        :return: (cropped_image, translated_coordinates)
@@ -196,8 +196,6 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     
     #Convert to a type the interpolation.map_coordinates supports
     original_dtype = WarpedImage.dtype
-    if WarpedImage.dtype == np.float16:
-        WarpedImage = WarpedImage.astype(np.float32)
 
     subroi_warpedImage = None
     # For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
@@ -216,6 +214,10 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
         del WarpedImage
     else:
         subroi_warpedImage = WarpedImage
+         
+    #Use a dtype interpolation.map_coordinates supports
+    if subroi_warpedImage.dtype == np.float16:
+        subroi_warpedImage = subroi_warpedImage.astype(np.float32)
     
     # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
     warped_coords = np.around(warped_coords, 3)

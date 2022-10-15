@@ -182,6 +182,9 @@ from nornir_imageregistration.transforms import ITransform, ITransformChangeEven
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms
 
+import nornir_imageregistration.tile as tile
+from nornir_imageregistration.tile import Tile
+
 import nornir_imageregistration.mosaic as mosaic
 from nornir_imageregistration.mosaic import Mosaic
 
@@ -189,8 +192,6 @@ import nornir_imageregistration.mosaic_tileset as mosaic_tileset
 from nornir_imageregistration.mosaic_tileset import MosaicTileset
 
 import nornir_imageregistration.stos_brute as stos_brute
-import nornir_imageregistration.tile as tile
-from nornir_imageregistration.tile import Tile
 
 import nornir_imageregistration.tile_overlap as tile_overlap
 
