@@ -7,6 +7,8 @@ Created on Feb 21, 2014
 import os
 import nornir_imageregistration
 import numpy as np
+from typing import Tuple
+from numpy.typing import NDArray
 from nornir_imageregistration.transforms.base import IDiscreteTransform
 from nornir_shared import prettyoutput
 
@@ -72,24 +74,24 @@ class Tile(object):
         return self.FixedBoundingBox
 
     @property
-    def FullResolutionImageSize(self):
+    def FullResolutionImageSize(self) -> Tuple[float,float]:
         dims = self.MappedBoundingBox
         return (dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY],
                 dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
 
     @property
-    def WarpedImageSize(self):
+    def WarpedImageSize(self) -> Tuple[float, float]:
         dims = self.FixedBoundingBox
         return (dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY],
                 dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
 
     @property
-    def Transform(self):
+    def Transform(self) -> nornir_imageregistration.ITransform:
         '''A string encoding our tile's transform'''
         return self._transform
 
     @Transform.setter
-    def Transform(self, val):
+    def Transform(self, val: nornir_imageregistration.ITransform):
         '''A string encoding our tile's transform'''
         self._transform = val
         # Reset the bounding box of the target and source space
@@ -97,7 +99,7 @@ class Tile(object):
         self._source_bounding_box = None
 
     @property
-    def Image(self):
+    def Image(self) -> NDArray:
         if self._image is None:
             try:
                 self._image = nornir_imageregistration.LoadImage(self._imagepath, dtype=np.float16)
@@ -108,7 +110,7 @@ class Tile(object):
         return self._image
 
     @property
-    def ImageSize(self):
+    def ImageSize(self) -> NDArray[float]:
         '''
         Size of the image.  It may not match the dimensions of the Source Space
         if the image is downsampled.  Use image_to_source_space_scale to correct.
@@ -124,14 +126,14 @@ class Tile(object):
         return self._image_size
 
     @property
-    def PaddedImage(self):
+    def PaddedImage(self) -> NDArray:
         if self._paddedimage is None:
             self._paddedimage = nornir_imageregistration.PadImageForPhaseCorrelation(self.Image)
 
         return self._paddedimage
 
     @property
-    def ImagePath(self):
+    def ImagePath(self) -> str:
         '''
         Path to the image data on disk.  This should be populated, but is rarely
         None for some unit tests if an image array is passed to the constructor
@@ -139,14 +141,14 @@ class Tile(object):
         return self._imagepath
 
     @property
-    def FFTImage(self):
+    def FFTImage(self) -> NDArray:
         if self._fftimage is None:
             self._fftimage = np.fft.rfft2(self.PaddedImage)
 
         return self._fftimage
 
     def PrecalculateImages(self):
-        temp = self.FFTImage.shape
+        raise NotImplementedError()
 
     def Assemble(self, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
         '''Returns the source image tranformed into the target space'''
@@ -160,7 +162,7 @@ class Tile(object):
                                                                      SingleThreadedInvoke=SingleThreadedInvoke)
 
     @property
-    def ID(self):
+    def ID(self) -> int:
         return self._ID
 
     def __str__(self):
@@ -228,7 +230,10 @@ class Tile(object):
     #
     #     return None
 
-    def __init__(self, transform, imagepath, image_to_source_space_scale, ID):
+    def __init__(self, transform: nornir_imageregistration.ITransform,
+                 imagepath: str | NDArray,
+                 image_to_source_space_scale: float,
+                 ID: int | None):
         '''
         :param transform: The transform object
         :param imagepath: Full path to the image to be transformed.  This can also be an ndarray for testing purposes, but the tile will not marshall across process boundaries.
@@ -258,11 +263,11 @@ class Tile(object):
         else:
             raise ValueError("imagepath must be str or ndarray type")
 
-        self._paddedimage = None
-        self._fftimage = None
+        self._paddedimage = None  # type: NDArray | None
+        self._fftimage = None     # type: NDArray | None
 
-        self._source_bounding_box = None
-        self._target_bounding_box = None
+        self._source_bounding_box = None  # type: nornir_imageregistration.Rectangle | None
+        self._target_bounding_box = None  # type: nornir_imageregistration.Rectangle | None
 
         self._image_size = None
 

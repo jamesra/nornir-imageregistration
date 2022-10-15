@@ -1,4 +1,5 @@
 
+from typing import *
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import base, triangulation
 
@@ -41,7 +42,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         self.target_offset = self.target_offset * value
         self.OnTransformChanged()
     
-    def __init__(self, target_offset, source_rotation_center=None, angle: float | None = None, **kwargs):
+    def __init__(self, target_offset = Tuple[float, float], source_rotation_center: Tuple[float, float] | None = None, angle: float | None = None, **kwargs):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -211,7 +212,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
     def scalar(self):
         return self._scalar
      
-    def __init__(self, target_offset, source_rotation_center=None, angle=None, scalar=None, **kwargs):
+    def __init__(self, target_offset: Tuple[float,float], source_rotation_center: Tuple[float, float] = None, angle: float = None, scalar: float = None, **kwargs):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
