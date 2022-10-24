@@ -5,6 +5,7 @@ Created on Jun 26, 2012
 '''
 
 import os
+from typing import Sequence
 
 import numpy as np
 from PIL import Image
@@ -381,14 +382,16 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     return sum(StdDevList)
 
 
-def Histogram(filenames, Bpp=None, Scale=None, **kwargs):
+def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale=None, **kwargs) -> nornir_shared.histogram.Histogram:
     '''Returns a single histogram built by combining histograms of all images
        If scale is not none the images are scaled before the histogram is collected'''
 
     if isinstance(filenames, str):
         listfilenames = [filenames]
-    else:
+    elif isinstance(filenames, Sequence):
         listfilenames = filenames
+    else:
+        raise ValueError("filenames has unexpected type ")
 
     numTiles = len(listfilenames)
     if numTiles == 0:
