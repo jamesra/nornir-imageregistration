@@ -97,11 +97,7 @@ def FixedOriginOffset(transforms):
     It handles both discrete and continuous functions the best it can.
     :return: tuple containing smallest origin offset
     '''
-    
-    if len(transforms) == 1:
-        # Copy the data instead of passing the transforms object
-        return nornir_imageregistration.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
-
+      
     mins = np.zeros((len(transforms), 2)) 
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
