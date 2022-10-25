@@ -1137,7 +1137,7 @@ def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None
     return noised_image
 
 
-def NearestPowerOfTwo(val):
+def NearestPowerOfTwo(val: float | int):
     return math.pow(2, math.ceil(math.log(val, 2)))
 
 
