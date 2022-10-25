@@ -395,7 +395,7 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale=None
 
     numTiles = len(listfilenames)
     if numTiles == 0:
-        return dict()
+        raise ValueError("Cannot histogram with no input files")
 
     if Bpp is None:
         Bpp = nornir_shared.images.GetImageBpp(listfilenames[0])
