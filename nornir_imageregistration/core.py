@@ -301,7 +301,7 @@ def ResizeImage(image, scalar):
     return scipy.ndimage.zoom(image, zoom=scalar, order=order).clip(original_min, original_max)
 
 
-def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Invert=False, MinMax=None, Gamma=None):
+def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False, Bpp: int | None = None, Invert: bool = False, MinMax=None, Gamma: float | None = None):
     """Converts a single image according to the passed parameters using Numpy"""
 
     image = ImageParamToImageArray(input_image_param)
@@ -363,7 +363,7 @@ def _ConvertSingleImage(input_image_param, Flip=False, Flop=False, Bpp=None, Inv
     return image
 
 
-def _ConvertSingleImageToFile(input_image_param, output_filename, Flip=False, Flop=False, InputBpp=None, OutputBpp=None,
+def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None, OutputBpp: int | None = None,
                               Invert=False, MinMax=None, Gamma=None):
     image = _ConvertSingleImage(input_image_param,
                                 Flip=Flip,
@@ -439,7 +439,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=No
         try:
             t.wait()
         except Exception as e:
-            prettyoutput.LogErr("Failed to convert " + t.name)
+            prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
 
     if bDeleteOriginal:
         for (input_image, output_image) in ImagesToConvertDict.items():
