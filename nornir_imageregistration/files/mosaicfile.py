@@ -51,12 +51,13 @@ class MosaicFile(object):
         for InvalidImage in InvalidImages:
             if InvalidImage in self.ImageToTransformString:
                 InvalidImageFullPath = os.path.join(TileDir, InvalidImage)
-                if os.path.exists(InvalidImageFullPath):
-                    prettyoutput.Log('Removing invalid image from disk:')
-
+                try:
                     os.remove(InvalidImageFullPath)
+                    prettyoutput.Log(f'Removed invalid image from disk: {InvalidImage}')
+                except FileNotFoundError:
+                    pass
 
-                prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
+                prettyoutput.Log('Removing invalid/missing image from mosaic: %s' % InvalidImage)
                 del self.ImageToTransformString[InvalidImage]
                 FoundInvalid = True
 
