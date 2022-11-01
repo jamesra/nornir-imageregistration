@@ -282,7 +282,6 @@ r plots of each iteration in the output path for debugging purposes
                                                            grid_spacing=settings.grid_spacing)
     InputStos.Save(OutputStosPath)
 
-
 def RefineTransform(stosTransform,
                     settings:nornir_imageregistration.settings.GridRefinement,
                     SaveImages: bool=False,
@@ -298,8 +297,6 @@ def RefineTransform(stosTransform,
     :param stosTransform: The transform to refine
     """
 
-
-        
     if (SavePlots or SaveImages) and outputDir is None:
         raise ValueError("outputDir must be specified if SavePlots or SaveImages is true.")
     
@@ -549,6 +546,7 @@ def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.ITra
     alignment_records = list()
      
     rigid_transforms = ApproximateRigidTransform(input_transform=transform, target_points=targetPoints)
+ 
      
     for i in range(nPoints):
          
@@ -558,8 +556,10 @@ def _RefinePointsForTwoImages(transform:nornir_imageregistration.transforms.ITra
                                            f"Align {key}",
                                            rigid_transforms[i],
                                            # Transform,
-                                           settings.target_image,
                                            settings.source_image,
+                                           settings.target_image,
+                                           settings.source_image_stats,
+                                           settings.target_image_stats,
                                            targetPoint,
                                            settings.cell_size,
                                            anglesToSearch=settings.angles_to_search,
@@ -828,7 +828,7 @@ an be offset before it is not eligible for finalization
     return finalize_mask
      
      
-def ApproximateRigidTransform(input_transform, target_points):
+def ApproximateRigidTransform(input_transform: nornir_imageregistration.ITransform, target_points: NDArray):
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
@@ -851,7 +851,7 @@ def ApproximateRigidTransform(input_transform, target_points):
     
     target_delta = offset_target_points - recalculated_target_points
     
-    angles = -nornir_imageregistration.ArcAngle(origins, offsets, target_delta)
+    angles = -np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
     
     target_offsets = target_points - source_points  
     
@@ -866,7 +866,10 @@ def ApproximateRigidTransform(input_transform, target_points):
 def StartAttemptAlignPoint(pool,
                            taskname: str,
                            transform: nornir_imageregistration.ITransform,
-                           targetImage: NDArray, sourceImage: NDArray,
+                           targetImage: NDArray, 
+                           sourceImage: NDArray,
+                           target_image_stats: nornir_imageregistration.ImageStats,
+                           source_image_stats: nornir_imageregistration.ImageStats,
                            controlpoint: NDArray | tuple[float, float],
                            alignmentArea: NDArray | tuple[float, float],
                            anglesToSearch: Iterable[float] | None = None,
@@ -885,12 +888,15 @@ def StartAttemptAlignPoint(pool,
     
     # Pull image subregions 
     sourceImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
-                            targetImage.shape, sourceImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True)
+                            targetImage.shape, sourceImage, botleft=FixedRectangle.BottomLeft, area=FixedRectangle.Size, extrapolate=True, cval=np.nan)
+
+    sourceImageROI = nornir_imageregistration.RandomNoiseMask(sourceImageROI, np.logical_not(np.isnan(sourceImageROI)), imagestats=source_image_stats)
 
     targetImageROI = nornir_imageregistration.CropImage(targetImage,
                                                         FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0],
                                                         int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]),
-                                                        cval="random")
+                                                        cval="random",
+                                                        image_stats=target_image_stats)
 
     # Just ignore pure color regions
     if np.all(sourceImageROI == sourceImageROI[0][0]):

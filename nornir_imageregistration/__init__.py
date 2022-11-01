@@ -167,6 +167,9 @@ from nornir_imageregistration.spatial import *
 
 import nornir_imageregistration.pillow_helpers as pillow_helpers
 
+import nornir_imageregistration.image_stats as image_stats
+from nornir_imageregistration.image_stats import ImageStats, Prune, Histogram
+
 import nornir_imageregistration.core as core
 from nornir_imageregistration.core import *
 
@@ -198,7 +201,6 @@ import nornir_imageregistration.tile_overlap as tile_overlap
 import nornir_imageregistration.tileset as tileset
 from nornir_imageregistration.tileset import ShadeCorrectionTypes
 
-import nornir_imageregistration.image_stats as image_stats
 import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.layout as layout
@@ -221,7 +223,6 @@ from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
 
 from nornir_imageregistration.overlapmasking import GetOverlapMask
 
-from nornir_imageregistration.image_stats import ImageStats, Prune, Histogram
 from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKGridDivision
 
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 

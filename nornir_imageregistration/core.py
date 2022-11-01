@@ -123,7 +123,7 @@ def ApproxEqual(a, b, epsilon=None):
     return np.abs(a - b) < epsilon
 
 
-def ImageParamToImageArray(imageparam, dtype=None):
+def ImageParamToImageArray(imageparam: NDArray | str | memmap_metadata, dtype=None):
     image = None
     if isinstance(imageparam, np.ndarray):
         if dtype is None:
@@ -166,11 +166,11 @@ def ScalarForMaxDimension(max_dim, shapes):
     return max_dim / maxVal
 
 
-def ReduceImage(image, scalar):
+def ReduceImage(image: NDArray, scalar: float):
     return interpolation.zoom(image, scalar)
 
 
-def ExtractROI(image, center, area):
+def ExtractROI(image: NDArray, center, area):
     """Returns an ROI around a center point with the area, if the area passes a boundary the ROI
        maintains the same area, but is shifted so the entire area remains in the image.
        USES NUMPY (Y,X) INDEXING"""
@@ -267,7 +267,7 @@ def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
 
 
 # Shrinks the passed image file, return procedure handle of invoked command
-def Shrink(InFile, OutFile, Scalar, **kwargs):
+def Shrink(InFile: str, OutFile: str, Scalar: float, **kwargs):
     """Shrinks the passed image file.  If Pool is not None the
        task is returned. kwargs are passed on to Pillow's image save function
        :param Scalar:
@@ -467,7 +467,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int = None):
+def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int = None, image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -565,7 +565,7 @@ def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
     if not rMask is None:
-        return RandomNoiseMask(cropped, rMask, Copy=False)
+        return RandomNoiseMask(cropped, rMask, Copy=False, imagestats=image_stats)
 
     return cropped
 
@@ -1438,6 +1438,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         PeakStrength = LabelSums[PeakValueIndex]
         #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
         PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex+1)
+        #PeakMaximumPosition = scipy.ndimage.maximum_position(ThresholdImage, LabelImage, PeakValueIndex+1)
         # nPixelsInLabel = np.sum(LabelImage == PeakValueIndex+1)
         # if (nPixelsInLabel / np.prod(image.shape)) > 0.001: #Tighten up the cutoff until the peak contains only about 1 in 1000 pixels in the threshold image
         #     new_cutoff = Cutoff + ((1.0 - Cutoff) / 2.0)
@@ -1452,15 +1453,16 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
             Weight = PeakStrength / FalsePeakStrength
          
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
+        
+        # center_of_mass returns results as (y,x)
+        # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+        # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
         del LabelImage
         del ThresholdImage
         del LabelSums
 
-        # center_of_mass returns results as (y,x)
-        # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
-        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
-        # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
         return scaled_offset, Weight
 

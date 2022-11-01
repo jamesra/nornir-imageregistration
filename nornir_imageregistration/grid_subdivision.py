@@ -37,7 +37,7 @@ class GridDivisionBase(object):
 
     def PopulateTargetPoints(self, transform):
         if transform is not None:
-            self.TargetPoints = np.round(transform.Transform(self.SourcePoints), 0).astype(np.int64)
+            self.TargetPoints = np.round(transform.Transform(self.SourcePoints), 3).astype(np.float)
             return self.TargetPoints
 
     def RemoveMaskedPoints(self, mask):
@@ -171,7 +171,7 @@ class ITKGridDivision(GridDivisionBase):
         elif grid_dims is None:
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
 
-        self.grid_spacing = (source_shape - 1) / (self.grid_dims - 1)
+        self.grid_spacing = (source_shape) / (self.grid_dims - 1)
 
         self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in
                        range(self.grid_dims[1])]

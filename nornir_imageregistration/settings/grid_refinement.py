@@ -96,6 +96,9 @@ class GridRefinement(object):
         else:
             self.source_mask = source_extrema_mask
 
+        self.target_image_stats = nornir_imageregistration.ImageStats.Create(target_image[target_mask])
+        self.source_image_stats = nornir_imageregistration.ImageStats.Create(source_image[source_mask])
+
         self.target_image = nornir_imageregistration.RandomNoiseMask(target_image, self.target_mask, Copy=False)
         self.source_image = nornir_imageregistration.RandomNoiseMask(source_image, self.source_mask, Copy=False)
 
