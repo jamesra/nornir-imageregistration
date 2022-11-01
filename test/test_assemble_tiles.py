@@ -116,7 +116,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         print("Unscaled fixed region %s" % str(mosaicTileset.TargetBoundingBox))
         
         ScaledFixedRegion = np.array([MinY + 512, MinX + 1024, MinY + 1024, MinX + 2048])
-        FixedRegion = ScaledFixedRegion * downsample
+        FixedRegion = nornir_imageregistration.Rectangle(ScaledFixedRegion * downsample)
         
         ### Find a tile that intersects our region of interest.
         intersecting_tile = mosaicTileset.TargetSpaceIntersections(FixedRegion)[0]
