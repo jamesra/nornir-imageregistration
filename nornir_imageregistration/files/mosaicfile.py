@@ -25,7 +25,7 @@ class MosaicFile(object):
 
     @property
     def NumberOfImages(self):
-        if(self.ImageToTransformString is None):
+        if self.ImageToTransformString is None:
             return 0
 
         return len(list(self.ImageToTransformString.keys()))
@@ -72,7 +72,7 @@ class MosaicFile(object):
            <SECTION>_<CHANNEL>_<MosaicSource>_<DOWNSAMPLE>.mosaic
            [SectionNumber, Channel, MosaicSource, Downsample]'''
 
-        if(os.path.exists(filename) == False):
+        if os.path.exists(filename) == False:
             prettyoutput.LogErr("mosaic file not found: " + filename)
             return
 
@@ -94,7 +94,7 @@ class MosaicFile(object):
             MosaicType = None
             prettyoutput.Log('Could not determine mosaic source: ' + str(filename))
 
-        if(len(parts) > 3):
+        if len(parts) > 3:
             try:
                 Channel = parts[1]
             except:
@@ -135,18 +135,18 @@ class MosaicFile(object):
                 line = line.strip()
                 [text, value] = line.split(':', 1)
     
-                if(text.startswith('number_of_images')):
+                if text.startswith('number_of_images'):
                     value.strip()
                     obj.FileReportedNumberOfImages = int(value)
-                elif(text.startswith('pixel_spacing')):
+                elif text.startswith('pixel_spacing'):
                     value.strip()
                     obj.pixel_spacing = int(float(value))
-                elif(text.startswith('use_std_mask')):
+                elif text.startswith('use_std_mask'):
                     obj.use_std_mask = int(value)
-                elif(text.startswith('format_version_number')):
+                elif text.startswith('format_version_number'):
                     obj.format_version_number = int(value)
-                elif(text.startswith('image')):
-                    if(obj.format_version_number == 0):
+                elif text.startswith('image'):
+                    if obj.format_version_number == 0:
                         [filename, transform] = value.split(None, 1)
                         filename = filename.strip()
                         filename = os.path.basename(filename)
@@ -203,13 +203,13 @@ class MosaicFile(object):
 
         for key in keys:
             Coord = Entries[key]
-            if(Coord[0] < minX):
+            if Coord[0] < minX:
                 minX = Coord[0]
-            if(Coord[0] > maxX):
+            if Coord[0] > maxX:
                 maxX = Coord[0]
-            if(Coord[1] < minY):
+            if Coord[1] < minY:
                 minY = Coord[1]
-            if(Coord[1] > maxY):
+            if Coord[1] > maxY:
                 maxY = Coord[1]
 
         prettyoutput.Log('MinX:\t' + str(minX) + '\tMaxX:\t' + str(maxX))
@@ -271,7 +271,7 @@ class MosaicFile(object):
 
                 NeededSpace = " "
                 # Figure out if we add a space after the line
-                if(i == len(parts) - 1):
+                if i == len(parts) - 1:
                     NeededSpace = ""
 
                 floatVal = float()
@@ -296,12 +296,12 @@ class MosaicFile(object):
 
                 # Figure out if we can write number as an int
                 outStr = ""
-                if(not intVal is None):
+                if not intVal is None:
                     OutputTransformStr = OutputTransformStr + str(intVal) + NeededSpace
                 else:
                     # outStr = "%.2f" % (floatVal)
 
-                    outStr = "%g" % (floatVal)
+                    outStr = "%g" % floatVal
                     OutputTransformStr = OutputTransformStr + outStr + NeededSpace
 
             self.ImageToTransformString[FileKey] = OutputTransformStr
@@ -354,7 +354,7 @@ class MosaicFile(object):
 
     def Save(self, filename):
 
-        if(len(self.ImageToTransformString) <= 0):
+        if len(self.ImageToTransformString) <= 0:
             prettyoutput.LogErr("No tiles present in mosaic " + filename + "\nThe save request was aborted")
             return
 
