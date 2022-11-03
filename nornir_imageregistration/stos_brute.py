@@ -59,14 +59,14 @@ def SliceToSliceBruteForce(FixedImageInput,
         else:
             WarpedImageScalingRequired = WarpedImageScaleFactors != 1
             WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray([WarpedImageScaleFactors, WarpedImageScaleFactors])
-        
+
     imFixed = None
     if isinstance(FixedImageInput, str):
         imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float32)
         imFixedMask = None 
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
-                    
+
         imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed,  imagemask=imFixedMask, Copy=False)
     else:
         imFixed = FixedImageInput
@@ -92,7 +92,6 @@ def SliceToSliceBruteForce(FixedImageInput,
         imWarped = nornir_imageregistration.ReduceImage(imWarped, scalar)
 
     # Replace extrema with noise
-     
     UserDefinedAngleSearchRange = not AngleSearchRange is None
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = list(range(-178, 182, 2))
@@ -168,7 +167,6 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
         np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
 
-
     RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)
 
     assert(RotatedWarped.shape[0] > 0)
@@ -201,8 +199,7 @@ def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, f
     del imFixed
 
     del RotatedWarped
-
-
+ 
     CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
     del PaddedFixed

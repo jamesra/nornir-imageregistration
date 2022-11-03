@@ -5,18 +5,18 @@ Created on Apr 22, 2013
 """
 
 import os
+import scipy
+import numpy as np
+from numpy.typing import NDArray
+
+import nornir_shared.images as images
+import nornir_shared.prettyoutput as PrettyOutput
+import nornir_pools
  
 import nornir_imageregistration 
 from   nornir_imageregistration.transforms import factory, triangulation
 from   nornir_imageregistration.transforms.utils import InvalidIndicies
-from scipy.ndimage import interpolation
-
-from nornir_imageregistration import ITransform
-import nornir_pools
-import nornir_shared.images as images
-import nornir_shared.prettyoutput as PrettyOutput
-import numpy as np
-
+from nornir_imageregistration import ITransform 
 
 def GetROICoords(botleft, area):
     x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
@@ -42,7 +42,7 @@ def GetROICoords(botleft, area):
 
 def DestinationROI_to_SourceROI(transform, botleft, area, extrapolate=False):
     """
-    Apply a transform to a region of interest within an image. Center and area are in fixed space
+    Apply an inverse transform to a region of interest within an image. Center and area are in fixed space
 
     :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
@@ -67,7 +67,7 @@ e coordinates.
 
 def SourceROI_to_DestinationROI(transform, botleft, area, extrapolate=False):
     """
-    Apply an inverse transform to a region of interest within an image. Center and area are in fixed space
+    Apply a transform to a region of interest within an image. Center and area are in fixed space
 
     :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
@@ -225,7 +225,7 @@ def __WarpedImageUsingCoords(fixed_coords, warped_coords, FixedImageArea, Warped
     # TODO: Order appears to not matter so setting to zero may help
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     
-    outputValues = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=1, cval=cval)
+    outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     outputImage = np.full(area, cval, dtype=subroi_warpedImage.dtype)
     fixed_coords_flat = nornir_imageregistration.ravel_index(fixed_coords, outputImage.shape).astype(np.int64)
     outputImage.flat[fixed_coords_flat] = outputValues
@@ -265,7 +265,7 @@ def _ReplaceFilesWithImages(listImages):
 
 def FixedImageToWarpedSpace(transform, WarpedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
     """Warps every image in the DataToTransform list using the provided transform.
-    :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
+    :param transform: transform to pass fixed space coordinates through to obtain warped space coordinates
     :param FixedImageArea: Size of fixed space region to map pixels into
     :param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
     :param botleft: Origin of region to map
@@ -307,12 +307,12 @@ def FixedImageToWarpedSpace(transform, WarpedImageArea, DataToTransform, botleft
 def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=None, area=None, cval=None, extrapolate=False):
 
     """Warps every image in the DataToTransform list using the provided transform.
-    :param transform:
-    :param FixedImageArea:
-    :param DataToTransform:
-    :param botleft:
-    :param area:
-    :param cval:
+    :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
+    :param FixedImageArea: ize of fixed space region to map pixels into
+    :param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
+    :param botleft: Origin of region to map
+    :param area: Expected dimensions of output
+    :param cval: Value to place in unmappable regions, defaults to zero.
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :Param FixedImageArea: Size of fixed space region to map pixels into
     :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
@@ -361,7 +361,7 @@ def WarpedImageToFixedSpace(transform, FixedImageArea, DataToTransform, botleft=
         return __WarpedImageUsingCoords(DstSpace_coords, SrcSpace_coords, FixedImageArea, ImagesToTransform, area, cval=cval)
 
 
-def ParameterToStosTransform(transformData):
+def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform ):
     """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
     :return: A transform
@@ -382,7 +382,7 @@ def ParameterToStosTransform(transformData):
     return stostransform
 
 
-def TransformStos(transformData, OutputFilename=None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
+def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=None, warpedImage=None, scalar=1.0, CropUndefined=False):
     """Assembles an image based on the passed transform.
     :param transformData:
     :param OutputFilename:

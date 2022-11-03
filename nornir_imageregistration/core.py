@@ -467,7 +467,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int = None, image_stats: nornir_imageregistration.ImageStats | None = None):
+def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -497,6 +497,9 @@ def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: 
 
     assert (isinstance(Width, int))
     assert (isinstance(Height, int))
+
+    if isinstance(cval, str) and cval != 'random':
+        raise ValueError("'random' is the only supported string argument for cval")
 
     if Width < 0:
         raise ValueError("Negative dimensions are not allowed")
@@ -869,8 +872,8 @@ def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=No
     """
     if not os.path.isfile(ImageFullPath):
         # logger = logging.getLogger(__name__)
-        prettyoutput.LogErr('File does not exist: ' + ImageFullPath)
-        raise IOError("Unable to load image: %s" % ImageFullPath)
+        prettyoutput.LogErr(f'File does not exist: {ImageFullPath}')
+        raise IOError(f"Unable to load image: {ImageFullPath}")
 
     (root, ext) = os.path.splitext(ImageFullPath)
 
