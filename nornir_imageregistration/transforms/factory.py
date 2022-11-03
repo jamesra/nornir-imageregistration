@@ -55,10 +55,9 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim, YDim, bounds=
     numPoints = Transform.SourcePoints.shape[0]
 
     # Find the extent of the mapped boundaries
-    (bottom, left, top, right) = _GetMappedBoundsExtents(Transform, bounds)
-    image_width = (
-                              right - left) + 1  # We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
-    image_height = (top - bottom) + 1
+    (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
+    image_width = (right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
+    image_height = (top - bottom)
 
     output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
 
@@ -89,7 +88,7 @@ def _TransformToIRToolsString(Transform: IControlPoints, bounds=None):
                               right - left) + 1  # We add one because a 10x10 image is mappped from 0,0 to 9,9, which means the bounding box will be Left=0, Right=9, and width is 9 unless we correct for it.
     image_height = (top - bottom) + 1
 
-    output = ["MeshTransform_double_2_2 vp " + str(numPoints * 4)]
+    output = [f"MeshTransform_double_2_2 vp {numPoints * 4}"]
 
     # template = " %(mx).10f %(my).10f %(cx).3f %(cy).3f"
     template = " %(mx)s %(my)s %(cx)s %(cy)s"
@@ -202,8 +201,8 @@ def ParseGridTransform(parts, pixelSpacing=None):
         iX = (i / 2) % gridWidth
 
         # We subtract one from ImageWidth because the pixels are indexed at zero->Width-1
-        mappedX = (float(iX) / float(gridWidth - 1)) * (ImageWidth - 1)
-        mappedY = (float(iY) / float(gridHeight - 1)) * (ImageHeight - 1)
+        mappedX = (float(iX) / float(gridWidth - 1)) * (ImageWidth)
+        mappedY = (float(iY) / float(gridHeight - 1)) * (ImageHeight)
         ControlX = VariableParameters[i]
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
@@ -228,8 +227,8 @@ def ParseMeshTransform(parts, pixelSpacing=None):
     PointPairs = []
 
     for i in range(0, len(VariableParameters) - 1, 4):
-        mappedX = (VariableParameters[i + 0] * (ImageWidth - 1)) + Left
-        mappedY = (VariableParameters[i + 1] * (ImageHeight - 1)) + Bottom
+        mappedX = (VariableParameters[i + 0] * (ImageWidth)) + Left
+        mappedY = (VariableParameters[i + 1] * (ImageHeight)) + Bottom
         ControlX = float(VariableParameters[i + 2]) * pixelSpacing
         ControlY = float(VariableParameters[i + 3]) * pixelSpacing
 
@@ -378,7 +377,7 @@ def __CorrectOffsetForMismatchedImageSizes(offset,
             offset[1] + ((FixedImageShape[1] - MovingImageShape[1] * scale[1]) / 2.0))
 
 
-def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image_shape, flip_ud=False):
+def CreateRigidTransform(warped_offset, rangle: float, target_image_shape, source_image_shape, flip_ud=False):
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
 
@@ -407,15 +406,15 @@ def CreateRigidTransform(warped_offset, rangle, target_image_shape, source_image
     assert (target_image_shape[1] > 0)
 
     source_bounding_rect = Rectangle.CreateFromPointAndArea((0, 0), source_image_shape)
-    target_bounding_rect = Rectangle.CreateFromPointAndArea((0, 0), target_image_shape)
+    #target_bounding_rect = Rectangle.CreateFromPointAndArea((0, 0), target_image_shape)
 
-    # Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
+    # Subtract 1 because we are defining this transform as a rotation of the center of an image.
     # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
     source_rotation_center = source_bounding_rect.Center - 0.5
 
     # Adjust offset for any mismatch in dimensions
     # Adjust the center of rotation to be consistent with the original ir-tools
-    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape)
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape - np.array((1,1)), source_image_shape - np.array((1,1)))
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
@@ -477,7 +476,7 @@ def GetTransformedRigidCornerPoints(size: (float, float), rangle: float, offset:
     '''
 
     # The corners of a X,Y image that starts at 0,0 are located at X-1,Y-1.  So we subtract one from the size
-    size = size - np.array((1, 1))
+    size = size #- np.array((1, 1))
     CenteredRotation = utils.RotationMatrix(rangle)
 
     ScaleMatrix = None

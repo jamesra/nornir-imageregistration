@@ -151,7 +151,7 @@ class TestRigidFactory(ImageTestBase):
                                                                              flip_ud=False)
         
         p1 = [[0,0],
-              [9,9]]
+              [10,10]]
         
         TransformAgreementCheck(r, m, p1)
 

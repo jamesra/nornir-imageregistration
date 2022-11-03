@@ -23,7 +23,7 @@ if __name__ == '__main__':
                         "numpy>=1.9.1",
                         "scipy>=0.13.2",
                         "matplotlib>=1.3.0",
-                        "pillow-simd>=6.0",
+                        "pillow>=9.0",
                         "six",
                         "hypothesis"]
 

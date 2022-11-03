@@ -47,7 +47,7 @@ class TestMath(unittest.TestCase):
         Width = 256
 
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), 0, (0, 0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height-1, Width-1))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height, Width))
 
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
@@ -62,13 +62,13 @@ class TestMath(unittest.TestCase):
 
         # Rotate a half-turn
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), tau / 2.0, (0, 0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height-1, Width-1))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea((0, 0), (Height, Width))
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
         # Rotate a quarter-turn
         CornerPoints = factory.GetTransformedRigidCornerPoints((Height, Width), tau / 4.0, (0, 0))
         p = ((-Width / 2.0) + (Height / 2.0), (-Height / 2.0) + (Width / 2.0))
-        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea(p, (Width-1, Height-1))
+        ExpectedRectangle = spatial.Rectangle.CreateFromPointAndArea(p, (Width, Height))
         self.ValidateCornersMatchRectangle(CornerPoints, ExpectedRectangle)
 
         return
@@ -115,7 +115,7 @@ class TestIO(test.setup_imagetest.TransformTestBase):
 
         if isinstance(transform, IControlPoints):
             self.assertTrue(isinstance(loadedTransform, IControlPoints), "Loaded transform must have same interface as saved transform")
-            pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.5)
+            pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.1)
             self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
 
         if isinstance(transform, IDiscreteTransform):

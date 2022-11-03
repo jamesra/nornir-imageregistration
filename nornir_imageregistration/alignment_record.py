@@ -78,17 +78,20 @@ class AlignmentRecord(object):
         '''
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
-    def __str__(self):
-        s = 'Offset: {x:.2f}x, {y:.2f}y Weight: {w:.2f}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
+    def __repr__(self):
+        s = '{x:.2f}x, {y:.2f}y Weight: {w:.2f}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
         
         if self._angle != 0:
-            s += ' Angle: {0:.2f}'.format(self._angle)
+            s += f' Angle: {self._angle:.2f}'
             
         # s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
         if self.flippedud:
             s += ' Flipped up/down'
             
         return s
+    
+    def __str__(self):
+        return 'Offset: {str(self)}'
 
     def __init__(self, peak, weight, angle=0.0, flipped_ud=False, scale=1.0):
         '''
@@ -150,6 +153,10 @@ class AlignmentRecord(object):
         transform = self.ToTransform(fixedImageSize, warpedImageSize)
 
         # Flipped is always false because the transform is already flipped if needed
+        #We add one to the size of the image because ITK grid transforms expect the coordinates to the full coordinates.  So for a 10x10 image starting at 0,0 the 
+        #index of the upper right corner is 9,9, but in ITK grid transforms the upper right corner is expected to be 10,10 
+        
+        #warpedImageSize + np.array((1, 1)
         warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0), flip_ud=False)
 
         fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
@@ -254,5 +261,11 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         self._ID = ID
         self._TargetPoint = TargetPoint
         self._SourcePoint = SourcePoint
+        
+    def __repr__(self):
+        return f'ID: {self._ID} {super(EnhancedAlignmentRecord, self).__repr__()}'
+    
+    def __str__(self):
+        return self.__repr__()
         
     

@@ -88,6 +88,22 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
+        
+    def test_Rotate180_odd_offset(self): 
+        sourceShape = (2, 6)
+        targetShape = (3, 7)
+        offset = (1,1)#numpy.array(canvasShape) / 2.0
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
+        transform = arecord.ToTransform(targetShape, sourceShape)
+
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
+        
+        self.show_test_image(transform, sourceShape, targetShape, "Rotate 180 degrees, offset by 1,1")
+
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
     def test_Rotate90(self): 
         
@@ -106,23 +122,46 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
         
-    def test_Rotate90_expandedCanvas(self):
+    def test_Rotate90_expandedCanvas_even(self):
+        sourceShape = numpy.array((3, 6))
+        sourceCenter = (sourceShape / 2.0)
+        targetShapeEven = numpy.array((8, 10)) #Weirdly I've had cases where the test passes or fails based on whether target shape is an even or odd number
+        targetCenter = (targetShapeEven / 2.0)  # Subtract 0.5 so we rotate at the center of the image
+        targetShape = targetShapeEven
+        offset =  (0,0)#numpy.array(targetShape) / 2.0 
         
-        sourceShape = (3, 6)
-        targetShape = (10, 10)
-        offset =  (0,0)#numpy.array(targetShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
         transform = arecord.ToTransform(targetShape, sourceShape)
         
         (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
         
-        self.show_test_image(transform, sourceShape,  targetShape,"Rotate 90 degrees")
+        self.show_test_image(transform, sourceShape,  targetShape, f"Rotate 90 degrees\nEven canvas dimensions, offset: {offset}")
           
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), sourceShape[1] - 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 1, delta=0.01)
+    
+    def test_Rotate90_expandedCanvas_odd(self):
+        sourceShape = numpy.array((3, 6))
+        sourceCenter = (sourceShape) / 2.0
+        targetShapeOdd = numpy.array((7, 9)) #Weirdly I've had cases where the test passes or fails based on whether target shape is an even or odd number
+        targetCenter = (targetShapeOdd / 2.0)  # Subtract 0.5 so we rotate at the center of the image
+        targetShape=targetShapeOdd
+        offset =  (0,0)#numpy.array(targetShape) / 2.0 
         
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
+        transform = arecord.ToTransform(targetShape, sourceShape)
+        
+        (fixedpoints, points) = assemble.DestinationROI_to_SourceROI(transform, offset, targetShape, extrapolate=True)
+        
+        self.show_test_image(transform, sourceShape,  targetShape, f"Rotate 90 degrees\nOdd canvas dimensions, offset: {offset}")
+          
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -3, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), -0.5, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5.5, delta=0.01)
+         
     def show_test_image(self, transform, image_shape, target_space_shape, title):
         image = TestTransformROI.create_tiny_image(image_shape)
         transformedImage = assemble.WarpedImageToFixedSpace(transform, target_space_shape, image)
