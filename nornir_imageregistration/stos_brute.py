@@ -29,7 +29,7 @@ def SliceToSliceBruteForce(FixedImageInput,
                            WarpedImageScaleFactors=None,
                            SingleThread=False,
                            Cluster=False,
-                           TestFlip=True):
+                           TestFlip=True) -> nornir_imageregistration.AlignmentRecord:
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
        
