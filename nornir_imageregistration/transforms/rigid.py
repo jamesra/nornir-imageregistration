@@ -81,7 +81,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, base.DefaultT
         self.OnTransformChanged()
         
     def __repr__(self):
-        return f"Offset: {self.target_offset[0]}y,{self.target_offset[1]}x"
+        return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x"
 
         
     @staticmethod
@@ -192,7 +192,7 @@ class Rigid(RigidNoRotation):
         return np.asarray(output_points)
     
     def __repr__(self):
-        return f"Offset: {self.target_offset[0]}y,{self.target_offset[1]}x Angle: {self.angle}deg Rot Center: {self.source_space_center_of_rotation[0]}y,{self.source_space_center_of_rotation[1]}x"
+        return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}deg Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
  
 
 class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
@@ -300,4 +300,4 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
         return np.asarray(output_points)
     
     def __repr__(self):
-        return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}".format(self.scalar)
+        return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}:04g".format(self.scalar)
