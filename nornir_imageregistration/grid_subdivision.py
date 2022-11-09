@@ -168,7 +168,7 @@ class ITKGridDivision(GridDivisionBase):
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape,
                                                                     cell_size) + 1  # Add one because we center the boundary points on the edge and not the center
         elif grid_spacing is None:
-            self.grid_dims = np.asarray(self.grid_dims, np.int32)
+            self.grid_dims = np.asarray(grid_dims, np.int32)
         elif grid_dims is None:
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
 
