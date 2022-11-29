@@ -76,7 +76,7 @@ class memmap_metadata(object):
         self.mode = mode
 
 
-def ravel_index(idx, shp):
+def ravel_index(idx: NDArray, shp: NDArray):
     """
     Convert a nx2 numpy array of coordinates into array indicies
 
@@ -87,10 +87,14 @@ def ravel_index(idx, shp):
     if shp[0] == 1:
         return idx[:, 1]
 
-    if idx.shape[0] != shp[-1]:
+    if idx.shape[1] == len(shp):
         idx = np.transpose(idx)
+    else:
+        pass
 
-    return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1], [1])).dot(idx))
+    result = np.ravel_multi_index(idx, shp)
+    return result
+    #return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1], [1])).dot(idx))
 
 
 def index_with_array(image, indicies):
@@ -495,8 +499,8 @@ def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: 
     #     if not isinstance(Height, int):
     #         Height = int(Height)
 
-    assert (isinstance(Width, int))
-    assert (isinstance(Height, int))
+    assert (isinstance(Width, int) or isinstance(Width, np.int32))
+    assert (isinstance(Height, int) or isinstance(Width, np.int32))
 
     if isinstance(cval, str) and cval != 'random':
         raise ValueError("'random' is the only supported string argument for cval")
