@@ -91,7 +91,7 @@ class AlignmentRecord(object):
         return s
     
     def __str__(self):
-        return 'Offset: {str(self)}'
+        return f'Offset: {str(self)}'
 
     def __init__(self, peak, weight, angle=0.0, flipped_ud=False, scale=1.0):
         '''
