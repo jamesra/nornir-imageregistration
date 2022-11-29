@@ -96,14 +96,14 @@ def SliceToSliceBruteForce(FixedImageInput,
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = list(range(-178, 182, 2))
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, Cluster=Cluster)
+    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, use_cluster=Cluster)
 
     IsFlipped = False
     if TestFlip:
         imWarpedFlipped = np.copy(imWarped)
         imWarpedFlipped = np.flipud(imWarpedFlipped)
     
-        BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, Cluster=Cluster)
+        BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, use_cluster=Cluster)
         BestMatchFlipped.flippedud = True
 
         # Determine if the best match is flipped or not
@@ -233,7 +233,7 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False, Cluster=False):
+def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False, use_cluster=False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
@@ -241,7 +241,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     pool = None
     
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
-    Cluster = False
+    use_cluster = False
     
     if len(AngleList) <= 1:
         SingleThread = True
@@ -249,7 +249,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     if not SingleThread:
         if Debug:
             pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
-        elif Cluster:
+        elif use_cluster:
             pool = nornir_pools.GetGlobalClusterPool()
         else:
             pool = nornir_pools.GetGlobalMultithreadingPool()
@@ -270,7 +270,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     # Create a shared read-only memory map for the Padded fixed image
 
-    if not (Cluster or SingleThread):
+    if not (use_cluster or SingleThread):
         temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
         temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
 
@@ -294,6 +294,11 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         if SingleThread:
             record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
+        elif use_cluster:
+            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped,
+                                 fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats,
+                                 MinOverlap=MinOverlap)
+            taskList.append(task)
         else:
             task = pool.add_task(str(theta), ScoreOneAngle, temp_padded_fixed_memmap, temp_shared_warp_memmap, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             taskList.append(task)
@@ -341,7 +346,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
     BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
     
-    if not (Cluster or SingleThread):
+    if not (use_cluster or SingleThread):
         os.remove(temp_shared_warp_memmap.path)
         os.remove(temp_padded_fixed_memmap.path)
         
