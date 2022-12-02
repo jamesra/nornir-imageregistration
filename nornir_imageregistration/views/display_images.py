@@ -1,5 +1,6 @@
+import typing
 
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 import collections.abc
 import nornir_imageregistration
 import numpy as np
@@ -7,20 +8,21 @@ import math
 import matplotlib.colors 
 import matplotlib.gridspec
 
-def ShowGrayscale(input_params, title=None, PassFail=False):
+def ShowGrayscale(input_params, title: str | None = None, image_titles: list[str] | None = None, PassFail: bool = False):
     '''
     :param PassFail:
     :param list input_params: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
+    :param image_titles: A list of titles, must have same shape as input_params
     '''
  
-    def set_title_for_single_image(title):
-        if not title is None:
+    def set_title_for_single_image(title: str | None):
+        if title is not None:
             plt.title(title)
         return 
 
-    def set_title_for_multi_image(fig, title):
-        if not title is None:
+    def set_title_for_multi_image(fig, title: str | None):
+        if title is not None:
             fig.suptitle(title)
         return 
                 
@@ -29,15 +31,32 @@ def ShowGrayscale(input_params, title=None, PassFail=False):
     
     image_data = _ConvertParamsToImageList(input_params)
     grid_dims = _GridLayoutDims(image_data)
-    
-    if grid_dims == (1, 1): 
-        (fig, ax) = _DisplayImageSingle(image_data)
-        set_title_for_single_image(title)
+
+    if image_titles is not None:
+        title_dims = _TitleLayoutDims(image_titles)
+        if grid_dims != title_dims:
+            raise ValueError(f"layout of image titles must match layout of images.\nGot {grid_dims} layout of images and {title_dims} layout of image titles")
+    else:
+        title_dims = None
+
+    if grid_dims == (1, 1):
+        image_title = None
+        if isinstance(image_titles, str):
+            image_title = image_titles
+        elif isinstance(image_titles, collections.abc.Iterable):
+            image_title = image_titles[0]
+
+        (fig, ax) = _DisplayImageSingle(image_data, image_title)
+        if image_titles is None:
+            set_title_for_single_image(title)
+        else:
+            set_title_for_multi_image(fig, title)
+
     elif grid_dims[1] == 1:
-        (fig, ax) = _DisplayImageList1D(image_data)
+        (fig, ax) = _DisplayImageList1D(image_data, image_titles)
         set_title_for_multi_image(fig, title)
     elif grid_dims[1] > 1:
-        (fig, gs) = _DisplayImageList2D(image_data, grid_dims)
+        (fig, gs) = _DisplayImageList2D(image_data, grid_dims, image_titles)
         set_title_for_multi_image(fig, title)
         
     elif isinstance(input_params, collections.abc.Iterable):
@@ -63,8 +82,13 @@ def ShowGrayscale(input_params, title=None, PassFail=False):
         #                         ax = axes[iRow, iCol ]
         #                     else:
         #                         ax = axes[iCol]
-        
-                ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
+
+                ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+
+                if image_titles is not None:
+                    ax.set_title(image_titles[i])
+
+
     else:
         return
  
@@ -99,22 +123,41 @@ def _ConvertParamsToImageList(param):
     return output
     
 
-def _GridLayoutDims(imagelist):
+def _GridLayoutDims(image_list: np.typing.NDArray | typing.Iterable) -> tuple[int, int]:
     '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
     '''
     
-    def _NumImages(param):
+    def _num_images(param):
         if isinstance(param, np.ndarray):
             return 1
         else:
             return len(param)
                 
-    if isinstance(imagelist, np.ndarray):
-        return (1, 1)
-    elif isinstance(imagelist, collections.abc.Iterable):
-        lengths = [_NumImages(p) for p in imagelist]
+    if isinstance(image_list, np.ndarray):
+        return 1, 1
+    elif isinstance(image_list, collections.abc.Iterable):
+        lengths = [_num_images(p) for p in image_list]
         max_len = np.max(lengths)
-        return (len(imagelist), max_len)
+        return len(image_list), max_len
+
+
+def _TitleLayoutDims(title_list: np.typing.NDArray | typing.Iterable) -> tuple[int, int]:
+    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    '''
+
+    def _num_titles(param):
+        if isinstance(param, str):
+            return 1
+        else:
+            return len(param)
+
+    if isinstance(title_list, np.str):
+        return 1, 1
+
+    elif isinstance(title_list, collections.abc.Iterable):
+        lengths = [_num_titles(p) for p in title_list]
+        max_len = np.max(lengths)
+        return len(title_list), max_len
     
 def get_aspect(ax=None):
     remove_plot = False
@@ -157,7 +200,7 @@ def _ImageList1DGridDims(imagelist):
     B = math.ceil(numImages / A)
 
     if len(imagelist) == 0:
-        return (0,0)
+        return 0,0
     
     width = None
     height = None
@@ -182,21 +225,20 @@ def _ImageList1DGridDims(imagelist):
         else:
             width = min(A,B)
             height = max(A,B)
-         
 
-    return (int(height), int(width))
+    return int(height), int(width)
 
 
 def _DisplayImageSingle(input_param, title=None):
     fig, ax = plt.subplots()
     ax.imshow(input_param, cmap=plt.gray(), aspect='equal', norm=matplotlib.colors.NoNorm())
-    if not title is None:
+    if title is not None:
         ax.set_title(title)
     
-    return (fig, ax)
+    return fig, ax
 
     
-def _DisplayImageList1D(input_params, title=None): 
+def _DisplayImageList1D(input_params, image_titles: list[str] | None = None):
         
     (height, width) = _ImageList1DGridDims(input_params)
     
@@ -225,6 +267,9 @@ def _DisplayImageList1D(input_params, title=None):
             raise NotImplemented("What in the world?  3D Display or something?")
         
         ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+
+        if image_titles is not None:
+            ax.set_title(image_titles[i])
     
     i += 1
     while i < total_plots:
@@ -240,20 +285,28 @@ def _DisplayImageList1D(input_params, title=None):
             
         i += 1
             
-    return (fig, axes)
+    return fig, axes
 
     
-def _DisplayImageList2D(input_params, grid_dims, title=None):
+def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None = None):
     (height, width) = grid_dims
     gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
     fig = plt.figure()
     # , axes = plt.subplots(height, width)
 
     for (iRow, row_list) in enumerate(input_params):
+
+        row_titles = None
+        if image_titles is not None:
+            row_titles = image_titles[iRow]
         
         if isinstance(row_list, np.ndarray):
             ax = fig.add_subplot(gs[iRow,:])  # axes[iRow, 0]
             ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+
+            if row_titles is not None:
+                ax.set_title(row_titles)
+
             continue 
         
         numCols = len(row_list)
@@ -270,7 +323,11 @@ def _DisplayImageList2D(input_params, grid_dims, title=None):
 #            else:
 #                ax = fig.add_subplot([iCol]
 
-            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm()) 
+            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+
+            if row_titles is not None:
+                row_title = row_titles[iCol]
+                ax.set_title(row_title)
     
-    return (fig, gs)
+    return fig, gs
     
