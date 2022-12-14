@@ -37,9 +37,11 @@ def ShowWithPassFail(fig):
     bprev = matplotlib.widgets.Button(axprev, 'Fail', color='#FF0000')
     bprev.on_clicked(callback.OnFailButton) 
     fig.show()
-    
-    while callback.Pass is None:
-        fig.waitforbuttonpress(timeout = 1)
-        
-    plt.close(fig)
+
+    try:
+        while callback.Pass is None:
+            fig.waitforbuttonpress(timeout = 1)
+    finally:
+        plt.close(fig)
+
     return callback.Pass
