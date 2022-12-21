@@ -1,5 +1,7 @@
 import typing
 
+from typing import Sequence, Iterable
+
 import matplotlib.pyplot as plt
 import collections.abc
 import nornir_imageregistration
@@ -8,7 +10,18 @@ import math
 import matplotlib.colors 
 import matplotlib.gridspec
 
-def ShowGrayscale(input_params, title: str | None = None, image_titles: list[str] | None = None, PassFail: bool = False):
+
+def add_rectangle(ax: plt.Axes, roi: nornir_imageregistration.Rectangle):
+    if roi is None:
+        return
+
+    rect = plt.Rectangle((roi.MinX, roi.MinY), roi.Width, roi.Height, facecolor='blue', alpha=0.25)
+    ax.add_patch(rect)
+    return rect
+
+def ShowGrayscale(input_params, title: str | None = None, image_titles: Sequence[str] | str | None = None,
+                  rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None,
+                  PassFail: bool = False):
     '''
     :param PassFail:
     :param list input_params: A list or single ndimage to be displayed with imshow
@@ -52,11 +65,16 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: list[str
         else:
             set_title_for_multi_image(fig, title)
 
+        if isinstance(rois, nornir_imageregistration.Rectangle):
+            add_rectangle(ax, rois)
+        elif isinstance(rois, collections.abc.Sequence):
+            add_rectangle(ax, rois[0])
+
     elif grid_dims[1] == 1:
-        (fig, ax) = _DisplayImageList1D(image_data, image_titles)
+        (fig, ax) = _DisplayImageList1D(image_data, image_titles, rois)
         set_title_for_multi_image(fig, title)
     elif grid_dims[1] > 1:
-        (fig, gs) = _DisplayImageList2D(image_data, grid_dims, image_titles)
+        (fig, gs) = _DisplayImageList2D(image_data, grid_dims, image_titles, rois)
         set_title_for_multi_image(fig, title)
         
     elif isinstance(input_params, collections.abc.Iterable):
@@ -88,6 +106,10 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: list[str
                 if image_titles is not None:
                     ax.set_title(image_titles[i])
 
+                if rois is not None:
+                    roi = rois[i]
+                    if roi is not None:
+                        add_rectangle(ax, roi)
 
     else:
         return
@@ -105,7 +127,7 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: list[str
  
     fig = None
 
-    return 
+    return
 
 
 def _ConvertParamsToImageList(param):
@@ -123,7 +145,7 @@ def _ConvertParamsToImageList(param):
     return output
     
 
-def _GridLayoutDims(image_list: np.typing.NDArray | typing.Iterable) -> tuple[int, int]:
+def _GridLayoutDims(image_list: np.typing.NDArray | Iterable) -> tuple[int, int]:
     '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
     '''
     
@@ -141,7 +163,7 @@ def _GridLayoutDims(image_list: np.typing.NDArray | typing.Iterable) -> tuple[in
         return len(image_list), max_len
 
 
-def _TitleLayoutDims(title_list: np.typing.NDArray | typing.Iterable) -> tuple[int, int]:
+def _TitleLayoutDims(title_list: np.typing.NDArray | Iterable) -> tuple[int, int]:
     '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
     '''
 
@@ -151,7 +173,7 @@ def _TitleLayoutDims(title_list: np.typing.NDArray | typing.Iterable) -> tuple[i
         else:
             return len(param)
 
-    if isinstance(title_list, np.str):
+    if isinstance(title_list, str):
         return 1, 1
 
     elif isinstance(title_list, collections.abc.Iterable):
@@ -238,7 +260,8 @@ def _DisplayImageSingle(input_param, title=None):
     return fig, ax
 
     
-def _DisplayImageList1D(input_params, image_titles: list[str] | None = None):
+def _DisplayImageList1D(input_params, image_titles: Sequence[str] | None = None,
+                        rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None):
         
     (height, width) = _ImageList1DGridDims(input_params)
     
@@ -270,6 +293,10 @@ def _DisplayImageList1D(input_params, image_titles: list[str] | None = None):
 
         if image_titles is not None:
             ax.set_title(image_titles[i])
+
+        if rois is not None:
+            roi = rois[i]
+            add_rectangle(ax, roi)
     
     i += 1
     while i < total_plots:
@@ -288,7 +315,7 @@ def _DisplayImageList1D(input_params, image_titles: list[str] | None = None):
     return fig, axes
 
     
-def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None = None):
+def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None = None, rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None):
     (height, width) = grid_dims
     gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
     fig = plt.figure()
@@ -299,6 +326,10 @@ def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None
         row_titles = None
         if image_titles is not None:
             row_titles = image_titles[iRow]
+
+        row_rois = None
+        if rois is not None:
+            row_rois = rois[iRow]
         
         if isinstance(row_list, np.ndarray):
             ax = fig.add_subplot(gs[iRow,:])  # axes[iRow, 0]
@@ -306,6 +337,9 @@ def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None
 
             if row_titles is not None:
                 ax.set_title(row_titles)
+                
+            if row_rois is not None: 
+                add_rectangle(ax, row_rois)
 
             continue 
         
@@ -328,6 +362,10 @@ def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None
             if row_titles is not None:
                 row_title = row_titles[iCol]
                 ax.set_title(row_title)
+
+            if row_rois is not None:
+                roi = row_rois[iCol]
+                add_rectangle(ax, roi)
     
     return fig, gs
     
