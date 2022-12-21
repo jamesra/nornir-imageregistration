@@ -15,6 +15,7 @@ from numpy.fft import fftshift
  
 import nornir_pools
 import numpy as np
+from numpy.typing import NDArray
 import scipy.ndimage.interpolation as interpolation
 
 
@@ -24,12 +25,12 @@ def SliceToSliceBruteForce(FixedImageInput,
                            FixedImageMaskPath=None,
                            WarpedImageMaskPath=None,
                            LargestDimension=None,
-                           AngleSearchRange=None,
-                           MinOverlap=0.75,
+                           AngleSearchRange: list[float] | None = None,
+                           MinOverlap: float = 0.75,
                            WarpedImageScaleFactors=None,
-                           SingleThread=False,
-                           Cluster=False,
-                           TestFlip=True) -> nornir_imageregistration.AlignmentRecord:
+                           SingleThread: bool = False,
+                           Cluster: bool = False,
+                           TestFlip: bool = True) -> nornir_imageregistration.AlignmentRecord:
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
        
@@ -146,7 +147,11 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-def ScoreOneAngle(imFixed, imWarped, FixedImageShape, WarpedImageShape, angle, fixedStats=None, warpedStats=None, FixedImagePrePadded=True, MinOverlap=0.75):
+def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
+                  FixedImageShape: NDArray, WarpedImageShape: NDArray,
+                  angle: float,
+                  fixedStats=None, warpedStats=None,
+                  FixedImagePrePadded: bool = True, MinOverlap: float = 0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
     imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed, dtype=np.float32)
