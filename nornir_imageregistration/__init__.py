@@ -105,7 +105,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
                 dtype = np.float32
 
         points = np.asarray(points, dtype=dtype)
-    elif not dtype is None:
+    elif dtype is not None:
         if points.dtype != dtype:
             Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
 

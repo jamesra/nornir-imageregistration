@@ -471,7 +471,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
+def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -557,7 +557,7 @@ def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: 
     # Create mask
     rMask = None
     if cval == 'random':
-        rMask = np.zeros((Height, Width), dtype=np.bool)
+        rMask = np.zeros((Height, Width), dtype=bool)
         rMask[out_startY:out_endY, out_startX:out_endX] = True
 
     # Create output image
@@ -571,7 +571,7 @@ def CropImage(imageparam:np.ndarray | str, Xo, Yo, Width:int, Height:int, cval: 
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
-    if not rMask is None:
+    if rMask is not None:
         return RandomNoiseMask(cropped, rMask, Copy=False, imagestats=image_stats)
 
     return cropped
@@ -671,7 +671,7 @@ def OneBit_img_from_bool_array(data):
     """
     size = data.shape[::-1]
 
-    if data.dtype == np.bool:
+    if data.dtype == bool:
         return Image.frombytes(mode='1', size=size, data=np.packbits(data, axis=1))
     else:
         return Image.frombytes(mode='1', size=size, data=np.packbits(data > 0, axis=1))

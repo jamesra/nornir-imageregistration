@@ -74,7 +74,7 @@ def dtype_for_pillow_image(im):
     mode = im.mode
          
     if mode == '1':
-        return np.bool
+        return bool
     if mode[0] == 'L':
         return np.uint8
     if mode[0] == 'P':
@@ -96,7 +96,7 @@ def dtype_for_pillow_image(im):
         bits = _try_read_bpp_from_pillow_mode(im)
         if bits is not None:
             if bits == 1:
-                return np.bool
+                return bool
             elif bits <= 8:
                 return np.uint8
             elif bits <= 16:

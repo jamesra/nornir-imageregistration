@@ -138,22 +138,29 @@ class TransformedImageData(object):
         return
 
     @staticmethod
-    def CreateMemoryMappedFilesForImage(name: str, image: NDArray):
+    def CreateMemoryMappedFilesForImage(name: str, image: NDArray) -> str:
+        """
+        Save the image to a temporary file and return the name of the temporary file
+        :param name: Suffix to prepend to the filename
+        :param image: NDArray to save
+        :return: name of temporary file
+        """
+
         if image is None:
             return None
 
-        tfile = tempfile.NamedTemporaryFile(suffix=name, dir=_sharedTempRoot, delete=False)
-        tempfilename = tfile.name
-        np.save(tfile, image)
-        # memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
-        # np.copyto(memmapped_image, image)
-        # print("Write %s" % tempfilename)
+        with tempfile.NamedTemporaryFile(suffix=name, dir=_sharedTempRoot, delete=False) as tfile:
+            tempfilename = tfile.name
+            np.save(tfile, image)
+            # memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
+            # np.copyto(memmapped_image, image)
+            # print("Write %s" % tempfilename)
 
-        # del memmapped_image
-        return tempfilename
+            # del memmapped_image
+            return tempfilename
 
     def Clear(self):
-        '''Sets attributes to None to encourage garbage collection'''
+        """Sets attributes to None to encourage garbage collection"""
         self._image = None
         self._centerDistanceImage = None
         self._source_space_scale = None

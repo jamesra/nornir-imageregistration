@@ -40,7 +40,7 @@ def ShowWithPassFail(fig):
 
     try:
         while callback.Pass is None:
-            fig.waitforbuttonpress(timeout = 1)
+            fig.waitforbuttonpress(timeout=1)
     finally:
         plt.close(fig)
 

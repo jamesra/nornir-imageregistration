@@ -15,6 +15,7 @@ from nornir_imageregistration.spatial.typing import PointLike
 
 RectLike = NDArray | Sequence[float] | tuple[float, float, float, float]
 
+
 def RaiseValueErrorOnInvalidBounds(bounds):
     if not IsValidBoundingBox(bounds):
         raise ValueError("Negative dimensions are not allowed")
@@ -91,6 +92,7 @@ class RectangleSet:
         rects_array = cls._create_bounds_array(rects)
         rset = RectangleSet(rects_array)
         return rset
+
     #
     # @staticmethod
     # def _AddOverlapPairToDict(OverlapDict: dict[int, ], ID: int, MatchingID: int):
@@ -331,7 +333,7 @@ class Rectangle(object):
         return False
 
     def __ne__(self, other):
-        return self.__eq__(other) == False
+        return self.__eq__(other) is False
 
     def __getitem__(self, i):
         return self._bounds.__getitem__(i)
@@ -425,13 +427,13 @@ class Rectangle(object):
             return Rectangle(mbb)
 
     @classmethod
-    def Intersect(cls, A: RectLike | Rectangle, B: RectLike | Rectangle) -> Rectangle:
+    def Intersect(cls, A: RectLike | Rectangle, B: RectLike | Rectangle) -> Rectangle | None:
         """
         Returns the intersection of two triangles
         :param A:
         :param B:
         :rtype: Rectangle
-        :returns: The rectangle describing the bounding box of both shapes
+        :returns: The rectangle describing the bounding box of both shapes or None if they do not intersect
         """
 
         A = Rectangle.PrimitiveToRectange(A)
@@ -453,8 +455,8 @@ class Rectangle(object):
     @classmethod
     def _AreBoundsValid(cls, bounds: NDArray) -> bool:
         return isinstance(bounds, np.ndarray) and \
-               bounds.size == 4 and \
-               np.issubdtype(bounds.dtype, np.floating)
+            bounds.size == 4 and \
+            np.issubdtype(bounds.dtype, np.floating)
 
     @staticmethod
     def CreateBoundingRectangleForPoints(points: NDArray[float]) -> Rectangle:
