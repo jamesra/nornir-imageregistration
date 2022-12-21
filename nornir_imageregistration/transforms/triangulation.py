@@ -304,11 +304,15 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
 
         try: 
             transPoints = self.ForwardInterpolator(points)
-        except:
+        except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
             self._ForwardInterpolator = None
+
+            #This was added for the case where all points in the triangulation are colinear.
+            transPoints = np.empty(points.shape[0])
+            transPoints[:] = np.NaN
 
         return transPoints
 
@@ -322,11 +326,15 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
 
         try:
             transPoints = self.InverseInterpolator(points)
-        except Exception as e:
+        except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
             self._InverseInterpolator = None
+
+            # This was added for the case where all points in the triangulation are colinear.
+            transPoints = np.empty(points.shape[0])
+            transPoints[:] = np.NaN
 
         return transPoints
 
