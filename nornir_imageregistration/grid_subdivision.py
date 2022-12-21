@@ -38,7 +38,7 @@ class GridDivisionBase(object):
 
     def PopulateTargetPoints(self, transform: nornir_imageregistration.ITransform):
         if transform is not None:
-            self.TargetPoints = np.round(transform.Transform(self.SourcePoints), 3).astype(np.float)
+            self.TargetPoints = np.round(transform.Transform(self.SourcePoints), 3).astype(float)
             return self.TargetPoints
 
     def RemoveMaskedPoints(self, mask: NDArray[bool]):
@@ -133,7 +133,8 @@ class GridDivisionBase(object):
 
 class ITKGridDivision(GridDivisionBase):
     """
-     Align the grid so the centers of the edge cells touch the edge of the image
+     Align the grid so the centers of the edge cells touch the edge of the image.  This grid should have a cell center
+     at each corner of the image
     """
 
     def __init__(self,
@@ -166,20 +167,21 @@ class ITKGridDivision(GridDivisionBase):
         # Due to this fact we do not guarantee the grid_spacing requested
         if grid_dims is None and grid_spacing is None:
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape,
-                                                                    cell_size) + 1  # Add one because we center the boundary points on the edge and not the center
+                                                                    cell_size) + 1  # Add one because ITK Grid transform centers the boundary points on the edge and not the center
         elif grid_spacing is None:
             self.grid_dims = np.asarray(grid_dims, np.int32)
         elif grid_dims is None:
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
 
-        self.grid_spacing = source_shape / (self.grid_dims - 1)
+        #Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
+        self.grid_spacing = (source_shape) / (self.grid_dims - 1) # - 1 on grid_dims because we want the points at the edges of the image
 
         self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in
                        range(self.grid_dims[1])]
         self.coords = np.vstack(self.coords)
 
         self.SourcePoints = self.coords * self.grid_spacing
-        self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
+        #self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
 
         if self.SourcePoints.shape[0] == 0:
             raise ValueError(
@@ -242,8 +244,8 @@ class CenteredGridDivision(GridDivisionBase):
         overage = ((self.grid_dims * self.grid_spacing) - source_shape) / 2.0
         # Scale the overage amount according to cell position on the grid so the cells remain on the grid but have uniform additional overlap
         overage_adjustment = overage * (self.coords / np.max(self.coords, 0))
-        self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
-        # self.SourcePoints = np.round(self.SourcePoints - overage).astype(np.int64)
+        self.SourcePoints -= overage_adjustment
+        #self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
 
         self.source_shape = source_shape
 

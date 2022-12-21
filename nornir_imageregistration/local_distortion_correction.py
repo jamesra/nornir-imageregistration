@@ -6,7 +6,7 @@ Created on Apr 7, 2015
 This module performs local distortions of images to refine alignments of mosaics and sections
 """
 import os
-from typing import Iterable
+from typing import Iterable, Sequence
 import numpy as np
 from numpy.typing import NDArray
 import nornir_pools
@@ -49,7 +49,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     for t in list_tiles:
         layout.CreateNode(t.ID, t.FixedBoundingBox.Center)
 
-    for tile_overlap in nornir_imageregistration.IterateTileOverlaps(list_tiles, minOverlap=0.03):
+    for tile_overlap in nornir_imageregistration.tile_overlap.IterateTileOverlaps(list_tiles, minOverlap=0.03):
         # OK... add some small neighborhoods and register those...
         # (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
         #
@@ -460,20 +460,20 @@ def RefineTransform(stosTransform,
             # Make one more pass to see if we can improve finalized points
     # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved. 
     if len(finalized_points) >= 3:
-        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+        final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
             AlignRecordsToControlPoints(finalized_points.values()))
     else:
-        finalTransform = updatedTransform
+        final_transform = updatedTransform
 
-    (nudged_finalized_points, nudged_point_keys) = TryToImproveAlignments(finalTransform, finalized_points, settings)
+    (nudged_finalized_points, nudged_point_keys) = TryToImproveAlignments(final_transform, finalized_points, settings)
     prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
 
     # Return a transform built from the finalized points
     if len(nudged_finalized_points) >= 3:
-        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+        final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
             AlignRecordsToControlPoints(nudged_finalized_points.values()))
 
-    return finalTransform
+    return final_transform
 
 
 def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms.ITransform,
@@ -582,20 +582,21 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     tasks = list()
     alignment_records = list()
 
-    rigid_transforms = ApproximateRigidTransform(input_transform=transform, target_points=targetPoints)
+    rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints)
 
     for i in range(nPoints):
         targetPoint = targetPoints[i, :]
+        sourcePoint = sourcePoints[i, :]
         key = keys[i]
         AlignTask = StartAttemptAlignPoint(pool,
                                            f"Align {key}",
                                            rigid_transforms[i],
                                            # Transform,
-                                           settings.source_image,
                                            settings.target_image,
-                                           settings.source_image_stats,
+                                           settings.source_image,
                                            settings.target_image_stats,
-                                           targetPoint,
+                                           settings.source_image_stats,
+                                           sourcePoint,
                                            settings.cell_size,
                                            anglesToSearch=settings.angles_to_search,
                                            min_alignment_overlap=settings.min_alignment_overlap)
@@ -637,14 +638,15 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
         erec.TargetROI = t.TargetROI
         erec.SourceROI = t.SourceROI
+        erec.TranslatedSourceROI = nornir_imageregistration.CropImage(t.SourceROI, int(np.floor(erec.peak[1])), int(np.floor(erec.peak[0])), t.SourceROI.shape[1], t.SourceROI.shape[0], cval=np.median(t.SourceROI.flat))
 
         # erec.TargetPSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.TargetROI)
         # erec.SourcePSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.SourceROI)
 
         # erec.PSDDelta = abs(erec.TargetPSDScore - erec.SourcePSDScore)
-        erec.PSDDelta = (erec.TargetROI - np.mean(erec.TargetROI.flat)) - (
-                    erec.SourceROI - np.mean(erec.SourceROI.flat))
-        erec.PSDDelta = np.sum(np.abs(erec.PSDDelta))
+        #erec.PSDDelta = (erec.TargetROI - np.mean(erec.TargetROI.flat)) - (
+        #        erec.SourceROI - np.mean(erec.SourceROI.flat))
+        #erec.PSDDelta = np.sum(np.abs(erec.PSDDelta))
         # erec.CalculatedWarpedPoint = Transform.InverseTransform(erec.AdjustedTargetPoint).reshape(2)
         # arecord.ID = (iRow, iCol)
         # arecord.TargetPoint = t.TargetPoint
@@ -668,7 +670,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     # return updatedTransform
 
 
-def AlignRecordsToControlPoints(alignment_records):
+def AlignRecordsToControlPoints(
+        alignment_records: Iterable[nornir_imageregistration.EnhancedAlignmentRecord]) -> NDArray:
     """
     Convert alignment records to a numpy array of control points
     :param alignment_records: list of alignment records
@@ -682,7 +685,8 @@ def AlignRecordsToControlPoints(alignment_records):
     return PointPairs
 
 
-def _alignment_records_to_composite_scores(alignment_records):
+def _alignment_records_to_composite_scores(
+        alignment_records: Iterable[nornir_imageregistration.EnhancedAlignmentRecord]):
     """
     A helper function to produce a ndarray of measurements for alignment records
     :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
@@ -697,7 +701,8 @@ def _alignment_records_to_composite_scores(alignment_records):
     return weights_distance
 
 
-def _PeakListToTransform(alignment_records, fixed_points=None, percentile: float = None, cutoff: float = None):
+def _PeakListToTransform(alignment_records: Sequence[nornir_imageregistration.EnhancedAlignmentRecord],
+                         fixed_points=None, percentile: float = None, cutoff: float = None):
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
     :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
@@ -718,7 +723,8 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile: float
         raise ValueError("Need at one new alignment_record to improve a transform")
 
     if num_alignments + num_fixed < 3:
-        raise ValueError(f"Need at least three points to make a transform.  Got {len(alignment_records)} alignments and {num_fixed} fixed points")
+        raise ValueError(
+            f"Need at least three points to make a transform.  Got {len(alignment_records)} alignments and {num_fixed} fixed points")
 
     # TargetPoints = np.asarray(list(map(lambda a: a.TargetPoint, alignment_records)))
     OriginalSourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
@@ -780,9 +786,11 @@ def _PeakListToTransform(alignment_records, fixed_points=None, percentile: float
     return T, used_alignment_records, weights_distance
 
 
-def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransform, source_image_shape: NDArray, cell_size: NDArray = None, grid_dims: NDArray = None, grid_spacing: NDArray = None):
+def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransform, source_image_shape: NDArray,
+                                    cell_size: NDArray = None, grid_dims: NDArray = None, grid_spacing: NDArray = None):
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
+
     """
 
     if isinstance(Transform, str):
@@ -820,7 +828,7 @@ def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransfo
 #           
 
 
-def AlignmentRecordsToDict(alignment_records):
+def AlignmentRecordsToDict(alignment_records: Sequence[nornir_imageregistration.EnhancedAlignmentRecord]):
     lookup = {}
     for a in alignment_records:
         lookup[a.ID] = a
@@ -828,7 +836,8 @@ def AlignmentRecordsToDict(alignment_records):
     return lookup
 
 
-def CalculateFinalizedAlignmentPointsMask(alignment_records, percentile=0.5, max_travel_distance=1.0,
+def CalculateFinalizedAlignmentPointsMask(alignment_records: Sequence[nornir_imageregistration.EnhancedAlignmentRecord],
+                                          percentile=0.5, max_travel_distance=1.0,
                                           weight_cutoff=None):
     """
     :param alignment_records:
@@ -868,7 +877,8 @@ an be offset before it is not eligible for finalization
     return finalize_mask
 
 
-def ApproximateRigidTransform(input_transform: nornir_imageregistration.ITransform, target_points: NDArray):
+def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistration.ITransform,
+                                            target_points: NDArray):
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
@@ -879,7 +889,7 @@ def ApproximateRigidTransform(input_transform: nornir_imageregistration.ITransfo
 
     source_points = input_transform.InverseTransform(target_points)
 
-    # scaled_offset the target points by 1, and find the angle between the source points
+    # translate the target points by 1, and find the angle between the source points
     offset = np.array([0, 1])
     offset_source_points = source_points + offset
 
@@ -903,6 +913,95 @@ def ApproximateRigidTransform(input_transform: nornir_imageregistration.ITransfo
     return output_transforms
 
 
+def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
+                                            source_points: NDArray):
+    """
+    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
+    """
+
+    source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
+
+    numPoints = source_points.shape[0]
+
+    # translate the target points by 1, and find the angle between the source points
+    offset = np.array([0, 1])
+    offset_source_points = source_points + offset
+
+    offsets = np.tile(offset, (numPoints, 1))
+    origins = np.tile(np.array([0, 0]), (numPoints, 1))
+
+    target_points = input_transform.Transform(source_points)
+    offset_target_points = input_transform.Transform(offset_source_points)
+
+    target_delta = offset_target_points - target_points
+
+    angles = -np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
+
+    target_offsets = target_points - source_points
+
+    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
+                                                                   source_rotation_center=source_points[i],
+                                                                   angle=angles[i])
+                         for i in range(0, len(angles))]
+
+    return output_transforms
+
+
+def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
+                       targetImage: NDArray,
+                       sourceImage: NDArray,
+                       target_image_stats: nornir_imageregistration.ImageStats,
+                       source_image_stats: nornir_imageregistration.ImageStats,
+                       target_controlpoint: NDArray | tuple[float, float],
+                       alignmentArea: NDArray | tuple[float, float],
+                       description: str | None = None):
+    """
+    :param transform:
+    :param targetImage:
+    :param sourceImage:
+    :param target_image_stats:
+    :param source_image_stats:
+    :param target_controlpoint:
+    :param alignmentArea:
+    :param description:  Entirely optional parameter describing which cell we are processing
+    :return:
+    """
+    # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
+    target_controlpoint = target_controlpoint.astype(float)
+    target_controlpoint[np.mod(alignmentArea, 2) > 0] += 0.5
+
+    target_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+        point=(target_controlpoint[0] - (alignmentArea[0] / 2.0),
+               target_controlpoint[1] - (alignmentArea[1] / 2.0)),
+        area=alignmentArea)
+
+    target_rectangle = nornir_imageregistration.Rectangle.SafeRound(target_rectangle)
+
+    # Make sure the rectangle is the correct size, with an origin on an integer boundary
+    target_rectangle = nornir_imageregistration.Rectangle.change_area(target_rectangle, alignmentArea,
+                                                                      integer_origin=True)
+
+    target_image_roi = nornir_imageregistration.CropImage(targetImage,
+                                                          target_rectangle.BottomLeft[1],
+                                                          target_rectangle.BottomLeft[0],
+                                                          int(target_rectangle.Size[1]), int(target_rectangle.Size[0]),
+                                                          cval="random",
+                                                          image_stats=target_image_stats)
+
+    # Pull image subregions
+    source_image_roi = nornir_imageregistration.assemble.SourceImageToTargetSpace(transform,
+                                                                                  DataToTransform=sourceImage,
+                                                                                  output_botleft=target_rectangle.BottomLeft,
+                                                                                  output_area=target_rectangle.Size,
+                                                                                  extrapolate=True, cval=np.nan)
+
+    source_image_roi = nornir_imageregistration.RandomNoiseMask(source_image_roi,
+                                                                np.logical_not(np.isnan(source_image_roi)),
+                                                                imagestats=source_image_stats)
+
+    return target_image_roi, source_image_roi
+
+
 def StartAttemptAlignPoint(pool,
                            taskname: str,
                            transform: nornir_imageregistration.ITransform,
@@ -910,44 +1009,26 @@ def StartAttemptAlignPoint(pool,
                            sourceImage: NDArray,
                            target_image_stats: nornir_imageregistration.ImageStats,
                            source_image_stats: nornir_imageregistration.ImageStats,
-                           controlpoint: NDArray | tuple[float, float],
+                           source_controlpoint: NDArray | tuple[float, float],
                            alignmentArea: NDArray | tuple[float, float],
                            anglesToSearch: Iterable[float] | None = None,
-                           min_alignment_overlap: float = 0.5) -> nornir_pools.Task:
+                           min_alignment_overlap: float = 0.5) -> nornir_pools.Task | None:
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
-    FixedRectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
-        point=(controlpoint[0] - (alignmentArea[0] / 2.0),
-               controlpoint[1] - (alignmentArea[1] / 2.0)),
-        area=alignmentArea)
-
-    FixedRectangle = nornir_imageregistration.Rectangle.SafeRound(FixedRectangle)
-
-    # Make sure the rectangle is the correct size, with an origin on an integer boundary
-    FixedRectangle = nornir_imageregistration.Rectangle.change_area(FixedRectangle, alignmentArea, integer_origin=True)
-
-    # Pull image subregions
-    sourceImageROI = nornir_imageregistration.assemble.WarpedImageToFixedSpace(transform,
-                                                                               FixedImageArea=targetImage.shape, 
-                                                                               DataToTransform=sourceImage,
-                                                                               botleft=FixedRectangle.BottomLeft,
-                                                                               area=FixedRectangle.Size,
-                                                                               extrapolate=True, cval=np.nan)
-
-    sourceImageROI = nornir_imageregistration.RandomNoiseMask(sourceImageROI, np.logical_not(np.isnan(sourceImageROI)),
-                                                              imagestats=source_image_stats)
-
-    targetImageROI = nornir_imageregistration.CropImage(targetImage,
-                                                        FixedRectangle.BottomLeft[1], FixedRectangle.BottomLeft[0],
-                                                        int(FixedRectangle.Size[1]), int(FixedRectangle.Size[0]),
-                                                        cval="random",
-                                                        image_stats=target_image_stats)
+    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
+                                                            targetImage=targetImage,
+                                                            sourceImage=sourceImage,
+                                                            target_image_stats=target_image_stats,
+                                                            source_image_stats=source_image_stats,
+                                                            target_controlpoint=source_controlpoint,
+                                                            alignmentArea=alignmentArea,
+                                                            description=taskname)
 
     # Just ignore pure color regions
-    if np.all(sourceImageROI == sourceImageROI[0][0]):
+    if np.all(target_image_roi == target_image_roi[0][0]):
         return None
-    if np.all(targetImageROI == targetImageROI[0][0]):
+    if np.all(source_image_roi == source_image_roi[0][0]):
         return None
 
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
@@ -972,21 +1053,21 @@ def StartAttemptAlignPoint(pool,
     #
     task = pool.add_task(taskname,
                          nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
-                         targetImageROI,
-                         sourceImageROI,
+                         target_image_roi,
+                         source_image_roi,
                          AngleSearchRange=anglesToSearch,
                          MinOverlap=min_alignment_overlap,
                          SingleThread=True,
                          Cluster=False,
                          TestFlip=False)
 
-    task.TargetROI = targetImageROI
-    task.SourceROI = sourceImageROI 
+    task.TargetROI = target_image_roi
+    task.SourceROI = source_image_roi
 
     return task
 
 
-def TryToImproveAlignments(transform, alignment_records, settings: nornir_imageregistration.settings.GridRefinement):
+def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITransform, alignment_records, settings: nornir_imageregistration.settings.GridRefinement):
     """
     Given a set of alignment points, try to align the points again.  If we get a stronger score then
     replace the alignment with the higher scoring result
@@ -1070,7 +1151,7 @@ def TryToImproveAlignments(transform, alignment_records, settings: nornir_imager
                                                                        weight=chosen_record.weight, angle=0,
                                                                        flipped_ud=chosen_record.flippedud)
 
-        output[key].PSDDelta = chosen_record.PSDDelta
+        #output[key].PSDDelta = chosen_record.PSDDelta
 
     # Close the pool to prevent threads from hanging around
     # pool.shutdown()

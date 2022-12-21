@@ -8,6 +8,13 @@ import numpy as np
 
 __transform_tolerance = 1e-5
 
+def TransformInverseCheck(test, transform, warpedPoint):
+    """Ensures that a point can map to its expected transformed position and back again.
+    Does not validate that the transformed point is an expected value"""
+    fp = transform.Transform(warpedPoint)
+    #np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
+    wp = transform.InverseTransform(fp)
+    np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
 
 def ForwardTransformCheck(test, transform, warpedPoint, fixedPoint):
     '''Ensures that a point can map to its expected transformed position and back again'''

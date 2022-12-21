@@ -617,17 +617,17 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     # if isinstance(transform, meshwithrbffallback.MeshWithRBFFallback):
     # Don't bother mapping points falling outside the defined boundaries because we won't have image data for it
     #   transform = triangulation.Triangulation(transform.points)
-    warpedImage = None
+    source_image = None
     try:
         # warpedImage = nornir_imageregistration.ImageParamToImageArray(tile.Image, dtype=np.float32)
-        warpedImage = tile.Image
+        source_image = tile.Image
     except IOError:
         return nornir_imageregistration.transformed_image_data.TransformedImageData(
             errorMsg='Tile does not exist ' + tile.ImagePath)
     except ValueError as ve:
         return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg=f'{ve}')
 
-    warpedImage = nornir_imageregistration.ForceGrayscale(warpedImage)
+    source_image = nornir_imageregistration.ForceGrayscale(source_image)
 
     # Automatically scale the transform if the input image shape does not match the transform bounds
     source_space_scale = 1.0 / tile.image_to_source_space_scale  # Pass tile to this function and use the image_to_source_space attribute  #tiles.__DetermineTransformScale(transform, warpedImage.shape)
@@ -666,10 +666,15 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         Scaled_TargetRegionRect = TargetRegionRect
         Scaled_rounded_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
 
-    (width, height, minX, minY) = (Scaled_rounded_TargetRegionRect.Width,
+    (target_width, target_height, target_minX, target_minY) = (Scaled_rounded_TargetRegionRect.Width,
                                    Scaled_rounded_TargetRegionRect.Height,
                                    Scaled_rounded_TargetRegionRect.MinX,
                                    Scaled_rounded_TargetRegionRect.MinY)
+
+    target_width = int(target_width)
+    target_height = int(target_height)
+    target_minX = int(target_minX)
+    target_minY = int(target_minY)
 
     # if TargetRegion is None:
     #     TargetRegion = nornir_imageregistration.Rectangle.SafeRound(tile.TargetSpaceBoundingBox)
@@ -701,19 +706,18 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     #     width = maxX - minX
 
     # Round up to the nearest integer value
-    height = np.ceil(height)
-    width = np.ceil(width)
+    #height = np.ceil(height)
+    #width = np.ceil(width)
 
-    distanceImage = __GetOrCreateDistanceImage(distanceImage, warpedImage.shape[0:2])
+    distanceImage = __GetOrCreateDistanceImage(distanceImage, source_image.shape[0:2])
 
-    (fixedImage, centerDistanceImage) = assemble.WarpedImageToFixedSpace(transform,
-                                                                         (height, width),
-                                                                         [warpedImage, distanceImage],
-                                                                         botleft=(minY, minX),
-                                                                         area=(height, width),
-                                                                         cval=[0, __MaxZBufferValue(np.float16)])
+    (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,
+                                                                          [source_image, distanceImage],
+                                                                          output_botleft=(target_minY, target_minX),
+                                                                          output_area=(target_height, target_width),
+                                                                          cval=[0, __MaxZBufferValue(np.float16)])
 
-    del warpedImage
+    del source_image
     del distanceImage
 
     return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage.astype(np.float16),
@@ -722,7 +726,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                                        transform,
                                                                                        source_space_scale,
                                                                                        target_space_scale,
-                                                                                       rendered_target_space_origin=(minY * (1.0 / target_space_scale), minX * (1.0 / target_space_scale)),
+                                                                                       rendered_target_space_origin=(target_minY * (1.0 / target_space_scale), target_minX * (1.0 / target_space_scale)),
                                                                                        SingleThreadedInvoke=SingleThreadedInvoke)
 
 

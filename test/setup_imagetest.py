@@ -17,6 +17,7 @@ import nornir_pools
 from nornir_shared.misc import SetupLogging
 import numpy as np
 from abc import abstractmethod, ABC
+import nornir_imageregistration
 
 
 class PickleHelper(object):
@@ -79,6 +80,65 @@ class PickleHelper(object):
 
 
 class TestBase(unittest.TestCase, ABC):
+
+    @staticmethod
+    def create_gradient_image(shape, min_val=0.2, max_val=0.8, num_shades=8):
+        """
+
+        :param shape:
+        :param min: Minimum intensity of gradient
+        :param max: Maximum intensity of gradient
+        :param num_shades: Number of different shades in the output image
+        :return:
+        """
+        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
+        image = np.zeros(shape, dtype=np.float32)
+        for x in range(0, shape[1]):
+            for y in range(0, shape[0]):
+                color_index = (((x % num_shades) + (y % num_shades)) % num_shades) / num_shades
+                image[y, x] = (color_index * max_val) + min_val
+
+        return image
+    
+    @staticmethod
+    def create_nested_squares_image(shape, min_val=0.2, max_val=0.8, num_shades=8):
+        """
+
+        :param shape:
+        :param min: Minimum intensity of gradient
+        :param max: Maximum intensity of gradient
+        :param num_shades: Number of different shades in the output image
+        :return:
+        """
+        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
+        image = np.zeros(shape, dtype=np.float32)
+        half = shape / 2.0
+        half_shade_step = (1 / num_shades) / 3.0 
+        for x in range(0, shape[1]):
+            for y in range(0, shape[0]):
+                quad = tuple(np.array((x, y)) >= half)
+                if quad == (True, True):
+                    color_index = min(shape[1] - x, shape[0] - y) 
+                elif quad == (False, False):
+                    color_index = min(x,y)
+                elif quad == (True, False):
+                    color_index = min(shape[1] - x, y) 
+                elif quad == (False, True):
+                    color_index = min(x, shape[0] - y) 
+                    
+                color_index %= num_shades
+                
+                    
+                #color_index = (((x % num_shades) + (y % num_shades)) % num_shades)
+                color_index /= num_shades
+                
+                
+                if (x + y) % 2 == 0:
+                    color_index += half_shade_step
+                    
+                image[y, x] = (color_index * max_val) + min_val
+
+        return image
 
     @property
     def classname(self):

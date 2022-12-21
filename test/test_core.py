@@ -15,7 +15,7 @@ import nornir_imageregistration.stos_brute as stos_brute
 
 import hypothesis
 
-from test import setup_imagetest
+import setup_imagetest
 
 class TestCore(setup_imagetest.ImageTestBase):
 
@@ -182,7 +182,7 @@ class TestCore(setup_imagetest.ImageTestBase):
             self.assertEqual(cropped[i, i], testVal, "cropped image not correct")
 
         cropsize = 20
-        cropped = nornir_imageregistration.CropImage(image, -1, -1, cropsize, cropsize)
+        cropped = nornir_imageregistration.CropImage(image, -1, -1, cropsize, cropsize, cval=0)
         for i in range(0, cropsize):
             testVal = i
             if testVal < 0:

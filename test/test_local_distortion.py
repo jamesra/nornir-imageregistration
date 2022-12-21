@@ -16,15 +16,15 @@ import nornir_imageregistration
 
 from nornir_imageregistration.local_distortion_correction import _RefineGridPointsForTwoImages, RefineStosFile, AlignRecordsToControlPoints
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
+from nornir_imageregistration import local_distortion_correction
 import nornir_imageregistration.assemble
 
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 
 from nornir_shared.files import try_locate_file
 
-from . import setup_imagetest
-from . import test_arrange
-import local_distortion_correction  
+import setup_imagetest
+import test_arrange
 from exceptiongroup._catch import catch
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):
@@ -165,7 +165,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     def RunStosRefinement(self, stosFilePath: str, ImageDir: str | None = None, SaveImages: bool = False, SavePlots: bool = True):
         '''
         This is a test for the refine mosaic feature which is not fully implemented
-        '''  
+        '''
+        use_cache = False
+
         # stosFile = self.GetStosFile("0164-0162_brute_32")
         # stosFile = self.GetStosFile("0617-0618_brute_64")
         stosObj = nornir_imageregistration.files.StosFile.Load(stosFilePath)
@@ -237,7 +239,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                                          settings.cell_size[0], settings.cell_size[1],
                                                                                          settings.grid_spacing[0], settings.grid_spacing[1],
                                                                                          self.TestName)
-            alignment_points = self.ReadOrCreateVariable(cachedFileName)
+
+            alignment_points = self.ReadOrCreateVariable(cachedFileName) if use_cache else None
             
             if alignment_points is None:
                 alignment_points = _RefineGridPointsForTwoImages(stosTransform,
@@ -245,7 +248,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                 settings=settings)
                 self.SaveVariable(alignment_points, cachedFileName)
             else:
-                duplicate_check = {a.ID:a for a in alignment_points}
+                duplicate_check = {a.ID: a for a in alignment_points}
                 for key in duplicate_check.keys():
                     if key in finalized_points:
                         raise ValueError("Cached alignment has a duplicate point.  Delete the cache and try again")
@@ -279,7 +282,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()), vector_field_filename,
                                                           ylim=(0, settings.target_image.shape[1]),
                                                           xlim=(0, settings.target_image.shape[0]),
-                                                          attrib='PSDDelta')
+                                                          attrib='weight')
             
             finalize_percentile = 66.6
             if finalize_percentile < 10.0:
@@ -415,12 +418,16 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                 
         # Make one more pass to see if we can improve finalized points
         finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+        stosObj.Transform = finalTransform
+        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform.stos"))
         
         (nudged_finalized_points, nudged_point_keys) = local_distortion_correction.TryToImproveAlignments(finalTransform, finalized_points, settings)
         print(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
          
         finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
                             AlignRecordsToControlPoints(nudged_finalized_points.values()))
+        stosObj.Transform = finalTransform
+        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform_Improved.stos"))
         
         # Convert the transform to a grid transform and persist to disk
         #finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values())) 
@@ -474,7 +481,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         np.testing.assert_allclose(ValidationTestPoints, CalculatedSourcePoints)
         
         # OK, check that the rigid transforms returned for the InitialTargetPoints perfectly match our reference_transform
-        local_rigid_transforms = local_distortion_correction.ApproximateRigidTransform(reference_transform, InitialTargetPoints)
+        local_rigid_transforms = local_distortion_correction.ApproximateRigidTransformByTargetPoints(reference_transform, InitialTargetPoints)
         
         for i, t in enumerate(local_rigid_transforms):
             test_source_points = t.InverseTransform(InitialTargetPoints)
@@ -507,12 +514,13 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
          
         inverse_transformed_out_of_bounds = T.Transform(expectedOutOfBounds)
         self.assertTrue(np.allclose(transform_testPoints, inverse_transformed_out_of_bounds), "Transform could not map the initial input to the test correctly")
-        
+
+        peak_shift = (1, 0)
         # Create fake alignment results requiring us to shift the transform up one
-        a = EnhancedAlignmentRecord((0, 0), (0, 0), (10, 10), (1, 0), 1.5)
-        b = EnhancedAlignmentRecord((1, 0), (10, 0), (20, 10), (1, 0), 2.5)
-        c = EnhancedAlignmentRecord((0, 1), (0, 10), (10, 20), (1, 0), 3)
-        d = EnhancedAlignmentRecord((1, 1), (10, 10), (20, 20), (1, 0), 2)
+        a = EnhancedAlignmentRecord((0, 0), (0, 0), (10, 10), peak_shift, 1.5)
+        b = EnhancedAlignmentRecord((1, 0), (10, 0), (20, 10), peak_shift, 2.5)
+        c = EnhancedAlignmentRecord((0, 1), (0, 10), (10, 20), peak_shift, 3)
+        d = EnhancedAlignmentRecord((1, 1), (10, 10), (20, 20), peak_shift, 2)
         
         records = [a, b, c, d]
         
@@ -525,7 +533,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         (transform, included_alignment_records, calculated_cutoff) = local_distortion_correction._PeakListToTransform(records)
         
         test1 = np.asarray(((0, 0), (5, 5), (10, 10)))
-        expected1 = np.asarray(((9, 10), (14, 15), (19, 20))) 
+        expected1 = np.asarray(((10, 10), (15, 15), (20, 20)))
+        expected1 -= np.array(peak_shift)
         actual1 = transform.InverseTransform(test1)
         
         self.assertTrue(np.allclose(expected1, actual1))
@@ -548,6 +557,44 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         self.assertTrue(np.allclose(expected2, actual2))
         
         pass
+
+    def test_mesh_to_grid_transform(self):
+
+        InitialTransformPoints = [[10, 10, 0, 0],
+                                  [20, 10, 10, 0],
+                                  [10, 20, 0, 10],
+                                  [20, 20, 10, 10]]
+        offset = (10, 10)
+
+        mesh_t = nornir_imageregistration.transforms.MeshWithRBFFallback(InitialTransformPoints)
+
+        grid_t = nornir_imageregistration.local_distortion_correction.ConvertTransformToGridTransform(mesh_t,
+                                                                                             source_image_shape=(10, 10),
+                                                                                             cell_size=1,
+                                                                                             grid_dims=(10, 5))
+
+        test_points = np.asarray(((0, 0), (5, 5), (10, 10)))
+        expected_points = np.asarray(((10, 10), (15, 15), (20, 20)))
+
+        mesh_transformed_points = mesh_t.Transform(test_points)
+        grid_transformed_points = grid_t.Transform(test_points)
+
+        self.assertTrue(np.array_equal(mesh_transformed_points, expected_points))
+        self.assertTrue(np.array_equal(mesh_transformed_points, grid_transformed_points))
+
+        grid_t_grid_spacing = nornir_imageregistration.local_distortion_correction.ConvertTransformToGridTransform(mesh_t,
+                                                                                                      source_image_shape=(10, 10),
+                                                                                                      cell_size=1,
+                                                                                                      grid_spacing=(1, 2))
+
+        grid_spacing_transformed_points = grid_t_grid_spacing.Transform(test_points)
+        self.assertTrue(np.array_equal(grid_spacing_transformed_points, grid_transformed_points))
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
