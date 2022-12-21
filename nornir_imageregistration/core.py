@@ -249,9 +249,9 @@ def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
     resample = kwargs.pop('resample', None)
 
     if resample is None:
-        resample = resample = Image.BILINEAR
+        resample = resample = Image.Resampling.BILINEAR
         if Scalar < 1.0:
-            resample = Image.LANCZOS
+            resample = Image.Resampling.LANCZOS
 
     with Image.open(InFile, mode='r') as img:
 
