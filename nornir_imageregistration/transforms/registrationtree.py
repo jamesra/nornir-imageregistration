@@ -7,6 +7,8 @@ from __future__ import annotations
 import operator
 from collections import namedtuple
 from collections.abc import Iterable
+import typing
+from typing import Sequence, AbstractSet, Generator
 
 MappedToRootWalkTuple = namedtuple('MappedToRootWalkTuple', ['RootNode', 'ParentNode', 'MappedNode'])
 
@@ -32,10 +34,14 @@ class RegistrationTreeNode(object):
 
         return output
 
-    def __init__(self, sectionNumber: int, leaf_only=False):
+    @property
+    def ChildSectionNumbers(self) -> Generator[int]:
+        return (c.SectionNumber for c in self.Children)
+
+    def __init__(self, sectionNumber: int, leaf_only: bool = False):
         # self.Parent = None
         self.SectionNumber = sectionNumber
-        self.Children = []
+        self.Children = []  # type: list[RegistrationTreeNode]
         self._leaf_only = leaf_only
 
     # def SetParent(self, sectionNumber):
@@ -182,8 +188,10 @@ class RegistrationTree(object):
         """
         Constructor
         """
-        self.Nodes = {}  # Dictionary of all nodes
-        self.RootNodes = {}  # Dictionary of nodes without parents
+        # Dictionary of all nodes
+        self.Nodes = {}  # type: dict[int, RegistrationTreeNode]
+        # Dictionary of nodes without parents
+        self.RootNodes = {}  # type: dict[int, RegistrationTreeNode]
 
     def __str__(self):
         s = "Roots: "
@@ -363,8 +371,8 @@ class RegistrationTree(object):
                     nodes_to_walk.append(mapped.SectionNumber)
 
 
-def NearestSection(sectionNumbers, reqnumber):
-    """Returns the section number nearest to the section number, or the same section number if the section exists"""
+def NearestSection(sectionNumbers: Sequence[int], reqnumber: int) -> int | None:
+    """Returns the section number nearest to the section number, or the same section number if the section exists, or None if the section list is empty"""
     if reqnumber in sectionNumbers:
         return reqnumber
     else:
