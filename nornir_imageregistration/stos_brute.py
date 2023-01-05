@@ -189,10 +189,10 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
 
     #Why is MinOverlap hard-coded to 1.0?
     #PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
-    if False == np.array_equal(imFixed.shape, np.array((TargetHeight, TargetHeight))):
+    if False == np.array_equal(imFixed.shape, np.array((TargetHeight, TargetWidth))):
         PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
         
-    if np.array_equal(RotatedWarped.shape, np.array((TargetHeight, TargetHeight))):
+    if np.array_equal(RotatedWarped.shape, np.array((TargetHeight, TargetWidth))):
         RotatedPaddedWarped = RotatedWarped
     else:
         RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=1.0)
