@@ -347,10 +347,7 @@ def RefineTransform(stosTransform,
         combined_alignment_points = alignment_points + list(finalized_points.values())
 
         percentile = 33.3  # - (CutoffPercentilePerIteration * i)
-        if percentile < 10.0:
-            percentile = 10.0
-        elif percentile > 100:
-            percentile = 100
+        percentile = np.clip(percentile, 10.0, 100.0) 
 
         (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
             alignment_points,
@@ -379,11 +376,8 @@ def RefineTransform(stosTransform,
                                                         attrib='PSDDelta')
 
         finalize_percentile = 66.6
-        if finalize_percentile < 10.0:
-            finalize_percentile = 10.0
-        elif finalize_percentile > 100:
-            finalize_percentile = 100
-
+        finalize_percentile = np.clip(finalize_percentile, 10.0, 100.0)
+        
         FinalizeCutoffThisPass = None
         if FirstPassFinalizeValue is not None:
             cutoff_range = np.abs(FirstPassFinalizeValue - FirstPassWeightScoreCutoff)
