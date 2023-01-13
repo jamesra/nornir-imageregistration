@@ -25,12 +25,12 @@ def SliceToSliceBruteForce(FixedImageInput,
                            FixedImageMaskPath=None,
                            WarpedImageMaskPath=None,
                            LargestDimension=None,
-                           AngleSearchRange: list[float] | None = None,
-                           MinOverlap: float = 0.75,
+                           AngleSearchRange: list[float] | None=None,
+                           MinOverlap: float=0.75,
                            WarpedImageScaleFactors=None,
-                           SingleThread: bool = False,
-                           Cluster: bool = False,
-                           TestFlip: bool = True) -> nornir_imageregistration.AlignmentRecord:
+                           SingleThread: bool=False,
+                           Cluster: bool=False,
+                           TestFlip: bool=True) -> nornir_imageregistration.AlignmentRecord:
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
        
@@ -50,13 +50,13 @@ def SliceToSliceBruteForce(FixedImageInput,
         if isinstance(AngleSearchRange, np.ndarray):
             AngleSearchRange = list(AngleSearchRange)
         
-    #logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
+    # logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
     
     WarpedImageScalingRequired = False
     if WarpedImageScaleFactors is not None:
         if hasattr(WarpedImageScaleFactors, '__iter__'):
             WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray(WarpedImageScaleFactors)
-            WarpedImageScalingRequired =  any(WarpedImageScaleFactors != 1)
+            WarpedImageScalingRequired = any(WarpedImageScaleFactors != 1)
         else:
             WarpedImageScalingRequired = WarpedImageScaleFactors != 1
             WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray([WarpedImageScaleFactors, WarpedImageScaleFactors])
@@ -68,7 +68,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
 
-        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed,  imagemask=imFixedMask, Copy=False)
+        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed, imagemask=imFixedMask, Copy=False)
     else:
         imFixed = FixedImageInput
 
@@ -120,7 +120,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     else:
         if len(AngleSearchRange) > 2:
             iMatch = AngleSearchRange.index(BestMatch.angle)
-            iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(AngleSearchRange)-1
+            iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(AngleSearchRange) - 1
             iAbove = iMatch + 1 if iMatch + 1 < len(AngleSearchRange) else 0
             below = AngleSearchRange[iBelow]
             above = AngleSearchRange[iAbove]
@@ -128,7 +128,7 @@ def SliceToSliceBruteForce(FixedImageInput,
             nSteps = 20
             stepsize = refine_search_range / nSteps 
             
-            BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * stepsize) + below for x in range(1, nSteps-1)], MinOverlap=MinOverlap, SingleThread=SingleThread)
+            BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * stepsize) + below for x in range(1, nSteps - 1)], MinOverlap=MinOverlap, SingleThread=SingleThread)
             BestRefinedMatch.flippedud = IsFlipped
         else:
             BestRefinedMatch = BestMatch
@@ -139,7 +139,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight, BestRefinedMatch.angle, IsFlipped)
     
     if WarpedImageScalingRequired:
-        #AdjustedPeak = BestRefinedMatch.peak * (1.0 / WarpedImageScaleFactors)
+        # AdjustedPeak = BestRefinedMatch.peak * (1.0 / WarpedImageScaleFactors)
         BestRefinedMatch = nornir_imageregistration.AlignmentRecord(BestRefinedMatch.peak, BestRefinedMatch.weight, BestRefinedMatch.angle, IsFlipped, WarpedImageScaleFactors)
 
     # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
@@ -151,7 +151,7 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
                   FixedImageShape: NDArray, WarpedImageShape: NDArray,
                   angle: float,
                   fixedStats=None, warpedStats=None,
-                  FixedImagePrePadded: bool = True, MinOverlap: float = 0.75):
+                  FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
     imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed, dtype=np.float32)
@@ -187,8 +187,8 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
     TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
 
-    #Why is MinOverlap hard-coded to 1.0?
-    #PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
+    # Why is MinOverlap hard-coded to 1.0?
+    # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
     if False == np.array_equal(imFixed.shape, np.array((TargetHeight, TargetWidth))):
         PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth, NewHeight=TargetHeight, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std, MinOverlap=1.0)
         
@@ -199,7 +199,7 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
 
     assert (np.array_equal(PaddedFixed.shape, RotatedPaddedWarped.shape))
 
-    #if OKToDelimWarped:
+    # if OKToDelimWarped:
     del imWarped 
     del imFixed
 
@@ -211,8 +211,13 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     del RotatedPaddedWarped
 
     CorrelationImage = fftshift(CorrelationImage)
-    CorrelationImage -= CorrelationImage.min()
-    CorrelationImage /= CorrelationImage.max()
+    try:
+        CorrelationImage -= CorrelationImage.min()
+        CorrelationImage /= CorrelationImage.max()
+    except FloatingPointError as e:
+        print(f"Floating point error: {e} for {CorrelationImage.min()} or {CorrelationImage.max()}")
+        record = nornir_imageregistration.AlignmentRecord((0,0), 0, 0)
+        return record
 
     # Timer.Start('Find Peak')
 
@@ -259,7 +264,6 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         else:
             pool = nornir_pools.GetGlobalMultithreadingPool()
 
-
     AngleMatchValues = list()
     taskList = list()
 
@@ -279,8 +283,8 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
         temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
         temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
 
-        temp_padded_fixed_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
-        temp_shared_warp_memmap.mode = 'r' #We do not want functions we pass the memmap modifying the original data
+        temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+        temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
 
         # SharedPaddedFixed = nornir_imageregistration.npArrayToReadOnlySharedArray(PaddedFixed)
         # SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
@@ -324,7 +328,6 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
    # taskList.sort(key=tpool.Task.name)
 
-
     while len(taskList) > 0:
         for iTask in range(len(taskList) - 1, -1, -1):
             if taskList[iTask].iscompleted:
@@ -336,7 +339,6 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
             # Wait a bit before checking the task list
             sleep(0.5)
 
-
         # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
 
         # ShowGrayscale(NormCorrelationImage)
@@ -344,7 +346,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # print str(AngleMatchValues)
     
     # Delete the pool to ensure extra python threads do not stick around
-    #if pool is not None:
+    # if pool is not None:
     #    pool.shutdown()
 
     del PaddedFixed
@@ -363,6 +365,7 @@ def __ExecuteProfiler():
                            'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
                             AngleSearchRange=list(range(-175, -174, 1)),
                             SingleThread=True)
+
 
 if __name__ == '__main__':
     from nornir_shared import misc
