@@ -4,9 +4,11 @@
 import os
 
 import numpy as np
+from numpy.typing import NDArray
 from math import pi
 
-import nornir_imageregistration 
+import nornir_imageregistration
+from nornir_imageregistration.transforms.base import ITransform 
 
 
 class AlignmentRecord(object):
@@ -23,51 +25,51 @@ class AlignmentRecord(object):
     '''
 
     @property
-    def angle(self):
+    def angle(self) -> float:
         '''Rotation in degrees'''
         return self._angle
 
     @property
-    def rangle(self):
+    def rangle(self) -> float:
         '''Rotation in radians'''
         return self._angle * (pi / 180.0)
 
     @property
-    def weight(self):
+    def weight(self) -> float:
         '''Quantifies the quality of the alignment'''
         return self._weight
 
     @weight.setter
-    def weight(self, value):
+    def weight(self, value: float):
         self._weight = float(value)
 
     @property
-    def flippedud(self):
+    def flippedud(self) -> bool:
         '''True if the warped image was flipped vertically for the alignment'''
         return self._flippedud
 
     @flippedud.setter
-    def flippedud(self, value):
+    def flippedud(self, value: bool):
         self._flippedud = value
 
     @property
-    def peak(self):
+    def peak(self) -> NDArray[float]:
         '''Translation vector for the alignment'''
         return self._peak
 
-    def WeightKey(self):
+    def WeightKey(self) -> float:
         return self._weight
-    
+
     @property
-    def scale(self):
+    def scale(self) -> float:
         return self._scale
 
     @scale.setter
-    def scale(self, value):
+    def scale(self, value: float):
         '''Scales the source space to target space, including peak'''
         self._scale = value
 
-    def translate(self, value):
+    def translate(self, value: NDArray[float]):
         '''Translates the peak position using tuple (Y,X)'''
         self._peak = self._peak + value
 
@@ -80,20 +82,21 @@ class AlignmentRecord(object):
 
     def __repr__(self):
         s = '{x:.2f}x, {y:.2f}y Weight: {w:.2f}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
-        
+
         if self._angle != 0:
             s += f' Angle: {self._angle:.2f}'
-            
+
         # s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
         if self.flippedud:
             s += ' Flipped up/down'
-            
+
         return s
-    
+
     def __str__(self):
         return f'Offset: {self.__repr__()}'
 
-    def __init__(self, peak, weight, angle=0.0, flipped_ud=False, scale=1.0):
+    def __init__(self, peak: NDArray[float], weight: float, angle: float = 0.0, flipped_ud: bool = False,
+                 scale: float = 1.0):
         '''
         :param float scale: Scales source space by this factor to map into target space
         '''
@@ -110,20 +113,23 @@ class AlignmentRecord(object):
         self._weight = float(weight)
         self._flippedud = flipped_ud
 
-    def CorrectPeakForOriginalImageSize(self, FixedImageShape, MovingImageShape):
+    def CorrectPeakForOriginalImageSize(self, FixedImageShape: NDArray[int], MovingImageShape: NDArray[int]):
 
         offset = self.peak
         if self.peak is None:
-            offset = (0,0)
+            offset = (0, 0)
 
-        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=offset, FixedImageShape=FixedImageShape, MovingImageShape=MovingImageShape)
+        return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=offset,
+                                                                                                  FixedImageShape=FixedImageShape,
+                                                                                                  MovingImageShape=MovingImageShape)
 
-    def GetTransformedCornerPoints(self, warpedImageSize):
+    def GetTransformedCornerPoints(self, warpedImageSize) -> NDArray[float]:
         '''
         '''
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle, self.peak, self.flippedud)
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle,
+                                                                                           self.peak, self.flippedud)
 
-    def ToTransform(self, fixedImageSize, warpedImageSize=None):
+    def ToTransform(self, fixedImageSize: NDArray | tuple[int, int], warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
         '''
         Generates a rigid transform for the alignment record.
         :param (Height, Width) fixedImageSize: Size of translated image in fixed space
@@ -133,8 +139,8 @@ class AlignmentRecord(object):
 
         if warpedImageSize is None:
             warpedImageSize = fixedImageSize
-            
-        return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak, 
+
+        return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak,
                                                                                 rangle=self.rangle,
                                                                                 target_image_shape=fixedImageSize,
                                                                                 source_image_shape=warpedImageSize,
@@ -153,22 +159,23 @@ class AlignmentRecord(object):
         transform = self.ToTransform(fixedImageSize, warpedImageSize)
 
         # Flipped is always false because the transform is already flipped if needed
-        #We add one to the size of the image because ITK grid transforms expect the coordinates to the full coordinates.  So for a 10x10 image starting at 0,0 the 
-        #index of the upper right corner is 9,9, but in ITK grid transforms the upper right corner is expected to be 10,10 
-        
-        #warpedImageSize + np.array((1, 1)
-        warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, rangle=0, offset=(0, 0), flip_ud=False)
+        # We add one to the size of the image because ITK grid transforms expect the coordinates to the full coordinates.  So for a 10x10 image starting at 0,0 the
+        # index of the upper right corner is 9,9, but in ITK grid transforms the upper right corner is expected to be 10,10
+
+        # warpedImageSize + np.array((1, 1)
+        warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(
+            warpedImageSize, rangle=0, offset=(0, 0), flip_ud=False)
 
         fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
 
-#        list = [str(BotLeft.item(0)),
-#                str(BotLeft.item(1)),
-#                str(BotRight.item(0)),
-#                str(BotRight.item(1)),
-#                str(TopLeft.item(0)),
-#                str(TopLeft.item(1)),
-#                str(TopRight.item(0)),
-#                str(TopRight.item(1))]
+        #        list = [str(BotLeft.item(0)),
+        #                str(BotLeft.item(1)),
+        #                str(BotRight.item(0)),
+        #                str(BotRight.item(1)),
+        #                str(TopLeft.item(0)),
+        #                str(TopLeft.item(1)),
+        #                str(TopRight.item(0)),
+        #                str(TopRight.item(1))]
 
         string = ""
 
@@ -187,11 +194,11 @@ class AlignmentRecord(object):
         stos.MappedImageName = os.path.basename(WarpedImagePath)
         stos.MappedImagePath = os.path.dirname(WarpedImagePath)
 
-        if not FixedImageMaskPath is None:
+        if FixedImageMaskPath is not None:
             stos.ControlMaskName = os.path.basename(FixedImageMaskPath)
             stos.ControlMaskPath = os.path.dirname(FixedImageMaskPath)
 
-        if not WarpedImageMaskPath is None:
+        if WarpedImageMaskPath is not None:
             stos.MappedMaskName = os.path.basename(WarpedImageMaskPath)
             stos.MappedMaskPath = os.path.dirname(WarpedImageMaskPath)
 
@@ -214,58 +221,56 @@ class AlignmentRecord(object):
         transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
 
         # We use Y,X ordering in memory due to Numpy.  Ir-Tools coordinates are written X,Y.
-        coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]), (stos.MappedImageDim[1], stos.MappedImageDim[0]))
+        coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]),
+                                                   (stos.MappedImageDim[1], stos.MappedImageDim[0]))
 
-        #I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
-        #have a -1 to account for the zero origin
-        stos.Transform = transformTemplate % {'coordString' : coordString,
-                                              'width' : stos.MappedImageDim[0],
-                                              'height' : stos.MappedImageDim[1]}
+        # I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
+        # have a -1 to account for the zero origin
+        stos.Transform = transformTemplate % {'coordString': coordString,
+                                              'width': stos.MappedImageDim[0],
+                                              'height': stos.MappedImageDim[1]}
 
         stos.Downsample = PixelSpacing
 
-#        print "Done!"
+        #        print "Done!"
 
         return stos
-    
+
 
 class EnhancedAlignmentRecord(AlignmentRecord):
     '''
     An extension of the AlignmentRecord class that also records the Fixed and Warped Points
     '''
-    
+
     @property
     def ID(self):
         return self._ID
-    
+
     @property
     def TargetPoint(self):
         return self._TargetPoint
-    
+
     @property
     def SourcePoint(self):
         return self._SourcePoint
-    
+
     @property
     def AdjustedTargetPoint(self):
         return self._TargetPoint + self.peak
-    
+
     @property
     def AdjustedSourcePoint(self):
         '''Note if there is rotation involved this point is not reliable'''
         return self._SourcePoint - self.peak
-    
-    def __init__(self, ID, TargetPoint, SourcePoint, peak, weight, angle=0.0, flipped_ud=False):
-        
+
+    def __init__(self, ID, TargetPoint: NDArray[float], SourcePoint, peak, weight, angle=0.0, flipped_ud=False):
         super(EnhancedAlignmentRecord, self).__init__(peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud)
         self._ID = ID
         self._TargetPoint = TargetPoint
         self._SourcePoint = SourcePoint
-        
+
     def __repr__(self):
         return f'ID: {self._ID} {super(EnhancedAlignmentRecord, self).__repr__()}'
-    
+
     def __str__(self):
         return self.__repr__()
-        
-    

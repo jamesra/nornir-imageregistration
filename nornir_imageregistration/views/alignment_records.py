@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 
 def PlotWeightHistogram(alignment_records: list[nornir_imageregistration.EnhancedAlignmentRecord],
-                        filename: str, cutoff: float):
+                        filename: str, transform_cutoff: float, finalize_cutoff: float, line_pos_list: list[float] | None):
     '''
     Plots the weights on the alignment records as a histogram
     :param list alignment_records: A list of EnhancedAlignmentRecords to render, uses a square to represent alignments in progress
@@ -24,9 +24,10 @@ def PlotWeightHistogram(alignment_records: list[nornir_imageregistration.Enhance
     '''
     
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
-    h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights))
+    h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights), numBins=min(50,len(alignment_records)))
     h.Add(weights)
-    nornir_shared.plot.Histogram(h, Title="Histogram of Weights", xlabel="Weight Value", ImageFilename=filename, MinCutoffPercent=cutoff, MaxCutoffPercent=1.0)
+    nornir_shared.plot.Histogram(h, Title="Histogram of Weights", xlabel="Weight Value", ImageFilename=filename, MinCutoffPercent=transform_cutoff,  MaxCutoffPercent=finalize_cutoff, LinePosList=line_pos_list)
+
 
 def PlotPeakList(new_alignment_records: list[nornir_imageregistration.EnhancedAlignmentRecord],
                  finalized_alignment_records: list[nornir_imageregistration.EnhancedAlignmentRecord],

@@ -373,9 +373,9 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
                                                                                  scale=scale)
 
 
-def __CorrectOffsetForMismatchedImageSizes(offset,
-                                           FixedImageShape,
-                                           MovingImageShape,
+def __CorrectOffsetForMismatchedImageSizes(offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
+                                           FixedImageShape: NDArray[int],
+                                           MovingImageShape: NDArray[int],
                                            scale: float = 1.0):
     '''
     :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
@@ -478,7 +478,7 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle: flo
 
 
 def GetTransformedRigidCornerPoints(size: (float, float), rangle: float, offset: (float, float), flip_ud: bool = False,
-                                    scale: float = 1.0):
+                                    scale: float = 1.0) -> NDArray[float]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
        Flip, if requested, is performed before the rotation and translation
     :param flip_ud:

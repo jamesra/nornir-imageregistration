@@ -1,9 +1,8 @@
-import json
+import json 
 
 from .grid_refinement import GridRefinement
 from .translate import TranslateSettings
 from .mosaic_tile_offset import TileOffset, LoadMosaicOffsets, SaveMosaicOffsets
- 
 
 def GetOrSaveTranslateSettings(settings:TranslateSettings, path:str):
     '''

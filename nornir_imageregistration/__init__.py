@@ -40,6 +40,12 @@ import matplotlib.pyplot as plt
 plt.ioff()
 
 
+import nornir_imageregistration.mmap_metadata as mmap_metadata
+from nornir_imageregistration.mmap_metadata import *
+
+import nornir_imageregistration.nornir_image_types as nornir_image_types
+from nornir_imageregistration.nornir_image_types import *
+
 def ParamToDtype(param) -> DTypeLike:
     if param is None:
         raise ValueError("'None' cannot be converted to a dtype")
@@ -169,6 +175,9 @@ import nornir_imageregistration.pillow_helpers as pillow_helpers
 
 import nornir_imageregistration.image_stats as image_stats
 from nornir_imageregistration.image_stats import ImageStats, Prune, Histogram
+
+import nornir_imageregistration.image_permutation_helper as image_permutation_helper
+from nornir_imageregistration.image_permutation_helper import ImagePermutationHelper
 
 import nornir_imageregistration.core as core
 from nornir_imageregistration.core import *

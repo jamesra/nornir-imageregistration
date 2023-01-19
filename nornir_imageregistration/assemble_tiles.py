@@ -583,7 +583,7 @@ def __CreateScalableTransformCopy(transform):
 def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
                   target_space_scale: float = None,
-                  TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | None = None,
+                  TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
                   SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.TransformedImageData:
     """
        Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the

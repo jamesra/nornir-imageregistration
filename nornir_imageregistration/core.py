@@ -23,57 +23,20 @@ import nornir_shared.prettyoutput as prettyoutput
 import matplotlib.pyplot as plt
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import NDArray, DTypeLike
 # import numpy.fft.fftpack as fftpack
 import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
 
 from collections.abc import Iterable
 
+from nornir_imageregistration.mmap_metadata import memmap_metadata
+from nornir_imageregistration import ImageLike
+
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
 
-
 # from memory_profiler import profile
-
-
-class memmap_metadata(object):
-    """meta-data for a memmap array"""
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def shape(self):
-        return self._shape
-
-    @property
-    def dtype(self):
-        return self._dtype
-
-    @property
-    def mode(self):
-        return self._mode
-
-    @mode.setter
-    def mode(self, value):
-        # Default to copy-on-write
-        if value is None:
-            self._mode = 'c'
-            return
-
-        if not isinstance(value, str):
-            raise ValueError("Mode must be a string and one of the allowed memmap mode strings, 'r','r+','w+','c'")
-
-        self._mode = value
-
-    def __init__(self, path, shape, dtype, mode=None):
-        self._path = path
-        self._shape = shape
-        self._dtype = dtype
-        self._mode = None
-        self.mode = mode
 
 
 def ravel_index(idx: NDArray, shp: NDArray):
@@ -127,7 +90,7 @@ def ApproxEqual(a, b, epsilon=None):
     return np.abs(a - b) < epsilon
 
 
-def ImageParamToImageArray(imageparam: NDArray | str | memmap_metadata, dtype=None):
+def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
     image = None
     if isinstance(imageparam, np.ndarray):
         if dtype is None:
@@ -156,7 +119,7 @@ def ImageParamToImageArray(imageparam: NDArray | str | memmap_metadata, dtype=No
     return image
 
 
-def ScalarForMaxDimension(max_dim, shapes):
+def ScalarForMaxDimension(max_dim: float, shapes):
     """Returns the scalar value to use so the largest dimensions in a list of shapes has the maximum value"""
     shapearray = None
     if not isinstance(shapes, list):
@@ -568,6 +531,8 @@ def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:i
         cropped = np.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = np.ones((Height, Width), dtype=image.dtype) * cval
+        if cropped.dtype != image.dtype:
+            raise ValueError(f"cval (={cval}) changed the dtype of the input")
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
 
@@ -797,7 +762,7 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 #
 
 
-def _LoadImageByExtension(ImageFullPath, dtype):
+def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
     """
     Loads an image file and returns an ndarray of dtype
     :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide.
@@ -854,7 +819,7 @@ def _LoadImageByExtension(ImageFullPath, dtype):
 
     except IOError as E:
         prettyoutput.LogErr("IO error loading image {0}\n{1}".format(ImageFullPath, str(E)))
-        raise E
+        raise
     except Exception as E:
         prettyoutput.LogErr("Unexpected exception loading image {0}\n{1}".format(ImageFullPath, str(E)))
         raise E
@@ -863,7 +828,10 @@ def _LoadImageByExtension(ImageFullPath, dtype):
 
 
 # @profile
-def LoadImage(ImageFullPath, ImageMaskFullPath=None, MaxDimension=None, dtype=None):
+def LoadImage(ImageFullPath: str,
+              ImageMaskFullPath: str | None = None,
+              MaxDimension: float | None = None,
+              dtype: DTypeLike | None = None):
     """
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
 
@@ -1075,7 +1043,7 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray=None, size_cutoff=0.00
     :param minima:
     :param maxima:
     :param numpy.ndarray mask: Pixels we wish to not include in the analysis
-    :param size_cutoff: Determines how large a continous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
+    :param size_cutoff: Determines how large a continuous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
     """
     # (minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(image)
      
