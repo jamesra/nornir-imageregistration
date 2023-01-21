@@ -24,6 +24,7 @@ class GridRefinement(object):
                  angles_to_search=None,
                  final_pass_angles=None,
                  max_travel_for_finalization: float = None,
+                 max_travel_for_finalization_improvement: float = None,
                  min_alignment_overlap: float = None,
                  min_unmasked_area: float = None):
         """
@@ -37,8 +38,9 @@ class GridRefinement(object):
         :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is used on all registrations.  Can have a performance impact.
         :param array final_pass_angles: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is usually a reduced range to fine tune a registration. Can have a performance impact.
         :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
-        :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must overlap by this minimum amount.
-        :param float min_unmasked_area: Amount of cell area that must be unmasked to utilize the cell
+        :param max_travel_for_finalization_improvement: When finalized points are checked to see if they need to be nudged, they must move less than this distance to be considered.  If None, no limit is applied
+        :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must still overlap by this minimum amount after being registered.
+        :param float min_unmasked_area: Area of cell that must be unmasked in both images to utilize that cell
         """
 
         if target_image is None:
@@ -107,8 +109,9 @@ class GridRefinement(object):
         self.num_iterations = 10 if num_iterations is None else num_iterations
         self.max_travel_for_finalization = np.sqrt(
             np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization
+        self.max_travel_for_finalization_improvement = float("inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
         self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
-        self.min_unmasked_area = 0.24 if min_unmasked_area is None else min_unmasked_area
+        self.min_unmasked_area = 0.49 if min_unmasked_area is None else min_unmasked_area
 
     def __str__(self):
         return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'

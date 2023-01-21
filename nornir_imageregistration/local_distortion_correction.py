@@ -15,8 +15,7 @@ import nornir_imageregistration
 
 from nornir_shared import prettyoutput
 
-from nornir_imageregistration.transforms.triangulation import Triangulation
-from build.lib import nornir_shared
+from nornir_imageregistration.transforms.triangulation import Triangulation 
 
 # Summary type used for typing
 AlignmentRecordDict = dict[tuple[int, int], nornir_imageregistration.EnhancedAlignmentRecord]
@@ -177,7 +176,7 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
             global_offset = OffsetAdjustment + subregion_offset  # Position subregion in tile's mosaic space
 
             if not (iRow, iCol) in A_tiles or not (iRow, iCol) in B_tiles:
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
+                net_displacement[(iRow * grid_dim[1]) + iCol,:] = np.array([0, 0, 0])
                 point_pairs[iRow, iCol] = np.array(
                     (source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0], 0 + global_offset[1], 0, 0),
                     dtype=refine_dtype)
@@ -188,7 +187,7 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
                                                              FFT_Required=True)
             except Exception as e:
                 prettyoutput.LogErr(f'Exception on row: {iRow} col: {iCol} when finding offset:\n{e}')
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
+                net_displacement[(iRow * grid_dim[1]) + iCol,:] = np.array([0, 0, 0])
                 point_pairs[iRow, iCol] = np.array(
                     (source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0], 0 + global_offset[1], 0, 0),
                     dtype=refine_dtype)
@@ -200,11 +199,11 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
             # print(str(record))
 
             if np.any(np.isnan(record.peak)):
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
+                net_displacement[(iRow * grid_dim[1]) + iCol,:] = np.array([0, 0, 0])
                 point_pairs[iRow, iCol] = np.array((source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0],
                                                     0 + global_offset[1], 0, record.angle), dtype=refine_dtype)
             else:
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array(
+                net_displacement[(iRow * grid_dim[1]) + iCol,:] = np.array(
                     [adjusted_record.peak[0], adjusted_record.peak[1], record.weight])
                 point_pairs[iRow, iCol] = np.array((source_tile_offset[0], source_tile_offset[1],
                                                     adjusted_record.peak[0] + global_offset[0],
@@ -246,16 +245,17 @@ def SplitDisplacements(A, B, point_pairs):
 
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    OutputStosPath: str,
-                   num_iterations: int | None = None,
-                   cell_size: NDArray[int] | tuple[int, int] = None,
-                   grid_spacing: NDArray[int] | tuple[int, int] = None,
+                   num_iterations: int | None=None,
+                   cell_size: NDArray[int] | tuple[int, int]=None,
+                   grid_spacing: NDArray[int] | tuple[int, int]=None,
                    angles_to_search=None,
                    final_pass_angles=None,
                    max_travel_for_finalization=None,
+                   max_travel_for_finalization_improvement=None,
                    min_alignment_overlap=None,
-                   min_unmasked_area: float = None,
-                   SaveImages: bool = False,
-                   SavePlots: bool = False,
+                   min_unmasked_area: float=None,
+                   SaveImages: bool=False,
+                   SavePlots: bool=False,
                    **kwargs):
     """
     Refines an inputStos file and produces the OutputStos file.
@@ -273,6 +273,9 @@ cell_size: (width, height) area of image around control points to use for regist
     :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
 r plots of each iteration in the output path for debugging purposes
     """
+    
+    for k, v in kwargs.items():
+        prettyoutput.Log(f"\tUnused parameter to RefineStosFile: {k}:{v}\n")
 
     outputDir = os.path.dirname(OutputStosPath)
 
@@ -290,12 +293,12 @@ r plots of each iteration in the output path for debugging purposes
                                                                 source_image=InputStos.MappedImageFullPath,
                                                                 target_mask=InputStos.ControlMaskFullPath,
                                                                 source_mask=InputStos.MappedMaskFullPath,
-                                                                num_iterations=num_iterations,
-                                                                cell_size=cell_size,
+                                                                num_iterations=num_iterations, cell_size=cell_size,
                                                                 grid_spacing=grid_spacing,
                                                                 angles_to_search=angles_to_search,
                                                                 final_pass_angles=final_pass_angles,
                                                                 max_travel_for_finalization=max_travel_for_finalization,
+                                                                max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                                 min_alignment_overlap=min_alignment_overlap,
                                                                 min_unmasked_area=min_unmasked_area)
 
@@ -314,9 +317,9 @@ r plots of each iteration in the output path for debugging purposes
 
 def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     settings: nornir_imageregistration.settings.GridRefinement,
-                    SaveImages: bool = False,
-                    SavePlots: bool = False,
-                    outputDir: str = None) -> nornir_imageregistration.ITransform:
+                    SaveImages: bool=False,
+                    SavePlots: bool=False,
+                    outputDir: str=None) -> nornir_imageregistration.ITransform:
     """
     Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
     takes an initial transform and creates a regular grid of points.  Points covered more than 
@@ -346,8 +349,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     first_pass_weight_distance_composite_scores = None
 
     transform_inclusion_percentile = 33.3  # - (CutoffPercentilePerIteration * i)
+    transform_inclusion_range = 20.0
     finalize_percentile = 66.6
-    finalize_range = 33.3
+    finalize_range = 46.6
     updatedTransform = None  # type: nornir_imageregistration.ITransform | None
 
     i = 1
@@ -363,16 +367,21 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
             updated_and_finalized_alignment_points)
 
+        # What fraction of the maximum number of iterations have been completed?
+        adjustment_scalar = (i - 1) / settings.num_iterations
+
         transform_inclusion_percentile_this_pass = transform_inclusion_percentile
+        if adjustment_scalar != 0:
+            transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
+
         transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0))
 
-        transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2], #Do not include finalize points because they have a distance of zero which throws off the composite scores
+        transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],  # Do not include finalize points because they have a distance of zero which throws off the composite scores
                                                    100.0 - transform_inclusion_percentile_this_pass)
 
         finalize_percentile_this_pass = finalize_percentile
-        finalize_adjustment_scalar = (i - 1) / settings.num_iterations
-        if finalize_adjustment_scalar != 0:
-            finalize_percentile_this_pass -= (finalize_range * finalize_adjustment_scalar)
+        if adjustment_scalar != 0:
+            finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
 
         finalize_percentile_this_pass = float(np.clip(finalize_percentile_this_pass, 10.0, 100.0))
 
@@ -411,19 +420,30 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         new_finalized_alignments_list = list(
             filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
         new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
+        new_finalization_count = len(new_finalized_alignments_dict)
         
-        #remove finalized points from alignment_points
+        # remove finalized points from alignment_points
         non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
-
-        (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
-                                                                                new_finalized_alignments_dict,
-                                                                                settings)
-
-        new_finalization_count = len(improved_finalized_dict)
-        finalized_points = {**finalized_points, **improved_finalized_dict}
-
+        
         prettyoutput.Log(
             f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
+
+        # Check previous finalizations to see if we can do better now
+        (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
+                                                                         finalized_points,
+                                                                         settings)
+
+        finalized_points = {**finalized_points, **new_finalized_alignments_dict}
+
+        # (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
+        #                                                                         finalized_points,
+        #                                                                         settings)
+
+        # new_finalization_count = len(improved_finalized_dict)
+        # finalized_points = {**finalized_points, **improved_finalized_dict}
+
+        prettyoutput.Log(
+            f"  Improved {len(improved_alignments)} finalized points using latest transform")
 
         if SavePlots:
             # plot_percentile_estimates(weight_distance_composite_scores[:,0])
@@ -495,19 +515,20 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
         # Make one more pass to see if we can improve finalized points
     # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved. 
-    if len(finalized_points) >= 3:
-        final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-            AlignRecordsToControlPoints(finalized_points.values()))
-    else:
-        final_transform = updatedTransform
+    # if len(finalized_points) >= 3:
+    #     final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+    #         AlignRecordsToControlPoints(finalized_points.values()))
+    # else:
+    #     final_transform = updatedTransform
+    final_transform = stosTransform
 
-    (nudged_finalized_points, nudged_point_keys) = TryToImproveAlignments(final_transform, finalized_points, settings)
-    prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
+    (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(stosTransform, combined_records_this_pass, settings)
+    prettyoutput.Log(f'Final tuning of points adjusted {len(improved_alignments)} of {len(combined_records_this_pass)} points')
 
     # Return a transform built from the finalized points
-    if len(nudged_finalized_points) >= 3:
+    if len(nudged_final_points) >= 3:
         final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-            AlignRecordsToControlPoints(nudged_finalized_points.values()))
+            AlignRecordsToControlPoints(nudged_final_points.values()))
 
     return final_transform
 
@@ -537,7 +558,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
 
     # Remove finalized points from refinement consideration
     if finalized is not None and len(finalized) > 0:
-        not_finalized = [tuple(grid_data.coords[i, :]) not in finalized for i in range(grid_data.coords.shape[0])]
+        not_finalized = [tuple(grid_data.coords[i,:]) not in finalized for i in range(grid_data.coords.shape[0])]
         valid = np.asarray(not_finalized, np.bool)
         grid_data.RemoveMaskedPoints(valid)
 
@@ -621,15 +642,20 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints, cell_size=settings.cell_size)
 
     for i in range(nPoints):
-        targetPoint = targetPoints[i, :]
-        sourcePoint = sourcePoints[i, :]
+        targetPoint = targetPoints[i,:]
+        sourcePoint = sourcePoints[i,:]
         key = keys[i]
+        # So... the way I'm handling refine is backwards.  I'm not sure how much it matters.
+        # I'm passing the target point, but the point that is fixed in the transform I am building is the source point.
+        # So the transform runs an inverse transform to obtain the source point, which may be slightly off.
         AlignTask = StartAttemptAlignPoint(pool,
                                            f"Align {key}",
                                            rigid_transforms[i],
                                            # Transform,
                                            settings.target_image,
                                            settings.source_image,
+                                           # settings.target_mask,
+                                           # settings.source_mask,
                                            settings.target_image_stats,
                                            settings.source_image_stats,
                                            targetPoint,
@@ -665,8 +691,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         arecord = t.wait_return()
 
         erec = nornir_imageregistration.EnhancedAlignmentRecord(ID=t.key,
-                                                                TargetPoint=targetPoints[t.ID, :],
-                                                                SourcePoint=sourcePoints[t.ID, :],
+                                                                TargetPoint=targetPoints[t.ID,:],
+                                                                SourcePoint=sourcePoints[t.ID,:],
                                                                 peak=arecord.peak,
                                                                 weight=arecord.weight,
                                                                 angle=arecord.angle,
@@ -741,7 +767,7 @@ def _alignment_records_to_composite_scores(
 
 
 def _PeakListToTransform(alignment_records: AlignmentRecordList,
-                         fixed_points: NDArray | None = None, percentile: float = None, cutoff: float = None):
+                         fixed_points: NDArray | None=None, percentile: float=None, cutoff: float=None):
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
     :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
@@ -787,8 +813,8 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
 
     # Todo: Check that we have at least three points
 
-    ValidFP = AdjustedTargetPoints[valid_indicies, :]
-    ValidWP = OriginalSourcePoints[valid_indicies, :]
+    ValidFP = AdjustedTargetPoints[valid_indicies,:]
+    ValidWP = OriginalSourcePoints[valid_indicies,:]
 
     if not np.array_equiv(ValidFP.shape, Triangulation.RemoveDuplicates(ValidFP).shape):
         raise Exception("Duplicate fixed points detected")
@@ -801,8 +827,8 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
         num_needed = 3 - num_fixed
         sorted_composite_indicies = np.argsort(composite_score)
         top_alignment_indicies = sorted_composite_indicies[0:num_needed]
-        ValidFP = AdjustedTargetPoints[top_alignment_indicies, :]
-        ValidWP = OriginalSourcePoints[top_alignment_indicies, :]
+        ValidFP = AdjustedTargetPoints[top_alignment_indicies,:]
+        ValidWP = OriginalSourcePoints[top_alignment_indicies,:]
         prettyoutput.Log(
             f'Insufficient alignments found, expanding to use top {num_needed} alignments of {num_alignments} alignments')
 
@@ -817,7 +843,7 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
 
     # PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    nornir_shared.prettyoutput.Log(
+    prettyoutput.Log(
         f'Built transform with {point_pairs.shape[0]} of {num_alignments + num_fixed} points, including the {num_fixed} fixed points using cutoff {cutoff:g}')
 
     T = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(point_pairs)
@@ -829,8 +855,8 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
 
 
 def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransform, source_image_shape: NDArray,
-                                    cell_size: NDArray = None, grid_dims: NDArray = None,
-                                    grid_spacing: NDArray = None) -> nornir_imageregistration.transforms.triangulation.Triangulation:
+                                    cell_size: NDArray=None, grid_dims: NDArray=None,
+                                    grid_spacing: NDArray=None) -> nornir_imageregistration.transforms.triangulation.Triangulation:
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
 
@@ -852,7 +878,6 @@ def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransfo
     T.gridHeight = grid_data.grid_dims[0]
 
     return T
-
 
 # def AlignmentRecordsTo2DArray(alignment_records):
 #     
@@ -915,8 +940,8 @@ def plot_percentile_estimates(input_data: np.typing.NDArray, output_path: str | 
 
 
 def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList,
-                                          percentile: float = 0.5, max_travel_distance: float = 1.0,
-                                          weight_cutoff: float | None = None) -> NDArray[bool]:
+                                          percentile: float=0.5, max_travel_distance: float=1.0,
+                                          weight_cutoff: float | None=None) -> NDArray[bool]:
     """
     :param alignment_records:
     :param weight_cutoff:
@@ -1031,11 +1056,11 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
 def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                        targetImage: NDArray,
                        sourceImage: NDArray,
-                       target_image_stats: nornir_imageregistration.ImageStats,
-                       source_image_stats: nornir_imageregistration.ImageStats,
+                       target_image_stats: nornir_imageregistration.ImageStats | None,
+                       source_image_stats: nornir_imageregistration.ImageStats | None,
                        target_controlpoint: NDArray | tuple[float, float],
                        alignmentArea: NDArray | tuple[float, float],
-                       description: str | None = None) -> tuple[NDArray, NDArray]:
+                       description: str | None=None) -> tuple[NDArray, NDArray]:
     """
     :param transform:
     :param targetImage:
@@ -1090,14 +1115,35 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                            transform: nornir_imageregistration.ITransform,
                            targetImage: NDArray,
                            sourceImage: NDArray,
+                           # targetMask: NDArray,
+                           # sourceMask: NDArray,
                            target_image_stats: nornir_imageregistration.ImageStats | None,
                            source_image_stats: nornir_imageregistration.ImageStats | None,
                            target_controlpoint: NDArray | tuple[float, float],
                            alignmentArea: NDArray | tuple[float, float],
-                           anglesToSearch: Iterable[float] | None = None,
-                           min_alignment_overlap: float = 0.5) -> nornir_pools.Task | None:
+                           anglesToSearch: Iterable[float] | None=None,
+                           min_alignment_overlap: float=0.5) -> nornir_pools.Task | None:
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
+
+    # target_mask_roi, source_mask_roi = BuildAlignmentROIs(transform=transform,
+    #                                                         targetImage=targetMask,
+    #                                                         sourceImage=sourceMask,
+    #                                                         target_image_stats=None,
+    #                                                         source_image_stats=None,
+    #                                                         target_controlpoint=target_controlpoint,
+    #                                                         alignmentArea=alignmentArea,
+    #                                                         description=taskname)
+    #
+    # target_mask_nonzero = np.count_nonzero(target_mask_roi)
+    # source_mask_nonzero = np.count_nonzero(source_mask_roi)
+    # cell_area = alignmentArea.prod()
+    #
+    # if target_mask_nonzero / cell_area < 0.25:
+    #     raise ValueError("This mask should have been found earlier")
+    #
+    # if source_mask_nonzero / cell_area < 0.25:
+    #     raise ValueError("This mask should have been found earlier")
 
     target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
                                                             targetImage=targetImage,
@@ -1152,7 +1198,7 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
 
 def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITransform, alignment_records: dict,
                            settings: nornir_imageregistration.settings.GridRefinement) \
-                           -> tuple[AlignmentRecordDict, list[AlignmentRecordKey]]:
+                           ->tuple[AlignmentRecordDict, list[AlignmentRecordKey]]:
     """
     Given a set of alignment points, try to align the points again.  If we get a stronger score then
     replace the alignment with the higher scoring result
