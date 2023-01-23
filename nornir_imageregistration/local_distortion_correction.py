@@ -274,7 +274,8 @@ cell_size: (width, height) area of image around control points to use for regist
 r plots of each iteration in the output path for debugging purposes
     """
     
-    for k, v in kwargs.items():
+    
+    for k, v in kwargs.items(): 
         prettyoutput.Log(f"\tUnused parameter to RefineStosFile: {k}:{v}\n")
 
     outputDir = os.path.dirname(OutputStosPath)
@@ -467,8 +468,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             #                                             attrib='PSDDelta')
 
         # Update the transform with the adjusted points
+        combined_records_this_pass = {a.ID: a for a in included_alignment_records}
         if len(improved_alignments) > 0:
-            combined_records_this_pass = {a.ID: a for a in included_alignment_records}
             for item in finalized_points.items():
                 combined_records_this_pass[item[0]] = item[1]
 
