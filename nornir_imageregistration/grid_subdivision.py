@@ -10,7 +10,23 @@ Used with the slice-to-slice grid refinement code
 import numpy as np
 from numpy.typing import NDArray
 import nornir_imageregistration
+from nornir_imageregistration.transforms.base import ITransform
 
+def build_coords_array(grid_dims: NDArray[int]) -> NDArray[int]:
+    """
+    Returns a Nx2 array containing each index into the grid of dimension grid_dims
+    :param grid_dims:
+    :return:
+    """
+    coords = np.zeros((np.prod(grid_dims), 2), dtype=int)
+    col_array = np.array(range(0, grid_dims[1]), dtype=int)
+    for iRow in range(grid_dims[0]):
+        iRowStart = iRow * grid_dims[1]
+        iRowEnd = (iRow + 1) * grid_dims[1]
+        coords[iRowStart:iRowEnd, 0] = iRow
+        coords[iRowStart:iRowEnd, 1] = col_array
+
+    return coords
 
 class GridDivisionBase(object):
     """Abstract class for structures that divide images into grids of possibly overlapping cells"""
@@ -36,7 +52,12 @@ class GridDivisionBase(object):
     def num_points(self) -> int:
         return self.coords.shape[0]
 
-    def PopulateTargetPoints(self, transform: nornir_imageregistration.ITransform):
+    @property
+    def axis_points(self):
+        """The points along the axis, in source space, where the grid lines intersect the axis"""
+        return self._axis_points
+
+    def PopulateTargetPoints(self, transform: ITransform):
         if transform is not None:
             self.TargetPoints = np.round(transform.Transform(self.SourcePoints), 3).astype(float)
             return self.TargetPoints
@@ -139,7 +160,7 @@ class ITKGridDivision(GridDivisionBase):
 
     def __init__(self,
                  source_shape: NDArray[int] | tuple[int, int],
-                 cell_size: NDArray[int] | tuple[int, int],
+                 cell_size: NDArray[int] | tuple[int, int] | None = None,
                  grid_dims: NDArray[int] | tuple[int, int] | None = None,
                  grid_spacing: NDArray[int] | tuple[int, int] | None = None,
                  transform=None):
@@ -158,7 +179,8 @@ class ITKGridDivision(GridDivisionBase):
         source_shape = np.asarray(source_shape, np.int64)
 
         if cell_size is None:
-            raise ValueError("cell_size must be specified")
+            if grid_dims is None and grid_spacing is None:
+                raise ValueError("cell_size must be specified if grid_dims and grid_spacing are not specified")
 
         if grid_dims is not None and grid_spacing is not None:
             raise ValueError("Either grid_dims or grid_spacing must be specified but not both")
@@ -171,14 +193,14 @@ class ITKGridDivision(GridDivisionBase):
         elif grid_spacing is None:
             self.grid_dims = np.asarray(grid_dims, np.int32)
         elif grid_dims is None:
-            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
+            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing) + 1
 
         #Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
-        self.grid_spacing = (source_shape) / (self.grid_dims - 1) # - 1 on grid_dims because we want the points at the edges of the image
+        self.grid_spacing = source_shape / (self.grid_dims - 1) # - 1 on grid_dims because we want the points at the edges of the image
 
-        self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in
-                       range(self.grid_dims[1])]
-        self.coords = np.vstack(self.coords)
+        self._axis_points = [range(n) * self.grid_spacing[i] for i, n in enumerate(self.grid_dims)]
+
+        self.coords = build_coords_array(self.grid_dims)
 
         self.SourcePoints = self.coords * self.grid_spacing
         #self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
@@ -189,10 +211,7 @@ class ITKGridDivision(GridDivisionBase):
 
         self.source_shape = source_shape
 
-        if transform is not None:
-            self.TargetPoints = self.PopulateTargetPoints(transform)
-        else:
-            self.TargetPoints = None
+        self.TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None
 
 
 class CenteredGridDivision(GridDivisionBase):
@@ -219,7 +238,8 @@ class CenteredGridDivision(GridDivisionBase):
         source_shape = np.asarray(source_shape, np.int64)
 
         if cell_size is None:
-            raise ValueError("cell_size must be specified")
+            if grid_dims is None and grid_spacing is None:
+                raise ValueError("cell_size must be specified if grid_dims and grid_spacing are not specified")
 
         if grid_dims is not None and grid_spacing is not None:
             raise ValueError("Either grid_dims or grid_spacing must be specified but not both")
@@ -234,9 +254,9 @@ class CenteredGridDivision(GridDivisionBase):
             self.grid_spacing = np.asarray(grid_spacing, np.int64)
             self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, self.grid_spacing)
 
-        self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in
-                       range(self.grid_dims[1])]
-        self.coords = np.vstack(self.coords)
+        self._axis_points = [range(n) * self.grid_spacing[i] for i, n in enumerate(self.grid_dims)]
+
+        self.coords = build_coords_array(self.grid_dims)
 
         self.SourcePoints = self.coords * self.grid_spacing
         self.SourcePoints = self.SourcePoints + (self.grid_spacing / 2.0)
@@ -253,7 +273,4 @@ class CenteredGridDivision(GridDivisionBase):
             raise ValueError(
                 "No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
 
-        if transform is not None:
-            self.TargetPoints = self.PopulateTargetPoints(transform)
-        else:
-            self.TargetPoints = None
+        self.TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None
