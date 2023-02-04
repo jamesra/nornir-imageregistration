@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2035
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "nornir-imageregistration", "nornir-imageregistration.pyproj", "{F9A77E5A-6D48-488F-BAE5-DB812178A4E9}"
+EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "nornir-pyre", "..\nornir-pyre\nornir-pyre.pyproj", "{E23D945B-A9E5-4FCB-8F7D-6F003B3FA658}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F9A77E5A-6D48-488F-BAE5-DB812178A4E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F9A77E5A-6D48-488F-BAE5-DB812178A4E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E23D945B-A9E5-4FCB-8F7D-6F003B3FA658}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E23D945B-A9E5-4FCB-8F7D-6F003B3FA658}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {80EBD138-B389-402E-A933-57573A98268D}
+	EndGlobalSection
+EndGlobal

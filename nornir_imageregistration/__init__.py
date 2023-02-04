@@ -154,7 +154,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
             else:
                 dtype = np.float32
 
-        points = np.asarray(points, dtype=np.float32)
+        points = np.asarray(points, dtype=dtype)
     elif not dtype is None:
         if points.dtype != dtype:
             Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
@@ -189,7 +189,7 @@ import nornir_imageregistration.settings as settings
 
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
-    IDiscreteTransform, ITransformScaling, IControlPoints
+    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms

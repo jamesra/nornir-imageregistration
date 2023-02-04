@@ -121,16 +121,16 @@ class ScipyRbf(triangulation.Triangulation):
 #
 #    def OnTransformChanged(self):
 #
-#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
-#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
+#        ForwardTask = transformbase.TransformBase.ThreadPool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+#        ReverseTask = transformbase.TransformBase.ThreadPool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 #
 #        self.ForwardRBFInstance = ForwardTask.wait_return()
 #        self.ReverseRBFInstance = ReverseTask.wait_return()
 #
 #        super(RBFTransform, self).OnTransformChanged()
 #
-#        # self.ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
-#        # self.ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
+#        # self.ForwardRBFInstance = OneWayRBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
+#        # self.ReverseRBFInstance = OneWayRBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 #
 #
 #
@@ -217,7 +217,7 @@ class ScipyRbf(triangulation.Triangulation):
 #                  [10, 10, -10, -10]])
 #
 #    (Fixed, Moving) = numpy.hsplit(p, 2)
-#    T = RBFWithLinearCorrection(Fixed, Moving)
+#    T = OneWayRBFWithLinearCorrection(Fixed, Moving)
 #
 #    warpedPoints = [[0, 0], [-5, -5]]
 #    fp = T.ViewTransform(warpedPoints)

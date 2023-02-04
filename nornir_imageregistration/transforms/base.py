@@ -4,31 +4,35 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 import abc
-
-import nornir_imageregistration
-import nornir_pools
-from numpy.typing import *
 from abc import ABC, abstractmethod
+from numpy.typing import *
+import nornir_imageregistration
+from nornir_imageregistration.transforms.transform_type import TransformType
 
 
 class ITransform(ABC):
 
     @abstractmethod
-    def Transform(self, point: NDArray, **kwargs) -> NDArray:
+    def Transform(self, point: NDArray[float], **kwargs) -> NDArray:
         """Map points from the mapped space to fixed space. Nornir is gradually transitioning to a source space to target space naming convention."""
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
-    def InverseTransform(self, point: NDArray, **kwargs) -> NDArray:
+    def InverseTransform(self, point: NDArray[float], **kwargs) -> NDArray:
         """Map points from the fixed space to mapped space. Nornir is gradually transitioning to a target space to source space naming convention."""
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def Load(self, TransformString: str, pixelSpacing=None):
         """
         Creates an instance of the transform from the TransformString
         """
-        pass
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def type(self) -> TransformType:
+        raise NotImplementedError()
 
 
 class ITransformChangeEvents(ABC):
@@ -37,14 +41,14 @@ class ITransformChangeEvents(ABC):
         """
         Call func whenever the transform changes
         """
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
     def RemoveOnChangeEventListener(self, func):
         """
         Stop calling func whenever the transform changes
         """
-        pass
+        raise NotImplementedError()
 
 
 class ITransformTranslation(ABC):
@@ -58,40 +62,63 @@ class ITransformTranslation(ABC):
         """Translate all warped points by the specified amount"""
         raise NotImplementedError()
 
+class ITransformSourceRotation(ABC):
+    @abstractmethod
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
+        """Rotate all warped points by the specified amount
+        If rotation center is not specified the transform chooses"""
+        raise NotImplementedError()
+
+class ITransformTargetRotation(ABC):
+    @abstractmethod
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+        """Rotate all fixed points by the specified amount
+        If rotation center is not specified the transform chooses"""
+        raise NotImplementedError()
 
 class ITransformScaling(ABC):
     @abstractmethod
-    def ScaleFixed(self, offset: NDArray):
+    def Scale(self, scalar: float):
+        """Scale both spaces by the specified amount"""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def ScaleFixed(self, scalar: float):
         """Scale all fixed points by the specified amount"""
         raise NotImplementedError()
 
     @abstractmethod
-    def ScaleWarped(self, offset: NDArray):
+    def ScaleWarped(self, scalar: float):
         """Scale all warped points by the specified amount"""
         raise NotImplementedError()
 
 
 class IDiscreteTransform(ITransform):
+    @property
     @abc.abstractmethod
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of mapped space points"""
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of fixed space points"""
         raise NotImplementedError()
 
 
-class IControlPoints:
+class IControlPoints(ABC):
+    @property
     @abc.abstractmethod
     def SourcePoints(self) -> NDArray:
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def TargetPoints(self) -> NDArray:
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def points(self) -> NDArray:
         raise NotImplementedError()
@@ -112,39 +139,40 @@ class IControlPoints:
         '''
         raise NotImplementedError()
 
+    @property
+    @abc.abstractmethod
+    def NumControlPoints(self) -> int:
+        raise NotImplementedError()
 
-class DefaultTransformChangeEvents(ITransformChangeEvents, ABC):
-    def __init__(self):
-        self.OnChangeEventListeners = []
+class ITargetSpaceControlPointEdit(ABC):
+    """Originally added for grid transforms where source points are unmovable"""
+    @abc.abstractmethod
+    def UpdateTargetPoints(self, index: int | NDArray[int], points: NDArray[float]):
+        raise NotImplementedError()
 
-    def AddOnChangeEventListener(self, func):
-        self.OnChangeEventListeners.append(func)
+class IControlPointEdit(ITargetSpaceControlPointEdit, ABC):
+    """Control point transforms where source and target control points can be edited"""
+    @abc.abstractmethod
+    def AddPoint(self, pointpair: NDArray[float]):
+        raise NotImplementedError()
 
-    def RemoveOnChangeEventListener(self, func):
-        if func in self.OnChangeEventListeners:
-            self.OnChangeEventListeners.remove(func)
+    @abc.abstractmethod
+    def AddPoints(self, new_points: NDArray[float]):
+        raise NotImplementedError()
 
-    def OnTransformChanged(self):
-        """Calls every function registered to be notified when the transform changes."""
+    @abc.abstractmethod
+    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
+        raise NotImplementedError()
 
-        # Calls every listener when the transform has changed in a way that a point may be mapped to a new position in the fixed space        
+    @abc.abstractmethod
+    def UpdateSourcePoints(self, index: int | NDArray[int], points: NDArray[float]):
+        raise NotImplementedError()
 
-        if len(self.OnChangeEventListeners) > 1:
-            pool = nornir_pools.GetGlobalThreadPool()
-            tlist = list()
-
-            for func in self.OnChangeEventListeners:
-                tlist.append(pool.add_task("OnTransformChanged calling " + str(func), func))
-
-            # Call wait on all tasks so we see exceptions
-            while len(tlist) > 0:
-                t = tlist.pop(0)
-                t.wait()
-        else:
-            for func in self.OnChangeEventListeners:
-                func()
+    @abc.abstractmethod
+    def RemovePoint(self, index: int):
+        raise NotImplementedError()
 
 
-class Base(ITransform, ITransformTranslation, abc.ABC):
+class Base(ITransform, ITransformTranslation, ABC):
     """Base class of all transforms"""
     pass

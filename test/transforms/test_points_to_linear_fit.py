@@ -102,7 +102,7 @@ class TestGridFitting(unittest.TestCase):
         # print(output_points2D_OneLine)
         # =============================================================================
         # Obtaining the rotation, scaling and translation factors back from the new grid and our original grid.
-        calc_rotate, calc_scale, calc_translate = kabsch_umeyama(output_points2D, points_array)
+        calc_rotate, calc_scale, calc_translate = nornir_imageregistration.transforms.converters._kabsch_umeyama(output_points2D, points_array)
 
         #calc_rotate_angle = np.arctan2(calc_rotate[1, 0], calc_rotate[0, 0])
         #calc_rotate_angle = np.arcsin(calc_rotate[0, 1])

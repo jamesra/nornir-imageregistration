@@ -5,7 +5,8 @@ Created on Oct 18, 2012
 """
 
 import nornir_imageregistration 
-from nornir_imageregistration.transforms.rbftransform import RBFWithLinearCorrection
+from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection
+from nornir_imageregistration.transforms.transform_type import TransformType
 import numpy
 
 import nornir_pools 
@@ -18,6 +19,10 @@ class MeshWithRBFFallback(Triangulation):
     """
     classdocs
     """
+
+    @property
+    def type(self) -> TransformType:
+        return TransformType.MESH
     
     def __getstate__(self):
         
@@ -32,14 +37,14 @@ class MeshWithRBFFallback(Triangulation):
     @property
     def ReverseRBFInstance(self):
         if self._ReverseRBFInstance is None:
-            self._ReverseRBFInstance = RBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
+            self._ReverseRBFInstance = OneWayRBFWithLinearCorrection(self.TargetPoints, self.SourcePoints)
 
         return self._ReverseRBFInstance
 
     @property
     def ForwardRBFInstance(self):
         if self._ForwardRBFInstance is None:
-            self._ForwardRBFInstance = RBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
+            self._ForwardRBFInstance = OneWayRBFWithLinearCorrection(self.SourcePoints, self.TargetPoints)
 
         return self._ForwardRBFInstance
 
@@ -50,8 +55,8 @@ class MeshWithRBFFallback(Triangulation):
         else:
             Pool = nornir_pools.GetGlobalMultithreadingPool()
 
-        ForwardTask = Pool.add_task("Solve forward RBF transform", RBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", RBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
+        ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
+        ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
 
         super(MeshWithRBFFallback, self).InitializeDataStructures()
 
@@ -84,8 +89,6 @@ class MeshWithRBFFallback(Triangulation):
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
-
-
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
@@ -172,7 +175,7 @@ if __name__ == '__main__':
                   [10, 10, -10, -10]])
 
     (Fixed, Moving) = numpy.hsplit(p, 2)
-    T = RBFWithLinearCorrection(Fixed, Moving)
+    T = OneWayRBFWithLinearCorrection(Fixed, Moving)
 
     warpedPoints = [[0, 0], [-5, -5]]
     fp = T.ViewTransform(warpedPoints)

@@ -8,11 +8,13 @@ The factory is focused on the loading and saving of transforms
 
 import typing
 from typing import Sequence
+import numpy as np
+from numpy.typing import NDArray
 from collections.abc import Iterable
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import *
 from nornir_imageregistration.spatial import *
-import numpy as np
+
 
 from . import utils
 
@@ -221,9 +223,19 @@ def ParseGridTransform(parts, pixelSpacing=None):
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
-    T.gridWidth = gridWidth
-    T.gridHeight = gridHeight
+    PointPairs = np.array(PointPairs)
+    grid = nornir_imageregistration.ITKGridDivision((ImageHeight, ImageWidth),
+                                                    cell_size=(256, 256), #cell_size doesn't matter for how this object is going to be used
+                                                    grid_dims=(gridWidth, gridHeight))
+    grid.TargetPoints = PointPairs[:, 2:]
+
+    #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
+    #continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
+    T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
+
+    #T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
+    #T.gridWidth = gridWidth
+    #T.gridHeight = gridHeight
     return T
 
 
@@ -376,12 +388,15 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
 def __CorrectOffsetForMismatchedImageSizes(offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
                                            FixedImageShape: NDArray[int],
                                            MovingImageShape: NDArray[int],
-                                           scale: float = 1.0):
+                                           scale: float = 1.0) -> tuple[float, float]:
     '''
     :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
     '''
 
     if isinstance(scale, float):
+        scale = (scale, scale)
+    elif isinstance(scale, int):
+        scale = float(scale)
         scale = (scale, scale)
     elif not isinstance(scale, Iterable):
         raise NotImplementedError("Unsupported type")
@@ -423,12 +438,12 @@ def CreateRigidTransform(warped_offset, rangle: float, target_image_shape, sourc
 
     # Subtract 1 because we are defining this transform as a rotation of the center of an image.
     # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
-    source_rotation_center = source_bounding_rect.Center - 0.5
+    source_rotation_center = source_bounding_rect.Center #- 0.5
 
     # Adjust offset for any mismatch in dimensions
     # Adjust the center of rotation to be consistent with the original ir-tools
-    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape - np.array((1, 1)),
-                                                            source_image_shape - np.array((1, 1)))
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, #- np.array((1, 1)),
+                                                            source_image_shape) # - np.array((1, 1)))
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
@@ -448,7 +463,12 @@ def CreateRigidTransform(warped_offset, rangle: float, target_image_shape, sourc
     return transform
 
 
-def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle: float, warped_offset, flip_ud: bool = False, scale: float = 1.0):
+def CreateRigidMeshTransform(target_image_shape: NDArray[int] | tuple[int, int],
+                             source_image_shape: NDArray[int] | tuple[int, int],
+                             rangle: float,
+                             warped_offset: NDArray | tuple[float, float],
+                             flip_ud: bool = False,
+                             scale: float = 1.0) -> ITransform:
     '''
     Returns a MeshWithRBFFallback transform, the fixed image defines the boundaries of the transform.
     '''
@@ -465,9 +485,22 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle: flo
     AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, source_image_shape,
                                                             scale)
 
+    return CreateRigidMeshTransformWithOffset(source_image_shape=source_image_shape,
+                                              rangle=rangle,
+                                              target_space_offset=AdjustedOffset,
+                                              flip_ud=flip_ud,
+                                              scale=scale)
+
+
+
+def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDArray[int],
+                                       rangle: float,
+                                       target_space_offset: tuple[float, float] | NDArray[float],
+                                       scale: float = 1.0,
+                                       flip_ud: bool = False) -> ITransform:
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
-    TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, rangle, AdjustedOffset, scale=scale)
+    TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, rangle, target_space_offset, scale=scale)
     SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
     ControlPoints = np.append(TargetPoints, SourcePoints, 1)
@@ -477,7 +510,7 @@ def CreateRigidMeshTransform(target_image_shape, source_image_shape, rangle: flo
     return transform
 
 
-def GetTransformedRigidCornerPoints(size: (float, float), rangle: float, offset: (float, float), flip_ud: bool = False,
+def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, offset: tuple[float, float], flip_ud: bool = False,
                                     scale: float = 1.0) -> NDArray[float]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
        Flip, if requested, is performed before the rotation and translation
@@ -503,46 +536,50 @@ def GetTransformedRigidCornerPoints(size: (float, float), rangle: float, offset:
     HalfWidth = (size[iArea.Width]) / 2.0
     HalfHeight = (size[iArea.Height]) / 2.0
 
+    RotHalfHeight = HalfHeight
+    RotHalfWidth = HalfWidth
+
     #     BotLeft = CenteredRotation * matrix([[-HalfWidth], [-HalfHeight], [1]])
     #     TopLeft = CenteredRotation * matrix([[-HalfWidth], [HalfHeight], [1]])
     #     BotRight = CenteredRotation * matrix([[HalfWidth], [-HalfHeight], [1]])
     #     TopRight = CenteredRotation * matrix([[HalfWidth], [HalfHeight], [1]])
 
     if not flip_ud:
-        BotLeft = CenteredRotation * np.array([[-HalfHeight], [-HalfWidth], [1]])
-        TopLeft = CenteredRotation * np.array([[HalfHeight], [-HalfWidth], [1]])
-        BotRight = CenteredRotation * np.array([[-HalfHeight], [HalfWidth], [1]])
-        TopRight = CenteredRotation * np.array([[HalfHeight], [HalfWidth], [1]])
+        BotLeft = CenteredRotation @ np.array([[-RotHalfHeight], [-RotHalfWidth], [1]])
+        TopLeft = CenteredRotation @ np.array([[RotHalfHeight], [-RotHalfWidth], [1]])
+        BotRight = CenteredRotation @ np.array([[-RotHalfHeight], [RotHalfWidth], [1]])
+        TopRight = CenteredRotation @ np.array([[RotHalfHeight], [RotHalfWidth], [1]])
     else:
-        BotLeft = CenteredRotation * np.array([[HalfHeight], [-HalfWidth], [1]])
-        TopLeft = CenteredRotation * np.array([[-HalfHeight], [-HalfWidth], [1]])
-        BotRight = CenteredRotation * np.array([[HalfHeight], [HalfWidth], [1]])
-        TopRight = CenteredRotation * np.array([[-HalfHeight], [HalfWidth], [1]])
+        BotLeft = CenteredRotation @ np.array([[RotHalfHeight], [-RotHalfWidth], [1]])
+        TopLeft = CenteredRotation @ np.array([[-RotHalfHeight], [-RotHalfWidth], [1]])
+        BotRight = CenteredRotation @ np.array([[RotHalfHeight], [RotHalfWidth], [1]])
+        TopRight = CenteredRotation @ np.array([[-RotHalfHeight], [RotHalfWidth], [1]])
 
     # Adjust to the peak location
     PeakTranslation = np.array([[1, 0, offset[iPoint.Y]], [0, 1, offset[iPoint.X]], [0, 0, 1]])
 
-    BotLeft = PeakTranslation * BotLeft
-    TopLeft = PeakTranslation * TopLeft
-    BotRight = PeakTranslation * BotRight
-    TopRight = PeakTranslation * TopRight
+    BotLeft = PeakTranslation @ BotLeft
+    TopLeft = PeakTranslation @ TopLeft
+    BotRight = PeakTranslation @ BotRight
+    TopRight = PeakTranslation @ TopRight
 
     # Center the image
     # Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
     # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
-    Translation = np.array([[1, 0, HalfHeight - 0.5], [0, 1, HalfWidth - 0.5], [0, 0, 1]])
+    #Translation = np.array([[1, 0, HalfHeight - 0.5], [0, 1, HalfWidth - 0.5], [0, 0, 1]])
+    Translation = np.array([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
 
-    BotLeft = Translation * BotLeft
-    BotRight = Translation * BotRight
-    TopLeft = Translation * TopLeft
-    TopRight = Translation * TopRight
+    BotLeft = Translation @ BotLeft
+    BotRight = Translation @ BotRight
+    TopLeft = Translation @ TopLeft
+    TopRight = Translation @ TopRight
 
     # scale the output
-    BotLeft = ScaleMatrix * BotLeft
-    BotRight = ScaleMatrix * BotRight
-    TopLeft = ScaleMatrix * TopLeft
-    TopRight = ScaleMatrix * TopRight
+    BotLeft = ScaleMatrix @ BotLeft
+    BotRight = ScaleMatrix @ BotRight
+    TopLeft = ScaleMatrix @ TopLeft
+    TopRight = ScaleMatrix @ TopRight
 
-    arr = np.vstack([BotLeft[:2].getA1(), BotRight[:2].getA1(), TopLeft[:2].getA1(), TopRight[:2].getA1()])
+    arr = np.vstack([BotLeft[:2].T, BotRight[:2].T, TopLeft[:2].T, TopRight[:2].T])
     # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
     return arr

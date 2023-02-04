@@ -3,225 +3,35 @@ Created on Oct 18, 2012
 
 @author: Jamesan
 '''
- 
-import copy
-import logging 
-import operator
+
+import logging
 
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_pools
 import nornir_imageregistration 
-from . import utils
-from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, DefaultTransformChangeEvents, IControlPoints
+from . import utils, TransformType
+from .base import IDiscreteTransform, ITransformScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation
 
-from nornir_imageregistration.transforms.utils import InvalidIndicies
 import scipy
-from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInterpolator
+from scipy.interpolate import LinearNDInterpolator
 import scipy.spatial
- 
- 
 
-def distance(A, B):
-    '''Distance between two arrays of points with equal numbers'''
-    Delta = A - B
-    Delta_Square = np.square(Delta)
-    Delta_Sum = np.sum(Delta_Square, 1)
-    Distances = np.sqrt(Delta_Sum)
-    return Distances
+from .addition import AddTransforms
+from .controlpointbase import ControlPointBase
 
 
-def CentroidToVertexDistance(Centroids, TriangleVerts):
-    '''
-    :param ndarray Centroids: An Nx2 array of centroid points
-    :param ndarray TriangleVerts: An Nx3x2 array of verticies of triangles  
-    '''
-    numCentroids = Centroids.shape[0]
-    distance = np.zeros((numCentroids))
-    for i in range(0, Centroids.shape[0]):
-        distances = scipy.spatial.distance.cdist([Centroids[i]], TriangleVerts[i])
-        distance[i] = np.min(distances)
-
-    return distance
-
-
-def AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance=None, create_copy=True):
-    '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
-    :param BToC_Unaltered_Transform:
-    :param AToB_mapped_Transform:
-    :param EnrichTolerance:
-    :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.
-    :return: ndarray of points that can be assigned as control points for a transform'''
-
-    if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
-        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance, create_copy=create_copy) 
-    else:
-        return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
-
-
-def _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy=True):
-    mappedControlPoints = AToB_mapped_Transform.TargetPoints
-    txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
-
-    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))
-
-    newTransform = None
-    if create_copy:
-        newTransform = copy.deepcopy(AToB_mapped_Transform)
-        newTransform.points = AToC_pointPairs
-        return newTransform
-    else:
-        AToB_mapped_Transform.points = AToC_pointPairs
-        return AToB_mapped_Transform
-
-
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=None, create_copy=True):
-
-    A_To_B_Transform = AToB_mapped_Transform
-    B_To_C_Transform = BToC_Unaltered_Transform
-    
-    #print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
-
-    PointsAdded = True
-    while PointsAdded:
-
-        A_To_C_Transform = _AddMeshTransforms(BToC_Unaltered_Transform, A_To_B_Transform, create_copy=True)
-
-        A_Centroids = A_To_B_Transform.GetWarpedCentroids()
-
-     #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
-        # Get the centroids from B using A-B transform that correspond to A_Centroids
-        B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
-
-        # Warp the same centroids using both A->C and A->B transforms
-        OC_Centroids = B_To_C_Transform.Transform(B_Centroids)
-        AC_Centroids = A_To_C_Transform.Transform(A_Centroids)
-
-        # Measure the discrepancy in the the results and create a bool array indicating which centroids failed
-        Distances = distance(OC_Centroids, AC_Centroids)
-        CentroidMisplaced = Distances > epsilon
-
-        # In extreme distortion we don't want to add new control points forever or converge on existing control points. 
-        # So ignore centroids falling too close to an existing vertex        
-        CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, np.bool)
-        A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles[CentroidMisplaced]]
-        CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced], A_CentroidTriangles)
-        CentroidFarEnough = CentroidVertexDistances > epsilon
-
-        # Add new verticies for the qualifying centroids
-        AddCentroid = np.logical_and(CentroidMisplaced, CentroidFarEnough)
-        PointsAdded = np.any(AddCentroid)
-
-        if PointsAdded:
-            New_ControlPoints = np.hstack((B_Centroids[AddCentroid], A_Centroids[AddCentroid]))
-            starting_num_points = A_To_B_Transform.points.shape[0]
-            A_To_B_Transform.AddPoints(New_ControlPoints)
-            ending_num_points = A_To_B_Transform.points.shape[0]
-            
-            # If we have the same number of points after adding we must have had some duplicates in either fixed or warped space.  Continue onward
-            if starting_num_points == ending_num_points:
-                break 
-
-            #print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
-            #print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
-            #print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
-            
-            # TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
-            
-    #print("End enrichment") 
-
-    if create_copy:
-        output_transform = copy.deepcopy(AToB_mapped_Transform)
-        output_transform.points = A_To_C_Transform.points
-        return output_transform
-    else:
-        AToB_mapped_Transform.points = A_To_C_Transform.points
-        return AToB_mapped_Transform
-
-
-class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation, IControlPoints, DefaultTransformChangeEvents):
+class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation,
+                    ITransformTargetRotation, ControlPointBase):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
     '''
 
-    def __getstate__(self):
-        odict = {'_points': self._points}
-
-        return odict
-
-    def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
-        self.OnChangeEventListeners = []
-        self.OnTransformChanged()
-
-    @classmethod
-    def FindDuplicates(cls, points, new_points):
-        '''Returns a bool array indicating which new_points already exist in points'''
-
-        # (new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
-
-        round_points = np.around(points, 3)
-        round_new_points = np.around(new_points, 3)
-
-        sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
-        sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1)) 
-
-        numPoints = sortedpoints.shape[0]
-        numNew = new_points.shape[0]
-
-        iPnt = 0
-        iNew = 0
-
-        invalid_indicies = np.zeros((1, numNew), dtype=bool)
-
-        while iNew < numNew:
-            testNew = sorted_new_points[iNew]
-
-            while iPnt < numPoints:
-                testPoint = sortedpoints[iPnt]
-
-                if testPoint[0] == testNew[0]:
-                    if testPoint[1] == testNew[1]:
-                        invalid_indicies[iNew] = True
-                        break
-                    elif testPoint[1] > testNew[1]:
-                        break
-
-                if testPoint[0] > testNew[0]:
-                    break
-
-                iPnt = iPnt + 1
-
-            iNew = iNew + 1
-
-        return invalid_indicies
-
-    @staticmethod
-    def RemoveDuplicates(points):
-        '''Returns tuple of the array sorted on fixed x,y without duplicates'''
-
-        (points, indicies) = utils.InvalidIndicies(points)
-
-        # The original implementation returned a sorted array.  I had to remove
-        # that behavior because the change in index was breaking the existing 
-        # triangulations the transform was caching.
-
-        points = np.around(points, 3)
-        indicies = sorted(range(len(points)), key=lambda k: points[k, 1])
-        sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
-        duplicate_indicies = []
-        for i in range(len(sortedpoints) - 1, 0, -1):
-            lastP = sortedpoints[i - 1]
-            testP = sortedpoints[i]
-
-            if lastP[0] == testP[0] and lastP[1] == testP[1]:
-                sortedpoints = np.delete(sortedpoints, i, 0)
-                duplicate_indicies.append(indicies[i])
-
-        unduplicatedPoints = np.delete(points, duplicate_indicies, 0)
-        return unduplicatedPoints
+    @property
+    def type(self) -> TransformType:
+        return nornir_imageregistration.transforms.transform_type.TransformType.MESH
 
     @property
     def WarpedKDTree(self):
@@ -256,13 +66,6 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
             self._warpedtri = scipy.spatial.Delaunay(self.SourcePoints, incremental=False)
 
         return self._warpedtri
-    
-    @property
-    def NumControlPoints(self):
-        if self._points is None:
-            return 0
-
-        return self._points.shape[0]
 
     @property
     def ForwardInterpolator(self):
@@ -279,16 +82,6 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
             self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
-
-    @classmethod
-    def EnsurePointsAre2DNumpyArray(cls, points):
-        raise DeprecationWarning('EnsurePointsAre2DNumpyArray should use utility method')
-        return nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-
-    @classmethod
-    def EnsurePointsAre4xN_NumpyArray(cls, points):
-        raise DeprecationWarning('EnsurePointsAre4xN_NumpyArray should use utility method')
-        return nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(points)
 
     def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
@@ -307,11 +100,10 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
-            transPoints = None
             self._ForwardInterpolator = None
 
             #This was added for the case where all points in the triangulation are colinear.
-            transPoints = np.empty(points.shape[0])
+            transPoints = np.empty(points.shape)
             transPoints[:] = np.NaN
 
         return transPoints
@@ -333,20 +125,12 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
             self._InverseInterpolator = None
 
             # This was added for the case where all points in the triangulation are colinear.
-            transPoints = np.empty(points.shape[0])
+            transPoints = np.empty(points.shape)
             transPoints[:] = np.NaN
 
         return transPoints
 
-    def FindDuplicateFixedPoints(self, new_points, epsilon=0):
-        '''Using our control point KDTree, ensure the new points are not duplicates
-        :return: An index array of duplicates
-        '''
-        distance, index = self.FixedKDTree.query(new_points)
-        same = distance <= 0
-        return same
-
-    def AddPoints(self, new_points):
+    def AddPoints(self, new_points: NDArray[float]):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
@@ -354,7 +138,7 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
         new_points = new_points[~duplicates, :]
 
-        if(new_points.shape[0] == 0):
+        if new_points.shape[0] == 0:
             return
 
         self._points = np.append(self.points, new_points, 0)
@@ -366,7 +150,7 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
 
         return
 
-    def AddPoint(self, pointpair):
+    def AddPoint(self, pointpair: NDArray[float]):
         '''Add the point and return the index'''
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
@@ -374,36 +158,42 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
-    def UpdatePointPair(self, index, pointpair):
+    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
         self._points[index, :] = pointpair
-        self._points = Triangulation.RemoveDuplicates(self.points)
+        self._points = Triangulation.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
-    def UpdateFixedPoint(self, index, point):
+    def UpdateFixedPoints(self, index: int, point: NDArray[float]):
         self._points[index, 0:2] = point
-        self._points = Triangulation.RemoveDuplicates(self._points)
+        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
         Distance, index = self.NearestFixedPoint(point)
         return index
 
-    def UpdateWarpedPoint(self, index, point):
+    def UpdateTargetPoints(self, index: int, point: NDArray[float]):
+        return self.UpdateFixedPoints(index, point)
+
+    def UpdateWarpedPoint(self, index: int, point: NDArray[float]):
         self._points[index, 2:4] = point
-        self._points = Triangulation.RemoveDuplicates(self._points)
+        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 
         Distance, index = self.NearestWarpedPoint(point)
         return index
 
-    def RemovePoint(self, index):
-        if(self._points.shape[0] <= 3):
+    def UpdateSourcePoints(self, index: int, point: NDArray[float]):
+        return self.UpdateWarpedPoints(index, point)
+
+    def RemovePoint(self, index: int):
+        if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
         self._points = np.delete(self._points, index, 0)
-        self._points = Triangulation.RemoveDuplicates(self._points)
+        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
     def InitializeDataStructures(self):
@@ -457,75 +247,65 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
 #         super(Triangulation, self).OnTransformChanged()
 
     def OnFixedPointChanged(self):
+        super(Triangulation, self).OnFixedPointChanged()
         self._FixedKDTree = None
         self._fixedtri = None
-        self._FixedBoundingBox = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
 
         super(Triangulation, self).OnTransformChanged()
 
     def OnWarpedPointChanged(self):
+        super(Triangulation, self).OnWarpedPointChanged()
         self._WarpedKDTree = None
-        self._MappedBoundingBox = None
         self._warpedtri = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
-
-        super(Triangulation, self).OnTransformChanged()
-
-    def OnTransformChanged(self):
-        self.ClearDataStructures()
         super(Triangulation, self).OnTransformChanged()
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
            Clear out our data structures so we do not use bad data'''
-
+        super(Triangulation, self).ClearDataStructures()
         self._fixedtri = None
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
-        self._FixedBoundingBox = None
-        self._MappedBoundingBox = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
 
-    def NearestFixedPoint(self, points):
+    def NearestFixedPoint(self, points: NDArray[float]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestWarpedPoint(self, points):
+    def NearestWarpedPoint(self, points: NDArray[float]):
         '''Return the warped points nearest to the query points
         :return: Distance, Index'''
         return self.WarpedKDTree.query(points)
 
-    def TranslateFixed(self, offset):
+    def TranslateFixed(self, offset: NDArray[float]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset):
+    def TranslateWarped(self, offset: NDArray[float]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def RotateWarped(self, rangle, rotationCenter):
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''
-        temp = self.points[:, 2:4] - rotationCenter
-
-        temp = np.hstack((temp, np.zeros((temp.shape[0], 1))))
-
-        rmatrix = utils.RotationMatrix(rangle)
-
-        rotatedtemp = temp * rmatrix
-        rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
-        self.points[:, 2:4] = rotatedtemp
+        self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotationCenter)
         self.OnTransformChanged()
-        
+
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+        '''Rotate all warped points about a center by a given angle'''
+        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
+        self.OnTransformChanged()
+
     def FlipWarped(self, flip_center=None):
         '''
         Flips the X coordinates along the vertical line passing through flip_center.  If flip_center is None the center of the bounding box of the points is used.
@@ -539,122 +319,25 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         self.points[:,2:4] = temp
         self.OnTransformChanged()
 
-    def Scale(self, scalar):
+    def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
-        self._points = self.points * scalar
+        self._points = self._points * scalar
         self.OnTransformChanged()
         
-    def ScaleWarped(self, scalar):
+    def ScaleWarped(self, scalar: float):
         '''Scale source space control points by scalar'''
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
         
-    def ScaleFixed(self, scalar):
+    def ScaleFixed(self, scalar: float):
         '''Scale target space control points by scalar'''
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     @property
-    def TargetPoints(self):
-        ''' [[Y1, X1],
-             [Y2, X2],
-             [Yn, Xn]]'''
-        return self._points[:, 0:2]
-
-    @property
-    def SourcePoints(self):
-        ''' [[Y1, X1],
-             [Y2, X2],
-             [Yn, Xn]]'''
-        return self._points[:, 2:4]
-
-    @property
-    def FixedBoundingBox(self):
-        '''
-        :return: (minY, minX, maxY, maxX)
-        '''
-        if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
-
-        return self._FixedBoundingBox
-
-    @property
-    def MappedBoundingBox(self):
-        '''
-        :return: (minY, minX, maxY, maxX)
-        '''
-        if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.SourcePoints)
-
-        return self._MappedBoundingBox
-
-    @property
-    def FixedBoundingBoxWidth(self):
-        raise DeprecationWarning("FixedBoundingBoxWidth is deprecated.  Use FixedBoundingBox.Width instead")
-        return self.FixedBoundingBox.Width
-
-    @property
-    def FixedBoundingBoxHeight(self):
-        raise DeprecationWarning("FixedBoundingBoxHeight is deprecated.  Use FixedBoundingBox.Height instead")
-        return self.FixedBoundingBox.Height
-
-    @property
-    def MappedBoundingBoxWidth(self):
-        raise DeprecationWarning("MappedBoundingBoxWidth is deprecated.  Use MappedBoundingBox.Width instead")
-        return self.MappedBoundingBox.Width
-
-    @property
     def MappedBoundingBoxHeight(self):
         raise DeprecationWarning("MappedBoundingBoxHeight is deprecated.  Use MappedBoundingBox.Height instead")
         return self.MappedBoundingBox.Height
-
-    @property
-    def points(self) -> NDArray:
-        return self._points
-
-    @points.setter
-    def points(self, val):
-        self._points = np.asarray(val, dtype=np.float32)
-        self.OnTransformChanged()
-
-    def GetFixedPointsRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        # return self.GetPointPairsInRect(self.TargetPoints, bounds)
-        raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
-    
-    def GetFixedPointsInRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.TargetPoints, bounds)
-
-    def GetWarpedPointsInRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.SourcePoints, bounds)
-    
-    def GetPointsInFixedRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.TargetPoints, bounds)
-
-    def GetPointsInWarpedRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        return self.GetPointPairsInRect(self.SourcePoints, bounds)
-
-    def GetPointPairsInRect(self, points, bounds):
-        OutputPoints = None
-
-        for iPoint in range(0, points.shape[0]):
-            y, x = points[iPoint, :]
-            if(x >= bounds[nornir_imageregistration.iRect.MinX] and x <= bounds[nornir_imageregistration.iRect.MaxX] and y >= bounds[nornir_imageregistration.iRect.MinY] and y <= bounds[nornir_imageregistration.iRect.MaxY]):
-                PointPair = self._points[iPoint, :] 
-                if(OutputPoints is None):
-                    OutputPoints = PointPair
-                else:
-                    OutputPoints = np.vstack((OutputPoints, PointPair))
-
-        if not OutputPoints is None:
-            if OutputPoints.ndim == 1:
-                OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
-
-        return OutputPoints
 
     @property
     def FixedTriangles(self):
@@ -684,23 +367,14 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    @property
-    def MappedBounds(self):
-        raise DeprecationWarning("MappedBounds is replaced by MappedBoundingBox")
-
-    @property
-    def ControlBounds(self): 
-        raise DeprecationWarning("ControlBounds is replaced by FixedBoundingBox")
-
-    def __init__(self, pointpairs):
+    def __init__(self, pointpairs: NDArray[float]):
         '''
         Constructor requires at least three point pairs
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
         '''
-        super(Triangulation, self).__init__()
+        super(Triangulation, self).__init__(pointpairs)
 
-        self._points = np.asarray(pointpairs, dtype=np.float32)
-        if(self._points.shape[0] < 3):
+        if self._points.shape[0] < 3:
             raise ValueError("Triangulation transform must have at least three points to function")
         
         self._ForwardInterpolator = None
@@ -709,11 +383,8 @@ class Triangulation(IDiscreteTransform, ITransformScaling, ITransformTranslation
         self._warpedtri = None
         self._WarpedKDTree = None
         self._FixedKDTree = None
-        self._FixedBoundingBox = None
-        self._MappedBoundingBox = None
-        
-    @staticmethod
-    def Load(TransformString, pixelSpacing=None):
+
+    def Load(self, TransformString, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     @classmethod

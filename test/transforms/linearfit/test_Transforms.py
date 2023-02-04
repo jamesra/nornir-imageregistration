@@ -5,25 +5,24 @@ Created on Mar 18, 2013
 '''
 import os
 import unittest
-import hypothesis
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import *
 
-from test.transforms import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+from __init__ import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
     IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
     __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
-    CompressedTransformPoints
+    TranslateRotate60TransformPoints
 
 import numpy as np
-from nornir_imageregistration.transforms import OneWayRBFWithLinearCorrection, MeshWithRBFFallback, Triangulation
+from nornir_imageregistration.transforms import rbftransform
 from nornir_imageregistration.transforms.factory import CreateRigidTransform
 
 
 class TestTransforms(unittest.TestCase):
 
     def testIdentity(self):
-        T = MeshWithRBFFallback(IdentityTransformPoints)
+        T = meshwithrbffallback.MeshWithRBFFallback(IdentityTransformPoints)
 
         warpedPoint = np.array([[0, 0],
                                 [0.25, 0.25],
@@ -32,7 +31,7 @@ class TestTransforms(unittest.TestCase):
         TransformCheck(self, T, warpedPoint, warpedPoint)
 
     def testTranslate(self):
-        T = MeshWithRBFFallback(TranslateTransformPoints)
+        T = meshwithrbffallback.MeshWithRBFFallback(TranslateTransformPoints)
 
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
@@ -46,8 +45,13 @@ class TestTransforms(unittest.TestCase):
 
         TransformCheck(self, T, warpedPoint, controlPoint)
 
-    def testRBFLinearFallbackWithRotation(self):
-        T = OneWayRBFWithLinearCorrection(TranslateRotateTransformPoints[:, 2:], TranslateRotateTransformPoints[:, 0:2])
+    def testRBFLinearFallbackWithRotation90(self):
+        '''
+        Testing Rotation (with translation) for 90 degree angle
+        '''
+        T = rbftransform.OneWayRBFWithLinearCorrection(TranslateRotateTransformPoints[:, 2:],
+                                                 TranslateRotateTransformPoints[:, 0:2])
+        r = np.sqrt(3)
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
                                 [2, 3],
@@ -67,18 +71,71 @@ class TestTransforms(unittest.TestCase):
         scale_x_component = T.Weights[axis_offset + nPoints + 1]
         translate_x_component = T.Weights[axis_offset + nPoints + 2]
 
+        # Angle: np.degrees(np.arccos(rotate_x_component)) = 60
         RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component],
-                                                       source_rotation_center=[0, 0], angle=np.radians(-90))
+                                                       source_rotation_center=[0, 0],
+                                                       angle=np.arccos(rotate_x_component))
         # TransformCheck(RT, warpedPoint, fixedPoint)
-        print("Rotation weights", T.Weights)
+        print("\n\n90 degree Rotation weights: \n", T.Weights)
+        fp = T.Transform(warpedPoint)
+        np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
+        fp2 = RT.Transform(warpedPoint)
+        np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
+
+    def testRBFLinearFallbackWithRotation60(self):
+        '''
+        Testing Rotation (with translation) for 90 degree angle
+        '''
+        T = rbftransform.OneWayRBFWithLinearCorrection(TranslateRotate60TransformPoints[:, 2:],
+                                                 TranslateRotate60TransformPoints[:, 0:2])
+        r = np.sqrt(3)
+        # =============================================================================
+        #         warpedPoint = np.array([[1, 2],
+        #                                 [1.25, 2.25],
+        #                                 [2, 3],
+        #                                 [0, 1]])
+        #         fixedPoint = np.array([[1, -3],
+        #                                 [1.25, -3.25],
+        #                                 [2, -4],
+        #                                 [0, -2]])
+        # =============================================================================
+
+        warpedPoint = np.array([[1, 2],
+                                [1.25, 2.25],
+                                [2, 3],
+                                [0, 1]])
+        fixedPoint = np.array([[-0.5 - r, (r / 2) - 1],
+                               [(-9 * r - 3) / 8, (5 * r - 7) / 8],
+                               [-3 * r / 2, r - 0.5],
+                               [-(r / 2) - 1, -3 / 2]])
+
+        nPoints = TranslateRotate60TransformPoints.shape[0]
+        rotate_y_component = T.Weights[nPoints]
+        scale_y_component = T.Weights[nPoints + 1]
+        translate_y_component = T.Weights[nPoints + 2]
+
+        axis_offset = nPoints + 3
+        rotate_x_component = T.Weights[axis_offset + nPoints]
+        scale_x_component = T.Weights[axis_offset + nPoints + 1]
+        translate_x_component = T.Weights[axis_offset + nPoints + 2]
+
+        # Angle: np.degrees(np.arccos(rotate_x_component)) = 60
+        RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component],
+                                                       source_rotation_center=[0, 0],
+                                                       angle=np.arccos(rotate_x_component))
+        # TransformCheck(RT, warpedPoint, fixedPoint)
+        print("\n\n60 degree Rotation weights: \n", T.Weights)
         fp = T.Transform(warpedPoint)
         np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
         fp2 = RT.Transform(warpedPoint)
         np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
     def testRBFLinearFallbackWithRotationAndScaling(self):
-        T = OneWayRBFWithLinearCorrection(TranslateRotateScaleTransformPoints[:, 2:],
-                                          TranslateRotateScaleTransformPoints[:, 0:2])
+        '''
+        Testing Rotation and scaling (with translation) for 90 degree angle and scale component = 2
+        '''
+        T = rbftransform.OneWayRBFWithLinearCorrection(TranslateRotateScaleTransformPoints[:, 2:],
+                                                 TranslateRotateScaleTransformPoints[:, 0:2])
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
                                 [2, 3],
@@ -98,17 +155,21 @@ class TestTransforms(unittest.TestCase):
         scale_x_component = T.Weights[axis_offset + nPoints + 1]
         translate_x_component = T.Weights[axis_offset + nPoints + 2]
 
+        # Angle: np.degrees(np.arccos(rotate_x_component)) = -90 
+
+        # If the scale_x_component is negative, then angle must be negative of np.arccos(rotate_x_component)
         RT = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            [translate_y_component, translate_x_component], source_rotation_center=[0, 0], angle=np.radians(-90),
-            scalar=-scale_x_component)
-        print("Scaling also", T.Weights)
+            [translate_y_component, translate_x_component], source_rotation_center=[0, 0], angle=float(np.radians(-90)),
+            scalar=2)
+        print("\n\n90 degree Rotation + Scaling: \n", T.Weights)
+        print("\nRotate x component", np.degrees(np.arccos(rotate_x_component)))
         fp = T.Transform(warpedPoint)
         np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
         fp2 = RT.Transform(warpedPoint)
         np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
     def testRBFLinearFallback(self):
-        T = OneWayRBFWithLinearCorrection(TranslateTransformPoints[:, 2:], TranslateTransformPoints[:, 0:2])
+        T = rbftransform.OneWayRBFWithLinearCorrection(TranslateTransformPoints[:, 2:], TranslateTransformPoints[:, 0:2])
 
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
@@ -135,7 +196,7 @@ class TestTransforms(unittest.TestCase):
 
         fp = T.Transform(warpedPoint)
         np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
-
+        print("\n\nTranslation only: \n", T.Weights)
         fp2 = RT.Transform(warpedPoint)
         np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
@@ -162,7 +223,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.Save("27-25.stos")
 
         global MirrorTransformPoints
-        T = Triangulation(MirrorTransformPoints)
+        T = triangulation.Triangulation(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
 
@@ -223,7 +284,7 @@ class TestTransforms(unittest.TestCase):
 
         global MirrorTransformPoints
         T = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(MirrorTransformPoints[:, 2:4],
-                                                                              MirrorTransformPoints[:, 0:2])
+                                                                        MirrorTransformPoints[:, 0:2])
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
 
@@ -343,7 +404,6 @@ class TestTransforms(unittest.TestCase):
                                  [11.0, 0.0],
                                  [11.0, 11.0],
                                  [-11.0, 11.0]])
-
         TransformCheck(self, T, warpedPoints, -warpedPoints)
 
         T.AddPoints([[2.5, 2.5, -2.5, -2.5],
@@ -355,77 +415,13 @@ class TestTransforms(unittest.TestCase):
         global IdentityTransformPoints
         global OffsetTransformPoints
 
-        IdentityTransform = Triangulation(IdentityTransformPoints)
-        OffsetTransform = Triangulation(OffsetTransformPoints)
+        IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
+        OffsetTransform = triangulation.Triangulation(OffsetTransformPoints)
         self.assertTrue(utils.IsOriginAtZero([IdentityTransform]), "Origin of identity transform is at zero")
         self.assertFalse(utils.IsOriginAtZero([OffsetTransform]), "Origin of Offset Transform is not at zero")
 
         self.assertTrue(utils.IsOriginAtZero([IdentityTransform, OffsetTransform]),
                         "Origin of identity transform and offset transform is at zero")
-
-    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15))
-    def test_RBFReciprocation(self, x, y):
-        '''
-        Tests that calling a transform and then the inverse returns the original points
-        '''
-        T = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(CompressedTransformPoints[:, 2:],
-                                                                              CompressedTransformPoints[:, 0:2])
-
-        InverseT = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(CompressedTransformPoints[:, 0:2],
-                                                                                     CompressedTransformPoints[:, 2:])
-
-        point = np.array((y, x), dtype=np.float32)
-
-        t_point = T.Transform(point)
-        inverse_point = InverseT.Transform(t_point)
-        delta = np.linalg.norm(point - inverse_point)
-        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
-                        f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point - inverse_point)}\n")
-
-    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15))
-    def test_TriangulationReciprocation(self, x, y):
-        '''
-        Tests that calling a transform and then the inverse returns the original points
-        '''
-        T = nornir_imageregistration.transforms.Triangulation(CompressedTransformPoints)
-
-        point = np.array((y, x), dtype=np.float32)
-
-        t_point = T.Transform(point)
-
-        # If None then the point cannot be mapped in the discrete transform
-        if np.any(np.isnan(t_point)):
-            hypothesis.event('trivial - outside bounds')
-            return
-
-        inverse_point = T.InverseTransform(t_point)
-        delta = np.linalg.norm(point - inverse_point)
-        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
-                        f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point - inverse_point)}\n")
-
-    @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15),
-                      x_offset=hypothesis.strategies.integers(-5, 5), y_offset=hypothesis.strategies.integers(-5, 5),
-                      x_center=hypothesis.strategies.integers(-5, 15), y_center=hypothesis.strategies.integers(-5, 15))
-    def test_CenteredSimilarityReciprocation(self, x, y, x_offset, y_offset, x_center, y_center):
-        '''
-        Tests that calling a transform and then the inverse returns the original points
-        '''
-        source_rotation_center = np.array((y_center, x_center))
-        target_offset = np.array((y_offset, x_offset))
-        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
-                                                                              source_rotation_center=source_rotation_center,
-                                                                              angle=0,
-                                                                              scalar=1,
-                                                                              MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea(
-                                                                                  (0, 0), (10, 10)))
-
-        point = np.array((y, x), dtype=np.float32)
-
-        t_point = T.Transform(point)
-        inverse_point = T.InverseTransform(t_point)
-        delta = np.linalg.norm(point - inverse_point)
-        self.assertTrue(delta < 0.001, f"Expected same point after calling InverseTransform(Transform(point)).\n" +
-                        f"Input:{point}\nTransformed:{t_point}\nInverse:{inverse_point}\nDelta: {np.linalg.norm(point - inverse_point)}\n")
 
     def test_bounds(self):
         global IdentityTransformPoints

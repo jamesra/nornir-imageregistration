@@ -96,21 +96,21 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #         stosFile = self.GetStosFile("0164-0162_brute_32")
     #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
     #
-    def testStosRefinementRC2_617(self):
-        # self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
-        # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
-        RefineStosFile(InputStos=stosFilePath,
-                       OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-                       num_iterations=5,
-                       cell_size=(256, 256),
-                       grid_spacing=(128, 128),
-                       angles_to_search=[-5, 0, 5],
-                       max_travel_for_finalization=1,
-                       max_travel_for_finalization_improvement=256,
-                       min_alignment_overlap=0.5,
-                       SaveImages=False,
-                       SavePlots=True)
+    # def testStosRefinementRC2_617(self):
+    #     # self.TestName = "StosRefinementRC2_617"
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
+    #     # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=5,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[-5, 0, 5],
+    #                    max_travel_for_finalization=1,
+    #                    max_travel_for_finalization_improvement=256,
+    #                    min_alignment_overlap=0.5,
+    #                    SaveImages=False,
+    #                    SavePlots=True)
 
     #     def testStosRefinementRC2_1034(self):
     #         #self.TestName = "StosRefinementRC2_1034"
@@ -143,27 +143,64 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #                        SavePlots=True)
     #        return
 
-    def test_StosRefinementCPED_3_2(self):
-        # self.TestName = "StosRefinementRC2_1034_Mini"
-        try:
-            os.remove(self.TestCachePath)
-        except Exception as e:
-            print(f"Exception cleaning cache directory: {self.TestCachePath}\n{e}")
-            pass
-
-        stosFilePath = self.GetStosFilePath("StosRefinementCPED_3_2", "2-3_ctrl-SEM_Leveled_map-SEM_Leveled.stos")
-        # self.RunStosRefinement(stosFilePath, ImageDir=None, SaveImages=False, SavePlots=True)
+    # def test_StosRefinementCPED_3_2(self):
+    #     # self.TestName = "StosRefinementRC2_1034_Mini"
+    #     try:
+    #         os.remove(self.TestCachePath)
+    #     except Exception as e:
+    #         print(f"Exception cleaning cache directory: {self.TestCachePath}\n{e}")
+    #         pass
+    #
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+    #     # self.RunStosRefinement(stosFilePath, ImageDir=None, SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=10,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[0], 
+    #                    min_alignment_overlap=0.25,
+    #                    num_iterations=5, 
+    #                    SaveImages=False,
+    #                    SavePlots=True)
+    #     return
+    
+    def testStosRefinementRPC3_13_14_Incorrect_Brute_Alignment(self):
+        """
+        This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
+        """
+        # self.TestName = "StosRefinementRC2_617"
+        stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+        # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
         RefineStosFile(InputStos=stosFilePath,
                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-                       num_iterations=10,
-                       cell_size=(128, 128),
+                       num_iterations=5,
+                       cell_size=(256, 256),
                        grid_spacing=(128, 128),
-                       angles_to_search=[-2.5, 0, 2.5],
-                       min_travel_for_finalization=0.5,
+                       angles_to_search=[0],
+                       max_travel_for_finalization=None,
+                       max_travel_for_finalization_improvement=None,
                        min_alignment_overlap=0.5,
+                       min_unmasked_area=0.49,
                        SaveImages=False,
                        SavePlots=True)
-        return
+    
+    # def testStosRefinementRPC3_13_14(self):
+    #     # self.TestName = "StosRefinementRC2_617"
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+    #     # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=5,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[0],
+    #                    max_travel_for_finalization=None,
+    #                    max_travel_for_finalization_improvement=None,
+    #                    min_alignment_overlap=0.5,
+    #                    min_unmasked_area=0.49,
+    #                    SaveImages=False,
+    #                    SavePlots=True)
 
     def RunStosRefinement(self, stosFilePath: str, ImageDir: str | None = None, SaveImages: bool = False,
                           SavePlots: bool = True):
@@ -461,7 +498,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         # Convert the transform to a grid transform and persist to disk
         # finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
 
-        stosObj.Transform = local_distortion_correction.ConvertTransformToGridTransform(finalTransform,
+        stosObj.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(finalTransform,
                                                                                         source_image_shape=settings.source_image.shape,
                                                                                         cell_size=settings.cell_size,
                                                                                         grid_spacing=settings.grid_spacing)
@@ -610,7 +647,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 
         mesh_t = nornir_imageregistration.transforms.MeshWithRBFFallback(InitialTransformPoints)
 
-        grid_t = nornir_imageregistration.local_distortion_correction.ConvertTransformToGridTransform(mesh_t,
+        grid_t = nornir_imageregistration.transforms.ConvertTransformToGridTransform(mesh_t,
                                                                                                       source_image_shape=(
                                                                                                       10, 10),
                                                                                                       cell_size=1,
@@ -625,7 +662,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         self.assertTrue(np.array_equal(mesh_transformed_points, expected_points))
         self.assertTrue(np.array_equal(mesh_transformed_points, grid_transformed_points))
 
-        grid_t_grid_spacing = nornir_imageregistration.local_distortion_correction.ConvertTransformToGridTransform(
+        grid_t_grid_spacing = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
             mesh_t,
             source_image_shape=(10, 10),
             cell_size=1,

@@ -33,7 +33,7 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     """
     Locate overlapping regions between tiles in a mosaic and align multiple small subregions within.  This generates a set of control points.
 
-    More than one tile may overlap, for example corners.  To solve this the set of control points is merged into a KD tree.  Points closer than a set distance (less than subregion size) are averaged to create a single offset.
+    More than one tile may overlap, for example corners.  To solve this the set of control points is merged into a KD tree.  points closer than a set distance (less than subregion size) are averaged to create a single offset.
 
     Using the remaining points a mesh transform is generated for the tile.
     """
@@ -309,7 +309,7 @@ r plots of each iteration in the output path for debugging purposes
                                        SavePlots=SavePlots,
                                        outputDir=outputDir)
 
-    InputStos.Transform = ConvertTransformToGridTransform(output_transform,
+    InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(output_transform,
                                                           source_image_shape=settings.source_image.shape,
                                                           cell_size=settings.cell_size,
                                                           grid_spacing=settings.grid_spacing)
@@ -323,7 +323,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     outputDir: str=None) -> nornir_imageregistration.ITransform:
     """
     Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
-    takes an initial transform and creates a regular grid of points.  Points covered more than 
+    takes an initial transform and creates a regular grid of points.  points covered more than
     
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
@@ -594,7 +594,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
     #         TargetPoints = TargetPoints[valid, :]
     #         coords = coords[valid, :]
     #
-    #     # Filter Fixed Points falling outside the mask
+    #     # Filter Fixed points falling outside the mask
     #     if target_mask is not None:
     #         valid = nornir_imageregistration.index_with_array(target_mask, TargetPoints)
     #         TargetPoints = TargetPoints[valid, :]
@@ -817,10 +817,10 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
     ValidFP = AdjustedTargetPoints[valid_indicies,:]
     ValidWP = OriginalSourcePoints[valid_indicies,:]
 
-    if not np.array_equiv(ValidFP.shape, Triangulation.RemoveDuplicates(ValidFP).shape):
+    if not np.array_equiv(ValidFP.shape, Triangulation.RemoveDuplicateControlPoints(ValidFP).shape):
         raise Exception("Duplicate fixed points detected")
 
-    if not np.array_equiv(ValidWP.shape, Triangulation.RemoveDuplicates(ValidWP).shape):
+    if not np.array_equiv(ValidWP.shape, Triangulation.RemoveDuplicateControlPoints(ValidWP).shape):
         raise Exception("Duplicate warped points detected")
 
     # See if we have enough points to build a transform.  If not include top scoring points until we have a transform
@@ -862,9 +862,6 @@ def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransfo
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
 
     """
-
-    if isinstance(Transform, str):
-        Transform = nornir_imageregistration.transforms.factory.LoadTransform(Transform, 1)
 
     grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,
                                                          grid_spacing=grid_spacing, grid_dims=grid_dims)

@@ -1,7 +1,7 @@
 '''
 
 Rectangles are represented as (MinY, MinX, MaxY, MaxZ)
-Points are represented as (Y,X)
+points are represented as (Y,X)
 
 '''
 

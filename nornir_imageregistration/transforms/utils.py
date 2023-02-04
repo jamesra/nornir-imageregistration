@@ -35,13 +35,15 @@ def RotationMatrix(rangle):
     '''
     if rangle is None:
         raise ValueError("Angle must not be none")
-    return np.matrix([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
+    return np.array([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]])
+    #This rotation matrix is reversed from the traditional x,y rotation matrix because our coordinates are y, x
+    #return np.array([[-np.sin(rangle), np.cos(rangle), 0], [np.cos(rangle), np.sin(rangle), 0],  [0, 0, 1]])
 
 
 def IdentityMatrix():
     '''
     '''
-    return np.matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
 def TranslateMatrixXY(offset: tuple[float, float] | NDArray):
@@ -52,7 +54,7 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray):
     if offset is None:
         raise ValueError("Angle must not be none") 
     elif hasattr(offset, "__iter__"):
-        return np.matrix([[1, 0, 0], [0, 1, 0], [offset[0], offset[1], 1]])
+        return np.array([[1, 0, 0], [0, 1, 0], [offset[0], offset[1], 1]])
     
     raise NotImplementedError("Unexpected argument")
 
@@ -64,9 +66,9 @@ def ScaleMatrixXY(scale: float):
     if scale is None:
         raise ValueError("Angle must not be none")
     elif isinstance(scale, float):
-        return np.matrix([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+        return np.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
     elif hasattr(scale, "__iter__"):
-        return np.matrix([[scale[1], 0, 0], [0, scale[0], 0], [0, 0, 1]])
+        return np.array([[scale[1], 0, 0], [0, scale[0], 0], [0, 0, 1]])
     
     raise NotImplementedError("Unexpected argument")
 

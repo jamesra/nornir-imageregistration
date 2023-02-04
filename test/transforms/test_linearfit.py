@@ -11,9 +11,7 @@ from scipy.stats import linregress
 
 import matplotlib.pyplot as plt
 import numpy as np
-from hypothesis.extra.numpy import arrays
-from nornir_imageregistration.transforms import rbftransform
-from nornir_imageregistration.transforms.factory import CreateRigidTransform
+from hypothesis.extra.numpy import arrays  
 
 class TestLinearFit(unittest.TestCase):
     
@@ -187,7 +185,7 @@ class TestLinearFit(unittest.TestCase):
         
         #grid = np.hstack((xx.reshape(-1,1),yy.reshape(-1,1)))
         #print(grid)
-        print("\n\nWarp Points: ",warpPoints)
+        print("\n\nWarp points: ",warpPoints)
         #n,m = grid.shape
         n,m = warpPoints.shape
         

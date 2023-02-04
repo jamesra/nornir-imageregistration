@@ -1,4 +1,6 @@
 import unittest
+import hypothesis
+import hypothesis.strategies as st
 import nornir_imageregistration
 import nornir_imageregistration.transforms
 
@@ -145,10 +147,29 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         targetPoint = np.asarray(targetPoint)
 
         TransformCheck(self, T, sourcePoint, targetPoint)
+        
+    def testRotate_simple(self):
+        #Rotate a point at x=1, y= 0
+        
+        angle = np.pi / 4.0
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], np.pi / 4.0)
+
+        sourcePoint = [[0, 1],
+                       [0, 2]]
+
+        targetPoint = [[np.sin(angle), np.cos(angle)],
+                       [np.sin(angle) * 2, np.cos(angle) * 2]]
+
+        sourcePoint = np.asarray(sourcePoint)
+        targetPoint = np.asarray(targetPoint)
+
+        TransformCheck(self, T, sourcePoint, targetPoint)
 
     def testOffsetRotate_Rigid(self):
         angle = np.pi / 4.0
-        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], source_rotation_center=[1, 0],
+        offset = np.array((1, 0), dtype=float)
+        
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], source_rotation_center=offset,
                                                                               angle=np.pi / 4.0)
 
         sourcePoint = [[0, 0],
@@ -235,42 +256,37 @@ class TestRigidFactory(ImageTestBase):
     def testRigidvsMeshFactoryRotation(self):
         d_angle = 90
         r_angle = (d_angle / 180.0) * np.pi
-        r = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=[10, 10],
-                                                                             source_image_shape=[10, 10],
-                                                                             rangle=r_angle,
-                                                                             warped_offset=[0, 0],
-                                                                             flip_ud=False)
-
-        m = nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=[10, 10],
-                                                                                 source_image_shape=[10, 10],
-                                                                                 rangle=r_angle,
-                                                                                 warped_offset=[0, 0],
-                                                                                 flip_ud=False)
-
-        p1 = [[0, 0],
-              [9, 0],
-              [0, 9],
-              [9, 9]]
-
-        TransformAgreementCheck(r, m, p1)
+        self.runRigidvsMeshFactoryRotationTranslate(shape=(10, 10), source_offset=(0, 0), r_angle=r_angle)
 
     def testRigidvsMeshFactoryRotationTranslate(self):
         d_angle = 90
         r_angle = (d_angle / 180.0) * np.pi
-        r = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=[10, 10],
-                                                                             source_image_shape=[10, 10],
+        self.runRigidvsMeshFactoryRotationTranslate(shape=(10,10), source_offset=(-10, 5), r_angle=r_angle)
+
+    @hypothesis.given(shape=st.tuples(st.integers(min_value=1, max_value=15), st.integers(min_value=1, max_value=15)),
+                      source_offset=st.tuples(st.floats(min_value=-15, max_value=15), st.floats(min_value=-15, max_value=15)),
+                      r_angle=st.floats(min_value=-np.pi, max_value=np.pi))
+    def testRigidvsMeshFactory(self, shape: tuple[int, int], source_offset: tuple[float, float], r_angle: float):
+        self.runRigidvsMeshFactoryRotationTranslate(shape=shape, source_offset=source_offset, r_angle=r_angle)
+
+    def runRigidvsMeshFactoryRotationTranslate(self, shape: tuple[int, int], source_offset: tuple[float, float], r_angle: float):
+        shape = np.array(shape, dtype=int)
+        source_offset = np.array(source_offset, dtype=float)
+        r = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=shape,
+                                                                             source_image_shape=shape,
                                                                              rangle=r_angle,
-                                                                             warped_offset=[-10, 5],
+                                                                             warped_offset=source_offset,
                                                                              flip_ud=False)
 
-        m = nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=[10, 10],
-                                                                                 source_image_shape=[10, 10],
+        m = nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=shape,
+                                                                                 source_image_shape=shape,
                                                                                  rangle=r_angle,
-                                                                                 warped_offset=[-10, 5],
+                                                                                 warped_offset=source_offset,
                                                                                  flip_ud=False)
 
-        p1 = [[0, 0],
-              [10, 10]]
+        p1 = np.array([(0, 0),
+                      shape / 2.0,
+                      shape])
 
         TransformAgreementCheck(r, m, p1)
 
@@ -364,8 +380,8 @@ class TestRigidImageAssembly(ImageTestBase):
         # np.testing.assert_allclose(r_transform.MappedBoundingBox.Corners, m_transform.MappedBoundingBox.Corners, atol=__transform_tolerance)
         # np.testing.assert_allclose(r_transform.FixedBoundingBox.Corners, m_transform.FixedBoundingBox.Corners, atol=__transform_tolerance)
 
-        r_transformedImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(r_transform, WarpedImagePath)
-        m_transformedImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(m_transform, WarpedImagePath)
+        r_transformedImageData = nornir_imageregistration.assemble.SourceImageToTargetSpace(r_transform, WarpedImagePath)
+        m_transformedImageData = nornir_imageregistration.assemble.SourceImageToTargetSpace(m_transform, WarpedImagePath)
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale([[FixedImagePath, WarpedImagePath],
                                                                 [reference_ImageData],

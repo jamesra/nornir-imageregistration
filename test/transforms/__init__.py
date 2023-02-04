@@ -1,14 +1,14 @@
-import nornir_imageregistration
-from nornir_imageregistration.transforms.base import IDiscreteTransform
-
 __all__ = ['ForwardTransformCheck', 'TransformCheck', 'NearestFixedCheck', 'NearestWarpedCheck',
            'IdentityTransformPoints', 'MirrorTransformPoints', 'TranslateTransformPoints', 'OffsetTransformPoints']
 
+import nornir_imageregistration
+from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransform
 import numpy as np
+from numpy.typing import NDArray
 
 __transform_tolerance = 1e-5
 
-def TransformInverseCheck(test, transform, warpedPoint):
+def TransformInverseCheck(test, transform: ITransform, warpedPoint):
     """Ensures that a point can map to its expected transformed position and back again.
     Does not validate that the transformed point is an expected value"""
     fp = transform.Transform(warpedPoint)
@@ -16,13 +16,13 @@ def TransformInverseCheck(test, transform, warpedPoint):
     wp = transform.InverseTransform(fp)
     np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
 
-def ForwardTransformCheck(test, transform, warpedPoint, fixedPoint):
+def ForwardTransformCheck(test, transform: ITransform, warpedPoint, fixedPoint):
     '''Ensures that a point can map to its expected transformed position and back again'''
     fp = transform.Transform(warpedPoint)
     np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
 
 
-def TransformCheck(test, transform, warpedPoint, fixedPoint):
+def TransformCheck(test, transform: ITransform, warpedPoint, fixedPoint):
     '''Ensures that a point can map to its expected transformed position and back again'''
     fp = transform.Transform(warpedPoint)
     np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
@@ -30,19 +30,19 @@ def TransformCheck(test, transform, warpedPoint, fixedPoint):
     np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
 
 
-def NearestFixedCheck(test, transform, fixedPoints, testPoints):
+def NearestFixedCheck(test, transform: ITransform, fixedPoints, testPoints):
     '''Ensures that the nearest fixed point can be found for a test point'''
     distance, index = transform.NearestFixedPoint(testPoints)
     np.testing.assert_allclose(transform.TargetPoints[index, :], fixedPoints, atol=__transform_tolerance, rtol=0)
 
 
-def NearestWarpedCheck(test, transform, warpedPoints, testPoints):
+def NearestWarpedCheck(test, transform: ITransform, warpedPoints, testPoints):
     '''Ensures that the nearest warped point can be found for a test point'''
     distance, index = transform.NearestWarpedPoint(testPoints)
     np.testing.assert_allclose(transform.SourcePoints[index, :], warpedPoints, atol=__transform_tolerance, rtol=0)
 
 
-def TransformAgreementCheck(t1, t2, points=None):
+def TransformAgreementCheck(t1: ITransform, t2: ITransform, points: NDArray[float] | None = None):
     '''Ensures that the nearest warped point can be found for a test point'''
     if points is None:
         points = np.array([0, 0], dtype=np.float32)

@@ -8,6 +8,8 @@ import collections
 from operator import itemgetter 
 import numpy as np
 import scipy
+
+import nornir_imageregistration.transforms
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_pools
 import nornir_imageregistration  
@@ -1193,7 +1195,7 @@ def MergeDisconnectedLayouts(layout_list):
         
         matrix_B = np.vstack([row[1] for row in B])
         
-        distances = scipy.spatial.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
+        distances = nornir_imageregistration.transforms.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
         A_min = np.min(distances, 1)
         B_min = np.min(distances, 0)
         iA = np.argmin(A_min)

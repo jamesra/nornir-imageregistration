@@ -5,13 +5,14 @@ Created on Sep 28, 2022
 '''
 
 import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms import base, triangulation
 
 from nornir_imageregistration.spatial import Rectangle
 import numpy as np
 from numpy.typing import NDArray
 
-class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, base.DefaultTransformChangeEvents):
+class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, DefaultTransformChangeEvents):
     '''
     classdocs
     '''
