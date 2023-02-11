@@ -6,7 +6,7 @@ import nornir_imageregistration
 from nornir_imageregistration.transforms import TransformType, ITransform, IControlPoints
 
 
-def _kabsch_umeyama(target_points: NDArray, source_points: NDArray) -> tuple[NDArray[float], float, NDArray[float]]:
+def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[NDArray[float], float, NDArray[float]]:
     '''
     This function is used to get the translation, rotation and scaling factors when aligning
     points in B on reference points in A.
@@ -29,20 +29,22 @@ def _kabsch_umeyama(target_points: NDArray, source_points: NDArray) -> tuple[NDA
     d = np.sign(np.linalg.det(U) * np.linalg.det(VT))
     S = np.diag([1] * (num_dims - 1) + [d])
 
+    source_rotation_center = EB
     rotation_matrix = U @ S @ VT
     scale = np.trace(np.diag(D) @ S) / VarB
     translation = EA - scale * rotation_matrix @ EB
+    reflected = d < 0
 
-    return rotation_matrix, scale, translation
+    return source_rotation_center, rotation_matrix, scale, translation, reflected
 
-def EstimateRigidComponentsFromControlPoints(target_points: NDArray, source_points: NDArray):
-    rotation_matrix, scale, translation = _kabsch_umeyama(target_points, source_points)
+def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float], source_points: NDArray[float]):
+    source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points, source_points)
 
     rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
     if rotate_angle <= -np.pi * 2:
         rotate_angle += np.pi * 2
 
-    return rotate_angle, translation, scale
+    return source_rotation_center, rotate_angle, translation, scale, reflected
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
                      **kwargs) -> ITransform:
@@ -68,11 +70,13 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 
 def ConvertTransformToRigidTransform(input_transform: ITransform):
     if isinstance(input_transform, IControlPoints):
-        angle, translation, scale = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
+        source_rotation_center, angle, translation, scale, reflected = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
                                                                              input_transform.SourcePoints)
+        if reflected:
+            raise NotImplemented("Rigid transform needs to be updated to support reflection")
 
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=translation,
-                                                                                 source_rotation_center=np.mean(input_transform.SourcePoints, 0),
+                                                                                 source_rotation_center=source_rotation_center,
                                                                                  angle=angle,
                                                                                  scalar=scale)
 
