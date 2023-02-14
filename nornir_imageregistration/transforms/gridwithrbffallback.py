@@ -21,11 +21,11 @@ import nornir_imageregistration.transforms
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.transform_type import TransformType
 from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform,\
-    ITransformTargetRotation, ITargetSpaceControlPointEdit
+    ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformTargetRotation,
-                          ITargetSpaceControlPointEdit, DefaultTransformChangeEvents):
+                          ITargetSpaceControlPointEdit, IGridTransform, DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -33,15 +33,27 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     @property
     def type(self) -> TransformType:
         return TransformType.MESH
+
+    @property
+    def grid(self) -> ITKGridDivision:
+        return self._discrete_transform.grid
+
+    @property
+    def grid_dims(self) -> tuple[int, int]:
+        return self._grid._grid_dims
+
+    def ToITKString(self) -> str:
+        return self._discrete_transform.ToITKString()
     
     def __getstate__(self):
-        odict = super(GridWithRBFFallback, self).__getstate__()
+        #odict = super(GridWithRBFFallback, self).__getstate__()
+        odict = dict()
         odict['_discrete_transform'] = self._discrete_transform
         odict['_continuous_transform'] = self._continuous_transform
         return odict
 
     def __setstate__(self, dictionary):
-        super(GridWithRBFFallback, self).__setstate__(dictionary)
+        #super(GridWithRBFFallback, self).__setstate__(dictionary)
         self._discrete_transform = dictionary['_discrete_transform']
         self._continuous_transform = dictionary['_continuous_transform']
 
@@ -143,6 +155,9 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._discrete_transform = discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
         self._continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
 
+    def AddTransform(self, mappedTransform: IControlPoints, EnrichTolerance=None, create_copy=True):
+        '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
+        return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
         
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):

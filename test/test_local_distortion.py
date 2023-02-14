@@ -620,7 +620,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         ####Begin 2nd pass.  Pretend we need to shift every over one
         for iRow in range(0, transform.SourcePoints.shape[0]):
             r = EnhancedAlignmentRecord(records[iRow].ID,
-                                        transform.TargetPoints[iRow, :],
+                                        transform._TargetPoints[iRow, :],
                                         transform.SourcePoints[iRow, :],
                                         (0, -1),
                                         5.0)

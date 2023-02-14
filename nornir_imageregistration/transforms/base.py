@@ -92,8 +92,7 @@ class ITransformScaling(ABC):
         """Scale all warped points by the specified amount"""
         raise NotImplementedError()
 
-
-class IDiscreteTransform(ITransform):
+class IDiscreteTransform(ITransform, ABC):
     @property
     @abc.abstractmethod
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
@@ -106,6 +105,11 @@ class IDiscreteTransform(ITransform):
         """Bounding box of fixed space points"""
         raise NotImplementedError()
 
+class IGridTransform(ITransform, ABC):
+    @property
+    @abc.abstractmethod
+    def grid(self) -> nornir_imageregistration.IGrid:
+        raise NotImplementedError()
 
 class IControlPoints(ABC):
     @property

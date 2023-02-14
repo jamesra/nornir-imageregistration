@@ -12,18 +12,25 @@ import nornir_pools
 import nornir_imageregistration
 from . import utils
 from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, \
-    IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit
+    IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform
 from nornir_imageregistration.transforms.controlpointbase import ControlPointBase
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
+from nornir_imageregistration.transforms import float_to_shortest_string
 
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 
 
-class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRotation, ITargetSpaceControlPointEdit, ControlPointBase):
+class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, ControlPointBase):
 
+    @property
     def type(self) -> TransformType:
         return TransformType.GRID
 
+    @property
+    def grid(self) -> ITKGridDivision:
+        return self._grid
+
+    @property
     def grid_dims(self) -> tuple[int, int]:
         return self._grid.grid_dims
 
@@ -34,7 +41,8 @@ class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRo
         return nornir_imageregistration.transforms.factory.LoadTransform(TransformString, pixelSpacing)
 
     def __getstate__(self):
-        odict = {'_points': self._points}
+        odict = {'_points': self._points,
+                 '_grid': self._grid}
 
         return odict
 
@@ -47,7 +55,11 @@ class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRo
                  grid: ITKGridDivision):
 
         self._grid = grid
-        control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+        try:
+            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+        except: 
+            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            raise 
 
         super(GridTransform, self).__init__(control_points)
 
@@ -56,8 +68,32 @@ class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRo
         self._FixedKDTree = None
         self._WarpedKDTree = None
         self._fixedtri = None
-
         pass
+
+    def ToITKString(self):
+        numPoints = self.SourcePoints.shape[0]
+        (bottom, left, top, right) = self.MappedBoundingBox.ToTuple()
+        image_width = (
+                right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
+        image_height = (top - bottom)
+
+        YDim = int(self.grid.grid_dims[0]) - 1 #For whatever reason ITK subtracts one from the dimensions
+        XDim = int(self.grid.grid_dims[1]) - 1 #For whatever reason ITK subtracts one from the dimensions
+
+        output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
+        template = " %(cx)s %(cy)s"
+        NumAdded = int(0)
+        for CY, CX, MY, MX in self.points:
+            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
+            output.append(pstr)
+            NumAdded = NumAdded + 1
+
+        # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
+        # then 1024 should be written to the file.
+        output.append(f" fp 7 0 {YDim:d} {XDim:d} {left:g} {bottom:g} {image_width:g} {image_height:g}")
+        transform_string = ''.join(output)
+
+        return transform_string
 
     @property
     def WarpedKDTree(self):

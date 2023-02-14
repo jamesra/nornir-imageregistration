@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from math import pi
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import ITransform 
+from nornir_imageregistration.transforms import ITransform, CenteredSimilarity2DTransform, Rigid
 
 
 class AlignmentRecord(object):
@@ -217,18 +217,22 @@ class AlignmentRecord(object):
         #                                 'y' : -Match.peak[1],
         #                                 'mapwidth' : stos.MappedImageDim[0]/2,
         #                                 'mapheight' : stos.MappedImageDim[1]/2}
-
-        transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
+        
+        #transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
 
         # We use Y,X ordering in memory due to Numpy.  Ir-Tools coordinates are written X,Y.
-        coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]),
-                                                   (stos.MappedImageDim[1], stos.MappedImageDim[0]))
+        #coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]),
+                                                   #(stos.MappedImageDim[1], stos.MappedImageDim[0]))
 
         # I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
         # have a -1 to account for the zero origin
-        stos.Transform = transformTemplate % {'coordString': coordString,
-                                              'width': stos.MappedImageDim[0],
-                                              'height': stos.MappedImageDim[1]}
+        #stos.Transform = transformTemplate % {'coordString': coordString,
+                                              #'width': stos.MappedImageDim[0],
+                                              #'height': stos.MappedImageDim[1]}
+                                              
+        transform = self.ToTransform(fixedImageSize=(ControlHeight, ControlWidth), warpedImageSize=(MappedHeight, MappedWidth))
+
+        stos.Transform = transform.ToITKString()
 
         stos.Downsample = PixelSpacing
 

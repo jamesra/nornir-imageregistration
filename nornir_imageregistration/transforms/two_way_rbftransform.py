@@ -16,6 +16,7 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScaling, ITransformTargetRotation,
                                     ITransformSourceRotation, IControlPointEdit, DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float], BasisFunction: Callable[[float], float] | None = None):
+        super(TwoWayRBFWithLinearCorrection, self).__init__()
         self._forward_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints, BasisFunction=BasisFunction)
         self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=FixedPoints, FixedPoints=WarpedPoints, BasisFunction=BasisFunction)
 

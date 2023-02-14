@@ -83,6 +83,7 @@ class TestIO(test.setup_imagetest.TransformTestBase):
         mfiles = self.GetMosaicFiles()
 
         for mfile in mfiles:
+            print(f'*** Testing {mfile} ***')
             mosaicObj = mosaic.Mosaic.LoadFromMosaicFile(mfile)
 
             (imagePath, transform) = list(mosaicObj.ImageToTransform.items())[0]
@@ -116,7 +117,7 @@ class TestIO(test.setup_imagetest.TransformTestBase):
         if isinstance(transform, IControlPoints):
             self.assertTrue(isinstance(loadedTransform, IControlPoints), "Loaded transform must have same interface as saved transform")
             pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.1)
-            self.assertTrue(pointMatch, "Converting transform to string and back alters transform")
+            self.assertTrue(pointMatch, f"Converting transform to string and back alters transform: {transformString}")
 
         if isinstance(transform, IDiscreteTransform):
             self.assertTrue(isinstance(loadedTransform, IDiscreteTransform), "Loaded transform must have same interface as saved transform")

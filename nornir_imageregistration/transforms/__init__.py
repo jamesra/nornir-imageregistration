@@ -2,7 +2,7 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
            'ITransformScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
-           'gridwithrbffallback', 'gridtransform']
+           'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance']
 
 import numpy as np
 from numpy.typing import NDArray
@@ -15,12 +15,22 @@ def distance(A: NDArray[float], B: NDArray[float]) -> NDArray[float]:
     """Distance between two arrays of points with equal numbers"""
     return np.sqrt(np.sum(np.square(A - B), 1))
 
+
+def float_to_shortest_string(val: float, precision=6) -> str:
+    '''
+    Convert a floating point value to the shortest string possible
+    '''
+    format_spec = '''{0:0.''' + str(precision) + '''f}'''
+    return format_spec.format(val).rstrip('0').rstrip('.')
+
+
 import nornir_imageregistration.transforms.transform_type as transform_type
 from nornir_imageregistration.transforms.transform_type import TransformType
 
 import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
-    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation
+    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
+    IGridTransform
 
 import nornir_imageregistration.transforms.defaulttransformchangeevents as defaulttransformchangeevents
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents

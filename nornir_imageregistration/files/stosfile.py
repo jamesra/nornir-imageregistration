@@ -27,7 +27,7 @@ class StosFile(object):
     """description of class"""
     
     @staticmethod
-    def FileHasMasks(path):
+    def FileHasMasks(path) -> bool:
         stosObj = StosFile.Load(path)
         return stosObj.HasMasks
 
@@ -72,7 +72,7 @@ class StosFile(object):
             self._Downsample = newDownsample
 
     @property
-    def ControlImageFullPath(self):
+    def ControlImageFullPath(self) -> str | None:
         return os.path.join(self.ControlImagePath, self.ControlImageName)
 
     @ControlImageFullPath.setter
@@ -89,7 +89,7 @@ class StosFile(object):
             self.ControlImageName = f.strip()
 
     @property
-    def MappedImageFullPath(self):
+    def MappedImageFullPath(self) -> str | None:
         return os.path.join(self.MappedImagePath, self.MappedImageName)
 
     @MappedImageFullPath.setter
@@ -105,7 +105,7 @@ class StosFile(object):
             self.MappedImageName = f.strip()
 
     @property
-    def ControlMaskFullPath(self):
+    def ControlMaskFullPath(self) -> str | None:
         if self.ControlMaskPath is None or self.ControlMaskName is None:
             return None
         
@@ -124,7 +124,7 @@ class StosFile(object):
         self.ControlMaskName = f.strip()
 
     @property
-    def MappedMaskFullPath(self):
+    def MappedMaskFullPath(self) -> str | None:
         if self.MappedMaskPath is None or self.MappedMaskName is None:
             return None
         
@@ -144,7 +144,7 @@ class StosFile(object):
         self.MappedMaskName = f.strip()
 
     @property
-    def Checksum(self):
+    def Checksum(self) -> str:
         if self.Transform is None:
             return ""
 
@@ -152,7 +152,7 @@ class StosFile(object):
         return nornir_shared.checksum.DataChecksum(compressedString)
     
     @property
-    def HasMasks(self):
+    def HasMasks(self) -> bool:
         return not (self.MappedMaskName is None or self.ControlMaskName is None)
     
     def ClearMasks(self):
@@ -165,26 +165,6 @@ class StosFile(object):
 #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
 
     def __init__(self):
-
-#        self.ControlImageName = property(self.__get__ControlImageName,
-#                                         None,
-#                                         None,
-#                                         'Filename of Control Image')
-#
-#        self.MappedImageName = property(self.__get__MappedImageName,
-#                                         None,
-#                                         None,
-#                                         'Filename of Mapped Image')
-#
-#        self.ControlMaskName = property(self.__get__ControlMaskName,
-#                                         None,
-#                                         None,
-#                                         'Filename of Control Image Mask')
-#
-#        self.MappedMaskName = property(self.__get__MappedMaskName,
-#                                         None,
-#                                         None,
-#                                         'Filename of Control Image Mask')
         self._Transform = None
 
         self.ControlImagePath = None
@@ -350,7 +330,7 @@ class StosFile(object):
         return True
 
 
-    def Scale(self, scalar):
+    def Scale(self, scalar: float):
         '''Scale this stos transform by the requested amount'''
 
         # Adjust the mosaic and mask names if present
@@ -370,7 +350,7 @@ class StosFile(object):
 
         self._Downsample = self._Downsample * scalar
 
-    def Save(self, filename, AddMasks=True):
+    def Save(self, filename: str, AddMasks: bool = True):
         # This function needs reworking to use different object variables'
         # assert(False)
         OutLines = list()
@@ -428,7 +408,7 @@ class StosFile(object):
 
 
     @staticmethod
-    def CompressedTransformString(transform):
+    def CompressedTransformString(transform: str) -> str:
         '''Given a list of parts builds a string where numbers are represented by the %g format
            This is no longer used when saving stos files because each transform needs a different level of precision.  However it is useful when computing checksums
         '''
@@ -451,14 +431,14 @@ class StosFile(object):
         return outputString
 
     @staticmethod
-    def __GetImageDimsArray(ImageFullPath):
+    def __GetImageDimsArray(ImageFullPath: str):
         '''Return a string compatible with the ITK .stos file image dimension entries'''
 
         [ImageHeight, ImageWidth] = nornir_imageregistration.core.GetImageSize(ImageFullPath)
         return [1.0, 1.0, ImageWidth, ImageHeight]
 
     @staticmethod
-    def __GetImageDimString(ImageDimArray):
+    def __GetImageDimString(ImageDimArray) -> str:
         ImageDimTemplate = "%(left)g %(bottom)g %(width)d %(height)d"
         DimStr = ImageDimTemplate % {'left' : ImageDimArray[0],
                                             'bottom' : ImageDimArray[1],
@@ -467,7 +447,7 @@ class StosFile(object):
         return DimStr
     
     
-    def TryConvertRelativePathsToAbsolutePaths(self, stosDir):
+    def TryConvertRelativePathsToAbsolutePaths(self, stosDir: str):
         '''
         Converts any relative paths in the StosFile to an absolute path using the stosDir parameter.
         Existing absolute paths are left alone.  Relative paths are unchanged, just prepended with 

@@ -6,27 +6,25 @@ Created on Nov 13, 2012
 The factory is focused on the loading and saving of transforms
 """
 
-import typing
 from typing import Sequence
 import numpy as np
-from numpy.typing import NDArray
 from collections.abc import Iterable
-import nornir_imageregistration
 from nornir_imageregistration.transforms.base import *
 from nornir_imageregistration.spatial import *
 
-
-from . import utils
+from . import utils, float_to_shortest_string
 
 
 def TransformToIRToolsString(transformObj, bounds=None):
-    if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
-        return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight,
-                                             bounds=bounds)
-    if isinstance(transformObj, nornir_imageregistration.transforms.RigidNoRotation):
-        return transformObj.ToITKString()
-    else:
-        return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
+    return transformObj.ToITKString()
+
+    # if hasattr(transformObj, 'gridWidth') and hasattr(transformObj, 'gridHeight'):
+    #     return _TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight,
+    #                                          bounds=bounds)
+    # if isinstance(transformObj, nornir_imageregistration.transforms.RigidNoRotation):
+    #     return transformObj.ToITKString()
+    # else:
+    #     return _TransformToIRToolsString(transformObj, bounds)  # , bounds=NewStosFile.MappedImageDim)
 
 
 def _GetMappedBoundsExtents(transform, bounds=None):
@@ -42,14 +40,6 @@ def _GetMappedBoundsExtents(transform, bounds=None):
         (bottom, left, top, right) = bounds
 
     return (bottom, left, top, right)
-
-
-def float_to_shortest_string(val: float, precision=6) -> str:
-    '''
-    Convert a floating point value to the shortest string possible
-    '''
-    format_spec = '''{0:0.''' + str(precision) + '''f}'''
-    return format_spec.format(val).rstrip('0').rstrip('.')
 
 
 def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: int, bounds=None) -> str:
@@ -92,7 +82,7 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: in
     return transform_string
 
 
-def _TransformToIRToolsString(Transform: IControlPoints, bounds=None):
+def _MeshTransformToIRToolsString(Transform: IControlPoints, bounds=None):
     if not isinstance(Transform, IControlPoints):
         raise ValueError("Transform must implement IControlPoints to generate an ITK Mesh transform")
 
@@ -227,7 +217,7 @@ def ParseGridTransform(parts, pixelSpacing=None):
     grid = nornir_imageregistration.ITKGridDivision((ImageHeight, ImageWidth),
                                                     cell_size=(256, 256), #cell_size doesn't matter for how this object is going to be used
                                                     grid_dims=(gridWidth, gridHeight))
-    grid.TargetPoints = PointPairs[:, 2:]
+    grid.TargetPoints = PointPairs[:, 0:2]
 
     #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
     #continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
@@ -545,41 +535,42 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, of
     #     TopRight = CenteredRotation * matrix([[HalfWidth], [HalfHeight], [1]])
 
     if not flip_ud:
-        BotLeft = CenteredRotation @ np.array([[-RotHalfHeight], [-RotHalfWidth], [1]])
-        TopLeft = CenteredRotation @ np.array([[RotHalfHeight], [-RotHalfWidth], [1]])
-        BotRight = CenteredRotation @ np.array([[-RotHalfHeight], [RotHalfWidth], [1]])
-        TopRight = CenteredRotation @ np.array([[RotHalfHeight], [RotHalfWidth], [1]])
+        BotLeft = np.array([[-RotHalfHeight, -RotHalfWidth, 1]]) @ CenteredRotation
+        TopLeft = np.array([[RotHalfHeight, -RotHalfWidth, 1]]) @ CenteredRotation
+        BotRight = np.array([[-RotHalfHeight, RotHalfWidth, 1]]) @ CenteredRotation
+        TopRight = np.array([[RotHalfHeight, RotHalfWidth, 1]]) @ CenteredRotation
     else:
-        BotLeft = CenteredRotation @ np.array([[RotHalfHeight], [-RotHalfWidth], [1]])
-        TopLeft = CenteredRotation @ np.array([[-RotHalfHeight], [-RotHalfWidth], [1]])
-        BotRight = CenteredRotation @ np.array([[RotHalfHeight], [RotHalfWidth], [1]])
-        TopRight = CenteredRotation @ np.array([[-RotHalfHeight], [RotHalfWidth], [1]])
+        BotLeft = np.array([RotHalfHeight, -RotHalfWidth, 1]) @ CenteredRotation
+        TopLeft = np.array([-RotHalfHeight, -RotHalfWidth, 1]) @ CenteredRotation
+        BotRight = np.array([RotHalfHeight, RotHalfWidth, 1]) @ CenteredRotation
+        TopRight = np.array([-RotHalfHeight, RotHalfWidth, 1]) @ CenteredRotation
 
     # Adjust to the peak location
-    PeakTranslation = np.array([[1, 0, offset[iPoint.Y]], [0, 1, offset[iPoint.X]], [0, 0, 1]])
+    PeakTranslation = np.array([[1, 0, 0], [0, 1, 0], [offset[iPoint.Y], offset[iPoint.X], 1]])
 
-    BotLeft = PeakTranslation @ BotLeft
-    TopLeft = PeakTranslation @ TopLeft
-    BotRight = PeakTranslation @ BotRight
-    TopRight = PeakTranslation @ TopRight
+    BotLeft = BotLeft @ PeakTranslation
+    TopLeft = TopLeft @ PeakTranslation
+    BotRight = BotRight @ PeakTranslation
+    TopRight = TopRight @ PeakTranslation
 
     # Center the image
     # Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
     # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
     #Translation = np.array([[1, 0, HalfHeight - 0.5], [0, 1, HalfWidth - 0.5], [0, 0, 1]])
-    Translation = np.array([[1, 0, HalfHeight], [0, 1, HalfWidth], [0, 0, 1]])
+    Translation = np.array([[1, 0, 0], [0, 1, 0], [HalfHeight, HalfWidth, 1]])
 
-    BotLeft = Translation @ BotLeft
-    BotRight = Translation @ BotRight
-    TopLeft = Translation @ TopLeft
-    TopRight = Translation @ TopRight
+    BotLeft = BotLeft @ Translation
+    BotRight = BotRight @ Translation
+    TopLeft = TopLeft @ Translation
+    TopRight = TopRight @ Translation
 
     # scale the output
-    BotLeft = ScaleMatrix @ BotLeft
-    BotRight = ScaleMatrix @ BotRight
-    TopLeft = ScaleMatrix @ TopLeft
-    TopRight = ScaleMatrix @ TopRight
+    BotLeft = BotLeft @ ScaleMatrix
+    BotRight = BotRight @ ScaleMatrix
+    TopLeft = TopLeft @ ScaleMatrix
+    TopRight = TopRight @ ScaleMatrix
 
-    arr = np.vstack([BotLeft[:2].T, BotRight[:2].T, TopLeft[:2].T, TopRight[:2].T])
+    arr = np.vstack((BotLeft, BotRight, TopLeft, TopRight))
+    arr = arr[:,:2]
     # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
     return arr

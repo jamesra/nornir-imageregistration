@@ -154,11 +154,11 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         angle = np.pi / 4.0
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], np.pi / 4.0)
 
-        sourcePoint = [[0, 1],
-                       [0, 2]]
+        sourcePoint = [[1, 0],
+                       [2, 0]]
 
-        targetPoint = [[np.sin(angle), np.cos(angle)],
-                       [np.sin(angle) * 2, np.cos(angle) * 2]]
+        targetPoint = [[np.cos(angle), np.sin(angle)],
+                       [np.cos(angle) * 2, np.sin(angle) * 2]]
 
         sourcePoint = np.asarray(sourcePoint)
         targetPoint = np.asarray(targetPoint)

@@ -2,7 +2,8 @@ import copy
 import numpy as np
 import scipy
 
-from nornir_imageregistration.transforms import distance, ITransform, IControlPoints
+import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms import distance, ITransform, IControlPoints, IGridTransform
 
 
 def CentroidToVertexDistance(Centroids, TriangleVerts):
@@ -19,7 +20,7 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
     return distance
 
 
-def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: ITransform,
+def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,
                   EnrichTolerance: float | None = None,
                   create_copy:bool = True):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
@@ -29,13 +30,31 @@ def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: I
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.
     :return: ndarray of points that can be assigned as control points for a transform'''
 
+    if isinstance(AToB_mapped_Transform, nornir_imageregistration.IGridTransform):
+        return _AddGridTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform)
+
     if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
         return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance, create_copy=create_copy)
     else:
         return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
 
 
-def _AddMeshTransforms(BToC_Unaltered_Transform: IControlPoints,
+def _AddGridTransforms(BToC_Unaltered_Transform: ITransform,
+                       AToB_mapped_Transform: IGridTransform):
+    mappedControlPoints = AToB_mapped_Transform.TargetPoints
+    txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
+
+    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))
+
+    old_grid = AToB_mapped_Transform.grid
+    new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
+                                                        cell_size=old_grid.cell_size,
+                                                        grid_dims=old_grid.grid_dims)
+    new_grid.TargetPoints = txMappedControlPoints
+    new_transform = nornir_imageregistration.transforms.GridWithRBFFallback(new_grid)
+    return new_transform
+
+def _AddMeshTransforms(BToC_Unaltered_Transform: ITransform,
                        AToB_mapped_Transform: IControlPoints,
                        create_copy: bool = True):
     mappedControlPoints = AToB_mapped_Transform.TargetPoints
@@ -53,7 +72,7 @@ def _AddMeshTransforms(BToC_Unaltered_Transform: IControlPoints,
         return AToB_mapped_Transform
 
 
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform: IControlPoints, AToB_mapped_Transform: IControlPoints, epsilon=None, create_copy=True):
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints, epsilon=None, create_copy=True):
 
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform

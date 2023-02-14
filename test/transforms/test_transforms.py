@@ -45,6 +45,42 @@ class TestTransforms(unittest.TestCase):
                                  [-1, -1]])
 
         TransformCheck(self, T, warpedPoint, controlPoint)
+        
+    def testRBFLinearFallbackWithTranslate(self):
+        target_translation = np.array([1,-5])
+        warpedPoint = np.array([[1, 2],
+                                [1.25, 2.25],
+                                [2, 3],
+                                [0, 1]])
+        fixedPoint = warpedPoint + target_translation
+        
+        T = OneWayRBFWithLinearCorrection(warpedPoint, fixedPoint)
+
+        nPoints = TranslateRotateTransformPoints.shape[0]
+        rotate_x_component = T.Weights[nPoints]
+        scale_x_component = T.Weights[nPoints + 1]
+        translate_x_component = T.Weights[nPoints + 2]
+
+        axis_offset = nPoints + 3
+        rotate_y_component = T.Weights[axis_offset + nPoints]
+        scale_y_component = T.Weights[axis_offset + nPoints + 1]
+        translate_y_component = T.Weights[axis_offset + nPoints + 2]
+        
+        angle = np.arctan2(rotate_y_component, rotate_x_component)
+        scale = [scale_y_component, scale_x_component]
+        rotate = [rotate_y_component, rotate_x_component]
+        translate = [translate_y_component, translate_x_component]
+
+        self.assertTrue(np.allclose(np.array((translate_y_component, translate_x_component)), target_translation))
+
+        RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component],
+                                                       source_rotation_center=[0, 0], angle=angle)
+        # TransformCheck(RT, warpedPoint, fixedPoint)
+        print("Rotation weights", T.Weights)
+        fp = T.Transform(warpedPoint)
+        np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)
+        fp2 = RT.Transform(warpedPoint)
+        np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
     def testRBFLinearFallbackWithRotation(self):
         T = OneWayRBFWithLinearCorrection(TranslateRotateTransformPoints[:, 2:], TranslateRotateTransformPoints[:, 0:2])
@@ -58,17 +94,24 @@ class TestTransforms(unittest.TestCase):
                                [0, -2]])
 
         nPoints = TranslateRotateTransformPoints.shape[0]
-        rotate_y_component = T.Weights[nPoints]
-        scale_y_component = T.Weights[nPoints + 1]
-        translate_y_component = T.Weights[nPoints + 2]
+        rotate_x_component = T.Weights[nPoints]
+        scale_x_component = T.Weights[nPoints + 1]
+        translate_x_component = T.Weights[nPoints + 2]
 
         axis_offset = nPoints + 3
-        rotate_x_component = T.Weights[axis_offset + nPoints]
-        scale_x_component = T.Weights[axis_offset + nPoints + 1]
-        translate_x_component = T.Weights[axis_offset + nPoints + 2]
+        rotate_y_component = T.Weights[axis_offset + nPoints]
+        scale_y_component = T.Weights[axis_offset + nPoints + 1]
+        translate_y_component = T.Weights[axis_offset + nPoints + 2]
+        
+        r = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(TranslateRotateTransformPoints[:, 0:2], TranslateRotateTransformPoints[:, 2:])
+         
+        angle = np.arctan2(rotate_x_component, rotate_y_component)
+        scale = [scale_y_component, scale_x_component]
+        rotate = [rotate_y_component, rotate_x_component]
+        translate = [translate_y_component, translate_x_component]
+        rotation_center = np.mean(TranslateRotateTransformPoints[:,2:], 0)
 
-        RT = nornir_imageregistration.transforms.Rigid([translate_y_component, translate_x_component],
-                                                       source_rotation_center=[0, 0], angle=np.radians(-90))
+        RT = nornir_imageregistration.transforms.Rigid(target_offset=r.translation, source_rotation_center=r.source_rotation_center, angle=r.angle)
         # TransformCheck(RT, warpedPoint, fixedPoint)
         print("Rotation weights", T.Weights)
         fp = T.Transform(warpedPoint)
@@ -89,18 +132,25 @@ class TestTransforms(unittest.TestCase):
                                [1, -2]])
 
         nPoints = TranslateRotateScaleTransformPoints.shape[0]
-        rotate_y_component = T.Weights[nPoints]
-        scale_y_component = T.Weights[nPoints + 1]
-        translate_y_component = T.Weights[nPoints + 2]
+        rotate_x_component = T.Weights[nPoints]
+        scale_x_component = T.Weights[nPoints + 1]
+        translate_x_component = T.Weights[nPoints + 2]
 
         axis_offset = nPoints + 3
-        rotate_x_component = T.Weights[axis_offset + nPoints]
-        scale_x_component = T.Weights[axis_offset + nPoints + 1]
-        translate_x_component = T.Weights[axis_offset + nPoints + 2]
+        rotate_y_component = T.Weights[axis_offset + nPoints]
+        scale_y_component = T.Weights[axis_offset + nPoints + 1]
+        translate_y_component = T.Weights[axis_offset + nPoints + 2]
+        
+        r = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(TranslateRotateScaleTransformPoints[:, 0:2], TranslateRotateScaleTransformPoints[:, 2:])
+         
 
+        #RT = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        #    [translate_y_component, translate_x_component], source_rotation_center=[0, 0], angle=np.radians(-90),
+        #    scalar=-scale_x_component)
         RT = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            [translate_y_component, translate_x_component], source_rotation_center=[0, 0], angle=np.radians(-90),
-            scalar=-scale_x_component)
+            target_offset=r.translation,
+            source_rotation_center=r.source_rotation_center,
+            angle=r.angle, scalar=r.scale)
         print("Scaling also", T.Weights)
         fp = T.Transform(warpedPoint)
         np.testing.assert_allclose(fp, fixedPoint, atol=1e-5, rtol=0)

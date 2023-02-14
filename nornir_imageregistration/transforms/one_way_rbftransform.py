@@ -54,14 +54,11 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return self._rigid_transform is not None
 
     @staticmethod
-    def DefaultBasisFunction(distance: float) -> float:
-        if distance == 0:
-            return 0
-
-        return distance * distance * math.log(distance)
+    def DefaultBasisFunction(distance: NDArray[float]) -> NDArray[float]:
+        return np.multiply(np.power(distance, 2), np.log(distance))
 
     def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float],
-                 BasisFunction: Callable[[float], float] | None = None):
+                 BasisFunction: Callable[[NDArray[float]], NDArray[float]] | None = None):
 
         points = np.hstack((FixedPoints, WarpedPoints))
         super(OneWayRBFWithLinearCorrection, self).__init__(points)
@@ -214,9 +211,9 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return ResultMatrixX, ResultMatrixY
 
     @staticmethod
-    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[float], float] | None = None):
-        if BasisFunction is None:
-            BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
+    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[float]], NDArray[float]] = None):
+        # if BasisFunction is None:
+        #    BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
 
         NumPts = len(points)
         BetaMatrix = np.zeros([NumPts + 3, NumPts + 3], dtype=np.float32)
@@ -232,9 +229,9 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 if np.min(dList) <= 0:
                     raise ValueError("Cannot have duplicate points in transform")
 
-            valueList = np.power(dList, 2)
-
-            valueList = np.multiply(valueList, np.log(dList))
+            valueList = BasisFunction(dList)
+            # valueList = np.power(dList, 2)
+            # valueList = np.multiply(valueList, np.log(dList))
             # valueList = valueList.ravel()
 
             BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
@@ -260,7 +257,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
-                            BasisFunction: Callable[[float], float] | None = None) -> tuple[NDArray, bool]:
+                            BasisFunction: Callable[[NDArray[float]], NDArray[float]]) -> tuple[NDArray, bool]:
         '''
         For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
         
@@ -279,16 +276,59 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
-        Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y, overwrite_b=True,
-                                      check_finite=False)
-        WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
-        WeightsY = Y_Task.wait_return()
+        try:
+            Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
+                                          overwrite_b=True,
+                                          check_finite=False)
+            WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
+            WeightsY = Y_Task.wait_return()
 
-        if np.allclose(WeightsX[0:-3], 0) and np.allclose(WeightsY[0:-3], 0):
-            # prettyoutput.Log("RBF transform is approximately Rigid")
-            use_rigid_transform = True
+            if np.allclose(WeightsX[0:-3], 0) and np.allclose(WeightsY[0:-3], 0):
+                # prettyoutput.Log("RBF transform is approximately Rigid")
+                use_rigid_transform = True
 
-        return np.hstack([WeightsX, WeightsY]), use_rigid_transform
+            source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+
+            return np.hstack([WeightsX, WeightsY]), use_rigid_transform
+        except np.linalg.LinAlgError as e:
+            if e.args[0] == 'Matrix is singular.':
+                #This is a distraction for now, but I should be able to fill in these weights correctly
+                source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+
+                WeightsY = np.zeros(SolutionMatrix_Y.shape)
+                WeightsY[-3] = rotation_matrix[1, 0]
+                WeightsY[-2] = scale
+                WeightsY[-1] = translation[0]
+
+                WeightsX = np.zeros(SolutionMatrix_X.shape)
+                WeightsX[-3] = rotation_matrix[0, 0]
+                WeightsX[-2] = scale
+                WeightsX[-1] = translation[1]
+
+                return np.hstack([WeightsX, WeightsY]), True
+            else:
+                raise
+
+    @property
+    def LinearComponents(self):
+        """The angle of rotation for the linear portion of the transform"""
+        nPoints = self.points.shape[0]
+        rotate_x_component = self.Weights[nPoints]
+        scale_x_component = self.Weights[nPoints + 1]
+        translate_x_component = self.Weights[nPoints + 2]
+
+        axis_offset = nPoints + 3
+        rotate_y_component = self.Weights[axis_offset + nPoints]
+        scale_y_component = self.Weights[axis_offset + nPoints + 1]
+        translate_y_component = self.Weights[axis_offset + nPoints + 2]
+
+        angle = np.arctan2(rotate_x_component, rotate_y_component)
+        scale = [scale_y_component, scale_x_component]
+        rotate = [rotate_y_component, rotate_x_component]
+        translate = [translate_y_component, translate_x_component]
+        source_rotation_center = np.mean(self.points[:, 2:], 0)
+
+        return source_rotation_center, angle, translate, scale
 
     # def AddPoint(self, pointpair: NDArray[float]):
     #     self.points = np.vstack((self.points, pointpair))

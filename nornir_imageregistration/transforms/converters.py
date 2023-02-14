@@ -1,9 +1,17 @@
 import numpy as np
 from numpy.typing import NDArray
+from typing import NamedTuple
 
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import TransformType, ITransform, IControlPoints
+
+class RigidComponents(NamedTuple):
+    source_rotation_center: NDArray[float]
+    angle: float
+    scale: float
+    translation: NDArray[float]
+    reflected: bool
 
 
 def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[NDArray[float], float, NDArray[float]]:
@@ -22,7 +30,8 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     EB = np.mean(B, axis=0)
     centered_A = A - EA
     centered_B = B - EB
-    VarB = np.mean(np.linalg.norm(centered_B, axis=1) ** 2)
+    VarA = np.mean(np.linalg.norm(centered_A, axis=1) ** 2)
+    #VarB = np.mean(np.linalg.norm(centered_B, axis=1) ** 2)
 
     H = (centered_A.T @ centered_B) / num_pts
     U, D, VT = np.linalg.svd(H)
@@ -31,20 +40,25 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
 
     source_rotation_center = EB
     rotation_matrix = U @ S @ VT
-    scale = np.trace(np.diag(D) @ S) / VarB
-    translation = EA - scale * rotation_matrix @ EB
+    scale = VarA / np.trace(np.diag(D) @ S)
+    #Total translation, does not factor in translation of B to EB for rotation
+    translation = EA - (scale * rotation_matrix @ EB) + EB
     reflected = d < 0
 
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
-def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float], source_points: NDArray[float]):
+def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float], source_points: NDArray[float]) -> RigidComponents:
     source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points, source_points)
-
+    
+    #My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then 
+    #performs the final translation into target space.
+    adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
     rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
     if rotate_angle <= -np.pi * 2:
         rotate_angle += np.pi * 2
 
-    return source_rotation_center, rotate_angle, translation, scale, reflected
+    return RigidComponents(source_rotation_center=source_rotation_center, angle=rotate_angle,
+                           translation=adjusted_translation, scale=scale, reflected=reflected)
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
                      **kwargs) -> ITransform:
@@ -70,15 +84,15 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 
 def ConvertTransformToRigidTransform(input_transform: ITransform):
     if isinstance(input_transform, IControlPoints):
-        source_rotation_center, angle, translation, scale, reflected = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
+        components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
                                                                              input_transform.SourcePoints)
-        if reflected:
+        if components.reflected:
             raise NotImplemented("Rigid transform needs to be updated to support reflection")
 
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=translation,
-                                                                                 source_rotation_center=source_rotation_center,
-                                                                                 angle=angle,
-                                                                                 scalar=scale)
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=components.translation,
+                                                                                 source_rotation_center=components.source_rotation_center,
+                                                                                 angle=components.angle,
+                                                                                 scalar=components.scale)
 
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=input_transform.target_offset,

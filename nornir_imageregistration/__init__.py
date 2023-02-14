@@ -167,6 +167,8 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
 
     return points
 
+import nornir_imageregistration.igrid as igrid
+from nornir_imageregistration.igrid import IGrid
 
 import nornir_imageregistration.spatial as spatial
 from nornir_imageregistration.spatial import *
@@ -189,7 +191,8 @@ import nornir_imageregistration.settings as settings
 
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
-    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation
+    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
+    IGridTransform
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms

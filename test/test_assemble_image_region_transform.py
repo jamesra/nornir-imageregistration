@@ -28,7 +28,7 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
         self.assertTrue(np.array_equal(target_area, read_area))
-        self.assertTrue(np.array_equal(read_bottom_left, target_bottom_left + source_to_target_offset))
+        self.assertTrue(np.array_equal(read_bottom_left, target_bottom_left - source_to_target_offset))
 
 
     def test_write_to_source_image_coord_generation(self):
@@ -48,7 +48,7 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
         self.assertTrue(np.array_equal(source_area, read_area))
-        self.assertTrue(np.array_equal(read_bottom_left, source_bottom_left - source_to_target_offset))
+        self.assertTrue(np.array_equal(read_bottom_left, source_bottom_left + source_to_target_offset))
 
     def test_grid_division_identity(self):
         """
