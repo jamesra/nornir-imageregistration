@@ -51,13 +51,13 @@ def write_to_source_roi_coords(transform: ITransform,
     This function is used to generate coordinates to transform image data in target space backwards into source space.
 
 
-    Given a transform and a region in source space, create uniform integer coordinates over the region of interest in target space
-    for each pixel.  Then run an inverse transform to determine those coordinates in source space.  The source space
-    coordinates will be used later to interpolate pixel values for each integer pixel valued destination space coordinate.
+    Given a transform and a region in source space, create uniform integer coordinates over the region of interest in source space
+    for each pixel.  Then run an forward transform to determine those coordinates in target space.  The target space
+    coordinates will be used later to interpolate pixel values for each integer pixel valued destination space coordinates.
 
     :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
-    :param botleft: The (Y,X) coordinates of the bottom left corner
+    :param botleft: The (Y,X) coordinates of the bottom left corner in source space
     :param area: The (Height, Width) of the region of interest coordinates.
     :return: (read_space_coords, write_space_coords)
     """
@@ -83,12 +83,13 @@ def write_to_target_roi_coords(transform: ITransform,
     This function is used to generate coordinates to transform image data in source space forward into target space.
 
     Given a transform and a region in target space, create uniform integer coordinates over the region of interest in source
-    space for each pixel.  Then run a forward transform to determine those coordinates in target space.  The target space coordinates will
-    be used later to interpolate pixel values for each integer pixel valued destination target coordinate.
+    space for each pixel.  Then run a inverse transform to map target coordinates back in source space.  The source
+    space coordinates will be used later to interpolate pixel values for each integer pixel valued destination target
+    coordinates.
 
     :param extrapolate:
     :param transform transform: The transform used to map points between fixed and mapped space
-    :param botleft: The (Y,X) coordinates of the bottom left corner
+    :param botleft: The (Y,X) coordinates of the bottom left corner in target space
     :param area: The (Height, Width) of the region of interest
 e coordinates.
     :return: (read_space_coords, write_space_coords)
