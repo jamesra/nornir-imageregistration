@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import * 
  
 import nornir_imageregistration.spatial
-from nornir_imageregistration.spatial import iPoint,  iPoint3, Rectangle, iBox
+from nornir_imageregistration.spatial import iPoint,  iPoint3, Rectangle, iBox, iVolume
 
 
 class BoundingBox(object):
