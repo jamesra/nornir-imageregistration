@@ -19,6 +19,17 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         super(TwoWayRBFWithLinearCorrection, self).__init__()
         self._forward_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints, BasisFunction=BasisFunction)
         self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=FixedPoints, FixedPoints=WarpedPoints, BasisFunction=BasisFunction)
+        
+    def __getstate__(self):
+        odict = super(TwoWayRBFWithLinearCorrection, self).__getstate__()
+        odict['_forward_rbf'] = self._forward_rbf
+        odict['_inverse_rbf'] = self._inverse_rbf
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(TwoWayRBFWithLinearCorrection, self).__setstate__(dictionary) 
+        self._forward_rbf = dictionary['_forward_rbf']
+        self._inverse_rbf = dictionary['_inverse_rbf']
 
     def _reset_inverse_transform(self):
         self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=self._forward_rbf.SourcePoints,
@@ -101,6 +112,19 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._inverse_rbf.RotateSourcePoints(rangle, rotation_center)
         self.OnTransformChanged()
 
+    def TranslateFixed(self, offset: NDArray[float]):
+        '''Translate all fixed points by the specified amount'''
+
+        self._forward_rbf.TranslateFixed(offset)
+        self._inverse_rbf.TranslateWarped(offset)
+        self.OnTransformChanged()
+
+    def TranslateWarped(self, offset: NDArray[float]):
+        '''Translate all warped points by the specified amount'''
+        self._forward_rbf.TranslateWarped(offset)
+        self._inverse_rbf.TranslateFixed(offset)
+        self.OnTransformChanged()
+
     def AddPoint(self, pointpair: NDArray[float]):
         self._forward_rbf.AddPoint(pointpair)
         self._reset_inverse_transform()
@@ -130,3 +154,11 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._forward_rbf.RemovePoint(index)
         self._inverse_rbf.RemovePoint(index)
         self.OnTransformChanged()
+
+    def OnFixedPointChanged(self):
+        self._forward_rbf.OnFixedPointChanged()
+        self._inverse_rbf.OnWarpedPointChanged()
+
+    def OnWarpedPointChanged(self):
+        self._continuous_transform.OnWarpedPointChanged()
+        self._discrete_transform.OnFixedPointChanged()
