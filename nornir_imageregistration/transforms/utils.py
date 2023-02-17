@@ -35,7 +35,7 @@ def RotationMatrix(rangle):
     '''
     if rangle is None:
         raise ValueError("Angle must not be none") 
-    #This rotation matrix is reversed from the traditional x,y rotation matrix because our coordinates are y, x
+    
     return np.array([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]]) 
 
 
@@ -70,6 +70,12 @@ def ScaleMatrixXY(scale: float):
         return np.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
     
     raise NotImplementedError("Unexpected argument")
+
+def FlipMatrixY():
+    '''
+    Flip the Y axis
+    '''
+    return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
 if __name__ == '__main__':
