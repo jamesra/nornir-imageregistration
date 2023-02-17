@@ -1079,7 +1079,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                target_controlpoint[1] - (alignmentArea[1] / 2.0)),
         area=alignmentArea)
 
-    target_rectangle = nornir_imageregistration.Rectangle.SafeRound(target_rectangle)
+    target_rectangle = nornir_imageregistration.Rectangle.SnapRound(target_rectangle)
 
     # Make sure the rectangle is the correct size, with an origin on an integer boundary
     target_rectangle = nornir_imageregistration.Rectangle.change_area(target_rectangle, alignmentArea,

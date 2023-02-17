@@ -505,7 +505,10 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     fixedImageShape = np.array(fixedImageSize) * scalar
     warpedImage = nornir_imageregistration.ImageParamToImageArray(warpedImage)
 
-    stostransform.points = stostransform.points * scalar
+    if isinstance(stostransform, nornir_imageregistration.transforms.ITransformScaling) is False:
+        raise NotImplemented(f"Cannot scale transform that does not implement ITransformScaling {transformData}")
+    
+    stostransform.Scale(scalar)
 
     warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 

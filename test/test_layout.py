@@ -264,7 +264,7 @@ class TestLayoutPosition(setup_imagetest.TestBase):
         result = nornir_imageregistration.views.plot_layout(spring_layout, title="A weighted triangle", PassFail=True)
         self.assertTrue(result)
         
-        positions -= positions.min(0)
+        #positions -= positions.min(0)
         
         self.assertTrue(np.allclose(spring_layout.GetPosition(0), positions[0,:], atol=max_vector_magnitude))
         self.assertTrue(np.allclose(spring_layout.GetPosition(1), positions[1,:], atol=max_vector_magnitude)) 

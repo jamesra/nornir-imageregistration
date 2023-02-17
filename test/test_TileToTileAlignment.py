@@ -34,9 +34,10 @@ import pickle
 from nornir_imageregistration.views import plot_tile_overlap
 
 import setup_imagetest
+import nornir_imageregistration
 import nornir_imageregistration.mosaic_tileset
-from arrange_mosaic import ScoreTileOverlaps
-import tile_overlap
+import nornir_imageregistration.arrange_mosaic
+import nornir_imageregistration.tile_overlap
  
 import test_arrange
 

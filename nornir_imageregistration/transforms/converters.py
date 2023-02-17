@@ -85,14 +85,13 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 def ConvertTransformToRigidTransform(input_transform: ITransform):
     if isinstance(input_transform, IControlPoints):
         components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
-                                                                             input_transform.SourcePoints)
-        if components.reflected:
-            raise NotImplemented("Rigid transform needs to be updated to support reflection")
+                                                                             input_transform.SourcePoints) 
 
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=components.translation,
                                                                                  source_rotation_center=components.source_rotation_center,
                                                                                  angle=components.angle,
-                                                                                 scalar=components.scale)
+                                                                                 scalar=components.scale, 
+                                                                                 flip_ud=components.reflected)
 
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=input_transform.target_offset,

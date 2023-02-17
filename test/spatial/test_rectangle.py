@@ -242,6 +242,20 @@ class Test(unittest.TestCase):
         self.assertTrue((26,35) in sorted_matches)
         self.assertTrue((25,35) in sorted_matches)
         print("Done!") 
+        
+    def test_rectangleRounding(self):
+        
+        r = spatial.Rectangle.CreateFromPointAndArea((1272.25, 634.0), (64.0, 1324.75))
+         
+        
+        rr = spatial.Rectangle.SafeRound(r)
+        
+        self.assertTrue(r.MinX >= rr.MinX)
+        self.assertTrue(r.MaxX <= rr.MaxX)
+        self.assertTrue(r.MinY >= rr.MinY)
+        self.assertTrue(r.MaxY <= rr.MaxY)
+        self.assertTrue(r.Width <= rr.Width)
+        self.assertTrue(r.Height <= rr.Height)
             
         
     def CompareGroups(self, DictA, DictB):

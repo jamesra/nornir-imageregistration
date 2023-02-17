@@ -11,7 +11,7 @@ from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestW
 import numpy as np
 import os
 from test.setup_imagetest import ImageTestBase
-from . import TransformAgreementCheck
+from . import TransformAgreementCheck, TranslateRotateTransformPoints
 
 
 class TestRigidTransforms(unittest.TestCase):
@@ -51,28 +51,48 @@ class TestRigidTransforms(unittest.TestCase):
         controlPoint = OffsetTransformPoints[:, 0:2]
 
         TransformCheck(self, T, warpedPoint, controlPoint)
+        
+    def testRotate_simple(self):
+        #Rotate a point at x=1, y= 0
+        
+        angle = np.pi / 6.0
+        T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], angle)
 
-    def testRotate(self):
-        angle = np.pi / 4.0
-        T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], np.pi / 4.0)
+        sourcePoint = [[0, 1],
+                       [0, 2]] #[y, x]
 
-        sourcePoint = [[0, 0],
-                       [10, 0]]
-
-        targetPoint = [[0, 0],
-                       [np.cos(angle) * 10, np.sin(angle) * 10]]
+        targetPoint = [[np.sin(angle), np.cos(angle)],
+                       [np.sin(angle) * 2, np.cos(angle) * 2]]
 
         sourcePoint = np.asarray(sourcePoint)
         targetPoint = np.asarray(targetPoint)
 
         TransformCheck(self, T, sourcePoint, targetPoint)
+        
+    def test_Rotate90_standard_points(self):  
+        offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0
+        source_rotation_center = np.array((1.5, 2.5))
+        
+        angle = np.pi / 2.0
+        T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center, angle) 
+        
+        points = TranslateRotateTransformPoints
+        target_points = points[:, 0:2]
+        source_points = points[:, 2:]
+        
+        output_target_points = T.Transform(source_points)
+        output_source_points = T.InverseTransform(target_points)
+        
+        self.assertTrue(np.allclose(output_target_points, target_points), "Target points should match")
+        self.assertTrue(np.allclose(output_source_points, source_points), "Target points should match")
+ 
 
     def testOffsetRotate_Rigid(self):
-        angle = np.pi / 4.0
-        T = nornir_imageregistration.transforms.Rigid([0, 0], source_rotation_center=[1, 0], angle=np.pi / 4.0)
+        angle = np.pi / 6.0
+        T = nornir_imageregistration.transforms.Rigid([0, 0], source_rotation_center=[1, 0], angle=angle)
 
         sourcePoint = [[0, 0],
-                       [10, 0]]
+                       [0, 10]]
 
         targetPoint = [[-np.cos(angle), -np.sin(angle)],
                        [np.cos(angle) * 9, np.sin(angle) * 9]]
@@ -83,12 +103,12 @@ class TestRigidTransforms(unittest.TestCase):
         TransformCheck(self, T, sourcePoint, targetPoint)
 
     def testOffsetRotateTranslate_Rigid(self):
-        angle = np.pi / 4.0
+        angle = np.pi / 6.0
         T = nornir_imageregistration.transforms.Rigid([1, 2], source_rotation_center=[1, 0],
-                                                      angle=np.pi / 4.0)
+                                                      angle=angle)
 
         sourcePoint = [[0, 0],
-                       [10, 0]]
+                       [0, 10]]
 
         sourcePoint = np.asarray(sourcePoint)
 
@@ -134,14 +154,14 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         TransformCheck(self, T, warpedPoint, controlPoint)
 
     def testRotate(self):
-        angle = np.pi / 4.0
-        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], np.pi / 4.0)
+        angle = np.pi / 6.0
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], angle)
 
         sourcePoint = [[0, 0],
-                       [10, 0]]
+                       [0, 10]] #[y, x]
 
         targetPoint = [[0, 0],
-                       [np.cos(angle) * 10, np.sin(angle) * 10]]
+                       [np.sin(angle) * 10, np.cos(angle) * 10]]
 
         sourcePoint = np.asarray(sourcePoint)
         targetPoint = np.asarray(targetPoint)
@@ -151,42 +171,61 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
     def testRotate_simple(self):
         #Rotate a point at x=1, y= 0
         
-        angle = np.pi / 4.0
-        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], np.pi / 4.0)
+        angle = np.pi / 6.0
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], angle)
 
-        sourcePoint = [[1, 0],
-                       [2, 0]]
+        sourcePoint = [[0, 1],
+                       [0, 2]] #[y, x]
 
-        targetPoint = [[np.cos(angle), np.sin(angle)],
-                       [np.cos(angle) * 2, np.sin(angle) * 2]]
+        targetPoint = [[np.sin(angle), np.cos(angle)],
+                       [np.sin(angle) * 2, np.cos(angle) * 2]]
 
         sourcePoint = np.asarray(sourcePoint)
         targetPoint = np.asarray(targetPoint)
 
         TransformCheck(self, T, sourcePoint, targetPoint)
+        
+    def test_Rotate90_standard_points(self):  
+        offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0
+        source_rotation_center = np.array((1.5, 2.5))
+        
+        angle = np.pi / 2.0
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset, source_rotation_center, angle) 
+        
+        points = TranslateRotateTransformPoints
+        target_points = points[:, 0:2]
+        source_points = points[:, 2:]
+        
+        output_target_points = T.Transform(source_points)
+        output_source_points = T.InverseTransform(target_points)
+        
+        self.assertTrue(np.allclose(output_target_points, target_points), "Target points should match")
+        self.assertTrue(np.allclose(output_source_points, source_points), "Target points should match")
 
-    def testOffsetRotate_Rigid(self):
-        angle = np.pi / 4.0
-        offset = np.array((1, 0), dtype=float)
+    def testOffsetRotate(self):
+        angle = np.pi / 6.0
+        offset = np.array((0, 1), dtype=float)
         
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], source_rotation_center=offset,
-                                                                              angle=np.pi / 4.0)
+                                                                              angle=angle)
 
-        sourcePoint = [[0, 0],
-                       [10, 0]]
-
-        targetPoint = [[-np.cos(angle), -np.sin(angle)],
-                       [np.cos(angle) * 9, np.sin(angle) * 9]]
-        targetPoint = np.asarray(targetPoint) + np.asarray([1, 0])
-
+        sourcePoint = np.array([[0, 1],
+                       [0, 10]]) #[y, x]
+        #
+        # t_source_point -= offset
+        #
+        # targetPoint = np.array([[np.sin(angle), np.cos(angle)],
+        #                [np.sin(angle) * (sourcePoint[1, 0] - offset[0]), np.cos(angle) * (sourcePoint[1, 1] - offset[1])]])
+        # targetPoint = np.asarray(targetPoint) + offset
+        
         sourcePoint = np.asarray(sourcePoint)
 
-        TransformCheck(self, T, sourcePoint, targetPoint)
+        TransformInverseCheck(self, T, sourcePoint)
 
-    def testOffsetRotateTranslate_Rigid(self):
+    def testOffsetRotateTranslate(self):
         angle = np.pi / 4.0
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([1, 2], source_rotation_center=[1, 0],
-                                                                              angle=np.pi / 4.0)
+                                                                              angle=angle)
 
         sourcePoint = [[0, 0],
                        [10, 0]]
@@ -194,6 +233,51 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         sourcePoint = np.asarray(sourcePoint)
 
         TransformInverseCheck(self, T, sourcePoint)
+
+    def testOffsetRotateTranslateScale(self):
+        angle = np.pi / 4.0
+        scale = 2
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([1, 2], source_rotation_center=[1, 0],
+                                                                              angle=angle,
+                                                                              scalar=scale)
+
+        sourcePoint = [[0, 0],
+                       [10, 0]]
+
+        sourcePoint = np.asarray(sourcePoint)
+
+        TransformInverseCheck(self, T, sourcePoint)
+
+    def testScale(self):
+        angle = 0
+        scale = 10
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], source_rotation_center=[0, 0],
+                                                                              angle=angle,
+                                                                              scalar=10)
+
+        sourcePoint = np.array([[0, 1],
+                       [2, 0],
+                       [-2, -1]])
+
+        targetPoint = sourcePoint * scale
+
+        TransformCheck(self, T, sourcePoint, targetPoint)
+
+    def testScaleWithTranslation(self):
+        angle = 0
+        scale = 10
+        offset = (5, 5)
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset, source_rotation_center=[0, 0],
+                                                                              angle=angle,
+                                                                              scalar=10)
+
+        sourcePoint = np.array([[0, 1],
+                       [2, 0],
+                       [-2, -1]])
+
+        targetPoint = (sourcePoint * scale) + offset
+
+        TransformCheck(self, T, sourcePoint, targetPoint)
 
 
 class TestRigidFactory(ImageTestBase):

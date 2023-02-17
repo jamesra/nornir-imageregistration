@@ -169,6 +169,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         """
         This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
         """
+        
+        #Do not stress about this test until you verify the input transform was 
+        #not affected by the grid transform saving bug and that it is a valid 
+        #starting point
+        
         # self.TestName = "StosRefinementRC2_617"
         stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
         # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
@@ -620,7 +625,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         ####Begin 2nd pass.  Pretend we need to shift every over one
         for iRow in range(0, transform.SourcePoints.shape[0]):
             r = EnhancedAlignmentRecord(records[iRow].ID,
-                                        transform._TargetPoints[iRow, :],
+                                        transform.TargetPoints[iRow, :],
                                         transform.SourcePoints[iRow, :],
                                         (0, -1),
                                         5.0)

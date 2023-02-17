@@ -180,7 +180,6 @@ class TestGridFitting(unittest.TestCase):
         transformed_target_points = input_points @ rot_mat
         transformed_target_points = transformed_target_points[:,0:2]
         np.testing.assert_allclose(target_points, transformed_target_points)
-        
 
 
 if __name__ == "__main__":

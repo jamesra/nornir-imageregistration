@@ -661,10 +661,10 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         # TargetRegion = np.array(TargetRegion) * target_space_scale
         Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(TargetRegionRect,
                                                                                      target_space_scale)
-        Scaled_rounded_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
+        Scaled_rounded_TargetRegionRect = nornir_imageregistration.Rectangle.SnapRound(Scaled_TargetRegionRect)
     else:
         Scaled_TargetRegionRect = TargetRegionRect
-        Scaled_rounded_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
+        Scaled_rounded_TargetRegionRect = nornir_imageregistration.Rectangle.SnapRound(TargetRegionRect)
 
     (target_width, target_height, target_minX, target_minY) = (Scaled_rounded_TargetRegionRect.Width,
                                    Scaled_rounded_TargetRegionRect.Height,

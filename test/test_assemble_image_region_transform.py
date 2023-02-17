@@ -77,10 +77,7 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         target_image = self.create_nested_squares_image((9, 10))
 
         source_to_target_offset = np.array((1, -2))
-        source_image = nornir_imageregistration.CropImage(source_image, Xo=source_to_target_offset[1], Yo=source_to_target_offset[0],
-                                                          Width=target_image.shape[1] + np.abs(source_to_target_offset[1]),
-                                                          Height=target_image.shape[0] + np.abs(source_to_target_offset[0]),
-                                                          cval=0)
+        
         cell_size = np.array((3, 3))
         grid_dims = np.array((3, 3))
         self.run_grid_division(source_image=source_image,
@@ -100,6 +97,11 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
                                                  cell_size=cell_size,
                                                  grid_dims=grid_dims,
                                                  transform=transform)
+        
+        source_image = nornir_imageregistration.CropImage(source_image, Xo=source_to_target_offset[1], Yo=source_to_target_offset[0],
+                                                          Width=target_image.shape[1] + np.abs(source_to_target_offset[1]),
+                                                          Height=target_image.shape[0] + np.abs(source_to_target_offset[0]),
+                                                          cval=0)
 
         for source_point in grid_division.SourcePoints:
             # target_image_roi = nornir_imageregistration.assemble.TargetImageToSourceSpace(transform,

@@ -1195,7 +1195,7 @@ def MergeDisconnectedLayouts(layout_list):
         
         matrix_B = np.vstack([row[1] for row in B])
         
-        distances = nornir_imageregistration.transforms.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
+        distances = scipy.spatial.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
         A_min = np.min(distances, 1)
         B_min = np.min(distances, 0)
         iA = np.argmin(A_min)

@@ -140,12 +140,25 @@ class AlignmentRecord(object):
         if warpedImageSize is None:
             warpedImageSize = fixedImageSize
 
-        return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak,
-                                                                                rangle=self.rangle,
-                                                                                target_image_shape=fixedImageSize,
-                                                                                source_image_shape=warpedImageSize,
-                                                                                flip_ud=self.flippedud
-                                                                                )
+        warpedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(warpedImageSize)
+        fixedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(fixedImageSize)
+
+        source_center_of_rotation = warpedImageSize / 2.0
+        #Adjust the center of rotation by 0.5 if there is an even dimension
+        #source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
+        target_translation = ((fixedImageSize / 2.0) - (warpedImageSize / 2.0)) + self.peak
+
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
+                                                         source_rotation_center=source_center_of_rotation,
+                                                         angle=self.rangle,
+                                                         flip_ud=self.flippedud)
+
+        #return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak,
+        #                                                                        rangle=self.rangle,
+        #                                                                        target_image_shape=fixedImageSize,
+        #                                                                        source_image_shape=warpedImageSize,
+        #                                                                        flip_ud=self.flippedud
+        #                                                                        )
 
         # return nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(target_image_shape=fixedImageSize,
         #                                                                         source_image_shape=warpedImageSize,

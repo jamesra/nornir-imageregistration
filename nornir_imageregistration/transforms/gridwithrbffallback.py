@@ -46,14 +46,13 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         return self._discrete_transform.ToITKString()
     
     def __getstate__(self):
-        #odict = super(GridWithRBFFallback, self).__getstate__()
-        odict = dict()
+        odict = super(GridWithRBFFallback, self).__getstate__() 
         odict['_discrete_transform'] = self._discrete_transform
         odict['_continuous_transform'] = self._continuous_transform
         return odict
 
     def __setstate__(self, dictionary):
-        #super(GridWithRBFFallback, self).__setstate__(dictionary)
+        super(GridWithRBFFallback, self).__setstate__(dictionary)
         self._discrete_transform = dictionary['_discrete_transform']
         self._continuous_transform = dictionary['_continuous_transform']
 
@@ -64,15 +63,15 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
            Clear out our data structures so we do not use bad data"""
-        self._continous_transform.ClearDataStructures()
+        self._continuous_transform.ClearDataStructures()
         self._discrete_transform.ClearDataStructures()
 
     def OnFixedPointChanged(self):
-        self._continous_transform.OnFixedPointChanged()
+        self._continuous_transform.OnFixedPointChanged()
         self._discrete_transform.OnFixedPointChanged()
 
     def OnWarpedPointChanged(self):
-        self._continous_transform.OnWarpedPointChanged()
+        self._continuous_transform.OnWarpedPointChanged()
         self._discrete_transform.OnWarpedPointChanged()
 
     def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
@@ -152,7 +151,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         """
         super(GridWithRBFFallback, self).__init__()
 
-        self._discrete_transform = discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
+        self._discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
         self._continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
 
     def AddTransform(self, mappedTransform: IControlPoints, EnrichTolerance=None, create_copy=True):
@@ -173,29 +172,29 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         return self._discrete_transform.FixedBoundingBox
 
     @property
-    def SourcePoints(self) -> NDArray:
+    def SourcePoints(self) -> NDArray[float]:
         return self._discrete_transform.SourcePoints
 
     @property
-    def TargetPoints(self) -> NDArray:
+    def TargetPoints(self) -> NDArray[float]:
         return self._discrete_transform.TargetPoints
 
     @property
-    def points(self) -> NDArray:
+    def points(self) -> NDArray[float]:
         return self._discrete_transform.points
 
     @property
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestFixedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestWarpedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -209,6 +208,19 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     @property
     def FixedTriangles(self):
         return self._discrete_transform.FixedTriangles
+
+    def TranslateFixed(self, offset: NDArray[float]):
+        '''Translate all fixed points by the specified amount'''
+
+        self._discrete_transform.TranslateFixed(offset)
+        self._continuous_transform.TranslateFixed(offset)
+        self.OnFixedPointChanged()
+
+    def TranslateWarped(self, offset: NDArray[float]):
+        '''Translate all warped points by the specified amount'''
+        self._discrete_transform.TranslateWarped(offset)
+        self._continuous_transform.TranslateWarped(offset)
+        self.OnWarpedPointChanged()
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''

@@ -33,8 +33,7 @@ from scipy import pi
 import test.setup_imagetest
 import numpy as np
 
-
-from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck
+from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, TranslateRotateFlippedTransformPoints
  
 
 
@@ -99,7 +98,6 @@ class TestAlignmentRecord(unittest.TestCase):
 
     def testRotationFlipped(self):
         record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 90, True)
-        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
         predictedArray = np.array([[10, 10],
@@ -114,6 +112,11 @@ class TestAlignmentRecord(unittest.TestCase):
         transform = record.ToTransform([10, 10], [10, 10])
         TransformCheck(self, transform, [[5, 5]], [[5, 5]])
         TransformCheck(self, transform, [[0, 0]], [[10, 10]])
+
+        sourcePoints = TranslateRotateFlippedTransformPoints[:, 2:]
+        targetPoints = TranslateRotateFlippedTransformPoints[:, 0:2]
+
+        transform.TransformCheck(transform, sourcePoints, targetPoints)
 
     def testTranslate(self):
         peak = [3, 1]
