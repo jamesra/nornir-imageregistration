@@ -32,17 +32,17 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
         mapped_corners = self.InverseTransform(rect.Corners)
         return Rectangle.CreateBoundingRectangleForPoints(mapped_corners)
 
-    def TranslateFixed(self, offset):
+    def TranslateFixed(self, offset: NDArray[float]):
         '''Translate all fixed points by the specified amount'''
         self.target_offset = self.target_offset + offset
         self.OnTransformChanged()
 
-    def TranslateWarped(self, offset):
+    def TranslateWarped(self, offset: NDArray[float]):
         '''Translate all warped points by the specified amount'''
         self.target_offset = self.target_offset - offset
         self.OnTransformChanged()
 
-    def Scale(self, value):
+    def Scale(self, value: float):
         '''Scale both warped and control space by scalar'''
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * value
         self.target_offset = self.target_offset * value
@@ -126,16 +126,19 @@ class Rigid(RigidNoRotation):
     '''
 
     def __getstate__(self):
-        return super(Rigid, self).__getstate__()
+        data = super(Rigid, self).__getstate__()
+        data['flip_ud'] = self.flip_ud
+        return data
 
     def __setstate__(self, dictionary):
         super(Rigid, self).__setstate__(dictionary)
+        self.flip_ud = dictionary['flip_ud']
         self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
         self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
 
     def __init__(self, target_offset: tuple[float, float] | list[float, float] | NDArray,
                  source_rotation_center: tuple[float, float] | list[float, float] | NDArray | None = None,
-                 angle: float | None = None, **kwargs):
+                 angle: float | None = None, flip_ud: bool = False, **kwargs):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -146,11 +149,17 @@ class Rigid(RigidNoRotation):
         '''
         super(Rigid, self).__init__(target_offset, source_rotation_center, angle, **kwargs)
 
+        self.flip_ud = flip_ud
+        
         self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
         self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
+        
+        if flip_ud:
+            flip_y_matrix = nornir_imageregistration.transforms.utils.FlipMatrixY()
+            self.forward_rotation_matrix = flip_y_matrix @ self.forward_rotation_matrix
+            self.inverse_rotation_matrix = flip_y_matrix @ self.inverse_rotation_matrix 
 
-
-
+ 
     @property
     def angle(self):
         return self._angle
@@ -172,7 +181,7 @@ class Rigid(RigidNoRotation):
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
-        if self.angle == 0:
+        if self.angle == 0 and not self.flip_ud:
             return points + self.target_offset
 
         numPoints = points.shape[0]
@@ -181,19 +190,19 @@ class Rigid(RigidNoRotation):
         #centered_points = np.transpose(centered_points)
         centered_points = np.hstack((centered_points, np.ones((numPoints, 1))))
 
-        centered_rotated_points = centered_points @ self.forward_rotation_matrix
+        centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
         #centered_rotated_points = np.transpose(centered_rotated_points)
         centered_rotated_points = centered_rotated_points[:, 0:2]
 
         rotated_points = centered_rotated_points + self.source_space_center_of_rotation
         output_points = rotated_points + self.target_offset
-        return np.asarray(output_points)
+        return np.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
 
     def InverseTransform(self, points, **kwargs):
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
-        if self.angle == 0:
+        if self.angle == 0 and not self.flip_ud:
             return points - self.target_offset
 
         numPoints = points.shape[0]
@@ -202,13 +211,14 @@ class Rigid(RigidNoRotation):
         centered_points = input_points - self.source_space_center_of_rotation
 
         #centered_points = np.transpose(centered_points)
-        centered_points = np.hstack((centered_points, np.ones((numPoints, 1))))
-        rotated_points = centered_points @ self.inverse_rotation_matrix
+        centered_points = np.hstack((centered_points, np.zeros((numPoints, 1))))
+        #rotated_points = centered_points @ self.inverse_rotation_matrix
+        rotated_points = (self.inverse_rotation_matrix @ centered_points.T).T
         #rotated_points = np.transpose(rotated_points)
         rotated_points = rotated_points[:, 0:2]
 
         output_points = rotated_points + self.source_space_center_of_rotation
-        return np.asarray(output_points)
+        return np.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
 
     def __repr__(self):
         return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}deg Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
@@ -265,18 +275,22 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
                                                                                                        0])
 
     def Scale(self, scalar: float):
+
+        # We aren't changing the relative scale of either space compared to the other
+        # We are changing the scale of both spaces, so simply adjust the target and source space offsets
+        self.target_offset = self.target_offset * scalar
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
-        self._scalar = self._scalar * scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar: float):
         '''Scale source space control points by scalar'''
-        self.source_space_center_of_rotation = self.source_space_center_of_rotation / scalar
+        self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
         self._scalar = self._scalar / scalar
         self.OnTransformChanged()
 
     def ScaleFixed(self, scalar: float):
         '''Scale target space control points by scalar'''
+        self.target_offset = self.target_offset * scalar
         self._scalar = self._scalar * scalar
         self.OnTransformChanged()
 
@@ -296,7 +310,8 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
         if self._scalar != 1.0:
             centered_points = centered_points * self._scalar
 
-        centered_rotated_points = centered_points @ self.forward_rotation_matrix
+        #centered_rotated_points = centered_points @ self.forward_rotation_matrix
+        centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
         #centered_rotated_points = np.transpose(centered_rotated_points)
         centered_rotated_points = centered_rotated_points[:, 0:2]
 
@@ -322,7 +337,8 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
         if self._scalar != 1.0:
             centered_points = centered_points / self._scalar
 
-        rotated_points = centered_points @ self.inverse_rotation_matrix
+        #rotated_points = centered_points @ self.inverse_rotation_matrix
+        rotated_points = (self.inverse_rotation_matrix @ centered_points.T).T
         #rotated_points = np.transpose(rotated_points)
         rotated_points = rotated_points[:, 0:2]
 
