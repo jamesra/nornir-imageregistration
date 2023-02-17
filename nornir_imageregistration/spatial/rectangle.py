@@ -674,13 +674,21 @@ class Rectangle(object):
 
     @classmethod
     def SafeRound(cls, A: Rectangle) -> Rectangle:
-        """Round the rectangle bounds to the nearest integer, increasing in area and never decreasing.
+        """Round the rectangle bounds to the nearest integer, increasing in area and never decreasing. 
+           The SafeRound result will cover the entire 
            The bottom left corner is rounded down and the upper right corner is rounded up.
            This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
            cause them to have mismatched bounding boxes"""
 
-        bottomleft = np.floor(A.BottomLeft)
-        topright = bottomleft + np.ceil(A.Size)
+        #Rounding is done in the transforms for now, but this may be worth restoring
+        #bottomleft = np.around(A.BottomLeft, 6)
+        #topright = np.around(A.TopRight, 6)
+        bottomleft = A.BottomLeft
+        topright = A.TopRight
+        size = topright - bottomleft
+
+        bottomleft = np.floor(bottomleft)
+        topright = bottomleft + np.ceil(size)
 
         if topright[0] < A.TopRight[0]:
             topright[0] += 1
@@ -688,6 +696,27 @@ class Rectangle(object):
         if topright[1] < A.TopRight[1]:
             topright[1] += 1
 
+        return cls.CreateFromPointAndArea(bottomleft, topright - bottomleft)
+
+    @classmethod
+    def SnapRound(cls, A: Rectangle) -> Rectangle:
+        """Translate the bottom left of the rectangle bounds to the nearest integer.  Then round up the top-right to the
+           nearest integer.  Area may increase but not decrease. 
+           The snapped rectangle is not guaranteed to completely overlap the original boundaries in all cases  
+           The bottom left corner is rounded down and the upper right corner is rounded up.
+           This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
+           cause them to have mismatched bounding boxes"""
+
+        #Rounding is done in the transforms for now, but this may be worth restoring
+        #bottomleft = np.around(A.BottomLeft, 6)
+        #topright = np.around(A.TopRight, 6)
+        bottomleft = A.BottomLeft
+        topright = A.TopRight
+        size = topright - bottomleft
+
+        bottomleft = np.floor(bottomleft)
+        topright = bottomleft + np.ceil(size)
+  
         return cls.CreateFromPointAndArea(bottomleft, topright - bottomleft)
 
     def __str__(self):
