@@ -78,17 +78,17 @@ class ITransformTargetRotation(ABC):
 
 class ITransformScaling(ABC):
     @abstractmethod
-    def Scale(self, scalar: float):
+    def Scale(self, scalar: float) -> None:
         """Scale both spaces by the specified amount"""
         raise NotImplementedError()
 
     @abstractmethod
-    def ScaleFixed(self, scalar: float):
+    def ScaleFixed(self, scalar: float) -> None:
         """Scale all fixed points by the specified amount"""
         raise NotImplementedError()
 
     @abstractmethod
-    def ScaleWarped(self, scalar: float):
+    def ScaleWarped(self, scalar: float) -> None:
         """Scale all warped points by the specified amount"""
         raise NotImplementedError()
 
