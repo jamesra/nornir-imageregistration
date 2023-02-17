@@ -39,12 +39,18 @@ import matplotlib.pyplot as plt
 
 plt.ioff()
 
-
 import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
 
 import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
+
+def RoundingPrecision(dtype: numpy.typing.DTypeLike):
+    """Determine how many digits of precision we can get from a value at most"""
+    if not dtype.kind == 'f':
+        raise ValueError(f"Expected floating dtype, got {dtype}")
+
+    return int(np.abs(np.log10(np.finfo(dtype).eps)))
 
 def ParamToDtype(param) -> DTypeLike:
     if param is None:
