@@ -142,8 +142,5 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
 
     # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
 
-    t = nornir_imageregistration.transforms.triangulation.Triangulation(point_pairs)
-    t.gridWidth = grid_data.grid_dims[1]
-    t.gridHeight = grid_data.grid_dims[0]
-
+    t = nornir_imageregistration.transforms.GridWithRBFFallback(grid_data)  
     return t
