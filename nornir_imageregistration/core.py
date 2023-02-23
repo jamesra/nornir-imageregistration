@@ -1379,7 +1379,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     """
 
     if Cutoff is None:
-        Cutoff = 0.995
+        Cutoff = 0.996
     #        num_pixels = np.prod(image.shape)
 
     #        if (1.0 - Cutoff) * num_pixels > 1000:
@@ -1413,6 +1413,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         PeakStrength = LabelSums[PeakValueIndex]
         #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
         PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex+1)
+        #PeakArea = np.sum(LabelImage == PeakValueIndex + 1)
         #PeakMaximumPosition = scipy.ndimage.maximum_position(ThresholdImage, LabelImage, PeakValueIndex+1)
         # nPixelsInLabel = np.sum(LabelImage == PeakValueIndex+1)
         # if (nPixelsInLabel / np.prod(image.shape)) > 0.001: #Tighten up the cutoff until the peak contains only about 1 in 1000 pixels in the threshold image
@@ -1420,12 +1421,18 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     scaled_offset, Weight = FindPeak(image, OverlapMask, Cutoff=new_cutoff)
         #     return scaled_offset, Weight
          
-        FalsePeakStrength = np.sum(LabelSums[:PeakValueIndex]) + np.sum(LabelSums[PeakValueIndex+1:])
+        OtherPeaks = np.delete(LabelSums, PeakValueIndex)
+        
+        FalsePeakStrength = np.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
+        #FalsePeakStrength = OtherPeaks.max()
         
         if FalsePeakStrength == 0:
             Weight = PeakStrength
         else:
             Weight = PeakStrength / FalsePeakStrength
+            
+        #if PeakArea > 0:
+        #    Weight /= PeakArea
          
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
         
@@ -1437,7 +1444,6 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         del LabelImage
         del ThresholdImage
         del LabelSums
-
 
         return scaled_offset, Weight
 
