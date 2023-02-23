@@ -341,7 +341,7 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
         return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
     else:
         return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
-                                                         source_center=(y_center, x_center),
+                                                         source_rotation_center=(y_center, x_center),
                                                          angle=angle)
 
 

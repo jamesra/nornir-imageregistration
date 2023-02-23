@@ -19,7 +19,7 @@ class Test(unittest.TestCase):
         target_center = numpy.array(target_center)
         mapped_bbox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), shape)
         target_center =  target_center - mapped_bbox.Center
-        transform = nornir_imageregistration.transforms.Rigid(target_center, MappedBoundingBox=mapped_bbox)
+        transform = nornir_imageregistration.transforms.Rigid(target_center)
         temp_image = nornir_imageregistration.GenRandomData(height=shape[0], width=shape[1], mean=0.5, standardDev=0.25, min_val=0.0, max_val=1.0)
         tile = nornir_imageregistration.tile.Tile(transform, temp_image, image_to_source_space_scale=1.0, ID=cls.tile_ID)
         cls.tile_ID = cls.tile_ID + 1

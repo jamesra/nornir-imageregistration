@@ -54,7 +54,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
 
     def __init__(self, target_offset=tuple[float, float] | list[float, float] | NDArray[float],
                  source_rotation_center: tuple[float, float] | list[float, float] | NDArray[float] | None = None,
-                 angle: float | None = None, **kwargs):
+                 angle: float | None = None):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -138,7 +138,7 @@ class Rigid(RigidNoRotation):
 
     def __init__(self, target_offset: tuple[float, float] | list[float, float] | NDArray,
                  source_rotation_center: tuple[float, float] | list[float, float] | NDArray | None = None,
-                 angle: float | None = None, flip_ud: bool = False, **kwargs):
+                 angle: float | None = None, flip_ud: bool = False):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -147,7 +147,7 @@ class Rigid(RigidNoRotation):
         :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         '''
-        super(Rigid, self).__init__(target_offset, source_rotation_center, angle, **kwargs)
+        super(Rigid, self).__init__(target_offset, source_rotation_center, angle)
 
         self.flip_ud = flip_ud
         
@@ -244,7 +244,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
 
     def __init__(self, target_offset: tuple[float, float] | list[float, float] | NDArray,
                  source_rotation_center: tuple[float, float] | list[float, float] | NDArray | None = None,
-                 angle: float = None, scalar: float = None, **kwargs):
+                 angle: float = None, scalar: float = None, flip_ud: bool = False):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -253,7 +253,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
         :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         '''
-        super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, **kwargs)
+        super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, flip_ud)
 
         self._scalar = 1.0 if scalar is None else scalar
 
