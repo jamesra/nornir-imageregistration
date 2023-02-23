@@ -12,7 +12,8 @@ from numpy.typing import NDArray
 import nornir_pools
 import nornir_imageregistration 
 from . import utils, TransformType
-from .base import IDiscreteTransform, ITransformScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation
+from .base import IDiscreteTransform, ITransformScaling, ITransformTranslation, \
+ IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace
 
 import scipy
 from scipy.interpolate import LinearNDInterpolator
@@ -23,7 +24,7 @@ from .controlpointbase import ControlPointBase
 
 
 class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation,
-                    ITransformTargetRotation, ControlPointBase):
+                    ITransformTargetRotation, ITriangulatedTargetSpace, ControlPointBase):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
@@ -48,7 +49,7 @@ class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit,
         return self._FixedKDTree
 
     @property
-    def fixedtri(self):
+    def fixedtri(self) -> scipy.spatial.Delaunay:
         if self._fixedtri is None:
             # try:
             # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
@@ -56,9 +57,13 @@ class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit,
             self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
+    
+    @property
+    def target_space_trianglulation(self)->scipy.spatial.Delaunay:
+        return self.fixedtri
 
     @property
-    def warpedtri(self):
+    def warpedtri(self) -> scipy.spatial.Delaunay:
         if self._warpedtri is None:
             # try:
             # self._warpedtri = Delaunay(self.SourcePoints, incremental =True)

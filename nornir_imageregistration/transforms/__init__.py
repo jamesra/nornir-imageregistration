@@ -2,7 +2,8 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
            'ITransformScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
-           'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance']
+           'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
+           'ITriangulatedTargetSpace']
 
 import numpy as np
 from numpy.typing import NDArray
@@ -30,7 +31,7 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
-    IGridTransform
+    IGridTransform, ITriangulatedTargetSpace
 
 import nornir_imageregistration.transforms.defaulttransformchangeevents as defaulttransformchangeevents
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents

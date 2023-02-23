@@ -14,6 +14,21 @@ from test.setup_imagetest import ImageTestBase
 from . import TransformAgreementCheck, TranslateRotateTransformPoints
 
 
+def _testRotate_simple(self: unittest.TestCase, T: nornir_imageregistration.transforms.Rigid):
+    angle = T.angle
+
+    sourcePoint = [[0, 1],
+                   [0, 2]]  # [y, x]
+
+    targetPoint = [[np.sin(angle), np.cos(angle)],
+                   [np.sin(angle) * 2, np.cos(angle) * 2]]
+
+    sourcePoint = np.asarray(sourcePoint)
+    targetPoint = np.asarray(targetPoint)
+
+    TransformCheck(self, T, sourcePoint, targetPoint)
+
+
 class TestRigidTransforms(unittest.TestCase):
 
     # def test_rigid_transform_boundingboxes(self):
@@ -51,23 +66,16 @@ class TestRigidTransforms(unittest.TestCase):
         controlPoint = OffsetTransformPoints[:, 0:2]
 
         TransformCheck(self, T, warpedPoint, controlPoint)
+
         
     def testRotate_simple(self):
         #Rotate a point at x=1, y= 0
-        
         angle = np.pi / 6.0
         T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], angle)
+        self.assertTrue(angle == T.angle)
 
-        sourcePoint = [[0, 1],
-                       [0, 2]] #[y, x]
+        _testRotate_simple(self, T)
 
-        targetPoint = [[np.sin(angle), np.cos(angle)],
-                       [np.sin(angle) * 2, np.cos(angle) * 2]]
-
-        sourcePoint = np.asarray(sourcePoint)
-        targetPoint = np.asarray(targetPoint)
-
-        TransformCheck(self, T, sourcePoint, targetPoint)
         
     def test_Rotate90_standard_points(self):  
         offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0
@@ -173,17 +181,9 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         
         angle = np.pi / 6.0
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform([0, 0], [0, 0], angle)
+        self.assertTrue(angle == T.angle)
 
-        sourcePoint = [[0, 1],
-                       [0, 2]] #[y, x]
-
-        targetPoint = [[np.sin(angle), np.cos(angle)],
-                       [np.sin(angle) * 2, np.cos(angle) * 2]]
-
-        sourcePoint = np.asarray(sourcePoint)
-        targetPoint = np.asarray(targetPoint)
-
-        TransformCheck(self, T, sourcePoint, targetPoint)
+        _testRotate_simple(self, T)
         
     def test_Rotate90_standard_points(self):  
         offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0

@@ -21,11 +21,11 @@ import nornir_imageregistration.transforms
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.transform_type import TransformType
 from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform,\
-    ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform
+    ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformTargetRotation,
-                          ITargetSpaceControlPointEdit, IGridTransform, DefaultTransformChangeEvents):
+                          ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace, DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -202,12 +202,16 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         return self._discrete_transform.NearestWarpedPoint(points)
 
     @property
-    def fixedtri(self):
+    def fixedtri(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.FixedTriangles
 
     @property
-    def FixedTriangles(self):
+    def FixedTriangles(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.FixedTriangles
+    
+    @property
+    def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
+        return self._discrete_transform.target_space_trianglulation
 
     def TranslateFixed(self, offset: NDArray[float]):
         '''Translate all fixed points by the specified amount'''

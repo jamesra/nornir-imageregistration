@@ -1,8 +1,9 @@
-__all__ = ['transformwarp', 'alignment_records', 'display_images']
+__all__ = ['transformwarp', 'alignment_records', 'display_images', 'TransformWarpView', 'StosTransformWarpView',
+           'ShowGrayscale', 'plot_tile_overlaps', 'plot_tile_overlap', 'plot_layout', 'plot_aligned_images']
 
 import matplotlib
 import matplotlib.pyplot as plt 
-from nornir_imageregistration.views.alignment_records import  PlotWeightHistogram, PlotPeakList, plot_aligned_images
+from nornir_imageregistration.views.alignment_records import PlotWeightHistogram, PlotPeakList, plot_aligned_images
 from nornir_imageregistration.views.transformwarp import TransformWarpView, StosTransformWarpView
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.views.tile_overlap import plot_tile_overlap, plot_tile_overlaps

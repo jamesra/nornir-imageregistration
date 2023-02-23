@@ -6,6 +6,7 @@ Created on Oct 18, 2012
 import abc
 from abc import ABC, abstractmethod
 from numpy.typing import *
+import scipy.spatial
 import nornir_imageregistration
 from nornir_imageregistration.transforms.transform_type import TransformType
 
@@ -146,6 +147,11 @@ class IControlPoints(ABC):
     @property
     @abc.abstractmethod
     def NumControlPoints(self) -> int:
+        raise NotImplementedError()
+    
+class ITriangulatedTargetSpace(ABC):
+    @abc.abstractmethod
+    def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
 
 class ITargetSpaceControlPointEdit(ABC):

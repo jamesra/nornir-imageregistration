@@ -9,11 +9,12 @@ import numpy
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import scipy.interpolate
-
-import nornir_imageregistration
-from nornir_imageregistration.transforms import factory  
 import nornir_shared.histogram
 import nornir_shared.plot
+
+
+import nornir_imageregistration
+from nornir_imageregistration.transforms import factory, ITriangulatedTargetSpace
 
 class TransformWarpView:
     
@@ -29,7 +30,7 @@ class TransformWarpView:
         if isinstance(transform, nornir_imageregistration.StosFile):
             transform = factory.LoadTransform(transform.Transform,1)
             
-        if not isinstance(transform, nornir_imageregistration.transforms.triangulation.Triangulation):
+        if not isinstance(transform, ITriangulatedTargetSpace):
             raise ValueError("TransformWarpView requires a TriangulationTransform or a .stos file")
         
         self._angle_delta = None
@@ -37,15 +38,15 @@ class TransformWarpView:
         
         
     @property
-    def transform(self): 
+    def transform(self) -> ITriangulatedTargetSpace: 
         return self.__transform
     
     @transform.setter
-    def transform(self, val):
+    def transform(self, val: ITriangulatedTargetSpace):
         if self.__transform != val:
             self._angle_delta = None
             
-            if not isinstance(val, nornir_imageregistration.transforms.triangulation.Triangulation):
+            if not isinstance(val, ITriangulatedTargetSpace):
                 raise ValueError("TransformWarpView.transform requires an object derived from TriangulationTransform")
             
             self.__transform = val
@@ -61,7 +62,10 @@ class TransformWarpView:
     
         
         
-    def GenerateWarpImage(self, RenderToSourceSpace=True, title=None, outputfullpath=None, maxAngle=None):
+    def GenerateWarpImage(self, RenderToSourceSpace: bool = True,
+                           title: str | None = None,
+                           outputfullpath: str | None = None,
+                           maxAngle: float | None = None):
         '''Generate a plot for the change in angles for verticies
         :param RenderToSourceSpace:
         :param title:
@@ -92,7 +96,7 @@ class TransformWarpView:
         ax1.set_aspect('equal')
         ax1.axis('off')
         #ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:,1], points[:,0], self.transform.WarpedTriangles, measurement, vmin=0, vmax=maxAngle, shading='gouraud')
+        tpc = ax1.tripcolor(points[:,1], points[:,0], self.transform.FixedTriangles, measurement, vmin=0, vmax=maxAngle, shading='gouraud')
 
         cbar = fig1.colorbar(tpc)
         cbar.set_label('Angle delta (radians)')

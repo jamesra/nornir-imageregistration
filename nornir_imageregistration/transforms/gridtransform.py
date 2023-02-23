@@ -12,15 +12,17 @@ import nornir_pools
 import nornir_imageregistration
 from . import utils
 from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, \
-    IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform
+    IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.controlpointbase import ControlPointBase
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
 
-from nornir_imageregistration.transforms.utils import InvalidIndicies
+from nornir_imageregistration.transforms.utils import InvalidIndicies 
 
 
-class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, ControlPointBase):
+class GridTransform(ITransformScaling, ITransformTranslation,
+                    ITransformTargetRotation, ITargetSpaceControlPointEdit,
+                    IGridTransform, ITriangulatedTargetSpace, ControlPointBase):
 
     @property
     def type(self) -> TransformType:
@@ -118,6 +120,10 @@ class GridTransform(ITransformScaling, ITransformTranslation, ITransformTargetRo
             self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
+    
+    @property
+    def target_space_trianglulation(self)->scipy.spatial.Delaunay:
+        return self.fixedtri
 
     def NearestFixedPoint(self, points: NDArray[float]):
         '''Return the fixed points nearest to the query points
