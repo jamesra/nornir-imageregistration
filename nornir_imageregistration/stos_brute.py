@@ -118,17 +118,22 @@ def SliceToSliceBruteForce(FixedImageInput,
         BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)], MinOverlap=MinOverlap, SingleThread=SingleThread)
         BestRefinedMatch.flippedud = IsFlipped
     else:
+        min_step_size = 0.25
         if len(AngleSearchRange) > 2:
             iMatch = AngleSearchRange.index(BestMatch.angle)
             iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(AngleSearchRange) - 1
             iAbove = iMatch + 1 if iMatch + 1 < len(AngleSearchRange) else 0
-            below = AngleSearchRange[iBelow]
-            above = AngleSearchRange[iAbove]
+            below = AngleSearchRange[iMatch-1] if iMatch - 1 >= 0 else AngleSearchRange[0] - np.abs(AngleSearchRange[1] - AngleSearchRange[0])
+            above = AngleSearchRange[iMatch+1] if iMatch + 1 < len(AngleSearchRange) else AngleSearchRange[iMatch] + np.abs(AngleSearchRange[iMatch] - AngleSearchRange[iMatch-1]) 
             refine_search_range = above - below
             nSteps = 20
             stepsize = refine_search_range / nSteps 
             
-            BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * stepsize) + below for x in range(1, nSteps - 1)], MinOverlap=MinOverlap, SingleThread=SingleThread)
+            if stepsize < min_step_size:
+                nSteps = int(refine_search_range / min_step_size)
+                stepsize = refine_search_range / nSteps
+            
+            BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * stepsize) + below for x in range(1, nSteps)], MinOverlap=MinOverlap, SingleThread=SingleThread)
             BestRefinedMatch.flippedud = IsFlipped
         else:
             BestRefinedMatch = BestMatch
@@ -224,11 +229,9 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
     (peak, weight) = nornir_imageregistration.FindPeak(CorrelationImage, OverlapMask)
     del OverlapMask
-
     del CorrelationImage
 
-    record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
-
+    record = nornir_imageregistration.AlignmentRecord(peak, weight, angle) 
     return record
 
 
