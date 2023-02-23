@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import copy
 import logging
 import os
-import sys
 import typing
-  
+
 import nornir_imageregistration
 import nornir_shared.checksum
 import nornir_shared.files
@@ -11,51 +12,50 @@ import nornir_shared.prettyoutput as PrettyOutput
 
 
 def __argumentToStos(Argument):
-
     stosObj = None
     if isinstance(Argument, str):
         stosObj = StosFile.Load(Argument)
     elif isinstance(Argument, StosFile):
         stosObj = Argument
 
-    assert(not stosObj is None)
+    assert (stosObj is not None)
 
     return stosObj
 
 
 class StosFile(object):
     """description of class"""
-    
+
     @staticmethod
-    def FileHasMasks(path) -> bool:
+    def FileHasMasks(path: str) -> bool:
         stosObj = StosFile.Load(path)
         return stosObj.HasMasks
 
     @staticmethod
-    def LoadChecksum(path):
-        #assert(os.path.exists(path))
+    def LoadChecksum(path: str):
+        # assert(os.path.exists(path))
         stosObj = StosFile.Load(path)
         if stosObj is None:
             return None
         return stosObj.Checksum
-    
+
     @property
     def Transform(self):
         return self._Transform
-    
+
     @Transform.setter
-    def Transform(self, val):
+    def Transform(self, val: str | nornir_imageregistration.transforms.ITransform | None):
         if val is None:
             self._Transform = None
-            return 
-        
+            return
+
         if isinstance(val, nornir_imageregistration.transforms.ITransform):
             self._Transform = nornir_imageregistration.transforms.TransformToIRToolsString(val)
         elif isinstance(val, str):
             self._Transform = val
         else:
             raise TypeError("Transform must be a transform object or a ITK transform string")
-        
+
         return
 
     @property
@@ -63,8 +63,8 @@ class StosFile(object):
         return self._Downsample
 
     @Downsample.setter
-    def Downsample(self, newDownsample):
-        if(self._Downsample is None):  # Don't scale if
+    def Downsample(self, newDownsample: float | int):
+        if self._Downsample is None:  # Don't scale if
             self._Downsample = newDownsample
         else:
             scalar = self._Downsample / newDownsample
@@ -77,14 +77,14 @@ class StosFile(object):
 
     @ControlImageFullPath.setter
     def ControlImageFullPath(self, val):
-        
+
         if val is None:
             self.ControlImagePath = None
             self.ControlImageName = None
-        else:        
+        else:
             d = os.path.dirname(val)
             f = os.path.basename(val)
-    
+
             self.ControlImagePath = d.strip()
             self.ControlImageName = f.strip()
 
@@ -94,11 +94,11 @@ class StosFile(object):
 
     @MappedImageFullPath.setter
     def MappedImageFullPath(self, val):
-        
+
         if val is None:
             self.MappedImagePath = None
             self.MappedImageName = None
-        else:        
+        else:
             d = os.path.dirname(val)
             f = os.path.basename(val)
             self.MappedImagePath = d.strip()
@@ -108,16 +108,16 @@ class StosFile(object):
     def ControlMaskFullPath(self) -> str | None:
         if self.ControlMaskPath is None or self.ControlMaskName is None:
             return None
-        
+
         return os.path.join(self.ControlMaskPath, self.ControlMaskName)
 
     @ControlMaskFullPath.setter
-    def ControlMaskFullPath(self, val):
+    def ControlMaskFullPath(self, val: str | None):
         if val is None:
             self.ControlMaskPath = None
-            self.ControlMaskName = None 
-            return 
-        
+            self.ControlMaskName = None
+            return
+
         d = os.path.dirname(val)
         f = os.path.basename(val)
         self.ControlMaskPath = d.strip()
@@ -127,16 +127,16 @@ class StosFile(object):
     def MappedMaskFullPath(self) -> str | None:
         if self.MappedMaskPath is None or self.MappedMaskName is None:
             return None
-        
+
         return os.path.join(self.MappedMaskPath, self.MappedMaskName)
 
     @MappedMaskFullPath.setter
-    def MappedMaskFullPath(self, val):
+    def MappedMaskFullPath(self, val: str | None):
         if val is None:
             self.MappedMaskPath = None
-            self.MappedMaskName = None 
-            return 
-        
+            self.MappedMaskName = None
+            return
+
         d = os.path.dirname(val)
         f = os.path.basename(val)
 
@@ -150,19 +150,19 @@ class StosFile(object):
 
         compressedString = StosFile.CompressedTransformString(self.Transform)
         return nornir_shared.checksum.DataChecksum(compressedString)
-    
+
     @property
     def HasMasks(self) -> bool:
         return not (self.MappedMaskName is None or self.ControlMaskName is None)
-    
+
     def ClearMasks(self):
         '''Remove masks from the file'''
         self.MappedMaskFullPath = None
         self.ControlMaskFullPath = None
-        return 
+        return
 
-#   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
-#   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
+    #   NewImageNameTemplate = ("%(section)" + IrUtil.SectionFormat + "_%(channel)_%(type)_" + str(newspacing) + ".png\n")
+    #   controlNewImageName = NewImageNameTemplate % {'section' : ControlSectionNumber}
 
     def __init__(self):
         self._Transform = None
@@ -199,12 +199,12 @@ class StosFile(object):
 
         self.ImageToTransform = dict()
         return
-    
+
     def __str__(self):
         return f'{self.ControlSectionNumber}<-{self.MappedSectionNumber} DS:{self._Downsample}'
 
     @classmethod
-    def GetInfo(cls, filename):
+    def GetInfo(cls, filename: str):
         '''Returns details about a stos file we can learn from its filename
            returns  [mappedSection, controlSection, Channel, Filter, Source, Downsample]'''
 
@@ -254,7 +254,7 @@ class StosFile(object):
             Logger.info('Could not determine _Downsample: ' + str(filename))
             # raise
 
-        return [mappedSection, controlSection, Channel, Filter, Source, Downsample]
+        return mappedSection, controlSection, Channel, Filter, Source, Downsample
 
     @staticmethod
     def Create(controlImageFullPath, mappedImageFullPath, Transform, controlMaskFullPath=None, mappedMaskFullPath=None):
@@ -263,38 +263,38 @@ class StosFile(object):
         stosObj.MappedImageFullPath = mappedImageFullPath
         stosObj.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(Transform)
 
-        if not controlMaskFullPath is None:
+        if controlMaskFullPath is not None:
             stosObj.ControlMaskFullPath = controlMaskFullPath
             stosObj.MappedMaskFullPath = mappedMaskFullPath
 
         return stosObj
 
     @staticmethod
-    def Load(filename):
-        
+    def Load(filename: str) -> StosFile:
+
         obj = StosFile()
 
         try:
-            [obj.MappedSectionNumber, obj.ControlSectionNumber, Channels, Filters, obj.StosSource, obj._Downsample] = StosFile.GetInfo(filename)
+            [obj.MappedSectionNumber, obj.ControlSectionNumber, Channels, Filters, obj.StosSource,
+             obj._Downsample] = StosFile.GetInfo(filename)
         except:
             pass
 
         lines = []
-        
+
         try:
             with open(filename, 'r') as fMosaic:
                 lines = fMosaic.readlines()
         except FileNotFoundError:
             PrettyOutput.LogErr("stos file not found: " + filename)
-            return
+            raise
         except Exception as error:
             PrettyOutput.LogErr(f"Unexpected error {error} while opening stos file {filename}")
-            return
-            
+            raise
+
         if len(lines) < 7:
-            PrettyOutput.LogErr("%s is not a valid stos file" % (filename))
-            raise ValueError("%s is not a valid stos file" % (filename))
-            
+            PrettyOutput.LogErr("%s is not a valid stos file" % filename)
+            raise ValueError("%s is not a valid stos file" % filename)
 
         obj.ControlImageFullPath = lines[0].strip()
         obj.MappedImageFullPath = lines[1].strip()
@@ -329,7 +329,6 @@ class StosFile(object):
 
         return True
 
-
     def Scale(self, scalar: float):
         '''Scale this stos transform by the requested amount'''
 
@@ -341,12 +340,13 @@ class StosFile(object):
         transformObj = nornir_imageregistration.transforms.LoadTransform(self.Transform, pixelSpacing=1)
         transformObj.Scale(scalar=scalar)
 
-#         if hasattr(transformObj, 'gridWidth'):
-#             # Save as a stos grid if we can
-#             self.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=self.MappedImageDim)
-#         else:
-#             self.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
-        self.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
+        #         if hasattr(transformObj, 'gridWidth'):
+        #             # Save as a stos grid if we can
+        #             self.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(transformObj, transformObj.gridWidth, transformObj.gridHeight, bounds=self.MappedImageDim)
+        #         else:
+        #             self.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj, bounds=self.MappedImageDim)
+        self.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj,
+                                                                                      bounds=self.MappedImageDim)
 
         self._Downsample = self._Downsample * scalar
 
@@ -363,9 +363,9 @@ class StosFile(object):
         OutLines.append("0")
         OutLines.append("0")
 
-       
         if os.path.exists(self.ControlImageFullPath):
-            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(self.ControlImageFullPath)
+            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(
+                self.ControlImageFullPath)
             self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
         else:
             if len(self.ControlImageDim) == 2:
@@ -373,23 +373,23 @@ class StosFile(object):
 
         if self.MappedImageDim is None:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
-            self.MappedImageDim = [1.0, 1.0, (MappedImageWidth), (MappedImageHeight)]
+            self.MappedImageDim = [1.0, 1.0, MappedImageWidth, MappedImageHeight]
         else:
             if len(self.MappedImageDim) == 2:
                 self.MappedImageDim = [1.0, 1.0, int(self.MappedImageDim[0]), int(self.MappedImageDim[1])]
- 
-        assert(self.ControlImageDim[2] >= 0)
-        assert(self.ControlImageDim[3] >= 0)
-        assert(self.MappedImageDim[2] >= 0)
-        assert(self.MappedImageDim[3] >= 0) 
-        
+
+        assert (self.ControlImageDim[2] >= 0)
+        assert (self.ControlImageDim[3] >= 0)
+        assert (self.MappedImageDim[2] >= 0)
+        assert (self.MappedImageDim[3] >= 0)
+
         ControlDimStr = StosFile.__GetImageDimString(self.ControlImageDim)
         MappedDimStr = StosFile.__GetImageDimString(self.MappedImageDim)
 
         OutLines.append(ControlDimStr)
         OutLines.append(MappedDimStr)
 
-        #OutLines.append(StosFile.CompressedTransformString(self.Transform))
+        # OutLines.append(StosFile.CompressedTransformString(self.Transform))
         OutLines.append(self.Transform)
 
         if AddMasks and (not (self.ControlMaskName is None or self.MappedMaskName is None)):
@@ -405,7 +405,6 @@ class StosFile(object):
         OutFile = open(filename, "w")
         OutFile.writelines(OutLines)
         OutFile.close()
-
 
     @staticmethod
     def CompressedTransformString(transform: str) -> str:
@@ -440,40 +439,42 @@ class StosFile(object):
     @staticmethod
     def __GetImageDimString(ImageDimArray) -> str:
         ImageDimTemplate = "%(left)g %(bottom)g %(width)d %(height)d"
-        DimStr = ImageDimTemplate % {'left' : ImageDimArray[0],
-                                            'bottom' : ImageDimArray[1],
-                                            'width' : ImageDimArray[2] - (ImageDimArray[0] - 1),
-                                            'height' : ImageDimArray[3] - (ImageDimArray[1] - 1)}
+        DimStr = ImageDimTemplate % {'left': ImageDimArray[0],
+                                     'bottom': ImageDimArray[1],
+                                     'width': ImageDimArray[2] - (ImageDimArray[0] - 1),
+                                     'height': ImageDimArray[3] - (ImageDimArray[1] - 1)}
         return DimStr
-    
-    
+
     def TryConvertRelativePathsToAbsolutePaths(self, stosDir: str):
         '''
         Converts any relative paths in the StosFile to an absolute path using the stosDir parameter.
         Existing absolute paths are left alone.  Relative paths are unchanged, just prepended with 
         the stosDir parameter 
         '''
-         
-        if stosDir is not None and len(stosDir) > 0:
-            #Ensure any relative paths to images in the .stos file are relative to the position of the stos file    
-            if self.ControlImageFullPath is not None and not os.path.isabs(self.ControlImageFullPath):
-                self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath)
-                
-            if self.MappedImageFullPath is not None and not os.path.isabs(self.MappedImageFullPath):
-                self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath)
-                
-            if self.ControlMaskFullPath is not None and not os.path.isabs(self.ControlMaskFullPath):
-                self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath)
-                
-            if self.MappedMaskFullPath is not None and not os.path.isabs(self.MappedMaskFullPath):
-                self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
 
+        if stosDir is not None and len(stosDir) > 0:
+            # Ensure any relative paths to images in the .stos file are relative to the position of the stos file
+            if self.ControlImageFullPath is not None:
+                if not os.path.isabs(self.ControlImageFullPath):
+                    self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath) 
+
+            if self.MappedImageFullPath is not None:
+                if not os.path.isabs(self.MappedImageFullPath):
+                    self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath) 
+
+            if self.ControlMaskFullPath is not None:
+                if not os.path.isabs(self.ControlMaskFullPath):
+                    self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath) 
+
+            if self.MappedMaskFullPath is not None:
+                if not os.path.isabs(self.MappedMaskFullPath):
+                    self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath) 
 
     def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath,
-                                           MappedImageFullPath,
-                                           ControlMaskFullPath,
-                                           MappedMaskFullPath,
-                                           create_copy=True):
+                                   MappedImageFullPath,
+                                   ControlMaskFullPath,
+                                   MappedMaskFullPath,
+                                   create_copy=True):
         '''
         :param oldspacing:
         :param newspacing:
@@ -484,16 +485,16 @@ class StosFile(object):
         :param bool create_copy: True if a copy of the transform should be scaled, otherwise scales the transform we were called on
         '''
         if oldspacing == newspacing and \
-           ControlImageFullPath == self.ControlImageFullPath and \
-           MappedImageFullPath == self.MappedImageFullPath and \
-           ControlMaskFullPath == self.ControlMaskFullPath and \
-           MappedMaskFullPath == self.MappedMaskFullPath:
+                ControlImageFullPath == self.ControlImageFullPath and \
+                MappedImageFullPath == self.MappedImageFullPath and \
+                ControlMaskFullPath == self.ControlMaskFullPath and \
+                MappedMaskFullPath == self.MappedMaskFullPath:
             if create_copy:
                 return copy.deepcopy(self)
             else:
-                return self            
-        
-        #PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
+                return self
+
+                # PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
         scale = float(oldspacing) / float(newspacing)
 
         NewStosFile = StosFile()
@@ -508,12 +509,12 @@ class StosFile(object):
         NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim)
         NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * scale
         NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * scale
-        
+
         NewStosFile.ControlImageFullPath = ControlImageFullPath
         NewStosFile.MappedImageFullPath = MappedImageFullPath
         NewStosFile.ControlMaskFullPath = ControlMaskFullPath
         NewStosFile.MappedMaskFullPath = MappedMaskFullPath
-        
+
         if os.path.exists(ControlImageFullPath):
             NewStosFile.ControlImageDim = StosFile.__GetImageDimsArray(ControlImageFullPath)
 
@@ -525,23 +526,32 @@ class StosFile(object):
             NewStosFile.Transform = self.Transform
         else:
             transformObj = nornir_imageregistration.transforms.LoadTransform(self.Transform, pixelSpacing=1.0)
-            assert(not transformObj is None)
-            transformObj.Scale(scalar=scale)
+            assert (transformObj is not None)
+            
+            if isinstance(transformObj, nornir_imageregistration.transforms.ITransformScaling):
+                transformObj.Scale(scalar=scale)
+            else:
+                raise ValueError(f"Transform needs to be scaled but does not support ITransformScaling interface {transformObj}")
 
             NewStosFile._Downsample = newspacing
 
-            if hasattr(transformObj, 'gridWidth'):
+            #if hasattr(transformObj, 'gridWidth'):
                 # Save as a stos grid if we can
-                bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3], NewStosFile.MappedImageDim[2])
-                NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj, bounds=bounds)
-            else:
-                NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
+            #    bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3],
+            #              NewStosFile.MappedImageDim[2])
+            #    NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj,
+            #                                                                                         bounds=bounds)
+            #else:
+            #NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(
+            #        transformObj)  # , bounds=NewStosFile.MappedImageDim)
+
+            NewStosFile.Transform = transformObj.ToITKString()
 
         return NewStosFile
-    
+
     def EqualizeStosGridPixelSpacing(self, control_spacing, mapped_spacing,
-                                           MappedImageFullPath, MappedMaskFullPath,
-                                           create_copy=True):
+                                     MappedImageFullPath, MappedMaskFullPath,
+                                     create_copy=True):
         '''
         Used to correct a mismatch between pixel spacings of the mapped and control images in a stos file.
         This was originally occuring when aligning light microscopy images to TEM images. 
@@ -550,23 +560,22 @@ class StosFile(object):
         This function is implemented to keep the control spacing the same and adjust the mapped spacing to match.
         Stos files have no way to encode the spacing in the file itself unfortunately.
         '''
-        
+
         if control_spacing == mapped_spacing:
             if create_copy:
                 return copy.deepcopy(self)
             else:
                 return self
-            
+
         PrettyOutput.Log("ChangeStosGridPixelSpacing from {0:d} to {1:d}".format(mapped_spacing, control_spacing))
-            
+
         control_spacing = float(control_spacing)
         mapped_spacing = float(mapped_spacing)
-        
+
         mapped_space_scalar = mapped_spacing / control_spacing
-        
-        
+
         NewStosFile = StosFile()
-        
+
         NewStosFile.ControlImageDim = copy.copy(self.ControlImageDim)
         # NewStosFile.MappedImageDim = [x * scale for x in self.MappedImageDim]
 
@@ -574,33 +583,35 @@ class StosFile(object):
         NewStosFile.MappedImageDim = copy.copy(self.MappedImageDim)
         NewStosFile.MappedImageDim[2] = self.MappedImageDim[2] * mapped_space_scalar
         NewStosFile.MappedImageDim[3] = self.MappedImageDim[3] * mapped_space_scalar
-        
+
         NewStosFile.ControlImageFullPath = self.ControlImageFullPath
         NewStosFile.ControlMaskFullPath = self.ControlMaskFullPath
         NewStosFile.MappedImageFullPath = MappedImageFullPath
         NewStosFile.MappedMaskFullPath = MappedMaskFullPath
-        
+
         if os.path.exists(MappedImageFullPath):
             NewStosFile.MappedImageDim = StosFile.__GetImageDimsArray(MappedImageFullPath)
 
         # Adjust the transform points 
         transformObj = nornir_imageregistration.transforms.LoadTransform(self.Transform, pixelSpacing=1.0)
-        assert(not transformObj is None)
+        assert (transformObj is not None)
         transformObj.ScaleWarped(scalar=mapped_space_scalar)
 
         NewStosFile._Downsample = control_spacing
 
         if hasattr(transformObj, 'gridWidth'):
             # Save as a stos grid if we can
-            bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3], NewStosFile.MappedImageDim[2])
-            NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj, bounds=bounds)
+            bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3],
+                      NewStosFile.MappedImageDim[2])
+            NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj,
+                                                                                                 bounds=bounds)
         else:
-            NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj)  # , bounds=NewStosFile.MappedImageDim)
+            NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(
+                transformObj)  # , bounds=NewStosFile.MappedImageDim)
 
         return NewStosFile
 
-
-    def StomOutputExists(self, StosPath, OutputPath, StosMapPath=None):
+    def StomOutputExists(self, StosPath: str, OutputPath: str, StosMapPath=None):
 
         '''If we haven't written the stos file itself, return false'''
         stosfullname = os.path.join(StosPath, self.FormattedStosFileName)
@@ -625,17 +636,16 @@ class StosFile(object):
         if nornir_shared.files.RemoveOutdatedFile(stosfullname, predictedControlOutputFullname):
             return False
 
-        if(StosMapPath is not None):
+        if StosMapPath is not None:
             if nornir_shared.files.RemoveOutdatedFile(StosMapPath, predictedControlOutputFullname):
                 return False
-
 
         return True
 
 
 def AddStosTransforms(A_To_B,
-                      B_To_C, 
-                      EnrichTolerance: bool) -> StosFile:
+                      B_To_C,
+                      EnrichTolerance: float | None) -> StosFile:
     '''
     :param EnrichTolerance:
     :param A_To_B: Commonly a single section transform, "4->3"
@@ -647,12 +657,10 @@ def AddStosTransforms(A_To_B,
     # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
     A_To_B_Transform = nornir_imageregistration.transforms.LoadTransform(A_To_B_Stos.Transform)
     B_To_C_Transform = nornir_imageregistration.transforms.LoadTransform(B_To_C_Stos.Transform)
-    
+
     # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
-    
-    
+
     A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
-    
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlSectionNumber = B_To_C_Stos.ControlSectionNumber
@@ -661,12 +669,12 @@ def AddStosTransforms(A_To_B,
 
     A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
 
-#     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
-#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
-#     else:
-#         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
+    #     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
+    #         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)
+    #     else:
+    #         A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)
 
     A_To_C_Stos.ControlImageDim = B_To_C_Stos.ControlImageDim
-    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim 
+    A_To_C_Stos.MappedImageDim = A_To_B_Stos.MappedImageDim
 
     return A_To_C_Stos
