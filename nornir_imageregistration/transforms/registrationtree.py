@@ -340,7 +340,7 @@ class RegistrationTree(object):
         for root in self.RootNodes.values():
             yield from self.GenerateOrderedMappingsToRootNode(root)
 
-    def GenerateOrderedMappingsToRootNode(self, rootNode) -> (RegistrationTreeNode, RegistrationTreeNode, RegistrationTreeNode):
+    def GenerateOrderedMappingsToRootNode(self, rootNode: RegistrationTreeNode) -> (RegistrationTreeNode, RegistrationTreeNode, RegistrationTreeNode):
         """
         Yields mappings to control sections in root -> leaf order.
         So that for any given mapped section N the root and any intermediate section
