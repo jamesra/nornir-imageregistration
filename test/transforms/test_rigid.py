@@ -92,7 +92,7 @@ class TestRigidTransforms(unittest.TestCase):
         output_source_points = T.InverseTransform(target_points)
         
         self.assertTrue(np.allclose(output_target_points, target_points), "Target points should match")
-        self.assertTrue(np.allclose(output_source_points, source_points), "Target points should match")
+        self.assertTrue(np.allclose(output_source_points, source_points), "Source points should match")
  
 
     def testOffsetRotate_Rigid(self):
@@ -200,7 +200,7 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         output_source_points = T.InverseTransform(target_points)
         
         self.assertTrue(np.allclose(output_target_points, target_points), "Target points should match")
-        self.assertTrue(np.allclose(output_source_points, source_points), "Target points should match")
+        self.assertTrue(np.allclose(output_source_points, source_points), "Source points should match")
 
     def testOffsetRotate(self):
         angle = np.pi / 6.0
