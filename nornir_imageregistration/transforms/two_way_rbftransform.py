@@ -74,8 +74,14 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         return self._forward_rbf.FixedBoundingBox
 
+    def NearestTargetPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+        return self._forward_rbf.NearestTargetPoint(points)
+
     def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
         return self._forward_rbf.NearestFixedPoint(points)
+
+    def NearestSourcePoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+        return self._forward_rbf.NearestSourcePoint(points)
 
     def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
         return self._forward_rbf.NearestWarpedPoint(points)
@@ -140,13 +146,23 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateSourcePoints(self, index: int | NDArray[int], points: NDArray[float]):
-        self._forward_rbf.UpdateSourcePoints(index, points)
+    def UpdateSourcePointsByIndex(self, index: int | NDArray[int], points: NDArray[float]):
+        self._forward_rbf.UpdateSourcePointsByIndex(index, points)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateTargetPoints(self, index: int | NDArray[int], points: NDArray[float]):
-        self._forward_rbf.UpdateTargetPoints(index, points)
+    def UpdateSourcePointsByPosition(self, index: int | NDArray[int], points: NDArray[float]):
+        self._forward_rbf.UpdateSourcePointsByPosition(index, points)
+        self._reset_inverse_transform()
+        self.OnTransformChanged()
+
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], points: NDArray[float]):
+        self._forward_rbf.UpdateTargetPointsByIndex(index, points)
+        self._reset_inverse_transform()
+        self.OnTransformChanged()
+
+    def UpdateTargetPointsByPosition(self, index: int | NDArray[int], points: NDArray[float]):
+        self._forward_rbf.UpdateTargetPointsByPosition(index, points)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -158,7 +174,13 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     def OnFixedPointChanged(self):
         self._forward_rbf.OnFixedPointChanged()
         self._inverse_rbf.OnWarpedPointChanged()
+        self.OnTransformChanged()
 
     def OnWarpedPointChanged(self):
-        self._continuous_transform.OnWarpedPointChanged()
-        self._discrete_transform.OnFixedPointChanged()
+        self._forward_rbf.OnWarpedPointChanged()
+        self._inverse_rbf.OnFixedPointChanged()
+        self.OnTransformChanged()
+
+    def InitializeDataStructures(self):
+        self._forward_rbf.InitializeDataStructures()
+        self._inverse_rbf.InitializeDataStructures()

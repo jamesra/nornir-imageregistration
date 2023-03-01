@@ -1112,11 +1112,7 @@ def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None
     return noised_image
 
 
-def NearestPowerOfTwo(val: float | int):
-    return math.pow(2, math.ceil(math.log(val, 2)))
-
-
-def NearestPowerOfTwoWithOverlap(val, overlap=1.0):
+def NearestPowerOfTwoWithOverlap(val: float, overlap: float = 1.0) -> int:
     """
     :param val:
     :param float overlap: Minimum amount of overlap possible between images, from 0 to 1.  Values greater than 0.5 require no increase to image size.

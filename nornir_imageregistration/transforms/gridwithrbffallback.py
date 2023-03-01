@@ -32,7 +32,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
     @property
     def type(self) -> TransformType:
-        return TransformType.MESH
+        return self._discrete_transform.type
 
     @property
     def grid(self) -> ITKGridDivision:
@@ -57,7 +57,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._continuous_transform = dictionary['_continuous_transform']
 
     def InitializeDataStructures(self):
-        self._continous_transform.InitializeDataStructures()
+        self._continuous_transform.InitializeDataStructures()
         self._discrete_transform.InitializeDataStructures()
 
     def ClearDataStructures(self):
@@ -69,10 +69,12 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     def OnFixedPointChanged(self):
         self._continuous_transform.OnFixedPointChanged()
         self._discrete_transform.OnFixedPointChanged()
+        self.OnTransformChanged()
 
     def OnWarpedPointChanged(self):
         self._continuous_transform.OnWarpedPointChanged()
         self._discrete_transform.OnWarpedPointChanged()
+        self.OnTransformChanged()
 
     def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
         """
@@ -187,12 +189,26 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
+    def NearestTargetPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+        '''
+        Return the fixed points nearest to the query points
+        :return: Distance, Index
+        '''
+        return self._discrete_transform.NearestTargetPoint(points)
+
     def NearestFixedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
+
+    def NearestSourcePoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+        '''
+        Return the warped points nearest to the query points
+        :return: Distance, Index
+        '''
+        return self._discrete_transform.NearestSourcePoint(points)
 
     def NearestWarpedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
         '''
@@ -244,13 +260,29 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._continuous_transform.ScaleFixed(scalar)
         self.OnTransformChanged()
 
-    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float]):
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._discrete_transform.RotateTargetPoints(rangle, rotation_center)
+        if rotation_center is None:
+            rotation_center = self.FixedBoundingBox.Center
 
-    def UpdateTargetPoints(self, index: int | NDArray[int], point: NDArray[float]):
-        self._discrete_transform.UpdateTargetPoint(index, point)
-        self._continuous_transform.UpdateTargetPoint(index, point)
+        self._discrete_transform.RotateTargetPoints(rangle, rotation_center)
+        self._continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(
+            self._discrete_transform.SourcePoints, self._discrete_transform.TargetPoints)
+
+        self.OnTransformChanged()
+
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float] | None) -> int | NDArray[int]:
+        #Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
+        result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
+        self._continuous_transform.UpdateTargetPointsByIndex(index, point)
+        self.OnTransformChanged()
+        return result
+
+    def UpdateTargetPointsByPosition(self, index: NDArray[float], point: NDArray[float] | None) -> int | NDArray[int]:
+        result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
+        self._continuous_transform.UpdateTargetPointsByPosition(index, point)
+        self.OnTransformChanged()
+        return result
 
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],

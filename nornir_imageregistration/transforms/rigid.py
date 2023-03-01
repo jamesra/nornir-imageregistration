@@ -13,6 +13,10 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
     '''This class is legacy and probably needs a deprecation warning'''
 
     @property
+    def angle(self):
+        return 0
+
+    @property
     def type(self) -> TransformType:
         return nornir_imageregistration.transforms.TransformType.RIGID
 
@@ -120,7 +124,7 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
         return points - self.target_offset
 
 
-class Rigid(RigidNoRotation):
+class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     '''
     Applies a rotation+translation transform
     '''
@@ -220,11 +224,20 @@ class Rigid(RigidNoRotation):
         output_points = rotated_points + self.source_space_center_of_rotation
         return np.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
 
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
+        """Rotate all warped points by the specified amount"""
+        self._angle = self._angle + rangle
+
+        if rotation_center is not None:
+            self.source_space_center_of_rotation = rotation_center
+
+        self.OnTransformChanged()
+
     def __repr__(self):
         return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}deg Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
 
 
-class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransformSourceRotation):
+class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
     '''
     Applies a scale+rotation+translation transform
     '''
@@ -345,12 +358,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling, base.ITransfo
         output_points = rotated_points + self.source_space_center_of_rotation
         return np.asarray(output_points)
 
-    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
-        """Rotate all warped points by the specified amount"""
-        self.angle = rangle
 
-        if rotation_center is not None:
-            self.source_space_center_of_rotation = rotation_center
 
     def __repr__(self):
         return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}:04g".format(self.scalar)

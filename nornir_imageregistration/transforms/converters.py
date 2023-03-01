@@ -41,6 +41,8 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     source_rotation_center = EB
     rotation_matrix = U @ S @ VT
     scale = VarA / np.trace(np.diag(D) @ S)
+    if np.abs(scale) > 16:
+        scale = 1
     #Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB) + EB
     reflected = d < 0
@@ -71,18 +73,21 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
     if input.type == transform_type:
         return input
 
-    if input.type == nornir_imageregistration.transforms.TransformType.RIGID:
+    if transform_type == nornir_imageregistration.transforms.TransformType.RIGID:
         return ConvertTransformToRigidTransform(input, **kwargs)
 
-    if input.type == nornir_imageregistration.transforms.TransformType.MESH:
+    if transform_type == nornir_imageregistration.transforms.TransformType.MESH:
         return ConvertTransformToMeshTransform(input, **kwargs)
 
-    if input.type == nornir_imageregistration.transforms.TransformType.GRID:
+    if transform_type == nornir_imageregistration.transforms.TransformType.GRID:
         return ConvertTransformToGridTransform(input, **kwargs)
+
+    if transform_type == nornir_imageregistration.transforms.TransformType.RBF:
+        return ConvertTransformToRBFTransform(input, **kwargs)
 
     raise NotImplemented()
 
-def ConvertTransformToRigidTransform(input_transform: ITransform):
+def ConvertTransformToRigidTransform(input_transform: ITransform, **kwargs):
     if isinstance(input_transform, IControlPoints):
         components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
                                                                              input_transform.SourcePoints) 
@@ -144,3 +149,19 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
 
     t = nornir_imageregistration.transforms.GridWithRBFFallback(grid_data)  
     return t
+
+def ConvertTransformToRBFTransform(input_transform: ITransform, source_image_shape: NDArray | None = None) -> ITransform:
+    """
+    Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
+    """
+
+    if isinstance(input_transform, IControlPoints):
+        return nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(input_transform.SourcePoints, input_transform.TargetPoints)
+    #elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+        #TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, input_transform.angle, target_space_offset, scale=scale)
+        #SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
+
+
+    # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
+
+    raise NotImplementedError()

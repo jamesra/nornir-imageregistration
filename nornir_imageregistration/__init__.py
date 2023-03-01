@@ -23,6 +23,7 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
+import math
 from typing import Iterable
 import numpy as np
 import numpy.typing
@@ -45,12 +46,6 @@ from nornir_imageregistration.mmap_metadata import *
 import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
-def RoundingPrecision(dtype: numpy.typing.DTypeLike):
-    """Determine how many digits of precision we can get from a value at most"""
-    if not dtype.kind == 'f':
-        raise ValueError(f"Expected floating dtype, got {dtype}")
-
-    return int(np.abs(np.log10(np.finfo(dtype).eps)))
 
 def ParamToDtype(param) -> DTypeLike:
     if param is None:
@@ -139,7 +134,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
                 dtype = np.float32
 
         points = np.asarray(points, dtype=dtype)
-    elif not dtype is None:
+    elif dtype is not None:
         if points.dtype != dtype:
             Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
 
@@ -172,6 +167,9 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
         raise ValueError("There are not 4 columns in the corrected array")
 
     return points
+
+import nornir_shared.mathhelper
+from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
 import nornir_imageregistration.igrid as igrid
 from nornir_imageregistration.igrid import IGrid
@@ -248,4 +246,5 @@ np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 __all__ = ['image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']
+
 

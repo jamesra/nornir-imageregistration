@@ -131,7 +131,19 @@ class GridTransform(ITransformScaling, ITransformTranslation,
         '''
         return self.FixedKDTree.query(points)
 
+    def NearestTargetPoint(self, points: NDArray[float]):
+        '''Return the target points nearest to the query points
+        :return: Distance, Index
+        '''
+        return self.FixedKDTree.query(points)
+
     def NearestWarpedPoint(self, points: NDArray[float]):
+        '''Return the fixed points nearest to the query points
+        :return: Distance, Index
+        '''
+        return self.WarpedKDTree.query(points)
+
+    def NearestSourcePoint(self, points: NDArray[float]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
@@ -167,7 +179,7 @@ class GridTransform(ITransformScaling, ITransformTranslation,
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = RegularGridInterpolator(self._grid.axis_points,
-                                                                np.reshape(self._grid.TargetPoints, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                np.reshape(self.TargetPoints, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
                                                                 bounds_error=False)
             
         return self._ForwardInterpolator
@@ -184,7 +196,6 @@ class GridTransform(ITransformScaling, ITransformTranslation,
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-
         transPoints = self.ForwardInterpolator(points)
         return transPoints
 
@@ -224,14 +235,21 @@ class GridTransform(ITransformScaling, ITransformTranslation,
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float]):
+    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPoints(self, index: int | NDArray[int], point: NDArray[float]):
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
+        return index
+
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+        old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        distance, index = self.NearestFixedPoint(old_points)
+        return self.UpdateTargetPointsByIndex(index, points)
 
     def OnFixedPointChanged(self):
         super(GridTransform, self).OnFixedPointChanged()

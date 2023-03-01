@@ -216,12 +216,13 @@ class ITKGridDivision(GridDivisionBase):
         """
         super(ITKGridDivision, self).__init__()
 
-        self._cell_size = np.asarray(cell_size, np.int32)
         source_shape = np.asarray(source_shape, np.int64)
 
         if cell_size is None:
             if grid_dims is None and grid_spacing is None:
                 raise ValueError("cell_size must be specified if grid_dims and grid_spacing are not specified")
+        else:
+            self._cell_size = np.asarray(cell_size, np.int32)
 
         if grid_dims is not None and grid_spacing is not None:
             raise ValueError("Either grid_dims or grid_spacing must be specified but not both")
@@ -235,6 +236,9 @@ class ITKGridDivision(GridDivisionBase):
             self._grid_dims = np.asarray(grid_dims, np.int32)
         elif grid_dims is None:
             self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing) + 1
+
+        if self._cell_size is None: #Estimate a reasonable cell_size with overlap if it has not been determined, (passed grid dimensions only perhaps)
+            self._cell_size = nornir_imageregistration.NearestPowerOfTwo(self._grid_dims)
 
         #Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
         self._grid_spacing = source_shape / (self._grid_dims - 1) # - 1 on grid_dims because we want the points at the edges of the image

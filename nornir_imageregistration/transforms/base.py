@@ -154,16 +154,15 @@ class ITriangulatedTargetSpace(ABC):
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
 
-class ITargetSpaceControlPointEdit(ABC):
-    """Originally added for grid transforms where source points are unmovable"""
+class ITriangulatedSourceSpace(ABC):
     @abc.abstractmethod
-    def UpdateTargetPoints(self, index: int | NDArray[int], points: NDArray[float]):
+    def source_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
 
-class IControlPointEdit(ITargetSpaceControlPointEdit, ABC):
-    """Control point transforms where source and target control points can be edited"""
+class IControlPointAddRemove(ABC):
+    """Interface for control point based transforms that can add/remove control points"""
     @abc.abstractmethod
-    def AddPoint(self, pointpair: NDArray[float]):
+    def AddPoint(self, pointpair: NDArray[float]) -> int:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -171,15 +170,43 @@ class IControlPointEdit(ITargetSpaceControlPointEdit, ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def UpdateSourcePoints(self, index: int | NDArray[int], points: NDArray[float]):
-        raise NotImplementedError()
-
-    @abc.abstractmethod
     def RemovePoint(self, index: int):
+        raise NotImplementedError()
+
+class ITargetSpaceControlPointEdit(ABC):
+    """Transforms where the source space side of control points can be moved.
+       Originally added for grid transforms where source points are unmovable"""
+    @abc.abstractmethod
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
+        """:return: The new index of the points"""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], new_points: NDArray[float]) -> int | NDArray[int]:
+        """Move the points closest to old_points to positions at new_points
+        :return: The new index of the points
+        """
+        raise NotImplementedError()
+
+class ISourceSpaceControlPointEdit(ABC):
+    """Transforms where the source space side of control points can be moved"""
+    @abc.abstractmethod
+    def UpdateSourcePointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
+        """:return: The new index of the points"""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def UpdateSourcePointsByPosition(self, old_points: NDArray[float], new_points: NDArray[float]) -> int | NDArray[
+        int]:
+        """Move the points closest to old_points to positions at new_points
+        :return: The new index of the points
+        """
+        raise NotImplementedError()
+
+class IControlPointEdit(ITargetSpaceControlPointEdit, ISourceSpaceControlPointEdit, ABC):
+    """Control point transforms where source and target control points can be edited"""
+    @abc.abstractmethod
+    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
         raise NotImplementedError()
 
 

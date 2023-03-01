@@ -251,12 +251,18 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
     @staticmethod
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[float]):
         '''Rotate all points about a center by a given angle'''
-        temp = points - rotationCenter
 
-        temp = np.hstack((temp, np.zeros((temp.shape[0], 1))))
-
-        rmatrix = utils.RotationMatrix(rangle)
-
-        rotatedtemp = temp @ rmatrix
-        rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
-        return rotatedtemp
+        rt = nornir_imageregistration.transforms.Rigid(target_offset=(0,0),
+                                                       source_rotation_center=rotationCenter,
+                                                       angle=rangle)
+        rotated = rt.Transform(points)
+        return rotated
+        # temp = points - rotationCenter
+        #
+        # temp = np.hstack((temp, np.zeros((temp.shape[0], 1))))
+        #
+        # rmatrix = utils.RotationMatrix(rangle)
+        #
+        # rotatedtemp = (self.forward_rotation_matrix @ centered_points.T).T
+        # rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
+        # return rotatedtemp
