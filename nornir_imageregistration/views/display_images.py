@@ -101,7 +101,7 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: Sequence
         #                     else:
         #                         ax = axes[iCol]
 
-                ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+                ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
 
                 if image_titles is not None:
                     ax.set_title(image_titles[i])
@@ -253,7 +253,7 @@ def _ImageList1DGridDims(imagelist):
 
 def _DisplayImageSingle(input_param, title=None):
     fig, ax = plt.subplots()
-    ax.imshow(input_param, cmap=plt.gray(), aspect='equal', norm=matplotlib.colors.NoNorm())
+    ax.imshow(input_param, cmap=plt.gray(), origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
     if title is not None:
         ax.set_title(title)
     
@@ -289,7 +289,7 @@ def _DisplayImageList1D(input_params, image_titles: Sequence[str] | None = None,
         else:
             raise NotImplemented("What in the world?  3D Display or something?")
         
-        ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+        ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
 
         if image_titles is not None:
             ax.set_title(image_titles[i])
@@ -333,7 +333,7 @@ def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None
         
         if isinstance(row_list, np.ndarray):
             ax = fig.add_subplot(gs[iRow,:])  # axes[iRow, 0]
-            ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+            ax.imshow(row_list, cmap=plt.gray(), origin='lower', figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
 
             if row_titles is not None:
                 ax.set_title(row_titles)
@@ -357,7 +357,7 @@ def _DisplayImageList2D(input_params, grid_dims,  image_titles: list[str] | None
 #            else:
 #                ax = fig.add_subplot([iCol]
 
-            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
+            ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
 
             if row_titles is not None:
                 row_title = row_titles[iCol]

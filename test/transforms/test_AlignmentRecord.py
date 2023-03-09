@@ -3,7 +3,8 @@ Created on Mar 21, 2013
 
 @author: u0490822
 
-Rotation tests should have a positive angle result in a clockwise rotation
+Rotation tests should have a positive angle result in a counter-clockwise rotation.
+That is the behavior consistent with numpy and a right handed system.
 Corner points should be (BotLeft, BotRight, TopLeft, TopRight)
 
 Raw Data::
@@ -15,12 +16,10 @@ Raw Data::
   
 Rotated 90 Degrees::
 
-  0---2
+  3---1
   |   |
   |   |
-  1---3
-  
-
+  2---0
 
 
 '''
@@ -64,7 +63,7 @@ class TestAlignmentRecord(unittest.TestCase):
         record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0, True)
         self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
 
-        # Get the corners for a 10,10  image rotated 90 degrees
+        # Get the corners for a 10,10  image flipped over the X axis (up/down flip)
         predictedArray = np.array([[10, 0],
                                    [10, 10],
                                    [0, 0],
@@ -143,10 +142,11 @@ class TestAlignmentRecord(unittest.TestCase):
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
-        predictedArray = np.array([[12.5, 0],
-                                   [2.5, 0],
+        predictedArray = np.array([[2.5, 10],
                                    [12.5, 10],
-                                   [2.5, 10]])
+                                   [2.5, 0],
+                                   [12.5, 0]
+                                   ])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints([10, 10])
@@ -156,10 +156,11 @@ class TestAlignmentRecord(unittest.TestCase):
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
-        predictedArray = np.array([[7.5, 2.5],
-                                   [-2.5, 2.5],
+        predictedArray = np.array([[-2.5, 12.5],
                                    [7.5, 12.5],
-                                   [-2.5, 12.5]])
+                                   [-2.5, 2.5],
+                                   [7.5, 2.5]
+                                   ])
 
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 

@@ -96,15 +96,16 @@ class TestRigidTransforms(unittest.TestCase):
  
 
     def testOffsetRotate_Rigid(self):
+        offset = np.array((-2, 1))
         angle = np.pi / 6.0
-        T = nornir_imageregistration.transforms.Rigid([0, 0], source_rotation_center=[1, 0], angle=angle)
+        T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center=[1, 0], angle=angle)
 
         sourcePoint = [[0, 0],
                        [0, 10]]
 
-        targetPoint = [[-np.cos(angle), -np.sin(angle)],
-                       [np.cos(angle) * 9, np.sin(angle) * 9]]
-        targetPoint = np.asarray(targetPoint) + np.asarray([1, 0])
+        targetPoint = [[np.cos(angle), np.sin(angle)],
+                       [-np.sin(angle) * 10, np.cos(angle) * 10]]
+        targetPoint = np.asarray(targetPoint) + offset
 
         sourcePoint = np.asarray(sourcePoint)
 
@@ -378,7 +379,7 @@ class TestRigidFactory(ImageTestBase):
 class TestRigidImageAssembly(ImageTestBase):
 
     def testRigidTransformAssemblyDirect(self):
-        angle = -132.0
+        angle = 132.0
         X = -4
         Y = 22
 
@@ -421,7 +422,7 @@ class TestRigidImageAssembly(ImageTestBase):
                                                    PassFail=True))
 
     def testRigidTransformAssemblyFactory(self):
-        angle = -132.0
+        angle = 132.0
         X = -4
         Y = 22
 

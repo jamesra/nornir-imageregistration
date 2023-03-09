@@ -126,7 +126,8 @@ class AlignmentRecord(object):
     def GetTransformedCornerPoints(self, warpedImageSize) -> NDArray[float]:
         '''
         '''
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize, self.rangle,
+        #Adjust image size by 1 since the images are indexed by 0
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize - 1, self.rangle,
                                                                                            self.peak, self.flippedud)
 
     def ToTransform(self, fixedImageSize: NDArray | tuple[int, int], warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
@@ -143,10 +144,12 @@ class AlignmentRecord(object):
         warpedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(warpedImageSize)
         fixedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(fixedImageSize)
 
-        source_center_of_rotation = warpedImageSize / 2.0
+        source_center_of_rotation = (warpedImageSize-1) / 2.0 #Subtract 1 because images are indexed starting at zero
         #Adjust the center of rotation by 0.5 if there is an even dimension
         #source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
-        target_translation = ((fixedImageSize / 2.0) - (warpedImageSize / 2.0)) + self.peak
+        target_center = (fixedImageSize-1) / 2.0
+
+        target_translation = (source_center_of_rotation - target_center) + self.peak
 
         return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
                                                          source_rotation_center=source_center_of_rotation,
@@ -166,38 +169,7 @@ class AlignmentRecord(object):
         #                                                                         warped_offset=self.peak,
         #                                                                         flip_ud=self.flippedud,
         #                                                                         scale=self.scale)
-
-    def __ToGridTransformString(self, fixedImageSize, warpedImageSize):
-
-        transform = self.ToTransform(fixedImageSize, warpedImageSize)
-
-        # Flipped is always false because the transform is already flipped if needed
-        # We add one to the size of the image because ITK grid transforms expect the coordinates to the full coordinates.  So for a 10x10 image starting at 0,0 the
-        # index of the upper right corner is 9,9, but in ITK grid transforms the upper right corner is expected to be 10,10
-
-        # warpedImageSize + np.array((1, 1)
-        warpedSpaceCorners = nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(
-            warpedImageSize, rangle=0, offset=(0, 0), flip_ud=False)
-
-        fixedSpaceCorners = transform.Transform(warpedSpaceCorners)
-
-        #        list = [str(BotLeft.item(0)),
-        #                str(BotLeft.item(1)),
-        #                str(BotRight.item(0)),
-        #                str(BotRight.item(1)),
-        #                str(TopLeft.item(0)),
-        #                str(TopLeft.item(1)),
-        #                str(TopRight.item(0)),
-        #                str(TopRight.item(1))]
-
-        string = ""
-
-        fixedSpaceCorners = np.fliplr(fixedSpaceCorners)
-
-        for s in fixedSpaceCorners.flat:
-            string = string + ' %g' % s
-
-        return string
+ 
 
     def ToStos(self, ImagePath, WarpedImagePath, FixedImageMaskPath=None, WarpedImageMaskPath=None, PixelSpacing=1):
         stos = nornir_imageregistration.StosFile()
@@ -232,10 +204,7 @@ class AlignmentRecord(object):
         #                                 'mapheight' : stos.MappedImageDim[1]/2}
         
         #transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
-
-        # We use Y,X ordering in memory due to Numpy.  Ir-Tools coordinates are written X,Y.
-        #coordString = self.__ToGridTransformString((stos.ControlImageDim[1], stos.ControlImageDim[0]),
-                                                   #(stos.MappedImageDim[1], stos.MappedImageDim[0]))
+ 
 
         # I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
         # have a -1 to account for the zero origin

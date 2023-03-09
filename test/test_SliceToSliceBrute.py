@@ -88,11 +88,11 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(-140, -130)),
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(130, 140)),
                                TestFlip = FlipUD,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
@@ -100,13 +100,13 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                TestFlip = FlipUD,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath,MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22, flipud=FlipUD)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)

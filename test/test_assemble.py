@@ -61,7 +61,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage)
         nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage, bpp=8)
 
-        #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), angle=angle)
+        #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), axes=(0,1), angle=angle)
 #
         self.assertTrue(ShowComparison([fixedImage, transformedImage], title="Image should be translated +100x,+50y but not rotated.", PassFail=True, image_titles=('Original', 'Translated')))
         return
@@ -85,9 +85,13 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage)
         nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
-        rotatedWarped = scipy.ndimage.rotate(warpedImage.astype(numpy.float32), angle=angle, reshape=False)
+        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32), angle=angle, reshape=False)
+        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32), angle=-angle, reshape=False)
 #
-        self.assertTrue(ShowComparison([fixedImage, rotatedWarped, transformedImage], title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True, image_titles=('Target', 'Scipy', 'My Transform')))
+#
+        self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
+                                       title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True,
+                                       image_titles=(('Target', 'My Transform'),('SciPy ', 'SciPy negated angle'))))
 
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())

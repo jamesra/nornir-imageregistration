@@ -71,8 +71,8 @@ class TestGridFitting(unittest.TestCase):
         points2D1 = np.array(points_array)
         points2D1 = np.hstack((points2D1, np.ones((num_pts, 1))))
         #points2D1 = np.transpose(points2D1)
-        points2D1_scaled = points2D1 @ scale_matrix
-        points2D1_rotated = points2D1_scaled @ R
+        points2D1_scaled = (scale_matrix @ points2D1.T).T 
+        points2D1_rotated = (R @ points2D1_scaled.T).T
 
         #points2D1_rotated = np.transpose(points2D1_rotated)
 
@@ -177,7 +177,7 @@ class TestGridFitting(unittest.TestCase):
         input_points = np.hstack((source_points, np.zeros((source_points.shape[0], 1))))
         
         rot_mat = nornir_imageregistration.transforms.utils.RotationMatrix(angle)
-        transformed_target_points = input_points @ rot_mat
+        transformed_target_points = (rot_mat @ input_points.T).T 
         transformed_target_points = transformed_target_points[:,0:2]
         np.testing.assert_allclose(target_points, transformed_target_points)
 

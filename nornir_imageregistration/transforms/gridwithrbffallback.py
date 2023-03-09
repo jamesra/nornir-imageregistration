@@ -58,7 +58,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
     def InitializeDataStructures(self):
         self._continuous_transform.InitializeDataStructures()
-        self._discrete_transform.InitializeDataStructures()
+        #self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.

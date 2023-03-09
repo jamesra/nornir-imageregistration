@@ -541,10 +541,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                           [0, 10],
                                           [10, 10]], dtype=np.float64)
 
-        angle = -30.0
+        angle = 30.0
         rangle = (angle / 180.0) * np.pi
 
-        CalculatedSourcePoints = self._rotate_points(InitialTargetPoints, rotcenter=(0, 0), rangle=rangle)
+        CalculatedSourcePoints = self._rotate_points(InitialTargetPoints, rotcenter=(0, 0), rangle=-rangle)
 
         # Optional offset to add as an additional test
         CalculatedSourcePoints += np.array((-1, 4))

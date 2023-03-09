@@ -8,6 +8,7 @@ This module performs local distortions of images to refine alignments of mosaics
 import os
 from typing import Iterable, Sequence
 import numpy as np
+import scipy.spatial
 from numpy.typing import NDArray
 import nornir_pools
 import nornir_imageregistration
@@ -992,33 +993,34 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
 
     source_points = input_transform.InverseTransform(target_points)
 
+    return ApproximateRigidTransformBySourcePoints(input_transform, source_points)
     # translate the target points by 1, and find the angle between the source points
-    offset = np.array([0, 1])
-    offset_source_points = source_points + offset
-
-    offsets = np.tile(offset, (numPoints, 1))
-    origins = np.tile(np.array([0, 0]), (numPoints, 1))
-
-    recalculated_target_points = input_transform.Transform(source_points)
-    offset_target_points = input_transform.Transform(offset_source_points)
-
-    target_delta = offset_target_points - recalculated_target_points
-
-    angles = -np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
-
-    target_offsets = target_points - source_points
-
-    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
-                                                                   source_rotation_center=source_points[i],
-                                                                   angle=angles[i])
-                         for i in range(0, len(angles))]
-
-    return output_transforms
+    # offset = np.array([0, 1])
+    # offset_source_points = source_points + offset
+    #
+    # offsets = np.tile(offset, (numPoints, 1))
+    # origins = np.tile(np.array([0, 0]), (numPoints, 1))
+    #
+    # recalculated_target_points = input_transform.Transform(source_points)
+    # offset_target_points = input_transform.Transform(offset_source_points)
+    #
+    # target_delta = offset_target_points - recalculated_target_points
+    #
+    # angles = -np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
+    #
+    # target_offsets = target_points - source_points
+    #
+    # output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
+    #                                                                source_rotation_center=source_points[i],
+    #                                                                angle=angles[i])
+    #                      for i in range(0, len(angles))]
+    #
+    # return output_transforms
 
 
 def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
                                             source_points: NDArray,
-                                            cell_size: NDArray | None) -> list[nornir_imageregistration.transforms.Rigid]:
+                                            cell_size: NDArray | None = None) -> list[nornir_imageregistration.transforms.Rigid]:
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
@@ -1028,7 +1030,17 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     numPoints = source_points.shape[0]
 
     # translate the target points a distance, and estimage the angle to determine the rotation
-    offset = np.array([0, 1]) if cell_size is None else cell_size / 2.0
+    offset = None
+    if cell_size is None:
+        #If we don't pass a cell_size, then make a reasonable guess by measuring how far away nearest points are from first point
+         if source_points.shape[0] > 1:
+            estimated_cell_distance = scipy.spatial.distance.cdist(source_points[0:1, :], source_points[1:, :]).min() / 2.0
+            offset = np.array((0, estimated_cell_distance))
+         else:
+            offset = np.array((0, 1))
+    else:
+        offset = cell_size / 2.0
+
     offset_source_points = source_points + offset
 
     offsets = np.tile(offset, (numPoints, 1))
@@ -1039,7 +1051,7 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
 
     target_delta = offset_target_points - target_points
 
-    angles = -np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
+    angles = np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
 
     target_offsets = target_points - source_points
 

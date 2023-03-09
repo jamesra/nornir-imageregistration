@@ -5,13 +5,14 @@ Created on Apr 4, 2013
 '''
 
 import nornir_imageregistration
+from nornir_imageregistration.transforms.base import ITransform, IControlPoints
 import numpy as np
 from numpy.typing import NDArray
 from nornir_shared import prettyoutput
 from collections.abc import Iterable
 
  
-def InvalidIndicies(points):
+def InvalidIndicies(points: NDArray[float]):
     '''Removes rows with a NAN value and returns a list of indicies'''
 
     if points is None:
@@ -29,14 +30,27 @@ def InvalidIndicies(points):
     return (points, invalidIndicies)
 
 
-def RotationMatrix(rangle):
+def RotationMatrix(rangle: float):
     '''
     :param float rangle: Angle in radians
     '''
     if rangle is None:
         raise ValueError("Angle must not be none") 
     
-    return np.array([[np.cos(rangle), -np.sin(rangle), 0], [np.sin(rangle), np.cos(rangle), 0], [0, 0, 1]]) 
+    rot_mat = np.array([[np.cos(rangle), np.sin(rangle), 0],
+                     [-np.sin(rangle),  np.cos(rangle), 0],
+                     [0,               0,              1]])
+
+    return rot_mat
+    
+    #interchange = np.array([[ 0,  1,  0],
+    #                        [-1,  0,  0],
+    #                        [ 0,  0,  1]])
+    #
+    #result = interchange @ rot_mat
+    #
+    #return result
+    
 
 
 def IdentityMatrix():
@@ -71,15 +85,59 @@ def ScaleMatrixXY(scale: float):
     
     raise NotImplementedError("Unexpected argument")
 
-def FlipMatrixY():
+
+def FlipMatrixY() -> NDArray[float]:
     '''
     Flip the Y axis
     '''
     return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-if __name__ == '__main__':
-    pass
+def BlendWithLinear(transform: IControlPoints, linear_factor: float) -> ITransform:
+    """
+    Blends a transform with the estimate linear transform of its control points.  The goal is to "flatten" a transform to gradually reduce folds and other high distortion areas.
+    :param transform:
+    :param linear_factor:  The weight the linearized transform should have in calculating the new points
+    :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
+    match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
+    """
+    if linear_factor < 0 or linear_factor > 1.0:
+        raise ValueError(f"linear_factor must be between 0 and 1.0, got {linear_factor}")
+
+    if linear_factor == 0:
+        return transform
+
+    source_points = transform.SourcePoints
+    target_points = transform.TargetPoints
+
+    #This check is here to help the IDE with autocompletion
+    if not isinstance(transform, nornir_imageregistration.ITransform):
+        raise ValueError("transform")
+
+    linear_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(transform)
+    if linear_factor == 1.0:
+        return linear_transform
+
+    linear_points = linear_transform.Transform(source_points)
+
+    blended_target_points = target_points * (1.0 - linear_factor)
+    blended_linear_points = linear_points * linear_factor
+    output_target_points = blended_target_points + blended_linear_points
+
+    if isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
+        output_grid = nornir_imageregistration.ITKGridDivision(source_shape=transform.grid.source_shape,
+                                                               cell_size=transform.grid.cell_size,
+                                                               grid_dims=transform.grid.grid_dims,
+                                                               transform=None)
+        output_grid.TargetPoints = output_target_points
+        output = nornir_imageregistration.transforms.GridWithRBFFallback(output_grid)
+        return output
+    else:
+        output_points = np.append(output_target_points, source_points, 1)
+        output = nornir_imageregistration.transforms.MeshWithRBFFallback(output_points)
+        return output
+
+
 
 
 def PointBoundingRect(points):
@@ -257,3 +315,7 @@ def MappedBoundingBoxWidth(transforms):
 def MappedBoundingBoxHeight(transforms):
     (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)
+
+
+if __name__ == '__main__':
+    pass

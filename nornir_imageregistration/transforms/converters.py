@@ -41,8 +41,8 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     source_rotation_center = EB
     rotation_matrix = U @ S @ VT
     scale = VarA / np.trace(np.diag(D) @ S)
-    if np.abs(scale) > 16:
-        scale = 1
+    #if np.abs(scale) > 16:
+    #    scale = 1
     #Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB) + EB
     reflected = d < 0

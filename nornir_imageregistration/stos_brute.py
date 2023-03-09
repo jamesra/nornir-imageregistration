@@ -171,7 +171,10 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
 
     OKToDelimWarped = False 
     if angle != 0:
-        imWarped = interpolation.rotate(imWarped, axes=(1, 0), angle=angle, cval=np.nan)
+        #This confused me for years, but the implementation of rotate calls affine_transform with
+        #the rotation matrix.  However the docs for affine_transform state it needs to be called
+        #with the inverse transform.  Hence negating the angle here. 
+        imWarped = interpolation.rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
         imWarpedEmptyIndicies = np.isnan(imWarped)
         imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
         np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
