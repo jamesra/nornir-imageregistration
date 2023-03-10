@@ -499,6 +499,12 @@ class Rectangle(object):
         :param tuple area: (Height, Area)
         :rtype: Rectangle
         """
+        if point is None:
+            raise ValueError('point')
+        
+        if area is None:
+            raise ValueError('area')
+        
         return Rectangle(bounds=(
         point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height], point[iPoint.X] + area[iArea.Width]))
 
