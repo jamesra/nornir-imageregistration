@@ -221,6 +221,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             
         max_temp_image_area = np.prod(max_temp_image_dims)
         
+        nRows = expected_grid_dims[0]
         tiles = [[None for iCol in range(expected_grid_dims[1])] for iRow in range(expected_grid_dims[0])]#[[None] * expected_grid_dims[1]] * expected_grid_dims[0]
         tile_returned = np.zeros(expected_grid_dims, dtype=np.bool)
         #out = list(mosaic.GenerateOptimizedTiles(tilesPath=TilesDir, tile_dims=tile_dims, usecluster=False, target_space_scale=expectedScale))
@@ -244,7 +245,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 #                                                 usecluster=True, target_space_scale=expectedScale)
 #             self.assertTrue(np.array_equal(tile_image, controlImage))
             
-            tiles[iRow][iCol] = tile_image
+            tiles[(nRows - 1) - iRow][iCol] = tile_image
         
         self.assertTrue(np.all(tile_returned.flat))
         title = ""

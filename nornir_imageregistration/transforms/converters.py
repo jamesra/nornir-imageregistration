@@ -122,14 +122,32 @@ def ConvertTransformToMeshTransform(input_transform: ITransform,
     if isinstance(input_transform, IControlPoints):
         return nornir_imageregistration.transforms.MeshWithRBFFallback(input_transform.points)
 
-    if isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
-        return nornir_imageregistration.transforms.factory.CreateRigidMeshTransformWithOffset(
-            source_image_shape=source_image_shape,
-            rangle=input_transform.angle,
-            target_space_offset=input_transform.target_offset)
+    if isinstance(input_transform, nornir_imageregistration.transforms.Rigid) or \
+       isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+        control_points = GetControlPointsForRigidTransform(input_transform, source_image_shape)
+        transform = nornir_imageregistration.transforms.MeshWithRBFFallback(control_points)
+        return transform
 
     raise NotImplemented()
 
+def GetTargetSpaceCornerPoints(input_transform: ITransform,
+                               source_image_shape: NDArray) -> NDArray[float]:
+    ymax, xmax = source_image_shape
+    corners = np.array([[0, 0],
+                        [0, xmax],
+                        [ymax, 0],
+                        [ymax, xmax]])
+    return input_transform.Transform(corners)
+
+def GetControlPointsForRigidTransform(input_transform: ITransform,
+                                    source_image_shape: NDArray) -> NDArray[float]:
+    ymax, xmax = source_image_shape
+    corners = np.array([[0, 0],
+                        [0, xmax],
+                        [ymax, 0],
+                        [ymax, xmax]])
+    out_corners = input_transform.Transform(corners)
+    return np.append(out_corners, corners, 1)
 
 def ConvertTransformToGridTransform(input_transform: ITransform, source_image_shape: NDArray,
                                     cell_size: NDArray | None = None, grid_dims: NDArray | None = None,

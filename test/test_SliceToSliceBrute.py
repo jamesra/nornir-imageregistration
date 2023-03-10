@@ -155,7 +155,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                WarpedImageMaskPath)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
 
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)

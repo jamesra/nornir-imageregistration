@@ -105,7 +105,8 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"Rigid2DTransform_double_2_2 vp 3 {self._angle} {self.target_offset[1]} {self.target_offset[0]} fp 2 {self.source_space_center_of_rotation[1]} {self.source_space_center_of_rotation[0]}"
+        return f"Rigid2DTransf" \
+               f"orm_double_2_2 vp 3 {-self._angle} {self.target_offset[1]} {self.target_offset[0]} fp 2 {self.source_space_center_of_rotation[1]} {self.source_space_center_of_rotation[0]}"
 
     def Transform(self, points, **kwargs):
 
@@ -154,11 +155,13 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         super(Rigid, self).__init__(target_offset, source_rotation_center, angle)
 
         self.flip_ud = flip_ud
-        
+        self.update_rotation_matrix()
+
+    def update_rotation_matrix(self):
         self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
         self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
         
-        if flip_ud:
+        if self.flip_ud:
             flip_y_matrix = nornir_imageregistration.transforms.utils.FlipMatrixY()
             self.forward_rotation_matrix = flip_y_matrix @ self.forward_rotation_matrix
             self.inverse_rotation_matrix = flip_y_matrix @ self.inverse_rotation_matrix 
@@ -174,7 +177,8 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self.angle, self.target_offset[1],
+        # This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
+        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(-self.angle, self.target_offset[1],
                                                                                   self.target_offset[0],
                                                                                   self.source_space_center_of_rotation[
                                                                                       1],
@@ -231,6 +235,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         if rotation_center is not None:
             self.source_space_center_of_rotation = rotation_center
 
+        self.update_rotation_matrix()
         self.OnTransformChanged()
 
     def __repr__(self):
@@ -276,8 +281,9 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
+        #This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
-                                                                                                   self.angle,
+                                                                                                   -self.angle,
                                                                                                    self.source_space_center_of_rotation[
                                                                                                        1],
                                                                                                    self.source_space_center_of_rotation[

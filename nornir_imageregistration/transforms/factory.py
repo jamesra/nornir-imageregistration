@@ -9,6 +9,8 @@ The factory is focused on the loading and saving of transforms
 from typing import Sequence
 import numpy as np
 from collections.abc import Iterable
+
+import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms.base import *
 from nornir_imageregistration.spatial import *
 
@@ -328,7 +330,7 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-    angle = float(VariableParameters[0])
+    angle = -float(VariableParameters[0]) #We negate angle to be compatible with ITK
     xoffset = float(VariableParameters[1])
     yoffset = float(VariableParameters[2])
 
@@ -353,7 +355,7 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
     scale = float(VariableParameters[0])
-    angle = float(VariableParameters[1])
+    angle = -float(VariableParameters[1]) #We negate angle to be compatible with ITK
     x_center = float(VariableParameters[2])
     y_center = float(VariableParameters[3])
     xoffset = float(VariableParameters[4])
@@ -513,57 +515,92 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, of
     :rtype: numpy.ndarray
     '''
 
+
     # The corners of an X,Y image that starts at 0,0 are located at X-1,Y-1.  So we subtract one from the size
-    size = size  # - np.array((1, 1))
-    CenteredRotation = utils.RotationMatrix(rangle)
+    size = np.array(size, int)  # - np.array((1, 1))
+    r = nornir_imageregistration.transforms.Rigid(angle=rangle, target_offset=offset, source_rotation_center=size/2.0, flip_ud=flip_ud)
 
-    ScaleMatrix = None
-    if scale is not None:
-        ScaleMatrix = utils.ScaleMatrixXY(scale)
-    else:
-        ScaleMatrix = np.identity(3)
+    ymax, xmax = size
+    corners = np.array([[0, 0],
+               [0, xmax],
+               [ymax, 0],
+               [ymax, xmax]])
 
-    HalfWidth = (size[iArea.Width]) / 2.0
-    HalfHeight = (size[iArea.Height]) / 2.0
+    out_corners = r.Transform(corners)
+    return out_corners
+    #
+    # c = np.cos(rangle)
+    # s = np.sin(rangle)
+    #
+    # CenteredRotation = np.array([[ c, s],
+    #                              [-s, c]])
+    #
+    # ymax, xmax = size
+    #
+    # corners = [[0, 0, ymax, ymax],
+    #            [0, xmax, 0, xmax]]
+    #
+    # out_bounds_corners = CenteredRotation @ corners
+    # out_plane_shape = (out_bounds_corners.ptp(axis=1) + 0.5).astype(int)
+    # #out_bounds = out_bounds.T[:, 0:2]
+    # #out_plane_shape = (out_bounds.ptp(axis=0) + 0.5).astype(int)
+    #
+    # in_center = (size - 1) / 2.0
+    # out_center = CenteredRotation @ (out_plane_shape - 1) / 2
+    # center_offset = in_center - out_center
+    #
+    # out_plane_corners = out_bounds_corners.T + center_offset
+    # #out_plane_corners = out_plane_corners + offset
+    # return out_plane_corners
 
-    RotHalfHeight = HalfHeight
-    RotHalfWidth = HalfWidth
-  
-    if not flip_ud:
-        BotLeft = np.array([[-RotHalfHeight, -RotHalfWidth, 1]])
-        TopLeft = np.array([[RotHalfHeight, -RotHalfWidth, 1]])
-        BotRight = np.array([[-RotHalfHeight, RotHalfWidth, 1]])
-        TopRight = np.array([[RotHalfHeight, RotHalfWidth, 1]])
-    else:
-        BotLeft = np.array([RotHalfHeight, -RotHalfWidth, 1])
-        TopLeft = np.array([-RotHalfHeight, -RotHalfWidth, 1])
-        BotRight = np.array([RotHalfHeight, RotHalfWidth, 1])
-        TopRight = np.array([-RotHalfHeight, RotHalfWidth, 1])
-        
-    corners = np.vstack((BotLeft, BotRight, TopLeft, TopRight)).T
-    
-    # Adjust to the peak location
-    PeakTranslation = np.array([[1, 0, 0], [0, 1, 0], [offset[iPoint.Y], offset[iPoint.X], 1]])
-    
-    # Center the image
-    # Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
-    # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
-    #Translation = np.array([[1, 0, HalfHeight - 0.5], [0, 1, HalfWidth - 0.5], [0, 0, 1]])
-    Translation = np.array([[1, 0, 0], [0, 1, 0], [HalfHeight, HalfWidth, 1]])
-    
-    transform = (ScaleMatrix @ Translation @ PeakTranslation).T @ CenteredRotation
-    #c = np.copy(corners)
-    
-    corners = transform @ corners
-    
-    #corners = CenteredRotation @ corners   
-    #corners = corners.T @ Translation 
-    #corners = corners @ PeakTranslation
-    #corners = corners @ ScaleMatrix
-     
-    #corners = corners[:, :2]
-    corners = corners.T[:, :2]
-    #if not np.allclose(ct, corners):
-    #    raise ValueError()
-    # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
-    return corners
+
+    # ScaleMatrix = None
+    # if scale is not None:
+    #     ScaleMatrix = utils.ScaleMatrixXY(scale)
+    # else:
+    #     ScaleMatrix = np.identity(3)
+    #
+    # HalfWidth = (size[iArea.Width]) / 2.0
+    # HalfHeight = (size[iArea.Height]) / 2.0
+    #
+    # RotHalfHeight = HalfHeight
+    # RotHalfWidth = HalfWidth
+    #
+    # if not flip_ud:
+    #     BotLeft = np.array([[-RotHalfHeight, -RotHalfWidth, 1]])
+    #     TopLeft = np.array([[RotHalfHeight, -RotHalfWidth, 1]])
+    #     BotRight = np.array([[-RotHalfHeight, RotHalfWidth, 1]])
+    #     TopRight = np.array([[RotHalfHeight, RotHalfWidth, 1]])
+    # else:
+    #     BotLeft = np.array([RotHalfHeight, -RotHalfWidth, 1])
+    #     TopLeft = np.array([-RotHalfHeight, -RotHalfWidth, 1])
+    #     BotRight = np.array([RotHalfHeight, RotHalfWidth, 1])
+    #     TopRight = np.array([-RotHalfHeight, RotHalfWidth, 1])
+    #
+    # corners = np.vstack((BotLeft, BotRight, TopLeft, TopRight)).T
+    #
+    # # Adjust to the peak location
+    # PeakTranslation = np.array([[1, 0, 0], [0, 1, 0], [offset[iPoint.Y], offset[iPoint.X], 1]])
+    #
+    # # Center the image
+    # # Subtract 0.5 because we are defining this transform as a rotation of the center of an image.
+    # # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
+    # #Translation = np.array([[1, 0, HalfHeight - 0.5], [0, 1, HalfWidth - 0.5], [0, 0, 1]])
+    # Translation = np.array([[1, 0, 0], [0, 1, 0], [HalfHeight, HalfWidth, 1]])
+    #
+    # transform = (ScaleMatrix @ Translation @ PeakTranslation).T @ CenteredRotation
+    # #c = np.copy(corners)
+    #
+    # corners = transform @ corners
+    #
+    # #corners = CenteredRotation @ corners
+    # #corners = corners.T @ Translation
+    # #corners = corners @ PeakTranslation
+    # #corners = corners @ ScaleMatrix
+    #
+    # #corners = corners[:, :2]
+    # corners = corners.T[:, :2]
+    # #if not np.allclose(ct, corners):
+    # #    raise ValueError()
+    # # arr[:, [0, 1]] = arr[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+    # return corners
