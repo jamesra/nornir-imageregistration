@@ -129,8 +129,8 @@ class OneWayRBFWithLinearCorrection(Triangulation):
             return MatrixWeightSumX, MatrixWeightSumY
 
     def Transform(self, Points: NDArray[float], **kwargs):
-        if self._rigid_transform is not None:
-            return self._rigid_transform.Transform(Points)
+        #if self._rigid_transform is not None:
+        #   return self._rigid_transform.Transform(Points)
 
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
@@ -287,7 +287,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 # prettyoutput.Log("RBF transform is approximately Rigid")
                 use_rigid_transform = True
 
-            source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+            #source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
 
             return np.hstack([WeightsX, WeightsY]), use_rigid_transform
         except np.linalg.LinAlgError as e:
