@@ -4,7 +4,8 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
            'ITransformScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
            'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
-           'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit']
+           'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
+           'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix']
 
 import numpy as np
 from numpy.typing import NDArray
@@ -78,4 +79,7 @@ from nornir_imageregistration.transforms.converters import ConvertTransform, Con
 
 import nornir_imageregistration.transforms.addition as addition
 from nornir_imageregistration.transforms.addition import AddTransforms
+
+import nornir_imageregistration.transforms.utils as utils
+from nornir_imageregistration.transforms.utils import BlendWithLinear, RotationMatrix, ScaleMatrixXY, TranslateMatrixXY, TranslateToZeroOrigin, IdentityMatrix
 

@@ -468,7 +468,27 @@ class StosFile(object):
 
             if self.MappedMaskFullPath is not None:
                 if not os.path.isabs(self.MappedMaskFullPath):
-                    self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath) 
+                    self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
+
+    def BlendWithLinear(self, linear_factor: float):
+        '''
+        Blends a stos file using a control point transform with a rigid linear approximation of
+        the same transform (rotation, translation, scaling) with the passed blending factor
+        :param linear_factor:  0 to 1.0, amount of weight to assign points passed through linear transform
+        :return:
+        '''
+
+        transformObj = nornir_imageregistration.transforms.LoadTransform(self.Transform, pixelSpacing=1.0)
+        assert (transformObj is not None)
+
+        if isinstance(transformObj, nornir_imageregistration.IControlPoints):
+            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor)
+            updated_transform = blended_transform.ToITKString()
+            transform_changed = updated_transform != self.Transform
+            self.Transform = updated_transform
+            return transform_changed
+
+        return False
 
     def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath,
                                    MappedImageFullPath,

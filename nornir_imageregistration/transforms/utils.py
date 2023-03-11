@@ -92,6 +92,12 @@ def FlipMatrixY() -> NDArray[float]:
     '''
     return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
+def FlipMatrixX() -> NDArray[float]:
+    '''
+    Flip the Y axis
+    '''
+    return np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
+
 
 def BlendWithLinear(transform: IControlPoints, linear_factor: float) -> ITransform:
     """

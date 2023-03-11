@@ -123,7 +123,7 @@ class AlignmentRecord(object):
                                                                                                   FixedImageShape=FixedImageShape,
                                                                                                   MovingImageShape=MovingImageShape)
 
-    def GetTransformedCornerPoints(self, warpedImageSize) -> NDArray[float]:
+    def GetTransformedCornerPoints(self, warpedImageSize: NDArray[int]) -> NDArray[float]:
         '''
         '''
         #Adjust image size by 1 since the images are indexed by 0
