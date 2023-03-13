@@ -323,12 +323,12 @@ class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit,
 
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotationCenter)
+        self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotation_center)
         self.OnTransformChanged()
 
     def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
+        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotation_center)
         self.OnTransformChanged()
 
     def FlipWarped(self, flip_center=None):
