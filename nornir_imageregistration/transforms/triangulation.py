@@ -207,12 +207,12 @@ class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit,
         distance, index = self.NearestSourcePoint(old_points)
         return self.UpdateSourcePointsByIndex(index, points)
 
-    def RemovePoint(self, index: int):
+    def RemovePoint(self, index: int | NDArray[int]):
         if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
         self._points = np.delete(self._points, index, 0)
-        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        #self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
     def InitializeDataStructures(self):

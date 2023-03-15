@@ -170,7 +170,7 @@ class IControlPointAddRemove(ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def RemovePoint(self, index: int):
+    def RemovePoint(self, index: int | NDArray[int]):
         raise NotImplementedError()
 
 class ITargetSpaceControlPointEdit(ABC):
