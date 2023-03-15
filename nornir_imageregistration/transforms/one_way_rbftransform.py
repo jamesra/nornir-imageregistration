@@ -26,13 +26,22 @@ class OneWayRBFWithLinearCorrection(Triangulation):
     def type(self) -> TransformType:
         return TransformType.MESH
 
+    def __setstate__(self, state):
+        super(OneWayRBFWithLinearCorrection, self).__setstate__(state)
+        self._weights = state['_weights']
+        rigid_transform = state.get('_rigid_transform', None)
+        self._rigid_transform = None if rigid_transform is None else nornir_imageregistration.transforms.LoadTransform(rigid_transform)
+
+        #TODO: Can I serialize a python function pointer?
+        self.BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
+        return
+
     def __getstate__(self):
         odict = super(OneWayRBFWithLinearCorrection, self).__getstate__()
-
         odict['_weights'] = self._weights
 
-        if '_UseRigidTransform' not in odict:
-            odict['_UseRigidTransform'] = False
+        if '_rigid_transform' not in odict:
+            odict['_rigid_transform'] = self._rigid_transform.ToITKString() if self.UseRigidTransform else None
 
         return odict
 
