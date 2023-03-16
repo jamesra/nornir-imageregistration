@@ -558,25 +558,6 @@ def __CreateScalableTransformCopy(transform):
     if isinstance(transform, nornir_imageregistration.transforms.ITransformScaling):
         return copy.deepcopy(transform)
 
-    # Handle cases where we know how to adjust the transform to make it scalable 
-    if isinstance(transform, nornir_imageregistration.transforms.RigidNoRotation):
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
-                                                                                 source_rotation_center=None,
-                                                                                 angle=0,
-                                                                                 scalar=1.0)
-
-    if isinstance(transform, nornir_imageregistration.transforms.Rigid):
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
-                                                                                 source_rotation_center=None,
-                                                                                 angle=0,
-                                                                                 scalar=1.0)
-
-    elif isinstance(transform, nornir_imageregistration.transforms.Rigid):
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=transform.target_offset,
-                                                                                 source_rotation_center=transform.source_space_center_of_rotation,
-                                                                                 angle=transform.angle,
-                                                                                 scalar=1.0)
-
     raise ValueError("Transform does not support ITransformScaling and does not have a hand-coded mapping here")
 
 

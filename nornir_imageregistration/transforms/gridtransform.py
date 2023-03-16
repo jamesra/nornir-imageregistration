@@ -11,7 +11,7 @@ from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInte
 import nornir_pools
 import nornir_imageregistration
 from . import utils
-from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformTranslation, \
+from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
     IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.controlpointbase import ControlPointBase
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
@@ -20,7 +20,7 @@ from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.transforms.utils import InvalidIndicies 
 
 
-class GridTransform(ITransformScaling, ITransformTranslation,
+class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
                     ITransformTargetRotation, ITargetSpaceControlPointEdit,
                     IGridTransform, ITriangulatedTargetSpace, ControlPointBase):
 

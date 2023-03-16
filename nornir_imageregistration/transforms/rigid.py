@@ -9,7 +9,7 @@ from nornir_imageregistration.spatial import Rectangle
 import numpy as np
 
 
-class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransformChangeEvents):
+class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTranslation, DefaultTransformChangeEvents):
     '''This class is legacy and probably needs a deprecation warning'''
 
     @property
@@ -48,7 +48,6 @@ class RigidNoRotation(base.ITransform, base.ITransformTranslation, DefaultTransf
 
     def Scale(self, value: float):
         '''Scale both warped and control space by scalar'''
-        self.source_space_center_of_rotation = self.source_space_center_of_rotation * value
         self.target_offset = self.target_offset * value
         self.OnTransformChanged()
 
@@ -238,11 +237,20 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         self.update_rotation_matrix()
         self.OnTransformChanged()
 
+    def Scale(self, scalar: float):
+
+        # We aren't changing the relative scale of either space compared to the other
+        # We are changing the scale of both spaces, so simply adjust the target and source space offsets
+        #Do not call super, this method is a replacement
+        self.target_offset = self.target_offset * scalar
+        self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
+        self.OnTransformChanged()
+
     def __repr__(self):
         return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}deg Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
 
 
-class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
+class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
     '''
     Applies a scale+rotation+translation transform
     '''
@@ -258,6 +266,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
 
     @property
     def scalar(self):
+        '''The relative scale difference between source and target space'''
         return self._scalar
 
     def __init__(self, target_offset: tuple[float, float] | list[float, float] | NDArray,
@@ -292,14 +301,6 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformScaling):
                                                                                                        1],
                                                                                                    self.target_offset[
                                                                                                        0])
-
-    def Scale(self, scalar: float):
-
-        # We aren't changing the relative scale of either space compared to the other
-        # We are changing the scale of both spaces, so simply adjust the target and source space offsets
-        self.target_offset = self.target_offset * scalar
-        self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
-        self.OnTransformChanged()
 
     def ScaleWarped(self, scalar: float):
         '''Scale source space control points by scalar'''

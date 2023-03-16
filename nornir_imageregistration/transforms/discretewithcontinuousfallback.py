@@ -18,10 +18,10 @@ import scipy.spatial
 from . import utils
 from .triangulation import Triangulation
 from nornir_imageregistration.transforms.transform_type import TransformType
-from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform
+from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform, ITransformRelativeScaling
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
-class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransformScaling, DefaultTransformChangeEvents):
+class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -136,6 +136,9 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
         if not isinstance(discrete_transform, IDiscreteTransform):
             raise ValueError("Discrete transform should implement IDiscreteTransform")
+
+        if not (isinstance(discrete_transform, ITransformRelativeScaling) and isinstance(continuous_transform, ITransformRelativeScaling)):
+            raise ValueError("Discrete and continuous transform should implement ITransformRelativeScaling")
 
         if not (isinstance(discrete_transform, ITransformScaling) and isinstance(continuous_transform, ITransformScaling)):
             raise ValueError("Discrete and continuous transform should implement ITransformScaling")

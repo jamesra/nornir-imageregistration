@@ -20,11 +20,11 @@ from .triangulation import Triangulation
 import nornir_imageregistration.transforms
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.transform_type import TransformType
-from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform,\
+from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransform,\
     ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
-class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformTargetRotation,
+class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation,
                           ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace, DefaultTransformChangeEvents):
     """
     classdocs

@@ -78,11 +78,15 @@ class ITransformTargetRotation(ABC):
         raise NotImplementedError()
 
 class ITransformScaling(ABC):
+    '''Supports scaling target and source space together (changing image downsample level for example)'''
+
     @abstractmethod
     def Scale(self, scalar: float) -> None:
         """Scale both spaces by the specified amount"""
         raise NotImplementedError()
 
+class ITransformRelativeScaling(ABC):
+    '''Supports scaling of target space or source space independently of each other'''
     @abstractmethod
     def ScaleFixed(self, scalar: float) -> None:
         """Scale all fixed points by the specified amount"""

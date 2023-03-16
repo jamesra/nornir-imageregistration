@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 import nornir_pools
 import nornir_imageregistration 
 from . import utils, TransformType
-from .base import IDiscreteTransform, ITransformScaling, ITransformTranslation, \
+from .base import IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
  IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
     ITriangulatedSourceSpace, IControlPointAddRemove
 
@@ -24,7 +24,7 @@ from .addition import AddTransforms
 from .controlpointbase import ControlPointBase
 
 
-class Triangulation(ITransformScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation,
+class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation,
                     ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
                     IControlPointAddRemove, ControlPointBase):
     '''

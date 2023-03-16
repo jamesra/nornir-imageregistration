@@ -1,7 +1,7 @@
 __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid', "registrationtree", "utils",
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
-           'ITransformScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
+           'ITransformScaling', 'ITransformRelativeScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
            'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
            'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
@@ -32,9 +32,9 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 
 import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
-    IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
-    IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, IControlPointAddRemove, IControlPointEdit, \
-    ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
+     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
+     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
+     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
 
 import nornir_imageregistration.transforms.defaulttransformchangeevents as defaulttransformchangeevents
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
