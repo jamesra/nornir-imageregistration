@@ -46,9 +46,10 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
         self.target_offset = self.target_offset - offset
         self.OnTransformChanged()
 
-    def Scale(self, value: float):
+    def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
-        self.target_offset = self.target_offset * value
+        self.target_offset = self.target_offset * scalar
+        self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
         self.OnTransformChanged()
 
     @property
