@@ -5,7 +5,7 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
            'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
            'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
-           'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix']
+           'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix', 'ConvertRigidTransformToCenteredSimilarityTransform']
 
 import numpy as np
 from numpy.typing import NDArray
@@ -75,7 +75,8 @@ import nornir_imageregistration.transforms.matrixtransform as matrixtransform
 from nornir_imageregistration.transforms.matrixtransform import AffineMatrixTransform
 
 import nornir_imageregistration.transforms.converters as converters
-from nornir_imageregistration.transforms.converters import ConvertTransform, ConvertTransformToGridTransform, ConvertTransformToMeshTransform, ConvertTransformToRigidTransform
+from nornir_imageregistration.transforms.converters import ConvertTransform, ConvertTransformToGridTransform, \
+    ConvertTransformToMeshTransform, ConvertTransformToRigidTransform,ConvertRigidTransformToCenteredSimilarityTransform
 
 import nornir_imageregistration.transforms.addition as addition
 from nornir_imageregistration.transforms.addition import AddTransforms

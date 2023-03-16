@@ -550,6 +550,9 @@ class StosFile(object):
             
             if isinstance(transformObj, nornir_imageregistration.transforms.ITransformScaling):
                 transformObj.Scale(scalar=scale)
+            elif transformObj.type == nornir_imageregistration.transforms.TransformType.RIGID:
+                transformObj = nornir_imageregistration.transforms.ConvertRigidTransformToCenteredSimilarityTransform(transformObj)
+                transformObj.Scale(scalar=scale)
             else:
                 raise ValueError(f"Transform needs to be scaled but does not support ITransformScaling interface {transformObj}")
 

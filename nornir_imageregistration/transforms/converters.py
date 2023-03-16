@@ -16,7 +16,6 @@ class RigidComponents(NamedTuple):
     translation: NDArray[float]
     reflected: bool
 
-
 def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[NDArray[float], float, NDArray[float]]:
     '''
     This function is used to get the translation, rotation and scaling factors when aligning
@@ -135,6 +134,28 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 
     if transform_type == nornir_imageregistration.transforms.TransformType.RBF:
         return ConvertTransformToRBFTransform(input, **kwargs)
+
+    raise NotImplemented()
+
+
+def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransform):
+    if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=input_transform.target_offset,
+                                                                                 source_rotation_center=input_transform.source_rotation_center,
+                                                                                 angle=input_transform.angle,
+                                                                                 scalar=input_transform.scalar)
+    elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=input_transform.target_offset,
+            source_rotation_center=input_transform.source_rotation_center,
+            angle=input_transform.angle,
+            scalar=input_transform.scalar)
+    elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=input_transform.target_offset,
+            source_rotation_center=input_transform.source_rotation_center,
+            angle=input_transform.angle,
+            scalar=input_transform.scalar)
 
     raise NotImplemented()
 
