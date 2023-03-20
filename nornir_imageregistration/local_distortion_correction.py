@@ -1083,8 +1083,9 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :return:
     """
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
-    target_controlpoint = target_controlpoint.astype(float)
-    target_controlpoint[np.mod(alignmentArea, 2) > 0] += 0.5
+    target_controlpoint = target_controlpoint.astype(float).flatten()
+    adjust_mask = np.mod(alignmentArea, 2) > 0
+    target_controlpoint[adjust_mask] += 0.5
 
     target_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
         point=(target_controlpoint[0] - (alignmentArea[0] / 2.0),
