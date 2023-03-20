@@ -5,7 +5,7 @@ from typing import NamedTuple
 from nornir_shared.mathhelper import RoundingPrecision
 import nornir_imageregistration
 from nornir_imageregistration.transforms import TransformType, ITransform, IControlPoints
- 
+
 tau = np.pi * 2
 
 
@@ -16,7 +16,9 @@ class RigidComponents(NamedTuple):
     translation: NDArray[float]
     reflected: bool
 
-def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[NDArray[float], float, NDArray[float]]:
+
+def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
+    NDArray[float], float, NDArray[float]]:
     '''
     This function is used to get the translation, rotation and scaling factors when aligning
     points in B on reference points in A.
@@ -40,27 +42,32 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     # VT = VT.T
     d = np.sign(np.linalg.det(VT.T @ U))
     reflected = d < 0
-    S = np.diag([1] * (num_dims - 1) + [d])
+    S = np.diag([1] * (num_dims - 1) + [1])
     # if reflected:
     #    U[:, -1] = -U[:, -1]
     source_rotation_center = EB
     rotation_matrix = U @ S @ VT
-     
+
     # OK, there are errors in the scale caluclation, to help it out I transform the points with the rotation, then re-run the algorithm with just scaling and translation
-    sp = source_points if reflected == False else np.flipud(source_points)
+    # sp = source_points if reflected == False else np.flipud(source_points)
+    sp = source_points
     source_points_B = (sp - source_rotation_center) @ rotation_matrix
 
     scale, translation = _kabsch_umeyama2(target_points, source_points_B)
-    #translation = translation - source_rotation_center
+    # translation = translation - source_rotation_center
 
-#    scale = VarA / np.trace(np.diag(D) @ S)
+    #    scale = VarA / np.trace(np.diag(D) @ S)
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB)
 
+    if reflected:
+        rotation_matrix[1, 1] = -rotation_matrix[1, 1]
+
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
-    
-def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[NDArray[float], float, NDArray[float]]:
+
+def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
+    NDArray[float], float, NDArray[float]]:
     '''
     This function is used to get the translation, rotation and scaling factors when aligning
     points in B on reference points in A.
@@ -88,17 +95,19 @@ def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float
 
     # source_rotation_center = EB
     # rotation_matrix = U @ S @ VT
-      
+
     scale = VarA / np.trace(np.diag(D))
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * EB)
-    
-    return  scale, translation
+
+    return scale, translation
 
 
-def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float], source_points: NDArray[float]) -> RigidComponents:
-    source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points, source_points)
-    
+def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
+                                             source_points: NDArray[float]) -> RigidComponents:
+    source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points,
+                                                                                             source_points)
+
     # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then 
     # performs the final translation into target space.
     adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
@@ -140,10 +149,11 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 
 def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransform):
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=input_transform.target_offset,
-                                                                                 source_rotation_center=input_transform.source_rotation_center,
-                                                                                 angle=input_transform.angle,
-                                                                                 scalar=input_transform.scalar)
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=input_transform.target_offset,
+            source_rotation_center=input_transform.source_rotation_center,
+            angle=input_transform.angle,
+            scalar=input_transform.scalar)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=input_transform.target_offset,
@@ -163,7 +173,7 @@ def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransfo
 def ConvertTransformToRigidTransform(input_transform: ITransform, **kwargs):
     if isinstance(input_transform, IControlPoints):
         components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
-                                                                             input_transform.SourcePoints) 
+                                                              input_transform.SourcePoints)
 
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=components.translation,
                                                                                  source_rotation_center=components.source_rotation_center,
@@ -172,10 +182,11 @@ def ConvertTransformToRigidTransform(input_transform: ITransform, **kwargs):
                                                                                  flip_ud=components.reflected)
 
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
-        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=input_transform.target_offset,
-                                                                                 source_rotation_center=input_transform.source_rotation_center,
-                                                                                 angle=input_transform.angle,
-                                                                                 scalar=input_transform.scalar)
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=input_transform.target_offset,
+            source_rotation_center=input_transform.source_rotation_center,
+            angle=input_transform.angle,
+            scalar=input_transform.scalar)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return nornir_imageregistration.transforms.Rigid(
             target_offset=input_transform.target_offset,
@@ -191,12 +202,12 @@ def ConvertTransformToRigidTransform(input_transform: ITransform, **kwargs):
 
 
 def ConvertTransformToMeshTransform(input_transform: ITransform,
-                                    source_image_shape: NDArray | None=None) -> ITransform:
+                                    source_image_shape: NDArray | None = None) -> ITransform:
     if isinstance(input_transform, IControlPoints):
         return nornir_imageregistration.transforms.MeshWithRBFFallback(input_transform.points)
 
     if isinstance(input_transform, nornir_imageregistration.transforms.Rigid) or \
-       isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+            isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
         control_points = GetControlPointsForRigidTransform(input_transform, source_image_shape)
         transform = nornir_imageregistration.transforms.MeshWithRBFFallback(control_points)
         return transform
@@ -215,7 +226,7 @@ def GetTargetSpaceCornerPoints(input_transform: ITransform,
 
 
 def GetControlPointsForRigidTransform(input_transform: ITransform,
-                                    source_image_shape: NDArray) -> NDArray[float]:
+                                      source_image_shape: NDArray) -> NDArray[float]:
     ymax, xmax = source_image_shape
     corners = np.array([[0, 0],
                         [0, xmax],
@@ -226,8 +237,8 @@ def GetControlPointsForRigidTransform(input_transform: ITransform,
 
 
 def ConvertTransformToGridTransform(input_transform: ITransform, source_image_shape: NDArray,
-                                    cell_size: NDArray | None=None, grid_dims: NDArray | None=None,
-                                    grid_spacing: NDArray | None=None) -> ITransform:
+                                    cell_size: NDArray | None = None, grid_dims: NDArray | None = None,
+                                    grid_spacing: NDArray | None = None) -> ITransform:
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
 
@@ -244,16 +255,18 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
     return nornir_imageregistration.transforms.GridWithRBFFallback(grid_data)
 
 
-def ConvertTransformToRBFTransform(input_transform: ITransform, source_image_shape: NDArray | None=None) -> ITransform:
+def ConvertTransformToRBFTransform(input_transform: ITransform,
+                                   source_image_shape: NDArray | None = None) -> ITransform:
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
     """
 
     if isinstance(input_transform, IControlPoints):
-        return nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(input_transform.SourcePoints, input_transform.TargetPoints)
+        return nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(input_transform.SourcePoints,
+                                                                                 input_transform.TargetPoints)
     # elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
-        # TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, input_transform.angle, target_space_offset, scale=scale)
-        # SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
+    # TargetPoints = GetTransformedRigidCornerPoints(source_image_shape, input_transform.angle, target_space_offset, scale=scale)
+    # SourcePoints = GetTransformedRigidCornerPoints(source_image_shape, rangle=0, offset=(0, 0), flip_ud=flip_ud)
 
     # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
 
