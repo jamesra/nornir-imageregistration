@@ -117,7 +117,7 @@ class RectangleSet:
         :returns: all rectangles in the set that intersect the provided rectangle
         """
 
-        rect = Rectangle.PrimitiveToRectange(rect)
+        rect = Rectangle.PrimitiveToRectangle(rect)
 
         x_intersections = frozenset(self._scan_sweep_array_for_all_intersections(self.x_sweep_array,
                                                                                  min_val=rect.MinX,
@@ -415,9 +415,9 @@ class Rectangle(object):
             elif isinstance(args[0], Iterable):
                 return cls.Union(*(args[0]))
             else:
-                return Rectangle.PrimitiveToRectange(args[0])
+                return Rectangle.PrimitiveToRectangle(args[0])
         else:
-            r = Rectangle.PrimitiveToRectange(args[0])
+            r = Rectangle.PrimitiveToRectangle(args[0])
             mbb = r._bounds.copy()
 
             for r in args:
@@ -436,8 +436,8 @@ class Rectangle(object):
         :returns: The rectangle describing the bounding box of both shapes or None if they do not intersect
         """
 
-        A = Rectangle.PrimitiveToRectange(A)
-        B = Rectangle.PrimitiveToRectange(B)
+        A = Rectangle.PrimitiveToRectangle(A)
+        B = Rectangle.PrimitiveToRectangle(B)
 
         if not cls.contains(A, B):
             return None
@@ -509,7 +509,7 @@ class Rectangle(object):
         point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height], point[iPoint.X] + area[iArea.Width]))
 
     @staticmethod
-    def CreateFromBounds(bounds: RectLike) -> Rectangle:
+    def CreateFromBounds(bounds: NDArray[float]) -> Rectangle:
         """
         :param bounds: (MinY,MinX,MaxY,MaxX)
         """
@@ -518,7 +518,7 @@ class Rectangle(object):
         return Rectangle(bounds)
 
     @classmethod
-    def PrimitiveToRectange(cls, primitive: RectLike) -> Rectangle:
+    def PrimitiveToRectangle(cls, primitive: RectLike) -> Rectangle:
         """Primitive can be a list of (Y,X) or (MinY, MinX, MaxY, MaxX) or a Rectangle"""
 
         if isinstance(primitive, Rectangle):
@@ -528,9 +528,9 @@ class Rectangle(object):
             if primitive.dtype == RectangleSet.rect_dtype:
                 return Rectangle((primitive[0], primitive[1], primitive[2], primitive[3]))
 
-        if isinstance(primitive, Sequence):
+        if isinstance(primitive, Sequence) | isinstance(primitive, np.ndarray):
             if len(primitive) == 2:
-                Warning("This constructor appears odd, investigate this path")
+                Warning("This constructor appears odd, investigate this path.  It probably is using rectangle to approximate a point")
                 return Rectangle((primitive[0], primitive[1], primitive[0], primitive[1]))
             elif len(primitive) == 4:
                 return Rectangle(primitive)
@@ -539,13 +539,24 @@ class Rectangle(object):
         else:
             raise ValueError("Unknown primitve type %s" % str(primitive))
 
-    @classmethod
-    def contains(cls, A: Rectangle | RectLike, B: Rectangle | RectLike):
+    @staticmethod
+    def contains(A: Rectangle | RectLike, B: Rectangle | RectLike | PointLike):
         """If len == 2 primitive is a point,
            if len == 4 primitive is a rect [left bottom right top]"""
 
-        A = Rectangle.PrimitiveToRectange(A)
-        B = Rectangle.PrimitiveToRectange(B)
+        A = Rectangle.PrimitiveToRectangle(A)
+
+        if isinstance(B, Sequence) | isinstance(B, np.ndarray):
+            if len(B) == 2:
+                y, x = B
+                return x >= A.BoundingBox[nornir_imageregistration.iRect.MinX] and \
+                       x <= A.BoundingBox[nornir_imageregistration.iRect.MaxX] and \
+                       y >= A.BoundingBox[nornir_imageregistration.iRect.MinY] and \
+                       y <= A.BoundingBox[nornir_imageregistration.iRect.MaxY]
+            elif len(B) == 4:
+                B = Rectangle(B)
+            else:
+                raise ValueError(f"Unrecognized input to parameter B: {B}")
 
         if (A.BoundingBox[iRect.MaxX] <= B.BoundingBox[iRect.MinX] or
                 A.BoundingBox[iRect.MinX] >= B.BoundingBox[iRect.MaxX] or
@@ -575,8 +586,8 @@ class Rectangle(object):
         :rtype: Rectangle
         :returns: The rectangle describing the overlapping regions of rectangles A and B
         """
-        A = Rectangle.PrimitiveToRectange(A)
-        B = Rectangle.PrimitiveToRectange(B)
+        A = Rectangle.PrimitiveToRectangle(A)
+        B = Rectangle.PrimitiveToRectangle(B)
 
         if not cls.contains(A, B):
             return None
