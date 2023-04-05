@@ -108,7 +108,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         raise DeprecationWarning('EnsurePointsAre4xN_NumpyArray should use utility method')
         return nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(points)
 
-    def FindDuplicateFixedPoints(self, new_points, epsilon=0):
+    def FindDuplicateFixedPoints(self, new_points, epsilon: float = 0):
         '''Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
         '''
@@ -126,39 +126,57 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         # return self.GetPointPairsInRect(self.TargetPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
 
-    def GetPointPairsInRect(self, points, bounds):
+    def GetPointPairsInRect(self, points: NDArray[float], bounds: nornir_imageregistration.Rectangle | NDArray[float]):
         OutputPoints = None
+
+        bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
 
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
-            if x >= bounds[nornir_imageregistration.iRect.MinX] and x <= bounds[nornir_imageregistration.iRect.MaxX] and y >= bounds[nornir_imageregistration.iRect.MinY] and y <= bounds[nornir_imageregistration.iRect.MaxY]:
+            if nornir_imageregistration.Rectangle.contains(bounds, (y, x)):
                 PointPair = self._points[iPoint, :]
                 if OutputPoints is None:
                     OutputPoints = PointPair
                 else:
                     OutputPoints = np.vstack((OutputPoints, PointPair))
 
-        if not OutputPoints is None:
+        if OutputPoints is not None:
             if OutputPoints.ndim == 1:
                 OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
 
         return OutputPoints
 
-    def GetFixedPointsInRect(self, bounds):
-        '''bounds = [left bottom right top]'''
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds):
-        '''bounds = [left bottom right top]'''
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointsInFixedRect(self, bounds):
-        '''bounds = [left bottom right top]'''
+    def GetPointsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointsInWarpedRect(self, bounds):
-        '''bounds = [left bottom right top]'''
+    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.TargetPoints, bounds)
+
+    def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+        '''Return the warped points from a set of target-source point pairs'''
+        return points[:, 2:4]
+
+    def PointPairsToTargetPoints(self, points: NDArray[float]):
+        '''Return the target points from a set of target-source point pairs'''
+        return points[:, 0:2]
 
     @property
     def MappedBounds(self):

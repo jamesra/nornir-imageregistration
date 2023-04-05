@@ -217,6 +217,38 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         '''
         return self._discrete_transform.NearestWarpedPoint(points)
 
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
+
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def GetPointInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
+
+    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle):
+        '''Return the point pairs inside the rectangle defined in target space'''
+        return self._discrete_transform.GetPointPairsInTargetRect(bounds)
+
+    def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle):
+        '''Return the point pairs inside the rectangle defined in source space'''
+        return self._discrete_transform.GetPointPairsInSourceRect(bounds)
+
+    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+        '''Return the warped points from a set of target-source point pairs'''
+        return self._discrete_transform.PointPairsToWarpedPoints(points)
+
+    def PointPairsToTargetPoints(self, points: NDArray[float]):
+        '''Return the target points from a set of target-source point pairs'''
+        return self._discrete_transform.PointPairsToTargetPoints(points)
+
     @property
     def fixedtri(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.FixedTriangles

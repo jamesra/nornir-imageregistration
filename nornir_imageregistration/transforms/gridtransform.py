@@ -175,6 +175,50 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
+    def GetPointPairsInRect(self, points: NDArray[float], bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        OutputPoints = None
+
+        bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
+
+        for iPoint in range(0, points.shape[0]):
+            y, x = points[iPoint, :]
+            if nornir_imageregistration.Rectangle.contains(bounds, (y, x)):
+                PointPair = self._points[iPoint, :]
+                if OutputPoints is None:
+                    OutputPoints = PointPair
+                else:
+                    OutputPoints = np.vstack((OutputPoints, PointPair))
+
+        if OutputPoints is not None:
+            if OutputPoints.ndim == 1:
+                OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
+
+        return OutputPoints
+
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.TargetPoints, bounds)
+
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.TargetPoints, bounds)
+
+    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+        '''bounds = [bottom left top right]'''
+        return self.GetPointPairsInRect(self.SourcePoints, bounds)
+
+    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+        '''Return the warped points from a set of target-source point pairs'''
+        return points[:, 2:4]
+
+    def PointPairsToTargetPoints(self, points: NDArray[float]):
+        '''Return the target points from a set of target-source point pairs'''
+        return points[:, 0:2]
+
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:

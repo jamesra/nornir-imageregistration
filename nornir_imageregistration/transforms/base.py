@@ -148,6 +148,26 @@ class IControlPoints(ABC):
         '''
         raise NotImplementedError()
 
+    @abc.abstractmethod
+    def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle) -> NDArray[float]:
+        '''Return the point pairs inside the rectangle defined in target space'''
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle) -> NDArray[float]:
+        '''Return the point pairs inside the rectangle defined in source space'''
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def PointPairsToWarpedPoints(self, points: NDArray[float]) -> NDArray[float]:
+        '''Return the warped points from a set of target-source point pairs'''
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def PointPairsToTargetPoints(self, points: NDArray[float]) -> NDArray[float]:
+        '''Return the target points from a set of target-source point pairs'''
+        raise NotImplementedError()
+
     @property
     @abc.abstractmethod
     def NumControlPoints(self) -> int:

@@ -32,6 +32,7 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
 
     EA = np.mean(A, axis=0)
     EB = np.mean(B, axis=0)
+    source_rotation_center = EB
     centered_A = A - EA
     centered_B = B - EB
     VarA = np.mean(np.linalg.norm(centered_A, axis=1) ** 2)
@@ -42,10 +43,17 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     # VT = VT.T
     d = np.sign(np.linalg.det(VT.T @ U))
     reflected = d < 0
-    S = np.diag([1] * (num_dims - 1) + [1])
+    if reflected:
+        sp = source_points
+        sp = sp - source_rotation_center #Flip points aceoss center
+        sp[:,0] = -sp[:,0]
+        ignore_source_rotation_center, rotation_matrix, scale, translation, ignore_reflected = _kabsch_umeyama(target_points, sp)
+        return source_rotation_center, rotation_matrix, scale, translation, True
+        
+    S = np.diag([1] * (num_dims - 1) + [d])
     # if reflected:
     #    U[:, -1] = -U[:, -1]
-    source_rotation_center = EB
+    
     rotation_matrix = U @ S @ VT
 
     # OK, there are errors in the scale caluclation, to help it out I transform the points with the rotation, then re-run the algorithm with just scaling and translation
@@ -60,8 +68,11 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB)
 
-    if reflected:
-        rotation_matrix[1, 1] = -rotation_matrix[1, 1]
+    #if reflected:
+    #    S = np.diag([1] * (num_dims - 1) + [d])
+    #    rotation_matrix = U @ S @ VT 
+    #    rotation_matrix[1, 1] = -rotation_matrix[1, 1]
+    #    rotation_matrix[0, 0] = -rotation_matrix[0, 0]
 
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
@@ -88,13 +99,7 @@ def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float
     # VarB = np.mean(np.linalg.norm(centered_B, axis=1) ** 2)
 
     H = (centered_A.T @ centered_B) / num_pts
-    D = np.linalg.svd(H, compute_uv=False)
-    # VT = VT.T
-    # if reflected:
-    #    U[:, -1] = -U[:, -1]
-
-    # source_rotation_center = EB
-    # rotation_matrix = U @ S @ VT
+    D = np.linalg.svd(H, compute_uv=False) 
 
     scale = VarA / np.trace(np.diag(D))
     # Total translation, does not factor in translation of B to EB for rotation

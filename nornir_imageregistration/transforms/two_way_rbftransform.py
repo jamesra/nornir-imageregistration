@@ -61,6 +61,22 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     def points(self) -> NDArray:
         return self._forward_rbf.points
 
+    def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle):
+        '''Return the point pairs inside the rectangle defined in target space'''
+        return self._forward_rbf.GetPointPairsInTargetRect(bounds)
+
+    def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle):
+        '''Return the point pairs inside the rectangle defined in source space'''
+        return self._forward_rbf.GetPointPairsInSourceRect(bounds)
+
+    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+        '''Return the warped points from a set of target-source point pairs'''
+        return self._forward_rbf.PointPairsToWarpedPoints(points)
+
+    def PointPairsToTargetPoints(self, points: NDArray[float]):
+        '''Return the target points from a set of target-source point pairs'''
+        return self._forward_rbf.PointPairsToTargetPoints(points)
+
     @property
     def NumControlPoints(self) -> int:
         return self._forward_rbf.NumControlPoints
