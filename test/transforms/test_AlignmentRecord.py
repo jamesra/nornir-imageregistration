@@ -52,7 +52,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [10, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -70,7 +70,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -88,7 +88,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -105,7 +105,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 0]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -129,7 +129,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
 
         self.assertTrue((Corners == predictedArray).all())
 
@@ -149,7 +149,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    ])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
         record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, 90)
@@ -164,7 +164,7 @@ class TestAlignmentRecord(unittest.TestCase):
 
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints([10, 10])
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
         self.assertTrue((Corners == predictedArray).all())
 
     def testAlignmentTransformSizeMismatch(self):
