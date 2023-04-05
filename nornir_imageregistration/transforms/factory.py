@@ -218,7 +218,7 @@ def ParseGridTransform(parts, pixelSpacing=None):
     PointPairs = np.array(PointPairs)
     grid = nornir_imageregistration.ITKGridDivision((ImageHeight, ImageWidth),
                                                     cell_size=(256, 256), #cell_size doesn't matter for how this object is going to be used
-                                                    grid_dims=(gridWidth, gridHeight))
+                                                    grid_dims=(gridHeight, gridWidth))
     grid.TargetPoints = PointPairs[:, 0:2]
 
     #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
