@@ -27,8 +27,8 @@ if __name__ == '__main__':
                         "six",
                         "hypothesis"]
 
-    dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.4.1",
-                        "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.4.1"]
+    dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.5.0",
+                        "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.5.0"]
 
     scripts = ['nornir-addtransforms =        nornir_imageregistration.scripts.nornir_addtransforms:Execute',
                'nornir-assemble-tiles =       nornir_imageregistration.scripts.nornir_assemble_tiles:Execute',

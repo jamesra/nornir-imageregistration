@@ -45,7 +45,7 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     reflected = d < 0
     if reflected:
         sp = source_points
-        sp = sp - source_rotation_center #Flip points aceoss center
+        sp = sp - source_rotation_center #Flip points across center
         sp[:,0] = -sp[:,0]
         ignore_source_rotation_center, rotation_matrix, scale, translation, ignore_reflected = _kabsch_umeyama(target_points, sp)
         return source_rotation_center, rotation_matrix, scale, translation, True
