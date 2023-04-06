@@ -815,8 +815,6 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                     if max_val > 0:
                         image = image / max_val
 
-                im.close()
-
     except IOError as E:
         prettyoutput.LogErr("IO error loading image {0}\n{1}".format(ImageFullPath, str(E)))
         raise
