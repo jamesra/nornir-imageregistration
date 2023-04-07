@@ -117,7 +117,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
             Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
 
     if points.ndim > 1:
-        points = np.array(points.flat())
+        points = np.array(points.flat)
 
     return points
 
