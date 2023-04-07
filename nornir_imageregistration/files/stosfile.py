@@ -470,11 +470,12 @@ class StosFile(object):
                 if not os.path.isabs(self.MappedMaskFullPath):
                     self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
 
-    def BlendWithLinear(self, linear_factor: float):
+    def BlendWithLinear(self, linear_factor: float, ignore_rotation: bool = False):
         '''
         Blends a stos file using a control point transform with a rigid linear approximation of
         the same transform (rotation, translation, scaling) with the passed blending factor
         :param linear_factor:  0 to 1.0, amount of weight to assign points passed through linear transform
+        :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
         :return:
         '''
 
@@ -482,7 +483,7 @@ class StosFile(object):
         assert (transformObj is not None)
 
         if isinstance(transformObj, nornir_imageregistration.IControlPoints):
-            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor)
+            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor, ignore_rotation)
             updated_transform = blended_transform.ToITKString()
             transform_changed = updated_transform != self.Transform
             self.Transform = updated_transform

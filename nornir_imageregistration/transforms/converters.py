@@ -61,7 +61,7 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     sp = source_points
     source_points_B = (sp - source_rotation_center) @ rotation_matrix
 
-    scale, translation = _kabsch_umeyama2(target_points, source_points_B)
+    scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points_B)
     # translation = translation - source_rotation_center
 
     #    scale = VarA / np.trace(np.diag(D) @ S)
@@ -77,10 +77,10 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
 
-def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
+def _kabsch_umeyama_translation_scaling(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
     NDArray[float], float, NDArray[float]]:
     '''
-    This function is used to get the translation, rotation and scaling factors when aligning
+    This function is used to get the translation and scaling factors when aligning
     points in B on reference points in A.
 
     The R,c,t componenets once return can be used to obtain B'
@@ -91,8 +91,7 @@ def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float
     num_pts, num_dims = A.shape
 
     EA = np.mean(A, axis=0)
-    # EB = np.mean(B, axis=0)
-    EB = np.array((0, 0))
+    EB = np.mean(B, axis=0)
     centered_A = A - EA
     centered_B = B - EB
     VarA = np.mean(np.linalg.norm(centered_A, axis=1) ** 2)
@@ -109,22 +108,32 @@ def _kabsch_umeyama2(target_points: NDArray[float], source_points: NDArray[float
 
 
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
-                                             source_points: NDArray[float]) -> RigidComponents:
-    source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points,
+                                             source_points: NDArray[float],
+                                             ignore_rotation: bool = False) -> RigidComponents:
+
+    source_rotation_center = np.zeros((1, 2))
+
+    if not ignore_rotation:
+        source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points,
                                                                                              source_points)
 
-    # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then 
-    # performs the final translation into target space.
-    adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
-    rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
-    if rotate_angle <= -tau:
-        rotate_angle += tau
-    elif rotate_angle >= tau:
-        rotate_angle -= tau
+        # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then
+        # performs the final translation into target space.
+        adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
+        rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
+        if rotate_angle <= -tau:
+            rotate_angle += tau
+        elif rotate_angle >= tau:
+            rotate_angle -= tau
 
-    return RigidComponents(source_rotation_center=source_rotation_center, angle=rotate_angle,
-                           translation=adjusted_translation, scale=scale, reflected=reflected)
+        return RigidComponents(source_rotation_center=source_rotation_center, angle=rotate_angle,
+                               translation=adjusted_translation, scale=scale, reflected=reflected)
 
+    else:
+        adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
+        scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points)
+        return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=0,
+                               translation=adjusted_translation, scale=scale, reflected=False)
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
                      **kwargs) -> ITransform:
@@ -175,10 +184,11 @@ def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransfo
     raise NotImplemented()
 
 
-def ConvertTransformToRigidTransform(input_transform: ITransform, **kwargs):
+def ConvertTransformToRigidTransform(input_transform: ITransform, ignore_rotation: bool = False, **kwargs):
     if isinstance(input_transform, IControlPoints):
         components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
-                                                              input_transform.SourcePoints)
+                                                              input_transform.SourcePoints,
+                                                              ignore_rotation)
 
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=components.translation,
                                                                                  source_rotation_center=components.source_rotation_center,

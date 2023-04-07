@@ -47,6 +47,15 @@ class TestGridFitting(unittest.TestCase):
                          hypothesis_test=False)
         
     @hypothesis.settings(verbosity=hypothesis.Verbosity.normal, deadline=None)
+    @hypothesis.given(translate=point_strategy,
+                      scale=hypothesis.strategies.floats(allow_nan=False, allow_infinity=False, min_value=0.01, max_value=100),
+                      points=unique_points_strategy) 
+    #@hypothesis.example(rangle=0.0, translate=(0.0, 0.0), scale=1.0, flip_ud=True, points=[(0.0, 0.0), (0.0, 1.0), (1.0, 0.0)])
+    #@hypothesis.example(rangle=0.0, translate=(0.0, 0.0), scale=1.0, flip_ud=False, points=[(0.0, 0.0), (0.0, 2.0), (0.0, 1.0)])
+    def test_hypothesis_no_rotation(self, translate: tuple[float, float], scale: float, points: list[tuple[float, float]]):
+        self.runFit_norotation( translate, scale, False, points, hypothesis_test=True)
+        
+    @hypothesis.settings(verbosity=hypothesis.Verbosity.normal, deadline=None)
     @hypothesis.given(rangle=hypothesis.strategies.floats(-np.pi, np.pi, exclude_min=True),
                       translate=point_strategy,
                       scale=hypothesis.strategies.floats(allow_nan=False, allow_infinity=False, min_value=0.01, max_value=100),
@@ -67,12 +76,8 @@ class TestGridFitting(unittest.TestCase):
     def test_hypothesis_with_flip(self, rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool, points: list[tuple[float, float]]):
         self.runFit(rangle, translate, scale, flip_ud, points, hypothesis_test=True)
     
-    def runFit(self, rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool, points: list[tuple[float, float]], hypothesis_test: bool):
-        # c = np.random.randint(1, 10)
-        # rangle = -np.pi / 2 + np.pi * np.random.rand()
-
-        # scale = 1.0
-
+    @staticmethod
+    def build_output_points(rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool, points: list[tuple[float, float]], hypothesis_test: bool) -> NDArray[float]:
         R = nornir_imageregistration.transforms.utils.RotationMatrix(rangle)
         # t = np.random.randint(1, 10, size=2)
         t = np.array(translate)
@@ -123,7 +128,16 @@ class TestGridFitting(unittest.TestCase):
         else:
             print(points)
             print(output_points2D)
-
+            
+        return output_points2D
+    
+    
+    def runFit(self, rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool, points: list[tuple[float, float]], hypothesis_test: bool):
+        points_array = np.array(points)
+        t = np.array(translate)
+        num_pts = points_array.shape[0]
+        output_points2D = TestGridFitting.build_output_points(rangle, translate, scale, flip_ud, points, hypothesis_test)
+ 
         # =============================================================================
         # # Simplified code for applying transformation components on a grid
         # R_only = np.array([[np.cos(rangle),-np.sin(rangle)],[np.sin(rangle),np.cos(rangle)]])
@@ -177,6 +191,50 @@ class TestGridFitting(unittest.TestCase):
         self.assertTrue(np.allclose(scale, calc_scale, atol=1e-3), "scale incorrect")
         self.assertTrue(np.allclose(t, translate_output, atol=1e-3), "translation incorrect")
         self.assertTrue(np.allclose(calc_source_rotate_center, np.mean(points_array, 0)), "source center incorrect")
+        return 
+    
+    def runFit_norotation(self, translate: tuple[float, float], scale: float, flip_ud: bool, points: list[tuple[float, float]], hypothesis_test: bool):
+        points_array = np.array(points)
+        t = np.array(translate)
+        num_pts = points_array.shape[0]
+        output_points2D = TestGridFitting.build_output_points(0, translate, scale, flip_ud, points, hypothesis_test)
+ 
+        # =============================================================================
+        # # Simplified code for applying transformation components on a grid
+        # R_only = np.array([[np.cos(rangle),-np.sin(rangle)],[np.sin(rangle),np.cos(rangle)]])
+        # output_points2D_OneLine = np.array([t + c * R_only @ b for b in B])
+        # print(output_points2D_OneLine)
+        # =============================================================================
+        # Obtaining the rotation, scaling and translation factors back from the new grid and our original grid.
+        calc_scale, calc_translate = nornir_imageregistration.transforms.converters._kabsch_umeyama_translation_scaling(output_points2D, points_array)
+  
+        translate_output = np.squeeze(calc_translate)
+        
+        if hypothesis_test:
+            if flip_ud:
+                hypothesis.event(f'Flipped') 
+            if num_pts == 2:
+                hypothesis.event(f'2 points')
+            elif num_pts < 6:
+                hypothesis.event(f'3-5 points')
+            elif num_pts < 11:
+                hypothesis.event(f'6-10 points')
+            elif num_pts < 26:
+                hypothesis.event(f'11-25 points')
+            else:
+                hypothesis.event('more than 25 points')
+     
+            hypothesis.note(f'Scale: {scale} -> {calc_scale}')
+            hypothesis.note(f'Translation: {t} -> {translate_output}') 
+        else: 
+            print(f'Scale: {scale} -> {calc_scale}')
+            print(f'Translation: {t} -> {translate_output}')
+
+        # Adjust rangle to wrap around
+ 
+        # np.testing.assert_allclose(rangle, calc_rotate_angle, atol=1e-3)
+        self.assertTrue(np.allclose(scale, calc_scale, atol=1e-3), "scale incorrect")
+        self.assertTrue(np.allclose(t, translate_output, atol=1e-3), "translation incorrect") 
         return 
     
     def test_anglesclose(self):

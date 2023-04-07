@@ -99,11 +99,12 @@ def FlipMatrixX() -> NDArray[float]:
     return np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
 
 
-def BlendWithLinear(transform: IControlPoints, linear_factor: float) -> ITransform:
+def BlendWithLinear(transform: IControlPoints, linear_factor: float, ignore_rotation: bool) -> ITransform:
     """
     Blends a transform with the estimate linear transform of its control points.  The goal is to "flatten" a transform to gradually reduce folds and other high distortion areas.
     :param transform:
     :param linear_factor:  The weight the linearized transform should have in calculating the new points
+    :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
     :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
     match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
     """
@@ -120,7 +121,7 @@ def BlendWithLinear(transform: IControlPoints, linear_factor: float) -> ITransfo
     if not isinstance(transform, nornir_imageregistration.ITransform):
         raise ValueError("transform")
 
-    linear_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(transform)
+    linear_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(transform, ignore_rotation=ignore_rotation)
     if linear_factor == 1.0:
         return linear_transform
 
