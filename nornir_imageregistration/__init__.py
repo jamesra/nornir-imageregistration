@@ -171,6 +171,9 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
 import nornir_shared.mathhelper
 from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
+import nornir_imageregistration.shared_mem_metadata
+from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
+
 import nornir_imageregistration.igrid as igrid
 from nornir_imageregistration.igrid import IGrid
 
