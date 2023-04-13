@@ -1083,7 +1083,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :return:
     """
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
-    target_controlpoint = target_controlpoint.astype(float).flatten()
+    target_controlpoint = target_controlpoint.astype(float, copy=False).flatten()
     adjust_mask = np.mod(alignmentArea, 2) > 0
     target_controlpoint[adjust_mask] += 0.5
 

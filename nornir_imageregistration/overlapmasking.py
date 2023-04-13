@@ -174,8 +174,8 @@ def _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOve
     maxPossibleOverlapArea = np.prod(maxPossibleOverlap)
     
     #Array of increasing values for X,Y size of Mask
-    Px = np.arange(0, Mask.shape[1], 1)
-    Py = np.arange(0, Mask.shape[0], 1)
+    Px = np.arange(0, Mask.shape[1], 1).astype(np.float64, copy=False)
+    Py = np.arange(0, Mask.shape[0], 1).astype(np.float64, copy=False)
     
     #Where the corresponding boundary of the rectangle lies for any given point P
     Mx_Left = Px - (MovingImageSize[1] / 2.0)
@@ -184,10 +184,10 @@ def _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOve
     My_Top = Py + (MovingImageSize[0] / 2.0)
     
     #Where the overlapping rectangle boundary lies for any given point P
-    Ox_Left = np.fmax(Mx_Left.astype(np.float64), FixedImageRect.MinX)
-    Ox_Bottom = np.fmax(My_Bottom.astype(np.float64), FixedImageRect.MinY)
-    Ox_Right = np.fmin(Mx_Right.astype(np.float64), FixedImageRect.MaxX)
-    Ox_Top = np.fmin(My_Top.astype(np.float64), FixedImageRect.MaxY)
+    Ox_Left = np.fmax(Mx_Left.astype(np.float64, copy=False), FixedImageRect.MinX)
+    Ox_Bottom = np.fmax(My_Bottom.astype(np.float64, copy=False), FixedImageRect.MinY)
+    Ox_Right = np.fmin(Mx_Right.astype(np.float64, copy=False), FixedImageRect.MaxX)
+    Ox_Top = np.fmin(My_Top.astype(np.float64, copy=False), FixedImageRect.MaxY)
     
     Ox_Width = Ox_Right - Ox_Left
     Ox_Height = Ox_Top - Ox_Bottom

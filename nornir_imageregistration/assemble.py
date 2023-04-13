@@ -64,7 +64,7 @@ def write_to_source_roi_coords(transform: ITransform,
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.Transform(write_space_coords, extrapolate=extrapolate).astype(np.float32)
+    read_space_coords = transform.Transform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
     (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
@@ -97,7 +97,7 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32)
+    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
     (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
@@ -191,7 +191,7 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
 
 def my_cheesy_map_coordinates(image, coords):
     
-    floor_coords = np.floor(coords).astype(int)
+    floor_coords = np.floor(coords).astype(int, copy=False)
     return image[floor_coords]
 
 

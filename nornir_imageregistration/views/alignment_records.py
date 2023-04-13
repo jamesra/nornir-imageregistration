@@ -60,7 +60,7 @@ def PlotPeakList(new_alignment_records: list[nornir_imageregistration.EnhancedAl
     percentiles = (percentile_prep / np.max(percentile_prep)) * 100
     TargetPeaks = AdjustedTargetPoints - TargetPoints
     
-    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32), TargetPeaks, shapes, percentiles, OutputFilename=filename, ylim=ylim, xlim=xlim, colors=colors )
+    nornir_shared.plot.VectorField(TargetPoints.astype(np.float32, copy=False), TargetPeaks, shapes, percentiles, OutputFilename=filename, ylim=ylim, xlim=xlim, colors=colors )
      
     return
 

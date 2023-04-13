@@ -96,7 +96,7 @@ class LayoutPosition(object):
         if not isinstance(value, np.ndarray):
             self._position = np.array(value, dtype=np.float64)
         else:
-            self._position = value.astype(np.float64)
+            self._position = value.astype(np.float64, copy=False)
         
         assert(self._position.ndim == 1)
         return 
@@ -108,7 +108,7 @@ class LayoutPosition(object):
     @property
     def ConnectedIDs(self):
         if self._connected_id_cache is None:
-            self._connected_id_cache = self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int)
+            self._connected_id_cache = self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int, copy=False)
         
         return self._connected_id_cache
     

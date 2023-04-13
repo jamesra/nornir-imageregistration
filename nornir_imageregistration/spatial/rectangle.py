@@ -314,7 +314,7 @@ class Rectangle(object):
         The [height, width] of the rectangle
         """
 
-        return np.ceil(np.asarray([self.Height, self.Width])).astype(np.int64)
+        return np.ceil(np.asarray([self.Height, self.Width])).astype(np.int64, copy=False)
 
     @property
     def Size(self) -> NDArray[float]:
@@ -366,7 +366,7 @@ class Rectangle(object):
                     "Invalid input to Rectangle constructor.  Expected four elements (MinY,MinX,MaxY,MaxX): {!r}".format(
                         bounds))
 
-            self._bounds = bounds.astype(np.float64)
+            self._bounds = bounds.astype(np.float64, copy=False)
         elif isinstance(bounds, Rectangle):
             self._bounds = bounds.ToArray()
         elif isinstance(bounds, Iterable):

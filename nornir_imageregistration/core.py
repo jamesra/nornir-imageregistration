@@ -97,10 +97,10 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
             image = imageparam
         elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype) / np.iinfo(imageparam.dtype).max
-            image.astype(dtype=dtype)
+            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
+            image = image.astype(dtype=dtype, copy=False)
         else:
-            image = imageparam.astype(dtype=dtype)
+            image = imageparam.astype(dtype=dtype, copy=False)
 
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam, dtype=dtype)
@@ -111,7 +111,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
 
         image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
         if dtype != imageparam.dtype:
-            image = image.astype(dtype=dtype)
+            image = image.astype(dtype=dtype, copy=False)
 
     if image is None:
         raise ValueError("Image param %s is not a numpy array or image file" % (str(imageparam)))
@@ -218,7 +218,7 @@ def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
 
     with Image.open(InFile, mode='r') as img:
 
-        dims = np.asarray(img.size).astype(dtype=np.float32)
+        dims = np.asarray(img.size).astype(dtype=np.float32, copy=False)
         desired_dims = dims * Scalar
         desired_dims = np.around(desired_dims).astype(dtype=np.int64)
 
@@ -325,7 +325,7 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     if nornir_imageregistration.IsIntArray(original_dtype) is True:
         image = image * max_possible_int_val
 
-    image = image.astype(original_dtype)
+    image = image.astype(original_dtype, copy=False)
 
     return image
 
@@ -567,7 +567,7 @@ def GenRandomData(height, width, mean, standardDev, min_val, max_val):
     """
     Generate random data of shape with the specified mean and standard deviation
     """
-    image = (np.random.standard_normal((int(height), int(width))).astype(np.float32) * standardDev) + mean
+    image = (np.random.standard_normal((int(height), int(width))).astype(np.float32, copy=False) * standardDev) + mean
 
     np.clip(image, a_min=min_val, a_max=max_val, out=image)
     return image
@@ -772,7 +772,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
     image = None
     try:
         if ext == '.npy':
-            image = np.load(ImageFullPath, 'c').astype(dtype)
+            image = np.load(ImageFullPath, 'c').astype(dtype, copy=False)
         else:
             # image = plt.imread(ImageFullPath)
             with Image.open(ImageFullPath) as im:
@@ -788,7 +788,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                         # if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
                         image = image / image.max()
 
-                    image = image.astype(dtype)
+                    image = image.astype(dtype, copy=False)
                 #                 else:
                 #                     #Reduce to smallest integer type that can hold the data
                 #                     if im.mode[0] == 'I' and (np.issubdtype(image.dtype, np.int32) or np.issubdtype(image.dtype, np.uint32)):
@@ -883,7 +883,7 @@ def NormalizeImage(image):
         scalar = 1.0
 
     typecode = 'f%d' % image.dtype.itemsize
-    return (miniszeroimage * scalar).astype(typecode)
+    return (miniszeroimage * scalar).astype(typecode, copy=False)
 
 
 def TileGridShape(source_image_shape: nornir_imageregistration.Rectangle | tuple[float, float] | NDArray,
@@ -902,7 +902,7 @@ def TileGridShape(source_image_shape: nornir_imageregistration.Rectangle | tuple
     else:
         tile_shape = tile_size
 
-    return np.ceil(source_image_shape / tile_shape).astype(np.int32)
+    return np.ceil(source_image_shape / tile_shape).astype(np.int32, copy=False)
 
 
 def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
@@ -1210,7 +1210,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
             return image
 
     if ImageMedian is None or ImageStdDev is None:
-        Image1D = image.astype(np.float64).flat
+        Image1D = image.astype(np.float64, copy=False).flat
 
         if ImageMedian is None:
             ImageMedian = np.median(Image1D)

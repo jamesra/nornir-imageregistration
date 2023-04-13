@@ -122,7 +122,7 @@ class ImageStats():
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
-        data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
+        data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32, copy=False) * self.std) + self.median
     
         #if self.median - (self.std * 4) < self.min:
         data[data < self.min] = self.min

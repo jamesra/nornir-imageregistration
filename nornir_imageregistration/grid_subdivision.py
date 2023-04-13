@@ -100,7 +100,7 @@ class GridDivisionBase(IGrid):
 
     def PopulateTargetPoints(self, transform: ITransform):
         if transform is not None:
-            self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(float)
+            self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(float, copy=False)
             return self._TargetPoints
 
     def RemoveMaskedPoints(self, mask: NDArray[bool]):
@@ -135,7 +135,7 @@ class GridDivisionBase(IGrid):
             min_unmasked_area = 0
 
         cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
-        half_cell = (self._cell_size / 2.0).astype(np.int32)
+        half_cell = (self._cell_size / 2.0).astype(np.int32, copy=False)
         cell_area = np.prod(self._cell_size)
 
         origins = points - half_cell

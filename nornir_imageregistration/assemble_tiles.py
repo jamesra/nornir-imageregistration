@@ -701,9 +701,9 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage.astype(np.float16),
+    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage.astype(np.float16, copy=False),
                                                                                        centerDistanceImage.astype(
-                                                                                           np.float16),
+                                                                                           np.float16, copy=False),
                                                                                        transform,
                                                                                        source_space_scale,
                                                                                        target_space_scale,

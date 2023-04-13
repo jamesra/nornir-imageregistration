@@ -25,8 +25,8 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
 
     The R,c,t componenets once return can be used to obtain B'
     '''
-    A = target_points.astype(np.float64)
-    B = source_points.astype(np.float64)
+    A = target_points.astype(np.float64, copy=False)
+    B = source_points.astype(np.float64, copy=False)
     assert A.shape == B.shape
     num_pts, num_dims = A.shape
 
