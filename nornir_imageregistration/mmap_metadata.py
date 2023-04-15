@@ -1,7 +1,6 @@
 from numpy.typing import NDArray, DTypeLike
 import tempfile
-import numpy as np
-import cupy as cp
+import numpy as np 
 
 class memmap_metadata(object):
     """meta-data for a memmap array"""
@@ -51,10 +50,7 @@ def CreateTemporaryReadonlyMemmapFile(npArray: NDArray) -> memmap_metadata:
         TempFullpath = hFile.name
         hFile.close()
     memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
-    if isinstance(npArray, cp.ndarray):
-        memImage[:] = npArray.get()[:]
-    else:
-        memImage[:] = npArray[:]
+    memImage[:] = npArray[:]
     memImage.flush()
     del memImage
     # np.save(TempFullpath, npArray)
