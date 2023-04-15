@@ -11,12 +11,12 @@ import os
 from time import sleep
 
 import nornir_imageregistration
-from numpy.fft import fftshift
+from numpy.fft import fftshift 
  
 import nornir_pools
 import numpy as np
 from numpy.typing import NDArray
-import scipy.ndimage.interpolation as interpolation
+import scipy
 
 
 # from memory_profiler import profile
@@ -152,16 +152,16 @@ def SliceToSliceBruteForce(FixedImageInput,
     return BestRefinedMatch
 
 
-def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
+def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
                   FixedImageShape: NDArray, WarpedImageShape: NDArray,
                   angle: float,
-                  fixedStats=None, warpedStats=None,
+                  fixedStats: nornir_imageregistration.ImageStats | None = None, warpedStats: nornir_imageregistration.ImageStats | None = None,
                   FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed, dtype=np.float32)
-    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped, dtype=np.float32)
- 
+    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=np.float16)
+    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=np.float16)
+
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
         fixedStats = nornir_imageregistration.ImageStats.CalcStats(imFixed)
@@ -173,10 +173,11 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     if angle != 0:
         #This confused me for years, but the implementation of rotate calls affine_transform with
         #the rotation matrix.  However the docs for affine_transform state it needs to be called
-        #with the inverse transform.  Hence negating the angle here. 
-        imWarped = interpolation.rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
+        #with the inverse transform.  Hence negating the angle here.
+        imWarped = scipy.ndimage.rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(np.float16, copy=False) #Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = np.isnan(imWarped)
-        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
+        result = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
+        imWarped[imWarpedEmptyIndicies] = result
         np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
 
@@ -212,13 +213,13 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     del imFixed
 
     del RotatedWarped
- 
+    
     CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
 
     del PaddedFixed
     del RotatedPaddedWarped
 
-    CorrelationImage = fftshift(CorrelationImage)
+    CorrelationImage = fft.fftshift(CorrelationImage)
     try:
         CorrelationImage -= CorrelationImage.min()
         CorrelationImage /= CorrelationImage.max()
@@ -230,9 +231,15 @@ def ScoreOneAngle(imFixed: NDArray, imWarped: NDArray,
     # Timer.Start('Find Peak')
 
     OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
+    if use_cp and not isinstance(OverlapMask, cp.ndarray):
+        OverlapMask = cp.asarray(OverlapMask)
+
     (peak, weight) = nornir_imageregistration.FindPeak(CorrelationImage, OverlapMask)
     del OverlapMask
     del CorrelationImage
+    
+    nornir_imageregistration.close_shared_memory(imFixed_original)
+    nornir_imageregistration.close_shared_memory(imWarped_original)
 
     record = nornir_imageregistration.AlignmentRecord(peak, weight, angle) 
     return record
@@ -249,7 +256,7 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=False, use_cluster=False):
+def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | None, MinOverlap: float = 0.75, SingleThread: bool = False, use_cluster: bool = False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
@@ -286,28 +293,31 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     # Create a shared read-only memory map for the Padded fixed image
 
     if not (use_cluster or SingleThread):
-        temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
-        temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
+        #temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
+        #temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
 
-        temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
-        temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+        #temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+        #temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
 
-        # SharedPaddedFixed = nornir_imageregistration.npArrayToReadOnlySharedArray(PaddedFixed)
-        # SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
+        shared_fixed_metadata, SharedPaddedFixed = nornir_imageregistration.npArrayToReadOnlySharedArray(PaddedFixed)
+        shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
-        SharedPaddedFixed = PaddedFixed
-        SharedWarped = imWarped
+        SharedPaddedFixed = PaddedFixed.astype(np.float16, copy=False)
+        SharedWarped = imWarped.astype(np.float16, copy=False)
 
     CheckTaskInterval = 16
 
     fixed_shape = imFixed.shape
     warped_shape = imWarped.shape
+    max_task_count = multiprocessing.cpu_count() * 1.5
 
-    for i, theta in enumerate(AngleList):
-
+    for i, theta in enumerate(AngleList): 
         if SingleThread:
-            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
+            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape,
+                                    warped_shape, theta, fixedStats=fixedStats,
+                                    warpedStats=warpedStats,
+                                    MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         elif use_cluster:
             task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped,
@@ -315,7 +325,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
                                  MinOverlap=MinOverlap)
             taskList.append(task)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, temp_padded_fixed_memmap, temp_shared_warp_memmap, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
+            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap, use_cp=use_cp)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
@@ -323,7 +333,7 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
 
         # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
         # No sense checking unless we've already filled the queue though
-        if len(taskList) > multiprocessing.cpu_count() * 1.5:
+        if len(taskList) > max_task_count:
             for iTask in range(len(taskList) - 1, -1, -1):
                 if taskList[iTask].iscompleted:
                     record = taskList[iTask].wait_return()
@@ -360,8 +370,10 @@ def FindBestAngle(imFixed, imWarped, AngleList, MinOverlap=0.75, SingleThread=Fa
     BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
     
     if not (use_cluster or SingleThread):
-        os.remove(temp_shared_warp_memmap.path)
-        os.remove(temp_padded_fixed_memmap.path)
+        nornir_imageregistration.unlink_shared_memory(shared_fixed_metadata)
+        nornir_imageregistration.unlink_shared_memory(shared_warped_metadata)
+        #os.remove(temp_shared_warp_memmap.path)
+        #os.remove(temp_padded_fixed_memmap.path)
         
     return BestMatch
 

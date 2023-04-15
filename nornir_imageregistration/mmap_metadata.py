@@ -1,8 +1,14 @@
 from numpy.typing import NDArray, DTypeLike
-
+import tempfile
+import numpy as np
+import cupy as cp
 
 class memmap_metadata(object):
     """meta-data for a memmap array"""
+    _path: str
+    _shape: NDArray
+    _dtype: DTypeLike
+    _mode: str | None
 
     @property
     def path(self) -> str:
@@ -38,3 +44,18 @@ class memmap_metadata(object):
         self._dtype = dtype
         self._mode = None
         self.mode = mode
+
+
+def CreateTemporaryReadonlyMemmapFile(npArray: NDArray) -> memmap_metadata:
+    with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
+        TempFullpath = hFile.name
+        hFile.close()
+    memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
+    if isinstance(npArray, cp.ndarray):
+        memImage[:] = npArray.get()[:]
+    else:
+        memImage[:] = npArray[:]
+    memImage.flush()
+    del memImage
+    # np.save(TempFullpath, npArray)
+    return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)

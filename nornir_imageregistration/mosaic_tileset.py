@@ -196,7 +196,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param float expected_scale: The scale factor applied to the mosaic before dividing it into tiles, default is 1
         """
         tile_dims = np.asarray(tile_dims, dtype=np.int64)
-        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64)
+        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64, copy=False)
         return nornir_imageregistration.TileGridShape(scaled_fixed_bounding_box_shape, tile_size=tile_dims)
 
     def TranslateToZeroOrigin(self):

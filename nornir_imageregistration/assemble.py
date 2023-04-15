@@ -281,7 +281,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     
     outputImage = np.full(output_area, cval, dtype=subroi_warpedImage.dtype)
     target_coords_flat = nornir_imageregistration.ravel_index(filtered_target_coords, outputImage.shape).astype(
-        np.int64)
+        np.int64, copy=False)
     outputImage.flat[target_coords_flat] = outputValues
     # outputImage[fixed_coords] = outputValues
 
@@ -290,7 +290,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # outputImage = outputImage.reshape(area)
     if original_dtype != outputImage.dtype:
-        outputImage = outputImage.astype(original_dtype)
+        outputImage = outputImage.astype(original_dtype, copy=False)
 
     #     if fixed_coords.shape[0] == np.prod(area):
     #         # All coordinates mapped, so we can return the output warped image as is.
@@ -445,13 +445,16 @@ def SourceImageToTargetSpace(transform: ITransform,
         for i, wi in enumerate(ImagesToTransform):
             fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i])
             FixedImageList.append(fi)
+            nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
         del roi_read_coords
         del roi_write_coords
 
         return FixedImageList
     else:
-        return _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval)
+        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval)
+        nornir_imageregistration.close_shared_memory(DataToTransform)
+        return result
 
 
 def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform):
@@ -533,7 +536,7 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
 
     tilesize = [2048, 2048]
 
-    fixedImageShape = fixedImageShape.astype(dtype=np.int64)
+    fixedImageShape = fixedImageShape.astype(dtype=np.int64, copy=False)
     height = int(fixedImageShape[0])
     width = int(fixedImageShape[1])
 
@@ -549,7 +552,7 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
                                         output_area=fixedImageShape, extrapolate=not CropUndefined)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=np.float32)
-        sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
+        sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
 
         for iY in range(0, height, int(tilesize[0])):
@@ -565,7 +568,7 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
                     end_iX = width
 
                 task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
-                                      sharedWarpedImage, output_botleft=[iY, iX],
+                                      sharedwarpedimage_metadata, output_botleft=[iY, iX],
                                       output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined)
                 task.iY = iY
                 task.end_iY = end_iY
@@ -583,5 +586,6 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
             outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registeredTile
 
         del sharedWarpedImage
+        nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
 
     return outputImage
