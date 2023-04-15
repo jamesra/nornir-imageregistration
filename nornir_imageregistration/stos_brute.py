@@ -63,7 +63,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float32)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float16)
         imFixedMask = None 
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
@@ -74,7 +74,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float32)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float16)
         imWarpedMask = None
         if WarpedImageMaskPath is not None:
             imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
@@ -176,7 +176,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         #with the inverse transform.  Hence negating the angle here.
         imWarped = scipy.ndimage.rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(np.float16, copy=False) #Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = np.isnan(imWarped)
-        result = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies))
+        result = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
         imWarped[imWarpedEmptyIndicies] = result
         np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
@@ -214,7 +214,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
 
     del RotatedWarped
     
-    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
+    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped, fixedStats.mean, warpedStats.mean)
 
     del PaddedFixed
     del RotatedPaddedWarped

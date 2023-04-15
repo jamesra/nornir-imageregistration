@@ -596,10 +596,8 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     """
     Generate random data of shape with the specified mean and standard deviation
     """
-    dtype = np.float32 if dtype is None else dtype
-      
+    dtype = np.float32 if dtype is None else dtype 
     image = (np.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
-
     np.clip(image, a_min=min_val, a_max=max_val, out=image)
 
     return image
@@ -1055,7 +1053,7 @@ def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats
         imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 
-    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)))
+    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)), dtype=image.dtype)
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
     Image1D[iPixelsToReplace] = NoiseData
@@ -1288,7 +1286,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
 
 # @profile 
-def ImagePhaseCorrelation(FixedImage, MovingImage):
+def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=None):
     """
     Returns the phase shift correlation of the FFT's of two images.
 
@@ -1315,9 +1313,13 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
+    if fixed_mean is None:
+        fixed_mean = np.mean(FixedImage)
+    if moving_mean is None:
+        moving_mean = np.mean(MovingImage)
 
-    FFTFixed = fftpack.fft2(FixedImage - np.mean(FixedImage))
-    FFTMoving = fftpack.fft2(MovingImage - np.mean(MovingImage))
+    FFTFixed = fftpack.fft2(FixedImage - fixed_mean)
+    FFTMoving = fftpack.fft2(MovingImage - moving_mean)
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 

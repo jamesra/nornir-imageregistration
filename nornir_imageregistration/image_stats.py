@@ -8,6 +8,7 @@ import os
 from typing import Sequence
 
 import numpy as np
+from numpy.typing import NDArray, DTypeLike
 from PIL import Image
 
 import numpy
@@ -117,18 +118,18 @@ class ImageStats():
 #        image.__IrtoolsImageStats__ = obj
         return obj
     
-    def GenerateNoise(self, shape:np.ndarray):
+    def GenerateNoise(self, shape:NDArray, dtype: DTypeLike):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
-        data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32, copy=False) * self.std) + self.median
-    
+        data = ((numpy.random.standard_normal(shape.astype(numpy.int64)) * self.std) + self.median).astype(dtype, copy=False)
+        np.clip(data, self.min, self.max)
         #if self.median - (self.std * 4) < self.min:
-        data[data < self.min] = self.min
+        #data[data < self.min] = self.min
         
         #if self.median + (self.std * 4) > self.max:
-        data[data > self.max] = self.max
+        #data[data > self.max] = self.max
              
         return data
 
