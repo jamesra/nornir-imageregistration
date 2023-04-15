@@ -597,37 +597,12 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     Generate random data of shape with the specified mean and standard deviation
     """
     dtype = np.float32 if dtype is None else dtype
-    
-    if use_cp is None:
-        use_cp = height * width > 4092
-        
-    xp = cp if use_cp else np
+      
+    image = (np.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
 
-    image = (xp.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
+    np.clip(image, a_min=min_val, a_max=max_val, out=image)
 
-    xp.clip(image, a_min=min_val, a_max=max_val, out=image)
-
-    if use_cp and return_numpy:
-        return image.get()
-    else:
-        return image
-
-def CPGenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float):
-    """
-    Generate random data of shape with the specified mean and standard deviation
-    """
-    use_cp = height * width > 4092
-    xp = cp if use_cp else np
-
-    image = (xp.random.standard_normal((int(height), int(width))).astype(np.float32, copy=False) * standardDev) + mean
-
-    xp.clip(image, a_min=min_val, a_max=max_val, out=image)
-
-    #if use_cp:
-    #    return image.get()
-    #else:
     return image
-
 
 def GetImageSize(image_param: str | np.ndarray | Iterable):
     """
@@ -1261,7 +1236,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     if Width >= NewWidth and Height >= NewHeight:
         if AlwaysCopy:
-            return xp.copy(image)
+            return np.copy(image)
         else:
             return image
 
@@ -1269,20 +1244,16 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         Image1D = image.astype(np.float64, copy=False).flat
 
         if ImageMedian is None:
-            ImageMedian = xp.median(Image1D)
+            ImageMedian = np.median(Image1D)
         if ImageStdDev is None:
-            ImageStdDev = xp.std(Image1D)
+            ImageStdDev = np.std(Image1D)
 
     desired_type = image.dtype
     if np.finfo(desired_type).max < MaxVal:
         desired_type = np.float32
 
-    #use_cp = use_cp or NewHeight * NewWidth > 4092
-    xp = cp if use_cp else np
 
-    PaddedImage = xp.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
-    if use_cp:
-        image = xp.asarray(image)
+    PaddedImage = np.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
 
     PaddedImageXOffset = int(np.floor((NewWidth - Width) / 2.0))
     PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))
@@ -1292,9 +1263,9 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
                                                                                                                  :, :]
 
     if not Width == NewWidth:
-        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
+        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal)
         RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev,
-                                    MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
+                                    MinVal, MaxVal)
 
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
@@ -1303,19 +1274,15 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         del RightBorder
 
     if not Height == NewHeight:
-        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
+        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
         BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev, MinVal,
-                                     MaxVal, use_cp = use_cp, return_numpy=False)
+                                     MaxVal)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
         PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
 
         del TopBorder
         del BottomBorder
-
-    #Convert back to numpy array if input was a numpy array
-    if isinstance(image, np.ndarray) and use_cp:
-        return PaddedImage.get()
 
     return PaddedImage
 
@@ -1332,9 +1299,6 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
     """
-    use_cp = isinstance(FixedImage, cp.ndarray)
-    xp = cp if use_cp else np
-    xfftpack = cp.fft if use_cp else scipy.fft
 
     if not (FixedImage.shape == MovingImage.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -1352,8 +1316,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
 
-    FFTFixed = xfftpack.fft2(FixedImage - xp.mean(FixedImage))
-    FFTMoving = xfftpack.fft2(MovingImage - xp.mean(MovingImage))
+    FFTFixed = fftpack.fft2(FixedImage - np.mean(FixedImage))
+    FFTMoving = fftpack.fft2(MovingImage - np.mean(MovingImage))
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 
@@ -1386,12 +1350,8 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
-    
-    use_cp = isinstance(FFTFixed, cp.ndarray)
-    xp = cp if use_cp else np
-    xfftpack = cp.fft if use_cp else scipy.fft
 
-    conjFFTFixed = xp.conjugate(FFTFixed)
+    conjFFTFixed = np.conjugate(FFTFixed)
     if delete_input:
         del FFTFixed
 
@@ -1400,7 +1360,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     if delete_input:
         del FFTMoving
 
-    abs_conjFFTFixed = xp.absolute(conjFFTFixed)
+    abs_conjFFTFixed = np.absolute(conjFFTFixed)
 
     # wht_expon = -0.65
     # wht_mask = conjFFTFixed > 0
@@ -1414,7 +1374,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     mask = abs_conjFFTFixed > 1e-5
     # conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
     # conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
-    conjFFTFixed[mask] /= xp.power(abs_conjFFTFixed[mask], 0.65)
+    conjFFTFixed[mask] /= np.power(abs_conjFFTFixed[mask], 0.65)
     del mask
 
     # wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
@@ -1424,7 +1384,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # del wht_expon_adjustment
     del abs_conjFFTFixed
 
-    CorrelationImage = xp.real(xfftpack.ifft2(conjFFTFixed))
+    CorrelationImage = np.real(scipy.fft.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage
@@ -1440,11 +1400,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     :param ndimage OverlapMask: Mask describing which pixels are eligible
     :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
-    """
-    use_cupy = isinstance(image, cp.ndarray)
-    xp = cp if use_cupy else np
-    sp = cupyx.scipy if use_cupy else scipy
-
+    """  
     if Cutoff is None:
         Cutoff = 0.996
     #        num_pixels = np.prod(image.shape)
@@ -1455,23 +1411,23 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     # CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-    ThresholdImage = xp.copy(image) #np.copy(image)
+    ThresholdImage = np.copy(image) #np.copy(image)
     #OverlapMask = cp.array(OverlapMask)
 
     if OverlapMask is not None:
-        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=Cutoff * 100.0)
+        CutoffValue = np.percentile(ThresholdImage[OverlapMask], q=Cutoff * 100.0)
         ThresholdImage[OverlapMask == False] = 0
     else:
-        CutoffValue = xp.percentile(ThresholdImage, q=Cutoff * 100.0)
+        CutoffValue = np.percentile(ThresholdImage, q=Cutoff * 100.0)
 
     ThresholdImage[ThresholdImage < CutoffValue] = 0
 
     # ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # nornir_imageregistration.ShowGrayscale([image, OverlapMask, ThresholdImage])
 
-    [LabelImage, NumLabels] = sp.ndimage.label(ThresholdImage)
+    [LabelImage, NumLabels] = scipy.ndimage.label(ThresholdImage)
     #The first interesting label starts at 1, 0 is the background
-    LabelSums = sp.ndimage.sum_labels(ThresholdImage, LabelImage, xp.array(range(1, NumLabels+1)))
+    LabelSums = scipy.ndimage.sum_labels(ThresholdImage, LabelImage, np.array(range(1, NumLabels+1)))
     if LabelSums.sum() == 0:  # There are no peaks identified
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
         PeakStrength = 0
@@ -1480,7 +1436,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         PeakValueIndex = LabelSums.argmax()
         PeakStrength = LabelSums[PeakValueIndex]
         #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
-        PeakCenterOfMass = sp.ndimage.center_of_mass(ThresholdImage, LabelImage, int(PeakValueIndex+1))
+        PeakCenterOfMass = scipy.ndimage.center_of_mass(ThresholdImage, LabelImage, int(PeakValueIndex+1))
         #PeakArea = np.sum(LabelImage == PeakValueIndex + 1)
         #PeakMaximumPosition = scipy.ndimage.maximum_position(ThresholdImage, LabelImage, PeakValueIndex+1)
         # nPixelsInLabel = np.sum(LabelImage == PeakValueIndex+1)
@@ -1488,13 +1444,10 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     new_cutoff = Cutoff + ((1.0 - Cutoff) / 2.0)
         #     scaled_offset, Weight = FindPeak(image, OverlapMask, Cutoff=new_cutoff)
         #     return scaled_offset, Weight
+         
+        OtherPeaks = np.delete(LabelSums, PeakValueIndex) 
         
-        if use_cupy:
-            OtherPeaks = LabelSums[LabelSums != PeakStrength]
-        else:
-            OtherPeaks = np.delete(LabelSums, PeakValueIndex) 
-        
-        FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
+        FalsePeakStrength = np.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         #FalsePeakStrength = OtherPeaks.max()
         
         if FalsePeakStrength == 0:
@@ -1511,8 +1464,6 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
         #print(image.shape)
         #PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1])))
-        if use_cupy:
-            PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1]))) 
         #print(PeakCenterOfMass)
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])

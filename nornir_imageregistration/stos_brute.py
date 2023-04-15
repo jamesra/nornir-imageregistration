@@ -219,7 +219,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     del PaddedFixed
     del RotatedPaddedWarped
 
-    CorrelationImage = fft.fftshift(CorrelationImage)
+    CorrelationImage = scipy.fft.fftshift(CorrelationImage)
     try:
         CorrelationImage -= CorrelationImage.min()
         CorrelationImage /= CorrelationImage.max()
@@ -231,9 +231,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     # Timer.Start('Find Peak')
 
     OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
-    if use_cp and not isinstance(OverlapMask, cp.ndarray):
-        OverlapMask = cp.asarray(OverlapMask)
-
+    
     (peak, weight) = nornir_imageregistration.FindPeak(CorrelationImage, OverlapMask)
     del OverlapMask
     del CorrelationImage
@@ -325,7 +323,7 @@ def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | 
                                  MinOverlap=MinOverlap)
             taskList.append(task)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap, use_cp=use_cp)
+            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
