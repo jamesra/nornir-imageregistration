@@ -265,250 +265,250 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 
         # CutoffPercentilePerIteration = 10.0
 
-        settings = nornir_imageregistration.settings.GridRefinement(target_image=target_image_fullpath,
+        with nornir_imageregistration.settings.GridRefinement(target_image=target_image_fullpath,
                                                                     source_image=source_image_fullpath,
                                                                     target_mask=target_mask_fullpath,
                                                                     source_mask=source_mask_fullpath, num_iterations=10,
                                                                     cell_size=128, grid_spacing=96,
                                                                     angles_to_search=None, final_pass_angles=[0],
                                                                     max_travel_for_finalization=None,
-                                                                    min_alignment_overlap=0.5, min_unmasked_area=0.49)
+                                                                    min_alignment_overlap=0.5, min_unmasked_area=0.49) as settings:
 
-        FirstPassWeightScoreCutoff = None
-        FirstPassCompositeScoreCutoff = None
-        FirstPassFinalizeValue = None  # The score required to finalize a control point on the first pass.
-        # The first score is recorded to prevent the best scores from being finalized and then later
-        # groups of poor scores looking falsely good because the correct registrations are all finalized
-        first_pass_weight_distance_composite_scores = None
-        transform_inclusion_percentile = 33.3  # - (CutoffPercentilePerIteration * i)
-        finalize_percentile = 66.6
-        finalize_range = 33.3
-
-        while i <= settings.num_iterations:
-
-            cachedFileName = '_{6}_{5}_pass{0}_alignment_Cell_{2}x{1}_Grid_{4}x{3}'.format(
-                os.path.basename(stosFilePath), i,
-                settings.cell_size[0], settings.cell_size[1],
-                settings.grid_spacing[0], settings.grid_spacing[1],
-                self.TestName)
-
-            alignment_points = self.ReadOrCreateVariable(cachedFileName) if use_cache else None
-
-            if alignment_points is None:
-                alignment_points = _RefineGridPointsForTwoImages(stosTransform,
-                                                                 finalized=finalized_points,
-                                                                 settings=settings)
-                self.SaveVariable(alignment_points, cachedFileName)
-            else:
-                duplicate_check = {a.ID: a for a in alignment_points}
-                for key in duplicate_check.keys():
-                    if key in finalized_points:
-                        raise ValueError("Cached alignment has a duplicate point.  Delete the cache and try again")
-
-            print(f"Pass {i} aligned {len(alignment_points)} points")
-
-            # if i == 1:
-            #   cell_size = cell_size / 2.0
-
-            updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
-            updated_and_finalized_weights_distance = local_distortion_correction._alignment_records_to_composite_scores(
-                updated_and_finalized_alignment_points)
-
-            transform_inclusion_percentile_this_pass = 33.3  # - (CutoffPercentilePerIteration * i)
-            transform_inclusion_percentile_this_pass = np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0)
-
-            (updatedTransform, included_alignment_records,
-             weight_distance_composite_scores) = local_distortion_correction._PeakListToTransform(
-                alignment_points,
-                AlignRecordsToControlPoints(finalized_points.values()),
-                percentile=transform_inclusion_percentile_this_pass,
-                cutoff=FirstPassCompositeScoreCutoff)
-
-            if FirstPassCompositeScoreCutoff is None:
-                FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2],
-                                                              100.0 - transform_inclusion_percentile_this_pass)
-                FirstPassWeightScoreCutoff = np.percentile(weight_distance_composite_scores[:, 0],
-                                                           transform_inclusion_percentile_this_pass)
-
+            FirstPassWeightScoreCutoff = None
+            FirstPassCompositeScoreCutoff = None
+            FirstPassFinalizeValue = None  # The score required to finalize a control point on the first pass.
+            # The first score is recorded to prevent the best scores from being finalized and then later
+            # groups of poor scores looking falsely good because the correct registrations are all finalized
+            first_pass_weight_distance_composite_scores = None
+            transform_inclusion_percentile = 33.3  # - (CutoffPercentilePerIteration * i)
             finalize_percentile = 66.6
-            finalize_percentile = np.clip(finalize_percentile, 10.0, 100.0)
+            finalize_range = 33.3
 
-            FinalizeCutoffThisPass = None
-            if FirstPassFinalizeValue is not None:
-                # cutoff_range = np.abs(FirstPassFinalizeValue - FirstPassWeightScoreCutoff)
-                # fraction = i / (num_iterations - 1)
-                # FinalizeCutoffThisPass = FirstPassFinalizeValue - (cutoff_range * fraction)
-                FinalizeCutoffThisPass = np.percentile(first_pass_weight_distance_composite_scores[:, 0],
-                                                       finalize_percentile)
-                print(f'Finalize cutoff this pass: {FinalizeCutoffThisPass}')
+            while i <= settings.num_iterations:
 
-            if SavePlots:
-                histogram_filename = os.path.join(self.TestOutputPath, f'weight_histogram_pass{i}.png')
-                nornir_imageregistration.views.PlotWeightHistogram(alignment_points, histogram_filename,
-                                                                   transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
-                                                                   finalize_cutoff=finalize_percentile / 100,
-                                                                   line_pos_list=None if FirstPassFinalizeValue is None else [
-                                                                       FirstPassFinalizeValue])
-                vector_field_filename = os.path.join(self.TestOutputPath, f'Vector_field_pass{i}.png')
-                nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),
-                                                            vector_field_filename,
-                                                            ylim=(0, settings.target_image.shape[1]),
-                                                            xlim=(0, settings.target_image.shape[0]),
-                                                            attrib='weight')
+                cachedFileName = '_{6}_{5}_pass{0}_alignment_Cell_{2}x{1}_Grid_{4}x{3}'.format(
+                    os.path.basename(stosFilePath), i,
+                    settings.cell_size[0], settings.cell_size[1],
+                    settings.grid_spacing[0], settings.grid_spacing[1],
+                    self.TestName)
 
-            new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(alignment_points,
-                                                                                                     percentile=finalize_percentile,
-                                                                                                     max_travel_distance=settings.max_travel_for_finalization,
-                                                                                                     weight_cutoff=FinalizeCutoffThisPass)
+                alignment_points = self.ReadOrCreateVariable(cachedFileName) if use_cache else None
 
-            if FirstPassFinalizeValue is None:
-                FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0], finalize_percentile)
+                if alignment_points is None:
+                    alignment_points = _RefineGridPointsForTwoImages(stosTransform,
+                                                                     finalized=finalized_points,
+                                                                     settings=settings)
+                    self.SaveVariable(alignment_points, cachedFileName)
+                else:
+                    duplicate_check = {a.ID: a for a in alignment_points}
+                    for key in duplicate_check.keys():
+                        if key in finalized_points:
+                            raise ValueError("Cached alignment has a duplicate point.  Delete the cache and try again")
 
-            if first_pass_weight_distance_composite_scores is None:
-                first_pass_weight_distance_composite_scores = weight_distance_composite_scores
+                print(f"Pass {i} aligned {len(alignment_points)} points")
 
-            print(f"Finalizing {len(new_finalized_points)} points this pass.")
+                # if i == 1:
+                #   cell_size = cell_size / 2.0
 
-            new_finalized_alignments_list = list(
-                filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
-            new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
+                updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
+                updated_and_finalized_weights_distance = local_distortion_correction._alignment_records_to_composite_scores(
+                    updated_and_finalized_alignment_points)
 
-            (improved_finalized_dict, improved_alignments) = local_distortion_correction.TryToImproveAlignments(
-                updatedTransform,
-                new_finalized_alignments_dict,
-                settings)
+                transform_inclusion_percentile_this_pass = 33.3  # - (CutoffPercentilePerIteration * i)
+                transform_inclusion_percentile_this_pass = np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0)
 
-            print(f"Improved {len(improved_alignments)} finalized alignments")
+                (updatedTransform, included_alignment_records,
+                 weight_distance_composite_scores) = local_distortion_correction._PeakListToTransform(
+                    alignment_points,
+                    AlignRecordsToControlPoints(finalized_points.values()),
+                    percentile=transform_inclusion_percentile_this_pass,
+                    cutoff=FirstPassCompositeScoreCutoff)
 
-            new_finalization_count = len(improved_finalized_dict)
-            finalized_points = {**finalized_points, **improved_finalized_dict}
+                if FirstPassCompositeScoreCutoff is None:
+                    FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2],
+                                                                  100.0 - transform_inclusion_percentile_this_pass)
+                    FirstPassWeightScoreCutoff = np.percentile(weight_distance_composite_scores[:, 0],
+                                                               transform_inclusion_percentile_this_pass)
 
-            # new_finalizations = 0
-            # for (ir, record) in enumerate(alignment_points): 
-            #     if not new_finalized_points[ir]:
-            #         continue
-            #
-            #     key = tuple(record.SourcePoint)
-            #     if key in finalized_points:
-            #         continue
-            #
-            #     # See if we can improve the final alignment
-            #     refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
-            #                                                                                       record.SourceROI,
-            #                                                                                       AngleSearchRange=settings.final_pass_angles,
-            #                                                                                       MinOverlap=min_alignment_overlap,
-            #                                                                                       SingleThread=True,
-            #                                                                                       Cluster=False,
-            #                                                                                       TestFlip=False)
-            #
-            #     if refined_align_record.weight > record.weight and np.linalg.norm(refined_align_record.peak) < settings.max_travel_for_finalization:
-            #         oldPSDDelta = record.PSDDelta
-            #         record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
-            #                                                                      TargetPoint=record.TargetPoint,
-            #                                                                      SourcePoint=record.SourcePoint,
-            #                                                                      peak=refined_align_record.peak,
-            #                                                                      weight=refined_align_record.weight,
-            #                                                                      angle=refined_align_record.angle,
-            #                                                                      flipped_ud=refined_align_record.flippedud)
-            #         record.PSDDelta = oldPSDDelta
-            #
-            #     # Create a record that is unmoving
-            #     finalized_points[key] = EnhancedAlignmentRecord(record.ID,
-            #                                                      TargetPoint=record.AdjustedTargetPoint,
-            #                                                      SourcePoint=record.SourcePoint,
-            #                                                      peak=np.asarray((0, 0), dtype=np.float32),
-            #                                                      weight=record.weight, angle=0,
-            #                                                      flipped_ud=record.flippedud)
-            #
-            #     finalized_points[key].PSDDelta = record.PSDDelta
-            #
-            #     new_finalizations += 1
+                finalize_percentile = 66.6
+                finalize_percentile = np.clip(finalize_percentile, 10.0, 100.0)
 
-            print(
-                f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
+                FinalizeCutoffThisPass = None
+                if FirstPassFinalizeValue is not None:
+                    # cutoff_range = np.abs(FirstPassFinalizeValue - FirstPassWeightScoreCutoff)
+                    # fraction = i / (num_iterations - 1)
+                    # FinalizeCutoffThisPass = FirstPassFinalizeValue - (cutoff_range * fraction)
+                    FinalizeCutoffThisPass = np.percentile(first_pass_weight_distance_composite_scores[:, 0],
+                                                           finalize_percentile)
+                    print(f'Finalize cutoff this pass: {FinalizeCutoffThisPass}')
 
-            # Update the transform with the adjusted points
-            if len(improved_alignments) > 0:
-                combined_records_this_pass = {a.ID: a for a in included_alignment_records}
-                for item in finalized_points.items():
-                    combined_records_this_pass[item[0]] = item[1]
+                if SavePlots:
+                    histogram_filename = os.path.join(self.TestOutputPath, f'weight_histogram_pass{i}.png')
+                    nornir_imageregistration.views.PlotWeightHistogram(alignment_points, histogram_filename,
+                                                                       transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
+                                                                       finalize_cutoff=finalize_percentile / 100,
+                                                                       line_pos_list=None if FirstPassFinalizeValue is None else [
+                                                                           FirstPassFinalizeValue])
+                    vector_field_filename = os.path.join(self.TestOutputPath, f'Vector_field_pass{i}.png')
+                    nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),
+                                                                vector_field_filename,
+                                                                ylim=(0, settings.target_image.shape[1]),
+                                                                xlim=(0, settings.target_image.shape[0]),
+                                                                attrib='weight')
 
-                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                    AlignRecordsToControlPoints(combined_records_this_pass.values()))
+                new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(alignment_points,
+                                                                                                         percentile=finalize_percentile,
+                                                                                                         max_travel_distance=settings.max_travel_for_finalization,
+                                                                                                         weight_cutoff=FinalizeCutoffThisPass)
 
-            stosObj.Transform = updatedTransform
-            stosObj.Save(os.path.join(self.TestOutputPath, "UpdatedTransform_pass{0}.stos".format(i)))
+                if FirstPassFinalizeValue is None:
+                    FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0], finalize_percentile)
 
-            if SaveImages:
-                warpedToFixedImage = nornir_imageregistration.assemble.TransformStos(updatedTransform,
-                                                                                     fixedImage=settings.target_image,
-                                                                                     warpedImage=settings.source_image)
+                if first_pass_weight_distance_composite_scores is None:
+                    first_pass_weight_distance_composite_scores = weight_distance_composite_scores
 
-                Delta = warpedToFixedImage - settings.target_image
-                ComparisonImage = np.abs(Delta)
-                ComparisonImage = ComparisonImage / ComparisonImage.max()
+                print(f"Finalizing {len(new_finalized_points)} points this pass.")
 
-                # nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'delta_pass{0}.png'.format(i)), ComparisonImage, bpp=8)
-                # nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'image_pass{0}.png'.format(i)), warpedToFixedImage, bpp=8)
+                new_finalized_alignments_list = list(
+                    filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+                new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
 
-                pool = nornir_pools.GetGlobalThreadPool()
-                pool.add_task(f'delta_pass{i}.png', nornir_imageregistration.SaveImage,
-                              os.path.join(self.TestOutputPath, f'delta_pass{i}.png'), np.copy(ComparisonImage), bpp=8)
-                pool.add_task(f'image_pass{i}.png', nornir_imageregistration.SaveImage,
-                              os.path.join(self.TestOutputPath, f'image_pass{i}.png'), np.copy(warpedToFixedImage),
-                              bpp=8)
+                (improved_finalized_dict, improved_alignments) = local_distortion_correction.TryToImproveAlignments(
+                    updatedTransform,
+                    new_finalized_alignments_dict,
+                    settings)
 
-            # nornir_imageregistration.core.ShowGrayscale([target_image, unrefined_warped_image, warpedToFixedImage, ComparisonImage])
+                print(f"Improved {len(improved_alignments)} finalized alignments")
 
-            i = i + 1
+                new_finalization_count = len(improved_finalized_dict)
+                finalized_points = {**finalized_points, **improved_finalized_dict}
 
-            # Build a final transform using only finalized points
-            # stosTransform = updatedTransform
-            # stosTransform = local_distortion_correction._PeakListToTransform(list(finalized_points.values()), percentile=percentile)
-            stosTransform = updatedTransform
+                # new_finalizations = 0
+                # for (ir, record) in enumerate(alignment_points):
+                #     if not new_finalized_points[ir]:
+                #         continue
+                #
+                #     key = tuple(record.SourcePoint)
+                #     if key in finalized_points:
+                #         continue
+                #
+                #     # See if we can improve the final alignment
+                #     refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
+                #                                                                                       record.SourceROI,
+                #                                                                                       AngleSearchRange=settings.final_pass_angles,
+                #                                                                                       MinOverlap=min_alignment_overlap,
+                #                                                                                       SingleThread=True,
+                #                                                                                       Cluster=False,
+                #                                                                                       TestFlip=False)
+                #
+                #     if refined_align_record.weight > record.weight and np.linalg.norm(refined_align_record.peak) < settings.max_travel_for_finalization:
+                #         oldPSDDelta = record.PSDDelta
+                #         record = nornir_imageregistration.alignment_record.EnhancedAlignmentRecord(ID=record.ID,
+                #                                                                      TargetPoint=record.TargetPoint,
+                #                                                                      SourcePoint=record.SourcePoint,
+                #                                                                      peak=refined_align_record.peak,
+                #                                                                      weight=refined_align_record.weight,
+                #                                                                      angle=refined_align_record.angle,
+                #                                                                      flipped_ud=refined_align_record.flippedud)
+                #         record.PSDDelta = oldPSDDelta
+                #
+                #     # Create a record that is unmoving
+                #     finalized_points[key] = EnhancedAlignmentRecord(record.ID,
+                #                                                      TargetPoint=record.AdjustedTargetPoint,
+                #                                                      SourcePoint=record.SourcePoint,
+                #                                                      peak=np.asarray((0, 0), dtype=np.float32),
+                #                                                      weight=record.weight, angle=0,
+                #                                                      flipped_ud=record.flippedud)
+                #
+                #     finalized_points[key].PSDDelta = record.PSDDelta
+                #
+                #     new_finalizations += 1
 
-            if final_pass:
-                break
+                print(
+                    f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
 
-            if i == settings.num_iterations:
-                final_pass = True
-                # angles_to_search = settings.final_pass_angles
+                # Update the transform with the adjusted points
+                if len(improved_alignments) > 0:
+                    combined_records_this_pass = {a.ID: a for a in included_alignment_records}
+                    for item in finalized_points.items():
+                        combined_records_this_pass[item[0]] = item[1]
 
-            # If we've locked 10% of the points and have not locked any new ones we are done
-            if len(finalized_points) > len(
-                    updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
-                final_pass = True
-                # angles_to_search = settings.final_pass_angles
+                    updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                        AlignRecordsToControlPoints(combined_records_this_pass.values()))
 
-            # If we've locked 90% of the points we are done
-            if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
-                final_pass = True
-                # angles_to_search = settings.final_pass_angles
+                stosObj.Transform = updatedTransform
+                stosObj.Save(os.path.join(self.TestOutputPath, "UpdatedTransform_pass{0}.stos".format(i)))
 
-        # Make one more pass to see if we can improve finalized points
-        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-            AlignRecordsToControlPoints(finalized_points.values()))
-        stosObj.Transform = finalTransform
-        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform.stos"))
+                if SaveImages:
+                    warpedToFixedImage = nornir_imageregistration.assemble.TransformStos(updatedTransform,
+                                                                                         fixedImage=settings.target_image,
+                                                                                         warpedImage=settings.source_image)
 
-        (nudged_finalized_points, nudged_point_keys) = local_distortion_correction.TryToImproveAlignments(
-            finalTransform, finalized_points, settings)
-        print(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
+                    Delta = warpedToFixedImage - settings.target_image
+                    ComparisonImage = np.abs(Delta)
+                    ComparisonImage = ComparisonImage / ComparisonImage.max()
 
-        finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-            AlignRecordsToControlPoints(nudged_finalized_points.values()))
-        stosObj.Transform = finalTransform
-        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform_Improved.stos"))
+                    # nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'delta_pass{0}.png'.format(i)), ComparisonImage, bpp=8)
+                    # nornir_imageregistration.SaveImage(os.path.join(self.TestOutputPath, 'image_pass{0}.png'.format(i)), warpedToFixedImage, bpp=8)
 
-        # Convert the transform to a grid transform and persist to disk
-        # finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+                    pool = nornir_pools.GetGlobalThreadPool()
+                    pool.add_task(f'delta_pass{i}.png', nornir_imageregistration.SaveImage,
+                                  os.path.join(self.TestOutputPath, f'delta_pass{i}.png'), np.copy(ComparisonImage), bpp=8)
+                    pool.add_task(f'image_pass{i}.png', nornir_imageregistration.SaveImage,
+                                  os.path.join(self.TestOutputPath, f'image_pass{i}.png'), np.copy(warpedToFixedImage),
+                                  bpp=8)
 
-        stosObj.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(finalTransform,
-                                                                                        source_image_shape=settings.source_image.shape,
-                                                                                        cell_size=settings.cell_size,
-                                                                                        grid_spacing=settings.grid_spacing)
-        stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos"))
-        return
+                # nornir_imageregistration.core.ShowGrayscale([target_image, unrefined_warped_image, warpedToFixedImage, ComparisonImage])
+
+                i = i + 1
+
+                # Build a final transform using only finalized points
+                # stosTransform = updatedTransform
+                # stosTransform = local_distortion_correction._PeakListToTransform(list(finalized_points.values()), percentile=percentile)
+                stosTransform = updatedTransform
+
+                if final_pass:
+                    break
+
+                if i == settings.num_iterations:
+                    final_pass = True
+                    # angles_to_search = settings.final_pass_angles
+
+                # If we've locked 10% of the points and have not locked any new ones we are done
+                if len(finalized_points) > len(
+                        updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
+                    final_pass = True
+                    # angles_to_search = settings.final_pass_angles
+
+                # If we've locked 90% of the points we are done
+                if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
+                    final_pass = True
+                    # angles_to_search = settings.final_pass_angles
+
+            # Make one more pass to see if we can improve finalized points
+            finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                AlignRecordsToControlPoints(finalized_points.values()))
+            stosObj.Transform = finalTransform
+            stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform.stos"))
+
+            (nudged_finalized_points, nudged_point_keys) = local_distortion_correction.TryToImproveAlignments(
+                finalTransform, finalized_points, settings)
+            print(f'Final tuning of points adjusted {len(improved_alignments)} of {len(finalized_points)} points')
+
+            finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                AlignRecordsToControlPoints(nudged_finalized_points.values()))
+            stosObj.Transform = finalTransform
+            stosObj.Save(os.path.join(self.TestOutputPath, "Final_Mesh_Transform_Improved.stos"))
+
+            # Convert the transform to a grid transform and persist to disk
+            # finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
+
+            stosObj.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(finalTransform,
+                                                                                            source_image_shape=settings.source_image.shape,
+                                                                                            cell_size=settings.cell_size,
+                                                                                            grid_spacing=settings.grid_spacing)
+            stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos"))
+            return
 
     # def testGridRefineScript(self):
     #     stosFile = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")

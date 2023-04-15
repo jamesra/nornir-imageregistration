@@ -174,8 +174,8 @@ def _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOve
     maxPossibleOverlapArea = np.prod(maxPossibleOverlap)
     
     #Array of increasing values for X,Y size of Mask
-    Px = np.arange(0, Mask.shape[1], 1).astype(np.float64, copy=False)
-    Py = np.arange(0, Mask.shape[0], 1).astype(np.float64, copy=False)
+    Px = np.arange(0, Mask.shape[1], 1)
+    Py = np.arange(0, Mask.shape[0], 1)
     
     #Where the corresponding boundary of the rectangle lies for any given point P
     Mx_Left = Px - (MovingImageSize[1] / 2.0)
