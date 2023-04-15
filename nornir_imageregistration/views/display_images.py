@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import collections.abc
 import nornir_imageregistration
 import numpy as np
+import cupy as cp
 import math
 import matplotlib.colors 
 import matplotlib.gridspec
@@ -137,6 +138,8 @@ def _ConvertParamsToImageList(param):
         output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
+    elif isinstance(param, cp.ndarray):
+        output = nornir_imageregistration.core._Image_To_Uint8(param.get())
     elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
         if len(output) == 1:

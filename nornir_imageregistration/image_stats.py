@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 import numpy
+import cupy as cp
 from pylab import ceil, mod
 
 import nornir_pools
@@ -18,7 +19,7 @@ import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 
-import nornir_imageregistration
+import nornir_imageregistration 
 
 
 class ImageStats():
@@ -99,38 +100,83 @@ class ImageStats():
 #                 return cachedVal
 #         except AttributeError:
 #             pass
+
+        use_cp = isinstance(image, cp.ndarray)
         
         obj = ImageStats()
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
         #if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
         #    image = image.astype(dtype=numpy.float64)
-            
-        flatImage = image.flat 
-        obj._median = numpy.median(flatImage)
-        obj._mean = numpy.mean(flatImage)
-        obj._std = numpy.std(flatImage)
-        obj._max = numpy.max(flatImage)
-        obj._min = numpy.min(flatImage)
+
+        xp = cp if use_cp else numpy
+
+        flatImage = cp.asarray(image.flat) if use_cp and not isinstance(image, cp.ndarray) else image.flat
+
+        obj._median = xp.median(flatImage)
+        obj._mean = xp.mean(flatImage)
+        obj._std = xp.std(flatImage)
+        obj._max = xp.max(flatImage)
+        obj._min = xp.min(flatImage)
         
         del flatImage
          
 #        image.__IrtoolsImageStats__ = obj
         return obj
     
-    def GenerateNoise(self, shape:np.ndarray):
+    def GenerateNoise(self, shape:np.ndarray, use_cp: bool | None = None, return_numpy: bool = True):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
-        data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32, copy=False) * self.std) + self.median
+        
+        size = None
+        height = 1
+        width = 1
+        one_d_result = False
+        if isinstance(shape, int) or isinstance(shape, np.int32):
+            size = shape
+            height = shape
+            width = 1
+            one_d_result = True
+        elif isinstance(shape, np.ndarray) or isinstance(shape, cp.ndarray):
+            shape_shape = shape.shape
+            one_d_result = len(shape_shape) == 0
+            height = int(shape) if one_d_result else shape_shape[0]
+            width = shape[1] if not one_d_result else 1
+            size = int(shape) if one_d_result else shape_shape
+        else:
+            one_d_result = len(shape) == 1
+            height = shape[0] if not one_d_result else int(shape)
+            width = shape[1] if not one_d_result else 1
+            size = int(shape) if one_d_result else shape_shape
+            
+        if use_cp is None:
+            use_cp = width * height > 4092
+        
+        xp = cp if use_cp else numpy
+        data = (xp.random.standard_normal(size).astype(float, copy=False) * self.std) + self.median
+        xp.clip(data, self.min, self.max)
+        
+        if return_numpy and isinstance(data, cp.ndarray):
+            return data.get()
+        
+        return data
+            
+            
+        #result = nornir_imageregistration.GenRandomData(height=height, width=width, mean=self.mean, standardDev=self.std, min_val=self.min, max_val=self.max, return_numpy=return_numpy)
+        
+        #if one_d_result:
+            #return result.flatten()
+
+        #data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
     
         #if self.median - (self.std * 4) < self.min:
-        data[data < self.min] = self.min
+        #data[data < self.min] = self.min
         
         #if self.median + (self.std * 4) > self.max:
-        data[data > self.max] = self.max
+        #data[data > self.max] = self.max
              
-        return data
+        #return data
 
 
 def Prune(filenames, MaxOverlap=None):

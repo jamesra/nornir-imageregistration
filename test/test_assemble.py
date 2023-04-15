@@ -85,8 +85,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage)
         nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
-        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32), angle=angle, reshape=False)
-        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32), angle=-angle, reshape=False)
+        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=angle, reshape=False)
+        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=-angle, reshape=False)
 #
 #
         self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),

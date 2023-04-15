@@ -3,7 +3,9 @@ scipy image arrays are indexed [y,x]
 """
 
 import ctypes
+import atexit
 import math
+from multiprocessing import shared_memory
 import multiprocessing.sharedctypes
 import os
 import tempfile
@@ -23,7 +25,13 @@ import nornir_shared.prettyoutput as prettyoutput
 import matplotlib.pyplot as plt
 
 import numpy as np
+import cupy as cp
+import cupyx
+import cupyx.scipy.ndimage
+import cupyx.scipy.ndimage
 from numpy.typing import NDArray, DTypeLike
+
+
 # import numpy.fft.fftpack as fftpack
 import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested. 
 import scipy.ndimage.interpolation as interpolation
@@ -35,6 +43,15 @@ from nornir_imageregistration import ImageLike
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
+
+__known_shared_memory_allocations = {} # type: dict[str, shared_memory.SharedMemory]
+
+@atexit.register
+def release_shared_memory():
+    for shared_mem in __known_shared_memory_allocations.values():
+        shared_mem.close()
+
+    __known_shared_memory_allocations.clear()
 
 # from memory_profiler import profile
 
@@ -97,14 +114,24 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
             image = imageparam
         elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
-            image = image.astype(dtype=dtype, copy=False)
+            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max 
         else:
             image = imageparam.astype(dtype=dtype, copy=False)
-
+    elif isinstance(imageparam, cp.ndarray):
+        if dtype is None:
+            image = imageparam
+        elif cp.issubdtype(imageparam.dtype, np.integer) and cp.issubdtype(dtype, np.floating):
+            # Scale image to 0.0 to 1.0
+            image = imageparam.astype(dtype, copy=False) / cp.iinfo(imageparam.dtype).max 
+        else:
+            image = imageparam.astype(dtype=dtype, copy=False)
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam, dtype=dtype)
-
+    elif isinstance(imageparam, nornir_imageregistration.Shared_Mem_Metadata):
+        shared_mem = shared_memory.SharedMemory(name=imageparam.name)
+        image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
+        image.setflags(write=not imageparam.readonly)
+        __known_shared_memory_allocations[shared_mem.name] = shared_mem
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:
             dtype = imageparam.dtype
@@ -282,7 +309,7 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     # After lots of pain it is simplest to ensure all images are represented by floats before operating on them
     if nornir_imageregistration.IsIntArray(original_dtype):
         max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
-        image = image.astype(np.float32) / max_possible_int_val
+        image = image.astype(np.float32, copy=False) / max_possible_int_val
 
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -542,34 +569,81 @@ def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:i
     return cropped
 
 
-def npArrayToReadOnlySharedArray(npArray):
-    """Returns a shared memory array for a numpy array.  Used to reduce memory footprint when passing parameters to multiprocess pools"""
-    SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, npArray.shape[0] * npArray.shape[1])
-    SharedArray = np.ctypeslib.as_array(SharedBase)
-    SharedArray = SharedArray.reshape(npArray.shape)
-    np.copyto(SharedArray, npArray)
-    return SharedArray
+def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
+    """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
+    when it is no longer in use.
+    :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
+    """
+    shared_mem = shared_memory.SharedMemory(create=True, size=input.nbytes)
+    shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
+    np.copyto(shared_array, input)
+    __known_shared_memory_allocations[shared_mem.name] = shared_mem
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+    return output, shared_array
+
+    #SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, input.shape[0] * input.shape[1])
+    #SharedArray = np.ctypeslib.as_array(SharedBase)
+    #SharedArray = SharedArray.reshape(input.shape)
+    #np.copyto(SharedArray, input)
+    #return SharedArray, SharedArray
+    
+def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+    '''
+    Checks if the input is shared memory, if it is, closes it to indicate
+    this process is done using it, but others may still be using it
+    '''
+    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
+        shared_mem = __known_shared_memory_allocations[input.name]
+        shared_mem.close()
+        del __known_shared_memory_allocations[input.name]
+        
+def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+    '''
+    Checks if the input is shared memory, if it is, closes it to indicate
+    this process is done using it and unlinks it to free the underlying 
+    memory block.  This renders it unusable for all other processes as well
+    '''
+    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
+        shared_mem = __known_shared_memory_allocations[input.name]
+        shared_mem.close()
+        shared_mem.unlink()
+        del __known_shared_memory_allocations[input.name]
 
 
-def CreateTemporaryReadonlyMemmapFile(npArray):
-    with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
-        TempFullpath = hFile.name
-        hFile.close()
-    memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
-    memImage[:] = npArray[:]
-    memImage.flush()
-    del memImage
-    # np.save(TempFullpath, npArray)
-    return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
-
-
-def GenRandomData(height, width, mean, standardDev, min_val, max_val):
+def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float, use_cp: bool | None = None, return_numpy: bool = True, dtype: DTypeLike | None = None):
     """
     Generate random data of shape with the specified mean and standard deviation
     """
-    image = (np.random.standard_normal((int(height), int(width))).astype(np.float32, copy=False) * standardDev) + mean
+    dtype = np.float32 if dtype is None else dtype
+    
+    if use_cp is None:
+        use_cp = height * width > 4092
+        
+    xp = cp if use_cp else np
 
-    np.clip(image, a_min=min_val, a_max=max_val, out=image)
+    image = (xp.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
+
+    xp.clip(image, a_min=min_val, a_max=max_val, out=image)
+
+    if use_cp and return_numpy:
+        return image.get()
+    else:
+        return image
+
+def CPGenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float):
+    """
+    Generate random data of shape with the specified mean and standard deviation
+    """
+    use_cp = height * width > 4092
+    xp = cp if use_cp else np
+
+    image = (xp.random.standard_normal((int(height), int(width))).astype(np.float32, copy=False) * standardDev) + mean
+
+    xp.clip(image, a_min=min_val, a_max=max_val, out=image)
+
+    #if use_cp:
+    #    return image.get()
+    #else:
     return image
 
 
@@ -786,7 +860,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                             dtype):
                         # Ensure we remap values to the range of 0 to 1 without loss before converting to desired floating type
                         # if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
-                        image = image / image.max()
+                        image = image.astype(dtype) / image.max()
 
                     image = image.astype(dtype, copy=False)
                 #                 else:
@@ -983,7 +1057,7 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
     return source_image[StartY:EndY, StartX:EndX]
 
 
-def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats.ImageStats=None, Copy=False):
+def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats.ImageStats=None, Copy=False) -> NDArray:
     """
     Fill the masked area with random noise with gaussian distribution about the image
     mean and with standard deviation matching the image's standard deviation.  Mask
@@ -1127,11 +1201,11 @@ def NearestPowerOfTwoWithOverlap(val: float, overlap: float = 1.0) -> int:
         overlap = 0.0
 
     # Figure out the minimum dimension to accomodate the requested overlap
-    MinDimension = DimensionWithOverlap(val, overlap)
+    min_dimension = DimensionWithOverlap(val, overlap)
 
     # Figure out the power of two dimension
-    NewDimension = math.pow(2, math.ceil(math.log(MinDimension, 2)))
-    return NewDimension
+    #return int(math.pow(2, int(math.ceil(math.log(min_dimension, 2)))))
+    return 1 << int(math.ceil(math.log(min_dimension, 2)))
 
 
 def DimensionWithOverlap(val, overlap=1.0):
@@ -1152,7 +1226,7 @@ def DimensionWithOverlap(val, overlap=1.0):
 
 # @profile
 def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageStdDev=None, OriginalShape=None,
-                                NewWidth=None, NewHeight=None, PowerOfTwo=True, AlwaysCopy=True):
+                                NewWidth=None, NewHeight=None, PowerOfTwo=True, AlwaysCopy=True, return_numpy: bool = True):
     """
     Prepares an image for use with the phase correlation operation.  Padded areas are filled with noise matching the histogram of the
     original image.
@@ -1168,16 +1242,19 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     :param bool AlwaysCopy: If true, always copy the image even if no padding is needed
     :return: An image with the input image centered surrounded by noise
     :rtype: ndimage
-
-
     """
+
     MinVal = image.min()
     MaxVal = image.max()
 
     Height = image.shape[0]
     Width = image.shape[1]
+
     OriginalHeight = Height
     OriginalWidth = Width
+
+    use_cp = isinstance(image, cp.ndarray)
+    xp = cp if use_cp else np
 
     if OriginalShape is not None:
         OriginalWidth = OriginalShape[1]
@@ -1205,7 +1282,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
     if Width >= NewWidth and Height >= NewHeight:
         if AlwaysCopy:
-            return np.copy(image)
+            return xp.copy(image)
         else:
             return image
 
@@ -1213,15 +1290,20 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         Image1D = image.astype(np.float64, copy=False).flat
 
         if ImageMedian is None:
-            ImageMedian = np.median(Image1D)
+            ImageMedian = xp.median(Image1D)
         if ImageStdDev is None:
-            ImageStdDev = np.std(Image1D)
+            ImageStdDev = xp.std(Image1D)
 
-    desired_type = np.float16
+    desired_type = image.dtype
     if np.finfo(desired_type).max < MaxVal:
         desired_type = np.float32
 
-    PaddedImage = np.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
+    #use_cp = use_cp or NewHeight * NewWidth > 4092
+    xp = cp if use_cp else np
+
+    PaddedImage = xp.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
+    if use_cp:
+        image = xp.asarray(image)
 
     PaddedImageXOffset = int(np.floor((NewWidth - Width) / 2.0))
     PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))
@@ -1231,9 +1313,9 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
                                                                                                                  :, :]
 
     if not Width == NewWidth:
-        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
         RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev,
-                                    MinVal, MaxVal)
+                                    MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
 
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
@@ -1242,9 +1324,9 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         del RightBorder
 
     if not Height == NewHeight:
-        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal)
+        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal, use_cp = use_cp, return_numpy=False)
         BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev, MinVal,
-                                     MaxVal)
+                                     MaxVal, use_cp = use_cp, return_numpy=False)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
         PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder
@@ -1252,10 +1334,14 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         del TopBorder
         del BottomBorder
 
+    #Convert back to numpy array if input was a numpy array
+    if isinstance(image, np.ndarray) and use_cp:
+        return PaddedImage.get()
+
     return PaddedImage
 
 
-# @profile
+# @profile 
 def ImagePhaseCorrelation(FixedImage, MovingImage):
     """
     Returns the phase shift correlation of the FFT's of two images.
@@ -1266,8 +1352,10 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     :param ndarray MovingImage: grayscale image
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
-
     """
+    use_cp = isinstance(FixedImage, cp.ndarray)
+    xp = cp if use_cp else np
+    xfftpack = cp.fft if use_cp else scipy.fft
 
     if not (FixedImage.shape == MovingImage.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -1285,8 +1373,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
 
-    FFTFixed = fftpack.fft2(FixedImage - np.mean(FixedImage.flat))
-    FFTMoving = fftpack.fft2(MovingImage - np.mean(MovingImage.flat))
+    FFTFixed = xfftpack.fft2(FixedImage - xp.mean(FixedImage))
+    FFTMoving = xfftpack.fft2(MovingImage - xp.mean(MovingImage))
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 
@@ -1302,7 +1390,6 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     :param ndarray FFTMoving: grayscale image
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
-
     """
 
     if not (FFTFixed.shape == FFTMoving.shape):
@@ -1320,8 +1407,12 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
+    
+    use_cp = isinstance(FFTFixed, cp.ndarray)
+    xp = cp if use_cp else np
+    xfftpack = cp.fft if use_cp else scipy.fft
 
-    conjFFTFixed = np.conjugate(FFTFixed)
+    conjFFTFixed = xp.conjugate(FFTFixed)
     if delete_input:
         del FFTFixed
 
@@ -1330,7 +1421,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     if delete_input:
         del FFTMoving
 
-    abs_conjFFTFixed = np.absolute(conjFFTFixed)
+    abs_conjFFTFixed = xp.absolute(conjFFTFixed)
 
     # wht_expon = -0.65
     # wht_mask = conjFFTFixed > 0
@@ -1344,7 +1435,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     mask = abs_conjFFTFixed > 1e-5
     # conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
     # conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
-    conjFFTFixed[mask] /= np.power(abs_conjFFTFixed[mask], 0.65)
+    conjFFTFixed[mask] /= xp.power(abs_conjFFTFixed[mask], 0.65)
     del mask
 
     # wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
@@ -1354,7 +1445,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # del wht_expon_adjustment
     del abs_conjFFTFixed
 
-    CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
+    CorrelationImage = xp.real(xfftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage
@@ -1371,6 +1462,9 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     """
+    use_cupy = isinstance(image, cp.ndarray)
+    xp = cp if use_cupy else np
+    sp = cupyx.scipy if use_cupy else scipy
 
     if Cutoff is None:
         Cutoff = 0.996
@@ -1382,22 +1476,23 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     # CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-    ThresholdImage = np.copy(image)
+    ThresholdImage = xp.copy(image) #np.copy(image)
+    #OverlapMask = cp.array(OverlapMask)
 
     if OverlapMask is not None:
-        CutoffValue = np.percentile(image[OverlapMask], q=Cutoff * 100.0)
+        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=Cutoff * 100.0)
         ThresholdImage[OverlapMask == False] = 0
     else:
-        CutoffValue = np.percentile(image, q=Cutoff * 100.0)
+        CutoffValue = xp.percentile(ThresholdImage, q=Cutoff * 100.0)
 
     ThresholdImage[ThresholdImage < CutoffValue] = 0
 
     # ThresholdImage = scipy.stats.threshold(image, threshmin=CutoffValue, threshmax=None, newval=0)
     # nornir_imageregistration.ShowGrayscale([image, OverlapMask, ThresholdImage])
 
-    [LabelImage, NumLabels] = scipy.ndimage.measurements.label(ThresholdImage)
+    [LabelImage, NumLabels] = sp.ndimage.label(ThresholdImage)
     #The first interesting label starts at 1, 0 is the background
-    LabelSums = scipy.ndimage.sum_labels(ThresholdImage, LabelImage, list(range(1, NumLabels+1))) 
+    LabelSums = sp.ndimage.sum_labels(ThresholdImage, LabelImage, xp.array(range(1, NumLabels+1)))
     if LabelSums.sum() == 0:  # There are no peaks identified
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
         PeakStrength = 0
@@ -1406,7 +1501,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         PeakValueIndex = LabelSums.argmax()
         PeakStrength = LabelSums[PeakValueIndex]
         #Because we offset the sum_labels call by 1, we must do the same for the PeakValueIndex
-        PeakCenterOfMass = scipy.ndimage.measurements.center_of_mass(ThresholdImage, LabelImage, PeakValueIndex+1)
+        PeakCenterOfMass = sp.ndimage.center_of_mass(ThresholdImage, LabelImage, int(PeakValueIndex+1))
         #PeakArea = np.sum(LabelImage == PeakValueIndex + 1)
         #PeakMaximumPosition = scipy.ndimage.maximum_position(ThresholdImage, LabelImage, PeakValueIndex+1)
         # nPixelsInLabel = np.sum(LabelImage == PeakValueIndex+1)
@@ -1414,10 +1509,13 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     new_cutoff = Cutoff + ((1.0 - Cutoff) / 2.0)
         #     scaled_offset, Weight = FindPeak(image, OverlapMask, Cutoff=new_cutoff)
         #     return scaled_offset, Weight
-         
-        OtherPeaks = np.delete(LabelSums, PeakValueIndex)
         
-        FalsePeakStrength = np.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
+        if use_cupy:
+            OtherPeaks = LabelSums[LabelSums != PeakStrength]
+        else:
+            OtherPeaks = np.delete(LabelSums, PeakValueIndex) 
+        
+        FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         #FalsePeakStrength = OtherPeaks.max()
         
         if FalsePeakStrength == 0:
@@ -1432,6 +1530,11 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         
         # center_of_mass returns results as (y,x)
         # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
+        #print(image.shape)
+        #PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1])))
+        if use_cupy:
+            PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1]))) 
+        #print(PeakCenterOfMass)
         scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
