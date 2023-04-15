@@ -63,7 +63,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float16)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float32)
         imFixedMask = None 
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
@@ -74,7 +74,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float16)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float32)
         imWarpedMask = None
         if WarpedImageMaskPath is not None:
             imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
@@ -159,8 +159,8 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
                   FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=np.float16)
-    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=np.float16)
+    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=np.float32)
+    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=np.float32)
 
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
@@ -174,7 +174,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         #This confused me for years, but the implementation of rotate calls affine_transform with
         #the rotation matrix.  However the docs for affine_transform state it needs to be called
         #with the inverse transform.  Hence negating the angle here.
-        imWarped = scipy.ndimage.rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(np.float16, copy=False) #Numpy cannot rotate float16 images
+        imWarped = scipy.ndimage.rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(imWarped.dtype, copy=False) #Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = np.isnan(imWarped)
         result = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
         imWarped[imWarpedEmptyIndicies] = result
@@ -301,8 +301,8 @@ def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | 
         shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
-        SharedPaddedFixed = PaddedFixed.astype(np.float16, copy=False)
-        SharedWarped = imWarped.astype(np.float16, copy=False)
+        SharedPaddedFixed = PaddedFixed.astype(np.float32, copy=False)
+        SharedWarped = imWarped.astype(np.float32, copy=False)
 
     CheckTaskInterval = 16
 

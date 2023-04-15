@@ -1386,7 +1386,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # del wht_expon_adjustment
     del abs_conjFFTFixed
 
-    CorrelationImage = np.real(scipy.fft.ifft2(conjFFTFixed))
+    CorrelationImage = np.real(fftpack.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage
@@ -1467,7 +1467,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #print(image.shape)
         #PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1])))
         #print(PeakCenterOfMass)
-        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+        scaled_offset = (np.asarray(image.shape) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
         del LabelImage
