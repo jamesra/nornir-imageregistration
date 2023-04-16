@@ -89,6 +89,9 @@ def SliceToSliceBruteForce(FixedImageInput,
     else:
         imWarped = WarpedImageInput
 
+    imFixed = cp.asarray(imFixed) if use_cp and not isinstance(imWarped, cp.ndarray) else imFixed
+    imWarped = cp.asarray(imWarped) if use_cp and not isinstance(imWarped, cp.ndarray) else imWarped
+
     scalar = 1.0
     if not LargestDimension is None:
         scalar = nornir_imageregistration.ScalarForMaxDimension(LargestDimension, [imFixed.shape, imWarped.shape])
