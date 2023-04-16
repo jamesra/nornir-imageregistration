@@ -161,7 +161,10 @@ def ScalarForMaxDimension(max_dim: float, shapes):
 
 
 def ReduceImage(image: NDArray, scalar: float):
-    return interpolation.zoom(image, scalar)
+    if isinstance(image, np.ndarray):
+        return scipy.ndimage.zoom(image, scalar)
+    elif isinstance(image, cp.ndarray):
+        return cupyx.scipy.ndimage.zoom(image, scalar)
 
 
 def ExtractROI(image: NDArray, center, area):
