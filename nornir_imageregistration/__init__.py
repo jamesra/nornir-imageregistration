@@ -113,11 +113,10 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
 
         points = np.asarray(points, dtype=dtype)
     elif dtype is not None:
-        if points.dtype != dtype:
-            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
+        points = points.astype(dtype, copy=False)
 
     if points.ndim > 1:
-        points = np.array(points.flat)
+        points = np.ravel(points)
 
     return points
 
@@ -135,8 +134,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
 
         points = np.asarray(points, dtype=dtype)
     elif dtype is not None:
-        if points.dtype != dtype:
-            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
+        points = points.astype(dtype, copy=False)
 
     if points.ndim == 1:
         points = np.resize(points, (1, 2))
@@ -156,9 +154,8 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
                 dtype = np.float32
 
         points = np.asarray(points, dtype=dtype)
-    elif not dtype is None:
-        if points.dtype != dtype:
-            Warning('EnsurePointsAre4xN_NumpyArray dtype not equal to passed dtype, input array unchanged')
+    elif dtype is not None:
+        points = points.astype(dtype, copy=False)
 
     if points.ndim == 1:
         points = np.resize(points, (1, 4))
