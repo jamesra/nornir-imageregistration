@@ -1096,8 +1096,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :param description:  Entirely optional parameter describing which cell we are processing
     :return:
     """
-    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param, dtype=np.float16)
-    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param, dtype=np.float16)
+    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param)
+    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param)
 
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
     target_controlpoint = target_controlpoint.astype(float, copy=False).flatten()

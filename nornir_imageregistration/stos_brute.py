@@ -175,7 +175,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         
     xp = cp if use_cp else np
     rotate = cupyx.scipy.ndimage.rotate if use_cp else scipy.ndimage.rotate
-    fft = cp.fft if use_cp else scipy.fft
+    fft = cp.fft if use_cp else np.fft
 
     imFixed = cp.asarray(imFixed) if use_cp and not isinstance(imFixed, cp.ndarray) else imFixed
     imWarped = cp.asarray(imWarped) if use_cp  and not isinstance(imWarped, cp.ndarray)  else imWarped
@@ -195,9 +195,9 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         if use_cp:
             imWarped = rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
         else:
-            imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(np.float16, copy=False) #Numpy cannot rotate float16 images
+            imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(imWarped.dtype, copy=False) #Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = xp.isnan(imWarped)
-        result = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), use_cp=use_cp, return_numpy=not use_cp)
+        result = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype, use_cp=use_cp, return_numpy=not use_cp)
         imWarped[imWarpedEmptyIndicies] = result
         xp.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
@@ -241,7 +241,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     if use_cp and not isinstance(RotatedPaddedWarped, cp.ndarray):
         RotatedPaddedWarped = cp.asarray(RotatedPaddedWarped)
  
-    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped)
+    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped, fixedStats.mean, warpedStats.mean)
 
     del PaddedFixed
     del RotatedPaddedWarped

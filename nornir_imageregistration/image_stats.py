@@ -8,6 +8,7 @@ import os
 from typing import Sequence
 
 import numpy as np
+from numpy.typing import NDArray, DTypeLike
 from PIL import Image
 
 import numpy
@@ -19,7 +20,7 @@ import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 
-import nornir_imageregistration 
+import nornir_imageregistration
 
 
 class ImageStats():
@@ -123,7 +124,7 @@ class ImageStats():
 #        image.__IrtoolsImageStats__ = obj
         return obj
     
-    def GenerateNoise(self, shape:np.ndarray, use_cp: bool | None = None, return_numpy: bool = True):
+    def GenerateNoise(self, shape:np.ndarray, dtype: DTypeLike, use_cp: bool | None = None, return_numpy: bool = True):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
@@ -154,7 +155,7 @@ class ImageStats():
             use_cp = width * height > 4092
         
         xp = cp if use_cp else numpy
-        data = (xp.random.standard_normal(size).astype(float, copy=False) * self.std) + self.median
+        data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(float, copy=False)
         xp.clip(data, self.min, self.max)
         
         if return_numpy and isinstance(data, cp.ndarray):

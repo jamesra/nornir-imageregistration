@@ -584,11 +584,6 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
     return output, shared_array
 
-    #SharedBase = multiprocessing.sharedctypes.RawArray(ctypes.c_float, input.shape[0] * input.shape[1])
-    #SharedArray = np.ctypeslib.as_array(SharedBase)
-    #SharedArray = SharedArray.reshape(input.shape)
-    #np.copyto(SharedArray, input)
-    #return SharedArray, SharedArray
     
 def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
     '''
@@ -599,7 +594,8 @@ def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
         shared_mem = __known_shared_memory_allocations[input.name]
         shared_mem.close()
         del __known_shared_memory_allocations[input.name]
-        
+
+
 def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
     '''
     Checks if the input is shared memory, if it is, closes it to indicate
@@ -624,7 +620,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
         
     xp = cp if use_cp else np
 
-    image = (xp.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
+    image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
 
     xp.clip(image, a_min=min_val, a_max=max_val, out=image)
 
@@ -648,7 +644,6 @@ def CPGenRandomData(height: int, width: int, mean: float, standardDev: float, mi
     #    return image.get()
     #else:
     return image
-
 
 def GetImageSize(image_param: str | np.ndarray | Iterable):
     """
@@ -1101,7 +1096,7 @@ def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats
         imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 
-    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)))
+    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)), dtype=image.dtype)
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
     Image1D[iPixelsToReplace] = NoiseData
@@ -1345,7 +1340,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
 
 # @profile 
-def ImagePhaseCorrelation(FixedImage, MovingImage):
+def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=None):
     """
     Returns the phase shift correlation of the FFT's of two images.
 
@@ -1375,9 +1370,13 @@ def ImagePhaseCorrelation(FixedImage, MovingImage):
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
-
-    FFTFixed = xfftpack.fft2(FixedImage - xp.mean(FixedImage))
-    FFTMoving = xfftpack.fft2(MovingImage - xp.mean(MovingImage))
+    if fixed_mean is None:
+        fixed_mean = xp.mean(FixedImage)
+    if moving_mean is None:
+        moving_mean = xp.mean(MovingImage)
+ 
+    FFTFixed = fftpack.fft2(FixedImage - fixed_mean)
+    FFTMoving = fftpack.fft2(MovingImage - moving_mean) 
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 
@@ -1538,7 +1537,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         if use_cupy:
             PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1]))) 
         #print(PeakCenterOfMass)
-        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0) - PeakCenterOfMass
+        scaled_offset = (np.asarray(image.shape) / 2.0) - PeakCenterOfMass
         # scaled_offset = (scaled_offset[0], scaled_offset[1])
 
         del LabelImage
