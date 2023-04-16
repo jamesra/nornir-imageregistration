@@ -56,6 +56,15 @@ def __CreateArgParser(ExecArgs=None):
                         help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
                         dest='testflip'
                         )
+    
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        type=bool,
+                        default=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
 
     return parser
 
@@ -95,7 +104,8 @@ def Execute(ExecArgs=None):
                                              stosArgs.ControlMask,
                                              stosArgs.WarpedMask,
                                              MinOverlap=Args.min_overlap,
-                                             TestFlip=Args.testflip)
+                                             TestFlip=Args.testflip,
+                                             use_cp=Args.use_cp)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,

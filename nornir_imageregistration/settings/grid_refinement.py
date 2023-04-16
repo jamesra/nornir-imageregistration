@@ -13,6 +13,33 @@ class GridRefinement(object):
     Settings for grid refinement
     """
 
+    def __getstate__(self):
+        # Return a dict that contains only the name attribute
+        output = {}.update(self.__dict__)
+        del output['target_image']
+        del output['target_image']
+        del output['source_mask']
+        del output['target_mask']
+
+        return output
+
+    def __setstate__(self, state):
+        # Restore the name attribute from the state dict
+        self.__dict__.update(state)
+        self.target_image = nornir_imageregistration.ImageParamToImageArray(self.target_image_meta)
+        self.source_image = nornir_imageregistration.ImageParamToImageArray(self.source_image_meta)
+        self.source_mask = nornir_imageregistration.ImageParamToImageArray(self.source_mask_meta)
+        self.target_mask = nornir_imageregistration.ImageParamToImageArray(self.target_mask_meta)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        nornir_imageregistration.unlink_shared_memory(self.target_image_meta)
+        nornir_imageregistration.unlink_shared_memory(self.source_image_meta)
+        nornir_imageregistration.unlink_shared_memory(self.source_mask_meta)
+        nornir_imageregistration.unlink_shared_memory(self.target_mask_meta)
+
     def __init__(self,
                  target_image,
                  source_image,
@@ -103,6 +130,11 @@ class GridRefinement(object):
 
         self.target_image = nornir_imageregistration.RandomNoiseMask(target_image, self.target_mask, Copy=False)
         self.source_image = nornir_imageregistration.RandomNoiseMask(source_image, self.source_mask, Copy=False)
+
+        self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToReadOnlySharedArray(self.source_image)
+        self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToReadOnlySharedArray(self.target_image)
+        self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(self.source_mask)
+        self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(self.target_mask)
 
         self.angles_to_search = [0] if angles_to_search is None else angles_to_search
         self.final_pass_angles = [0] if final_pass_angles is None else final_pass_angles

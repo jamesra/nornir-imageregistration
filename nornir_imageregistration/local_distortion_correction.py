@@ -291,7 +291,7 @@ r plots of each iteration in the output path for debugging purposes
     if stosTransform is None:
         raise ValueError(f"Could not load transform: {InputStos} - {InputStos.Transform}")
 
-    settings = nornir_imageregistration.settings.GridRefinement(target_image=InputStos.ControlImageFullPath,
+    with nornir_imageregistration.settings.GridRefinement(target_image=InputStos.ControlImageFullPath,
                                                                 source_image=InputStos.MappedImageFullPath,
                                                                 target_mask=InputStos.ControlMaskFullPath,
                                                                 source_mask=InputStos.MappedMaskFullPath,
@@ -302,19 +302,19 @@ r plots of each iteration in the output path for debugging purposes
                                                                 max_travel_for_finalization=max_travel_for_finalization,
                                                                 max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                                 min_alignment_overlap=min_alignment_overlap,
-                                                                min_unmasked_area=min_unmasked_area)
+                                                                min_unmasked_area=min_unmasked_area) as settings:
 
-    output_transform = RefineTransform(stosTransform,
-                                       settings,
-                                       SaveImages=SaveImages,
-                                       SavePlots=SavePlots,
-                                       outputDir=outputDir)
+        output_transform = RefineTransform(stosTransform,
+                                           settings,
+                                           SaveImages=SaveImages,
+                                           SavePlots=SavePlots,
+                                           outputDir=outputDir)
 
-    InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(output_transform,
-                                                          source_image_shape=settings.source_image.shape,
-                                                          cell_size=settings.cell_size,
-                                                          grid_spacing=settings.grid_spacing)
-    InputStos.Save(OutputStosPath)
+        InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(output_transform,
+                                                              source_image_shape=settings.source_image.shape,
+                                                              cell_size=settings.cell_size,
+                                                              grid_spacing=settings.grid_spacing)
+        InputStos.Save(OutputStosPath)
 
 
 def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
@@ -516,7 +516,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         stosTransform = updatedTransform
 
         # Make one more pass to see if we can improve finalized points
-    # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved. 
+    # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved.
     # if len(finalized_points) >= 3:
     #     final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
     #         AlignRecordsToControlPoints(finalized_points.values()))
@@ -650,20 +650,33 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         # So... the way I'm handling refine is backwards.  I'm not sure how much it matters.
         # I'm passing the target point, but the point that is fixed in the transform I am building is the source point.
         # So the transform runs an inverse transform to obtain the source point, which may be slightly off.
-        AlignTask = StartAttemptAlignPoint(pool,
-                                           f"Align {key}",
-                                           rigid_transforms[i],
-                                           # Transform,
-                                           settings.target_image,
-                                           settings.source_image,
+        AlignTask = pool.add_task(f"Align {key}",
+                                  AttemptAlignPoint,
+                                  rigid_transforms[i],
+                                  settings.target_image_meta, #Send the shared file to the task
+                                  settings.source_image_meta, #Send the shared file to the task
+                                  #settings.target_mask,
+                                  #settings.source_mask,
+                                  settings.target_image_stats,
+                                  settings.source_image_stats,
+                                  targetPoint,
+                                  settings.cell_size,
+                                  anglesToSearch=settings.angles_to_search,
+                                  min_alignment_overlap=settings.min_alignment_overlap)
+        #AlignTask = StartAttemptAlignPoint(pool,
+                                           #f"Align {key}",
+                                           #rigid_transforms[i],
+
+                                           #settings.target_image,
+                                           #settings.source_image,
                                            # settings.target_mask,
                                            # settings.source_mask,
-                                           settings.target_image_stats,
-                                           settings.source_image_stats,
-                                           targetPoint,
-                                           settings.cell_size,
-                                           anglesToSearch=settings.angles_to_search,
-                                           min_alignment_overlap=settings.min_alignment_overlap)
+                                           #settings.target_image_stats,
+                                           #settings.source_image_stats,
+                                           #targetPoint,
+                                           #settings.cell_size,
+                                           #anglesToSearch=settings.angles_to_search,
+                                           #min_alignment_overlap=settings.min_alignment_overlap)
 
         if AlignTask is None:
             continue
@@ -700,12 +713,13 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                                                                 angle=arecord.angle,
                                                                 flipped_ud=arecord.flippedud)
 
-        erec.TargetROI = t.TargetROI
-        erec.SourceROI = t.SourceROI
-        erec.TranslatedSourceROI = nornir_imageregistration.CropImage(t.SourceROI, int(np.floor(erec.peak[1])),
-                                                                      int(np.floor(erec.peak[0])), t.SourceROI.shape[1],
-                                                                      t.SourceROI.shape[0],
-                                                                      cval=float(np.median(t.SourceROI.flat)))
+        if 'DEBUG' in os.environ:
+            erec.TargetROI = arecord.TargetROI
+            erec.SourceROI = arecord.SourceROI
+            erec.TranslatedSourceROI = nornir_imageregistration.CropImage(erec.SourceROI, int(np.floor(erec.peak[1])),
+                                                                          int(np.floor(erec.peak[0])),
+                                                                          erec.SourceROI.shape[1], erec.SourceROI.shape[0],
+                                                                          cval=float(np.median(erec.SourceROI.flat)))
 
         # erec.TargetPSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.TargetROI)
         # erec.SourcePSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.SourceROI)
@@ -1064,8 +1078,8 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
 
 
 def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
-                       targetImage: NDArray,
-                       sourceImage: NDArray,
+                       targetImage_param: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
+                       sourceImage_param: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
                        target_image_stats: nornir_imageregistration.ImageStats | None,
                        source_image_stats: nornir_imageregistration.ImageStats | None,
                        target_controlpoint: NDArray | tuple[float, float],
@@ -1082,6 +1096,9 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :param description:  Entirely optional parameter describing which cell we are processing
     :return:
     """
+    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param, dtype=np.float16)
+    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param, dtype=np.float16)
+
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
     target_controlpoint = target_controlpoint.astype(float, copy=False).flatten()
     adjust_mask = np.mod(alignmentArea, 2) > 0
@@ -1117,6 +1134,9 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
         source_image_roi = nornir_imageregistration.RandomNoiseMask(source_image_roi,
                                                                     np.logical_not(np.isnan(source_image_roi)),
                                                                     imagestats=source_image_stats)
+
+    nornir_imageregistration.close_shared_memory(targetImage_param)
+    nornir_imageregistration.close_shared_memory(sourceImage_param)
 
     return target_image_roi, source_image_roi
 
@@ -1205,6 +1225,73 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
     task.SourceROI = source_image_roi
 
     return task
+
+def AttemptAlignPoint( transform: nornir_imageregistration.ITransform,
+                       targetImage: NDArray,
+                       sourceImage: NDArray,
+                       # targetMask: NDArray,
+                       # sourceMask: NDArray,
+                       target_image_stats: nornir_imageregistration.ImageStats | None,
+                       source_image_stats: nornir_imageregistration.ImageStats | None,
+                       target_controlpoint: NDArray | tuple[float, float],
+                       alignmentArea: NDArray | tuple[float, float],
+                       anglesToSearch: Iterable[float] | None=None,
+                       min_alignment_overlap: float=0.5,
+                       use_cp: bool = False) -> nornir_imageregistration.AlignmentRecord | None:
+
+
+    if anglesToSearch is None:
+        anglesToSearch = np.linspace(-7.5, 7.5, 11)
+
+    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
+                                                            targetImage_param=targetImage,
+                                                            sourceImage_param=sourceImage,
+                                                            target_image_stats=target_image_stats,
+                                                            source_image_stats=source_image_stats,
+                                                            target_controlpoint=target_controlpoint,
+                                                            alignmentArea=alignmentArea,
+                                                            description='')
+
+    # Just ignore pure color regions
+    if not np.any(target_image_roi != target_image_roi[0][0]):
+        return None
+    if not np.any(source_image_roi != source_image_roi[0][0]):
+        return None
+
+    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
+
+    # pool = Pools.GetGlobalMultithreadingPool()
+
+    # task = pool.add_task("AttemptAlignPoint", nornir_imageregistration.FindOffset, targetImageROI, sourceImageROI, MinOverlap = 0.2)
+    # apoint = task.wait_return()
+    # apoint = nornir_imageregistration.FindOffset(targetImageROI, sourceImageROI, MinOverlap=0.2)
+    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI], "Fixed <---> Warped")
+
+    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
+
+    #     nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
+    #                         targetImageROI,
+    #                         sourceImageROI,
+    #                         AngleSearchRange=anglesToSearch,
+    #                         MinOverlap=min_alignment_overlap,
+    #                         SingleThread=True,
+    #                         Cluster=False,
+    #                         TestFlip=False)
+    #
+    result = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
+                         target_image_roi,
+                         source_image_roi,
+                         AngleSearchRange=anglesToSearch,
+                         MinOverlap=min_alignment_overlap,
+                         SingleThread=True,
+                         Cluster=False,
+                         TestFlip=False)
+    
+    if 'DEBUG' in os.environ:
+        result.TargetROI = target_image_roi
+        result.SourceROI = source_image_roi
+
+    return result
 
 
 def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITransform, alignment_records: dict,
