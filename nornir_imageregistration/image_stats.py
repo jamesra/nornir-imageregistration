@@ -110,7 +110,7 @@ class ImageStats():
 
         xp = cp if use_cp else numpy
 
-        flatImage = cp.asarray(image.flat) if use_cp and not isinstance(image, cp.ndarray) else image.flat
+        flatImage = image.ravel() if use_cp else image.flat
 
         obj._median = xp.median(flatImage)
         obj._mean = xp.mean(flatImage)
