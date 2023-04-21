@@ -19,6 +19,10 @@ import nornir_shared.images as images
 
 from . import setup_imagetest
 
+import cupy as cp
+
+init_context = cp.zeros((64,64))
+
 def CheckAlignmentRecord(test, arecord, angle, X, Y, flipud=False, adelta=None, sdelta=None):
         '''Verifies that an alignment record is more or less equal to expected values'''
 
@@ -88,8 +92,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=False, AngleSearchRange=None, #AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
-                               TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=False)
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=None, #AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
+                               TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=True)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)

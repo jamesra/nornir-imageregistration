@@ -577,6 +577,10 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     when it is no longer in use.
     :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
     """
+    use_cp = isinstance(input, cp.ndarray)
+    if use_cp:
+        input = input.get()
+         
     shared_mem = shared_memory.SharedMemory(create=True, size=input.nbytes)
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
@@ -1353,7 +1357,7 @@ def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=
     """
     use_cp = isinstance(FixedImage, cp.ndarray)
     xp = cp if use_cp else np
-    xfftpack = cp.fft if use_cp else scipy.fft
+    xfftpack = cp.fft if use_cp else np.fft
 
     if not (FixedImage.shape == MovingImage.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -1375,8 +1379,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=
     if moving_mean is None:
         moving_mean = xp.mean(MovingImage)
  
-    FFTFixed = fftpack.fft2(FixedImage - fixed_mean)
-    FFTMoving = fftpack.fft2(MovingImage - moving_mean) 
+    FFTFixed = xfftpack.fft2(FixedImage - fixed_mean)
+    FFTMoving = xfftpack.fft2(MovingImage - moving_mean) 
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 
