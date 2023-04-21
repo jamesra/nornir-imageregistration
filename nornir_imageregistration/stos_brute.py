@@ -54,6 +54,8 @@ def SliceToSliceBruteForce(FixedImageInput,
     if AngleSearchRange is not None:
         if isinstance(AngleSearchRange, np.ndarray):
             AngleSearchRange = list(AngleSearchRange)
+            
+    SingleThread = True if use_cp else SingleThread
         
     # logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
     

@@ -1177,8 +1177,8 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
     #     raise ValueError("This mask should have been found earlier")
 
     target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
-                                                            targetImage=targetImage,
-                                                            sourceImage=sourceImage,
+                                                            targetImage_param=targetImage,
+                                                            sourceImage_param=sourceImage,
                                                             target_image_stats=target_image_stats,
                                                             source_image_stats=source_image_stats,
                                                             target_controlpoint=target_controlpoint,

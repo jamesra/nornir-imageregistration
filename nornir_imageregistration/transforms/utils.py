@@ -12,8 +12,10 @@ from nornir_shared import prettyoutput
 from collections.abc import Iterable
 
  
-def InvalidIndicies(points: NDArray[float]):
-    '''Removes rows with a NAN value and returns a list of indicies'''
+def InvalidIndicies(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int]]:
+    '''Removes rows with a NAN value.
+     :return: A flat array with NaN containing rows removed and set of row indicies that were removed
+    '''
 
     if points is None:
         raise ValueError("points must not be None")
@@ -22,15 +24,15 @@ def InvalidIndicies(points: NDArray[float]):
 
     nan1D = np.isnan(points).any(axis=1)
 
-    invalidIndicies = np.nonzero(nan1D)[0]
+    invalidIndicies = np.flatnonzero(nan1D)
     points = np.delete(points, invalidIndicies, axis=0)
 
     assert(points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
-    return (points, invalidIndicies)
+    return points, invalidIndicies
 
 
-def RotationMatrix(rangle: float):
+def RotationMatrix(rangle: float) -> NDArray[float]:
     '''
     :param float rangle: Angle in radians
     '''
@@ -53,13 +55,13 @@ def RotationMatrix(rangle: float):
     
 
 
-def IdentityMatrix():
+def IdentityMatrix() -> NDArray[float]:
     '''
     '''
     return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-def TranslateMatrixXY(offset: tuple[float, float] | NDArray):
+def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[float]:
     '''
     :param offset: An offset to translate by, either tuple of (Y,X) or an array
     '''
@@ -72,7 +74,7 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray):
     raise NotImplementedError("Unexpected argument")
 
 
-def ScaleMatrixXY(scale: float):
+def ScaleMatrixXY(scale: float) -> NDArray[float]:
     '''
     :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
     '''
