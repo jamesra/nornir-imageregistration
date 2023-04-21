@@ -862,7 +862,14 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                             dtype):
                         # Ensure we remap values to the range of 0 to 1 without loss before converting to desired floating type
                         # if image.dtype.itemsize == dtype.itemsize: #Check if we need to bump up the item size
-                        image = image.astype(dtype) / image.max()
+                        if dtype().itemsize <= image.dtype.itemsize:
+                            # Converting to float with the same number of bytes as the integer type can produce infinite output.
+                            # To handle this, increase precision of image during conversion. 
+                            temp_dtype= np.dtype(f'f{image.dtype.itemsize*2}')
+                            image = image.astype(temp_dtype)
+                            image /= image.max()
+                        else:
+                            image = image.astype(dtype) / image.max()
 
                     image = image.astype(dtype, copy=False)
                 #                 else:
@@ -1650,6 +1657,9 @@ def ImageIntensityAtPercent(image, Percent=0.995):
 
 
 if __name__ == '__main__':
+    
+    a = LoadImage('L:\\Neitz\\cped\\SEM\\1489\\SEM\\Leveled\\Images\\004\\1489_SEM_Leveled.png',
+                  dtype=np.float16)
 
     FilenameA = 'C:\\BuildScript\\Test\\Images\\400.png'
     FilenameB = 'C:\\BuildScript\\Test\\Images\\401.png'
