@@ -269,15 +269,25 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         final_pass = False
 
         # CutoffPercentilePerIteration = 10.0
+        target_image_data = nornir_imageregistration.ImagePermutationHelper(img=target_image_fullpath,
+                                                                            mask=target_mask_fullpath,
+                                                                            extrema_mask_size_cuttoff=None,
+                                                                            dtype=float)
 
-        with nornir_imageregistration.settings.GridRefinement(target_image=target_image_fullpath,
-                                                                    source_image=source_image_fullpath,
-                                                                    target_mask=target_mask_fullpath,
-                                                                    source_mask=source_mask_fullpath, num_iterations=10,
-                                                                    cell_size=128, grid_spacing=96,
-                                                                    angles_to_search=None, final_pass_angles=[0],
-                                                                    max_travel_for_finalization=None,
-                                                                    min_alignment_overlap=0.5, min_unmasked_area=0.49) as settings:
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(img=source_image_fullpath,
+                                                                            mask=source_mask_fullpath,
+                                                                            extrema_mask_size_cuttoff=None,
+                                                                            dtype=float)
+
+        with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
+                                                                target_img_data=target_image_data,
+                                                                source_img_data=source_image_data,
+                                                                num_iterations=10,
+                                                                cell_size=128, grid_spacing=96,
+                                                                angles_to_search=None, final_pass_angles=[0],
+                                                                max_travel_for_finalization=None,
+                                                                min_alignment_overlap=0.5,
+                                                                min_unmasked_area=0.49) as settings:
 
             FirstPassWeightScoreCutoff = None
             FirstPassCompositeScoreCutoff = None

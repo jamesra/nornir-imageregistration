@@ -88,7 +88,7 @@ class ImageStats():
         return ImageStats.Create(image)
 
     @classmethod
-    def Create(cls, image):
+    def Create(cls, image: NDArray):
         '''Returns an object with the mean,median,std.dev of an image,
            this object is attached to the image object and only calculated once'''
 
