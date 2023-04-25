@@ -291,10 +291,19 @@ r plots of each iteration in the output path for debugging purposes
     if stosTransform is None:
         raise ValueError(f"Could not load transform: {InputStos} - {InputStos.Transform}")
 
-    with nornir_imageregistration.settings.GridRefinement(target_image=InputStos.ControlImageFullPath,
-                                                                source_image=InputStos.MappedImageFullPath,
-                                                                target_mask=InputStos.ControlMaskFullPath,
-                                                                source_mask=InputStos.MappedMaskFullPath,
+    target_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.ControlImageFullPath,
+                                                                        mask=InputStos.ControlMaskFullPath,
+                                                                        extrema_mask_size_cuttoff=None,
+                                                                        dtype=float)
+
+    source_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.MappedImageFullPath,
+                                                                        mask=InputStos.MappedMaskFullPath,
+                                                                        extrema_mask_size_cuttoff=None,
+                                                                        dtype=float)
+
+    with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
+                                                                target_img_data=target_image_data,
+                                                                source_img_data=source_image_data,
                                                                 num_iterations=num_iterations, cell_size=cell_size,
                                                                 grid_spacing=grid_spacing,
                                                                 angles_to_search=angles_to_search,
@@ -302,7 +311,8 @@ r plots of each iteration in the output path for debugging purposes
                                                                 max_travel_for_finalization=max_travel_for_finalization,
                                                                 max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                                 min_alignment_overlap=min_alignment_overlap,
-                                                                min_unmasked_area=min_unmasked_area) as settings:
+                                                                min_unmasked_area=min_unmasked_area,
+                                                                single_thread_processing=True) as settings:
 
         output_transform = RefineTransform(stosTransform,
                                            settings,

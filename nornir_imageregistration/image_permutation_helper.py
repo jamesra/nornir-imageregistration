@@ -2,6 +2,7 @@
 
 """
 import numpy as np
+import numpy.typing
 from numpy.typing import NDArray
 
 import nornir_imageregistration
@@ -58,9 +59,16 @@ class ImagePermutationHelper(object):
         return self._image_with_mask_as_noise
 
     def __init__(self,
-                 img: NDArray,
-                 mask: NDArray | None = None,
-                 extrema_mask_size_cuttoff: float | int | NDArray | None = None):
+                 img: nornir_imageregistration.ImageLike,
+                 mask: nornir_imageregistration.ImageLike | None = None,
+                 extrema_mask_size_cuttoff: float | int | NDArray | None = None,
+                 dtype: numpy.typing.DTypeLike | None = None):
+
+        if dtype is None:
+            dtype = img.dtype if np.issubdtype(img.dtype, np.floating) else float
+
+        img = nornir_imageregistration.ImageParamToImageArray(img, dtype=dtype)
+        mask = nornir_imageregistration.ImageParamToImageArray(img, dtype=bool)
 
         self._extrema_size_cutoff_in_pixels = None
         if extrema_mask_size_cuttoff is None:
@@ -75,7 +83,7 @@ class ImagePermutationHelper(object):
         else:
             self._extrema_size_cutoff_in_pixels = extrema_mask_size_cuttoff
 
-        self._image = img
+        self._image = img.astype(dtype, copy=False)
         self._mask = mask
         self._extrema_mask = nornir_imageregistration.CreateExtremaMask(self._image, self._mask, size_cutoff=self.extrema_size_cutoff_in_pixels)
         self._blended_mask = np.logical_and(self._mask, self._extrema_mask) if self._mask is not None else self._extrema_mask
