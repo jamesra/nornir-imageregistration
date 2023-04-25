@@ -551,7 +551,7 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
         return SourceImageToTargetSpace(transform, warpedImage, output_botleft=np.array([0, 0]),
                                         output_area=fixedImageShape, extrapolate=not CropUndefined)
     else:
-        outputImage = np.zeros(fixedImageShape, dtype=np.float32)
+        outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
 
