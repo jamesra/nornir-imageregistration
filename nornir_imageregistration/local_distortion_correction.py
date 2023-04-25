@@ -312,7 +312,7 @@ r plots of each iteration in the output path for debugging purposes
                                                                 max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                                 min_alignment_overlap=min_alignment_overlap,
                                                                 min_unmasked_area=min_unmasked_area,
-                                                                single_thread_processing=True) as settings:
+                                                                single_thread_processing=False) as settings:
 
         output_transform = RefineTransform(stosTransform,
                                            settings,
