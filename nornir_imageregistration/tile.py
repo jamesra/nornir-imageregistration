@@ -11,6 +11,7 @@ from typing import Tuple
 from numpy.typing import NDArray
 from nornir_imageregistration.transforms.base import IDiscreteTransform
 from nornir_shared import prettyoutput
+from build.lib import nornir_shared
 
 
 class Tile(object):
@@ -102,7 +103,7 @@ class Tile(object):
     def Image(self) -> NDArray:
         if self._image is None:
             try:
-                self._image = nornir_imageregistration.LoadImage(self._imagepath, dtype=np.float16)
+                self._image = nornir_imageregistration.LoadImage(self._imagepath, dtype=nornir_imageregistration.default_image_dtype())
             except IOError:
                 prettyoutput.LogErr(f'Unable to load {self._imagepath}')
                 raise

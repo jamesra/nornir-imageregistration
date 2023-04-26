@@ -81,7 +81,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
 def CreateDistanceImage(shape, dtype=None):
     if dtype is None:
-        dtype = np.float32
+        dtype = nornir_imageregistration.default_image_dtype()
 
     center = [shape[0] / 2.0, shape[1] / 2.0]
 
@@ -104,7 +104,7 @@ def CreateDistanceImage(shape, dtype=None):
 def CreateDistanceImage2(shape, dtype=None):
     # TODO, this has some obvious optimizations available
     if dtype is None:
-        dtype = np.float32
+        dtype = nornir_imageregistration.default_image_dtype()
 
     # center = [shape[0] / 2.0, shape[1] / 2.0]
     shape = np.asarray(shape, dtype=np.int64)

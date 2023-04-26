@@ -294,12 +294,12 @@ r plots of each iteration in the output path for debugging purposes
     target_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.ControlImageFullPath,
                                                                         mask=InputStos.ControlMaskFullPath,
                                                                         extrema_mask_size_cuttoff=None,
-                                                                        dtype=np.float32)
+                                                                        dtype=nornir_imageregistration.default_image_dtype())
 
     source_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.MappedImageFullPath,
                                                                         mask=InputStos.MappedMaskFullPath,
                                                                         extrema_mask_size_cuttoff=None,
-                                                                        dtype=np.float32)
+                                                                        dtype=nornir_imageregistration.default_image_dtype())
 
     with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
                                                                 target_img_data=target_image_data,
@@ -1106,8 +1106,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :param description:  Entirely optional parameter describing which cell we are processing
     :return:
     """
-    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param, dtype=np.float32)
-    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param, dtype=np.float32)
+    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param, dtype=nornir_imageregistration.default_image_dtype())
+    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param, dtype=nornir_imageregistration.default_image_dtype())
 
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
     target_controlpoint = target_controlpoint.astype(float, copy=False).flatten()

@@ -295,7 +295,7 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     # After lots of pain it is simplest to ensure all images are represented by floats before operating on them
     if nornir_imageregistration.IsIntArray(original_dtype):
         max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
-        image = image.astype(np.float32, copy=False) / max_possible_int_val
+        image = image.astype(nornir_imageregistration.default_image_dtype(), copy=False) / max_possible_int_val
 
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -596,7 +596,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     """
     Generate random data of shape with the specified mean and standard deviation
     """
-    dtype = np.float32 if dtype is None else dtype 
+    dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
     image = (np.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
     np.clip(image, a_min=min_val, a_max=max_val, out=image)
 
@@ -739,8 +739,8 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             im = Image.fromarray(Uint8_image, mode="L")
         elif nornir_imageregistration.IsFloatArray(image):
             # TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
-            if image.dtype == np.float16:
-                image = image.astype(np.float32)
+            #if image.dtype == np.float16:
+            #    image = image.astype(np.float32)
 
             im = Image.fromarray(image * ((1 << bpp) - 1))
             im = im.convert('I')
@@ -1256,7 +1256,6 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     desired_type = image.dtype
     if np.finfo(desired_type).max < MaxVal:
         desired_type = np.float32
-
 
     PaddedImage = np.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
 

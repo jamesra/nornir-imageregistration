@@ -92,7 +92,7 @@ class TestBase(unittest.TestCase, ABC):
         :return:
         """
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=np.float32)
+        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
         for x in range(0, shape[1]):
             for y in range(0, shape[0]):
                 color_index = (((x % num_shades) + (y % num_shades)) % num_shades) / num_shades
@@ -111,7 +111,7 @@ class TestBase(unittest.TestCase, ABC):
         :return:
         """
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=np.float32)
+        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
         half = shape / 2.0
         half_shade_step = (1 / num_shades) / 3.0 
         for x in range(0, shape[1]):

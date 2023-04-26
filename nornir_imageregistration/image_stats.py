@@ -229,7 +229,7 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
         feature_coverage_percent = 100 - feature_coverage_percent
         assert(feature_coverage_percent <= 100 and feature_coverage_percent >= 0)
     
-    Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float16)
+    Im = nornir_imageregistration.ImageParamToImageArray(image, dtype=nornir_imageregistration.default_image_dtype())
 # #     Im_filtered = scipy.ndimage.filters.median_filter(Im, size=3)
 # #     sx = scipy.ndimage.sobel(Im_filtered, axis=0, mode='nearest')
 # #     sy = scipy.ndimage.sobel(Im_filtered, axis=1, mode='nearest')

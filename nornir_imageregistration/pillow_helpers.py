@@ -34,7 +34,7 @@ def _try_read_bpp_from_pillow_mode(im):
 def _try_estimate_dtype_from_extrema(im):
     '''
     Pillow allows some modes to add the number of bits by adding a semicolon to the mode and a number. ex: 'I;16'
-    :return: The number of bits if specified, otherwise None
+    :return: The number of bits if specified, otherwise ValueError
     '''
     mode = None
     if isinstance(im, str):

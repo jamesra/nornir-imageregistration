@@ -595,9 +595,7 @@ def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_ex
     
     if excess_scalar > 3:
         excess_scalar = 3.0
-        
-    if dtype is None:
-        dtype = np.float16
+
     
     Width = overlapping_rect.Width * excess_scalar
     Height = overlapping_rect.Height * excess_scalar
@@ -606,7 +604,12 @@ def __get_overlapping_image(imageparam, overlapping_rect, excess_scalar, mask_ex
     
     #scaled_rect = nornir_imageregistration.Rectangle.scale_on_center(overlapping_rect, excess_scalar)
     scaled_rect = nornir_imageregistration.Rectangle.SafeRound(scaled_rect)
-    image = nornir_imageregistration.ImageParamToImageArray(imageparam, dtype=dtype)
+
+    if dtype is None:
+        image = nornir_imageregistration.ImageParamToImageArray(imageparam)
+        dtype = image.dtype
+    else:
+        image = nornir_imageregistration.ImageParamToImageArray(imageparam, dtype=dtype)
     
     #This is inefficient because we mask the entire image even though we only need a specific fragment.
     #However it is a pain right now to figure out how much more of the image is going to be grabbed by an expanded bounding
@@ -655,7 +658,7 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
     MaxOverlap = 1
     excess_scalar = 2 #If excess_scalar > 1 and the image has bad regions we end up padding with nearly pure black or white.
                       #Instead I set excess_scalar to 1 and pad the image based on the min overlap 
-    dtype = np.float32
+    dtype = nornir_imageregistration.default_image_dtype()
     
     ShowImages = False 
     A = nornir_imageregistration.LoadImage(A_Filename, dtype=dtype)
@@ -827,13 +830,13 @@ def ScoreMosaicQuality(mosaicTileset):
 def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B):
     """Returns the difference between the images"""
     
-    dtype = np.float16
+    dtype = nornir_imageregistration.default_image_dtype()
     try: 
-        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename, dtype=np.float32),
+        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename, dtype=nornir_imageregistration.default_image_dtype()),
                                                      scaled_overlapping_source_rect_A,
                                                      excess_scalar=1.0,
                                                      dtype=dtype)
-        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename, dtype=np.float32),
+        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename, dtype=nornir_imageregistration.default_image_dtype()),
                                                      scaled_overlapping_source_rect_B,
                                                      excess_scalar=1.0,
                                                      dtype=dtype)

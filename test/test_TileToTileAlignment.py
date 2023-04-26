@@ -179,8 +179,8 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
     def RunAlignment(self, TileAFilename, TileBFilename, ExpectedOffset, epsilon, min_overlap=0.5):
         '''ExpectedOffset is (Y,X)'''
 
-        imFixed = core.LoadImage(os.path.join(self.TilesPath, TileAFilename), dtype=np.float16)
-        imMoving = core.LoadImage(os.path.join(self.TilesPath, TileBFilename), dtype=np.float16)
+        imFixed = core.LoadImage(os.path.join(self.TilesPath, TileAFilename), dtype=nornir_imageregistration.default_image_dtype())
+        imMoving = core.LoadImage(os.path.join(self.TilesPath, TileBFilename), dtype=nornir_imageregistration.default_image_dtype())
 
         imFixedPadded = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=min_overlap)
         imMovingPadded = core.PadImageForPhaseCorrelation(imMoving, MinOverlap=min_overlap)

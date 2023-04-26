@@ -29,6 +29,13 @@ import numpy as np
 import numpy.typing
 from PIL import Image
 
+
+def default_image_dtype():
+    '''
+    :return: The default dtype for image data
+    '''
+    return np.float32
+
 from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose

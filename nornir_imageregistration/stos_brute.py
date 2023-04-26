@@ -63,7 +63,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imFixed = None
     if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=np.float32)
+        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=nornir_imageregistration.default_image_dtype())
         imFixedMask = None 
         if FixedImageMaskPath is not None:
             imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
@@ -74,7 +74,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
     imWarped = None
     if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=np.float32)
+        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=nornir_imageregistration.default_image_dtype())
         imWarpedMask = None
         if WarpedImageMaskPath is not None:
             imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
@@ -159,8 +159,8 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
                   FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=np.float32)
-    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=np.float32)
+    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=nornir_imageregistration.default_image_dtype())
+    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=nornir_imageregistration.default_image_dtype())
 
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
@@ -301,8 +301,8 @@ def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | 
         shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
-        SharedPaddedFixed = PaddedFixed.astype(np.float32, copy=False)
-        SharedWarped = imWarped.astype(np.float32, copy=False)
+        SharedPaddedFixed = PaddedFixed.astype(nornir_imageregistration.default_image_dtype(), copy=False)
+        SharedWarped = imWarped.astype(nornir_imageregistration.default_image_dtype(), copy=False)
 
     CheckTaskInterval = 16
 

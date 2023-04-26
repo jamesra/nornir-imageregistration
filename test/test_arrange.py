@@ -33,6 +33,7 @@ import numpy as np
 from nornir_imageregistration.views import plot_tile_overlap
 
 import setup_imagetest
+import mosaic_tileset
 
 
 # from pylab import *
@@ -686,14 +687,25 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     
     # def test_RPC2_0989_Mosaic(self):
     #
+    #     config = self.GetStandardTranslateSettings()
     #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
     #                              TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
-    #                              downsample=4,
-    #                              max_relax_tension_cutoff=0.001, 
+    #                              downsample=4,  
     #                              openwindow=False,
     #                              config=config)
     #
     #     print("All done")
+        
+    def test_RPC2_0989_Mosaic(self):
+    
+        config = self.GetStandardTranslateSettings()
+        self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
+                           TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+                           downsample=4,  
+                           openwindow=False,
+                           config=config)
+    
+        print("All done")
     
     # def test_RC3_0001_Mosaic(self):
     #
