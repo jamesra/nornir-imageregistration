@@ -10,8 +10,7 @@ import numpy as np
 from typing import Tuple
 from numpy.typing import NDArray
 from nornir_imageregistration.transforms.base import IDiscreteTransform
-from nornir_shared import prettyoutput
-from build.lib import nornir_shared
+from nornir_shared import prettyoutput 
 
 
 class Tile(object):
