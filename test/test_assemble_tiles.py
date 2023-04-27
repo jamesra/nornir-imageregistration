@@ -5,7 +5,9 @@ Created on Oct 28, 2013
 '''
 import glob
 import os
+import time
 import unittest
+from typing import AnyStr
 
 from scipy import stats 
 
@@ -21,7 +23,7 @@ from nornir_imageregistration.mosaic  import Mosaic
 from nornir_shared.tasktimer import TaskTimer
 import numpy as np
 
-import setup_imagetest
+import setup_imagetest 
 
 
 # from pylab import *
@@ -62,11 +64,15 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         mosaic_set.TranslateToZeroOrigin()
         timer = TaskTimer()
 
-        timer.Start("AssembleImage " + tilesDir)
+        first_tile = next(iter(mosaic_set.values())) # type: nornir_imageregistration.ITransform
+        timing_key = f'AssembleImage: {os.path.basename(mosaicFilePath)} {tilesDir}' if first_tile is None else \
+                     f'AssembleImage: {first_tile.Transform.type} {os.path.basename(mosaicFilePath)} {tilesDir}'
+                     
+        timer.Start(timing_key)
 
         (mosaicImage, mask) = mosaic_set.AssembleImage(usecluster=parallel)
 
-        timer.End("AssembleImage " + tilesDir, True)
+        timer.End(timing_key, True)
 
         self.assertEqual(mosaicImage.shape[0], np.ceil(mosaic_set.FixedBoundingBoxHeight * expectedScale), "Output mosaic height does not match .mosaic height %g vs %g" % (mosaicImage.shape[0], mosaic_set.FixedBoundingBoxHeight * expectedScale))
         self.assertEqual(mosaicImage.shape[1], np.ceil(mosaic_set.FixedBoundingBoxWidth * expectedScale), "Output mosaic width does not match .mosaic height %g vs %g" % (mosaicImage.shape[1], mosaic_set.FixedBoundingBoxWidth * expectedScale))
@@ -256,17 +262,16 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         self.assertTrue(nornir_imageregistration.ShowGrayscale(tiles, title=title, PassFail=True))
         
 
-    def CreateAssembleEachMosaic(self, mosaicFiles, tilesDir):
+    def CreateAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str):
 
         for m in mosaicFiles:
-            
             self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaicTypeDS4', parallel=False)
             # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
 
         print("All done")
 
 
-    def ParallelAssembleEachMosaic(self, mosaicFiles, tilesDir):
+    def ParallelAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str):
 
         for m in mosaicFiles:
             self.AssembleMosaic(m, tilesDir , 'ParallelAssembleEachMosaicTypeDS4', parallel=True)
