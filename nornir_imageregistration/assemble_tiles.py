@@ -237,23 +237,25 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
 
     distanceImage = None
-
-    if os.path.exists(distance_array_path):
-        # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
+  
+    # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
+    try:
+        #             if use_memmap:
+        #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
+        #             else:
+        distanceImage = np.load(distance_array_path)
+    except FileNotFoundError:
+        #print("Distance_image %s does not exist" % distance_array_path)
+        pass
+    except:
+        print("Invalid distance_image %s" % distance_array_path)
         try:
-            #             if use_memmap:
-            #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
-            #             else:
-            distanceImage = np.load(distance_array_path)
+            os.remove(distance_array_path)
         except:
-            print("Unable to load distance_image %s" % distance_array_path)
-            try:
-                os.remove(distance_array_path)
-            except:
-                print("Unable to delete invalid distance_image: %s" % distance_array_path)
-                pass
-
+            print("Unable to delete invalid distance_image: %s" % distance_array_path)
             pass
+
+        pass
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage2(imageShape)
