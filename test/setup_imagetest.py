@@ -10,6 +10,7 @@ import os
 import pickle
 import shutil
 import unittest
+from typing import AnyStr
 
 import six
 
@@ -251,7 +252,7 @@ class TransformTestBase(TestBase):
     def TestOutputPath(self):
         return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
-    def GetMosaicFiles(self):
+    def GetMosaicFiles(self) -> list[AnyStr]:
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
     
     def GetMosaicFile(self, filenamebase):
