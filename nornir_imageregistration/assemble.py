@@ -97,7 +97,7 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
+    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate)
     (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
@@ -143,7 +143,7 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
     adjusted_origin[adjust_area_mask] = 0
 
     valid_coords_mask = np.logical_and(np.min(coords >= origin, 1), np.min(coords < image_shape, 1))
-    valid_adjusted_coords = coords[valid_coords_mask, :]
+    valid_adjusted_coords = np.delete(coords, np.logical_not(valid_coords_mask), 0) # coords[valid_coords_mask, :]
     return valid_adjusted_coords, valid_coords_mask
 
 
@@ -200,7 +200,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                source_image: NDArray,
                                output_origin: NDArray[int] | tuple[int, int] | None,
                                output_area: NDArray[int] | tuple[float, float],
-                               cval=0):
+                               cval=0,
+                               return_shared_memory: bool=False):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -209,6 +210,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :Param output_origin: Origin, in target coordinate space, of the output image.  Use this to translate the target_coords to the desired location in the output image.  If None, the origin is the minimum target_coord.
     :Param output_area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
+    :param use_shared_memory: If true, create and write output to a shared memory array
     """
     if output_origin is None:
         output_origin = target_coords.min(0)
@@ -237,7 +239,6 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # Remove coordinates that fall outside the output region
     #inbounds_target_coords, inbounds_target_coord_mask = get_valid_coords(target_coords, output_area)
     #inbounds_source_coords = source_coords[inbounds_target_coord_mask]
-    inbounds_source_coords = source_coords
 
     subroi_warpedImage = None
     # For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
@@ -246,22 +247,26 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         # if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
         # if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
         (subroi_warpedImage, filtered_source_coords, source_coord_mask) = _CropImageToFitCoords(source_image,
-                                                                                                inbounds_source_coords,
+                                                                                                source_coords,
                                                                                                 padding=0, cval=cval)
         # subroi_warpedImage[] #Replace NaN entries with random values
-        filtered_target_coords = inbounds_target_coords[
-            source_coord_mask]  # Remove target coords that match removed source_coords
+        # Remove target coords that match removed source_coords
+        filtered_target_coords = inbounds_target_coords[source_coord_mask]
+
         # source_coords, source_coord_mask = get_valid_coords(coords=source_coords, image_shape=subroi_warpedImage.shape, origin=(1,1), area=(subroi_warpedImage.shape) - 1) #Remove one for padding
         if subroi_warpedImage.shape[0] == 0 or subroi_warpedImage.shape[1] == 0:
             # No points transformed into the requested area, return empty area
-            transformedImage = np.full(output_area, cval, dtype=source_image.dtype)
-
-            del source_image
-            return transformedImage
+            if return_shared_memory:
+                output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area,
+                                                                                                          dtype=original_dtype)
+                outputImage.fill(cval)
+                return output_shared_mem_meta
+            else:
+                return np.full(output_area, cval, dtype=original_dtype)
 
         del source_image
     else:
-        filtered_source_coords = inbounds_source_coords
+        filtered_source_coords = source_coords
         filtered_target_coords = inbounds_target_coords
         subroi_warpedImage = source_image
 
@@ -270,16 +275,23 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         subroi_warpedImage = subroi_warpedImage.astype(np.float32, copy=False)
 
     # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
-    filtered_source_coords = np.around(filtered_source_coords, 3)
+    #filtered_source_coords = np.around(filtered_source_coords, 3)
 
     # TODO: Order appears to not matter so setting to zero may help
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     order = 1 if np.any(np.isnan(subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3 #Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
     outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
-                                                 mode='constant', order=order, cval=cval)
+                                                 mode='constant', order=order, cval=cval).astype(original_dtype, copy=False)
     #outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
     
-    outputImage = np.full(output_area, cval, dtype=subroi_warpedImage.dtype)
+    #outputImage = np.full(output_area, cval, dtype=original_dtype) #Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
+    output_shared_mem_meta = None
+    if return_shared_memory:
+        output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area, dtype=original_dtype)
+        outputImage.fill(cval)
+    else:
+        outputImage = np.full(output_area, cval, dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
+
     target_coords_flat = nornir_imageregistration.ravel_index(filtered_target_coords, outputImage.shape).astype(
         np.int64, copy=False)
     outputImage.flat[target_coords_flat] = outputValues
@@ -289,9 +301,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
 
     # outputImage = outputImage.reshape(area)
-    if original_dtype != outputImage.dtype:
-        outputImage = outputImage.astype(original_dtype, copy=False)
-
+     
     #     if fixed_coords.shape[0] == np.prod(area):
     #         # All coordinates mapped, so we can return the output warped image as is.
     #         outputImage = outputImage.reshape(area)
@@ -302,7 +312,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     #         fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int64)
     #         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
     #         return transformedImage
-    return outputImage
+    return output_shared_mem_meta if return_shared_memory else outputImage
 
 
 def _ReplaceFilesWithImages(listImages: list[str] | list[NDArray] | NDArray | str):
@@ -328,7 +338,7 @@ def TargetImageToSourceSpace(transform: ITransform,
                              DataToTransform,
                              output_botleft: NDArray | tuple[float, float] | None=None,
                              output_area: NDArray | tuple[float, float] | None=None,
-                             cval=None, extrapolate: bool=False):
+                             cval=None, extrapolate: bool=False, return_shared_memory:bool=False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass fixed space coordinates through to obtain warped space coordinates
     :param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
@@ -366,19 +376,22 @@ def TargetImageToSourceSpace(transform: ITransform,
 
 
     if isinstance(ImagesToTransform, list):
-        FixedImageList = []
+        if not isinstance(cval, list):
+            cval = [cval] * len(DataToTransform)
+
+        output_list = []
         for i, wi in enumerate(ImagesToTransform):
             fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area,
-                                            cval=cval[i])
-            FixedImageList.append(fi)
+                                            cval=cval[i], return_shared_memory=return_shared_memory)
+            output_list.append(fi)
 
         del roi_read_coords
         del roi_write_coords
 
-        return FixedImageList
+        return output_list
     else:
         return _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area,
-                                          cval=cval[0])
+                                          cval=cval[0], return_shared_memory=return_shared_memory)
 
 
 def WarpedImageToFixedSpace(transform: ITransform, DataToTransform, botleft=None, area=None, cval=None,
@@ -392,7 +405,7 @@ def SourceImageToTargetSpace(transform: ITransform,
                              DataToTransform,
                              output_botleft: NDArray | tuple[float, float] | None = None,
                              output_area: NDArray | tuple[float, float] | None = None,
-                             cval=None, extrapolate=False):
+                             cval=None, extrapolate=False, return_shared_memory:bool=False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :param output_shape: shape of the output image
@@ -441,19 +454,19 @@ def SourceImageToTargetSpace(transform: ITransform,
         if not isinstance(cval, list):
             cval = [cval] * len(DataToTransform)
 
-        FixedImageList = []
+        output_list = []
         for i, wi in enumerate(ImagesToTransform):
-            fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i])
-            FixedImageList.append(fi)
-            nornir_imageregistration.close_shared_memory(DataToTransform[i])
+            fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i], return_shared_memory=return_shared_memory)
+            output_list.append(fi)
+            #nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
         del roi_read_coords
         del roi_write_coords
 
-        return FixedImageList
+        return output_list
     else:
-        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval)
-        nornir_imageregistration.close_shared_memory(DataToTransform)
+        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval, return_shared_memory=return_shared_memory)
+        #nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
 
 
@@ -513,7 +526,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     
     stostransform.Scale(scalar)
 
-    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
+    warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
@@ -569,7 +582,8 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
 
                 task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
                                       sharedwarpedimage_metadata, output_botleft=[iY, iX],
-                                      output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined)
+                                      output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined,
+                                      return_shared_memory=True)
                 task.iY = iY
                 task.end_iY = end_iY
                 task.iX = iX
@@ -582,10 +596,12 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
         mpool.wait_completion()
 
         for task in tasks:
-            registeredTile = task.wait_return()
-            outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registeredTile
+            registered_shared_mem_meta = task.wait_return()
+            registered_tile = nornir_imageregistration.ImageParamToImageArray(registered_shared_mem_meta)
+            outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
+            nornir_imageregistration.unlink_shared_memory(registered_shared_mem_meta)
 
-        del sharedWarpedImage
         nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
+        del sharedWarpedImage
 
     return outputImage
