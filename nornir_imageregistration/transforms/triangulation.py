@@ -107,7 +107,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         try: 
-            transPoints = self.ForwardInterpolator(points)
+            transPoints = self.ForwardInterpolator(points).astype(np.float32, copy=False)
         except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
@@ -128,7 +128,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         try:
-            transPoints = self.InverseInterpolator(points)
+            transPoints = self.InverseInterpolator(points).astype(np.float32, copy=False)
         except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
