@@ -499,7 +499,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
             Delta = warpedToFixedImage - settings.target_image
             ComparisonImage = np.abs(Delta)
-            ComparisonImage = ComparisonImage / ComparisonImage.max()
+            if ComparisonImage.max() != 0:
+                ComparisonImage = ComparisonImage / ComparisonImage.max()
 
             # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'delta_pass{i}.png'), ComparisonImage, bpp=8)
             # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'image_pass{i}.png'), warpedToFixedImage, bpp=8)
@@ -1059,10 +1060,10 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     offset = None
     if cell_size is None:
         #If we don't pass a cell_size, then make a reasonable guess by measuring how far away nearest points are from first point
-         if source_points.shape[0] > 1:
+        if source_points.shape[0] > 1:
             estimated_cell_distance = scipy.spatial.distance.cdist(source_points[0:1, :], source_points[1:, :]).min() / 2.0
             offset = np.array((0, estimated_cell_distance))
-         else:
+        else:
             offset = np.array((0, 1))
     else:
         offset = cell_size / 2.0
