@@ -88,4 +88,4 @@ class ImagePermutationHelper(object):
         self._extrema_mask = nornir_imageregistration.CreateExtremaMask(self._image, self._mask, size_cutoff=self.extrema_size_cutoff_in_pixels)
         self._blended_mask = np.logical_and(self._mask, self._extrema_mask) if self._mask is not None else self._extrema_mask
         self._stats = nornir_imageregistration.ImageStats.Create(self._image[self._blended_mask])
-        self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(self._image, self._blended_mask, Copy=True)
+        self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(self._image, self._blended_mask, imagestats=self._stats, Copy=True)
