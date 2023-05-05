@@ -16,6 +16,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.scripts.nornir_rotate_translate
 import nornir_imageregistration.stos_brute as stos_brute
 import nornir_shared.images as images
+from nornir_shared.tasktimer import TaskTimer
 
 from . import setup_imagetest
 
@@ -77,29 +78,36 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.RunBasicBruteAlignment(FixedImagePath, WarpedImagePath, FlipUD=True)
 
-    def RunBasicBruteAlignment(self, FixedImagePath, WarpedImagePath, FlipUD):
+    def RunBasicBruteAlignment(self, FixedImagePath: str, WarpedImagePath: str, FlipUD: bool):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         
         MinOverlap=0.5
 
+        timer = TaskTimer()
+
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
+        timer.Start("Single Thread Brute No Mask")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=True, AngleSearchRange=list(range(130, 140)),
-                               TestFlip = FlipUD,MinOverlap=MinOverlap)
-
+                               WarpedImagePath, SingleThread=True, AngleSearchRange=None, # AngleSearchRange=list(range(130, 140)),
+                               TestFlip = FlipUD, MinOverlap=MinOverlap)
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        timer.End("Single Thread Brute No Mask")
+
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
+        timer.Start("Multi-Thread Brute No Mask")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath, SingleThread=False, Cluster=True,
-                               TestFlip = FlipUD,MinOverlap=MinOverlap)
+                               TestFlip = FlipUD, MinOverlap=MinOverlap)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        timer.End("Multi-Thread Brute No Mask")
+
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
