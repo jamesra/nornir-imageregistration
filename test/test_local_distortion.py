@@ -174,11 +174,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         """
         This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
         """
-        
+    
         #Do not stress about this test until you verify the input transform was 
         #not affected by the grid transform saving bug and that it is a valid 
         #starting point
-        
+    
         # self.TestName = "StosRefinementRC2_617"
         stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
         # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
@@ -193,8 +193,29 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                        min_alignment_overlap=0.5,
                        min_unmasked_area=0.49,
                        SaveImages=False,
-                       SavePlots=True)
+                       SavePlots=False)
     
+    # def testStosRefinementRPC3_449_450(self):
+    #     """
+    #     This is a simple test case where the rigid translation is accurate and the images are barely rotated relative to each other
+    #     """
+    #
+    #     stosFilePath = self.GetStosFilePath("testStosRefinementRPC3_449_450_From_Brute", "449-450_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+    #      self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=5,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[0],
+    #                    max_travel_for_finalization=None,
+    #                    max_travel_for_finalization_improvement=None,
+    #                    min_alignment_overlap=0.5,
+    #                    min_unmasked_area=0.49,
+    #                    SaveImages=False,
+    #                    SavePlots=True)
+    #
+
     # def testStosRefinementRPC3_13_14(self):
     #     # self.TestName = "StosRefinementRC2_617"
     #     stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
