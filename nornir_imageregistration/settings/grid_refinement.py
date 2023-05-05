@@ -143,18 +143,10 @@ class GridRefinement(object):
         if self.grid_spacing.shape[0] != 2:
             raise ValueError(f'grid_spacing is supposed to be an array with two entries, got: {self.grid_spacing}')
 
-        self.target_image = nornir_imageregistration.ImageParamToImageArray(target_image, dtype=np.float16)
-        self.source_image = nornir_imageregistration.ImageParamToImageArray(source_image, dtype=np.float16)
-
-        if target_mask is not None:
-            self.target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask, dtype=bool)
-        else:
-            self.target_mask = None
-
-        if source_mask is not None:
-            self.source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask, dtype=bool)
-        else:
-            self.source_mask = None
+        self.target_image = target_image
+        self.source_image = target_image
+        self.target_mask = target_mask
+        self.source_mask = target_mask
 
         self.target_image_stats = target_image_stats
         self.source_image_stats = source_image_stats
