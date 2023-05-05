@@ -23,6 +23,10 @@ class ImagePermutationHelper(object):
     _image_with_mask_as_noise: NDArray
 
     @property
+    def shape(self) -> tuple[int, int]:
+        return self._image.shape
+
+    @property
     def Extrema_Area_Cutoff_In_Pixels(self) -> int:
         """
         :return:  In pixels, the minimum area of extreme pixel values for them to be masked
