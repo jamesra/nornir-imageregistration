@@ -4,6 +4,8 @@ Created on Jun 26, 2012
 @author: James Anderson
 '''
 
+from __future__ import annotations
+
 import os
 from typing import Sequence
 
@@ -83,11 +85,11 @@ class ImageStats():
         self.__dict__.update(state)
         
     @classmethod
-    def CalcStats(cls, image):
+    def CalcStats(cls, image) -> self:
         return ImageStats.Create(image)
 
     @classmethod
-    def Create(cls, image: NDArray):
+    def Create(cls, image: NDArray) -> self:
         '''Returns an object with the mean,median,std.dev of an image,
            this object is attached to the image object and only calculated once'''
 
