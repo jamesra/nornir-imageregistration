@@ -1,7 +1,7 @@
 """
 
 """
-import numpy as np
+import numpy as np 
 import numpy.typing
 from numpy.typing import NDArray
 
@@ -16,6 +16,12 @@ class ImagePermutationHelper(object):
     :param object:
     :return:
     """
+    _image: NDArray
+    _mask: NDArray
+    _blended_mask: NDArray
+    _stats: nornir_imageregistration.ImageStats
+    _image_with_mask_as_noise: NDArray
+
     @property
     def Extrema_Area_Cutoff_In_Pixels(self) -> int:
         """
@@ -56,6 +62,9 @@ class ImagePermutationHelper(object):
         """
         :return:  The image with random noise over the masked regions
         """
+        if self._image_with_mask_as_noise is None:
+            self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(self._image, self._blended_mask,
+                                                                                      imagestats=self._stats, Copy=True)
         return self._image_with_mask_as_noise
 
     def __init__(self,
@@ -68,7 +77,7 @@ class ImagePermutationHelper(object):
             dtype = img.dtype if np.issubdtype(img.dtype, np.floating) else nornir_imageregistration.default_image_dtype()
 
         img = nornir_imageregistration.ImageParamToImageArray(img, dtype=dtype)
-        mask = nornir_imageregistration.ImageParamToImageArray(img, dtype=bool)
+        mask = nornir_imageregistration.ImageParamToImageArray(mask, dtype=bool)
 
         self._extrema_size_cutoff_in_pixels = None
         if extrema_mask_size_cuttoff is None:
@@ -88,4 +97,3 @@ class ImagePermutationHelper(object):
         self._extrema_mask = nornir_imageregistration.CreateExtremaMask(self._image, self._mask, size_cutoff=self.extrema_size_cutoff_in_pixels)
         self._blended_mask = np.logical_and(self._mask, self._extrema_mask) if self._mask is not None else self._extrema_mask
         self._stats = nornir_imageregistration.ImageStats.Create(self._image[self._blended_mask])
-        self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(self._image, self._blended_mask, imagestats=self._stats, Copy=True)
