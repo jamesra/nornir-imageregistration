@@ -129,7 +129,7 @@ def CalculateShadeImage(imagepaths, correction_type=None):
 def __CorrectBrightfieldShadingOneImage(input_fullpath, output_fullpath, imagescalar, bpp):
     max_pixel_value = ((1 << bpp) - 1)
     image = nornir_imageregistration.LoadImage(input_fullpath)
-    image = image.astype(np.float16, copy=False) / max_pixel_value
+    image = image.astype(nornir_imageregistration.default_image_dtype(), copy=False) / max_pixel_value
      
     correctedimage = image / imagescalar
     del image

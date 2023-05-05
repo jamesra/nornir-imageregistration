@@ -3,7 +3,7 @@ Created on Apr 23, 2019
 
 @author: u0490822
 '''
-
+import numpy.typing
 from PIL import Image
 #Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -34,7 +34,7 @@ def _try_read_bpp_from_pillow_mode(im):
 def _try_estimate_dtype_from_extrema(im):
     '''
     Pillow allows some modes to add the number of bits by adding a semicolon to the mode and a number. ex: 'I;16'
-    :return: The number of bits if specified, otherwise None
+    :return: The number of bits if specified, otherwise ValueError
     '''
     mode = None
     if isinstance(im, str):
@@ -70,7 +70,7 @@ def _try_estimate_dtype_from_extrema(im):
     raise ValueError("Unexpected image or mode passed")
 
 
-def dtype_for_pillow_image(im):
+def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
     mode = im.mode
          
     if mode == '1':
@@ -116,6 +116,10 @@ def dtype_for_pillow_image(im):
             return np.float32 #According to Pillow docs the 32-bit integers are signed
     
     raise ValueError("Unexpected pillow image mode: {0}".format(mode))
+
+def get_image_file_dtype(ImageFullPath: str) -> np.typing.DTypeLike:
+    with Image.open(ImageFullPath) as im:
+        return dtype_for_pillow_image(im)
 
 if __name__ == '__main__':
     pass

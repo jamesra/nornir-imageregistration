@@ -1,3 +1,4 @@
+from __future__ import annotations
 import typing
 
 import numpy as np
@@ -10,7 +11,7 @@ import nornir_imageregistration
 import nornir_pools
 
 
-def CreateFromMosaic(mosaic, image_folder: str, image_to_source_space_scale: float):
+def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str, image_to_source_space_scale: float) -> MosaicTileset:
     """
     :param mosaic: The mosaic we are pulling transforms and image filenames from
     :param image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
@@ -56,7 +57,7 @@ def CreateFromMosaic(mosaic, image_folder: str, image_to_source_space_scale: flo
     return obj
 
 
-def Create(transforms, imagepaths, image_to_source_space_scale: float):
+def Create(transforms, imagepaths, image_to_source_space_scale: float) -> dict[int, nornir_imageregistration.tile.Tile]:
     """
     :param transforms:
     :param imagepaths:

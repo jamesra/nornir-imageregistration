@@ -144,9 +144,9 @@ class GridRefinement(object):
             raise ValueError(f'grid_spacing is supposed to be an array with two entries, got: {self.grid_spacing}')
 
         self.target_image = target_image
-        self.source_image = target_image
+        self.source_image = source_image
         self.target_mask = target_mask
-        self.source_mask = target_mask
+        self.source_mask = source_mask
 
         self.target_image_stats = target_image_stats
         self.source_image_stats = source_image_stats

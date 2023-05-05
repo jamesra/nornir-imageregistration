@@ -267,7 +267,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # Use a dtype interpolation.map_coordinates supports
     if subroi_warpedImage.dtype == np.float16:
-        subroi_warpedImage = subroi_warpedImage.astype(np.float32)
+        subroi_warpedImage = subroi_warpedImage.astype(np.float32, copy=False)
 
     # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
     filtered_source_coords = np.around(filtered_source_coords, 3)

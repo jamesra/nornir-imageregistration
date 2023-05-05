@@ -10,6 +10,7 @@ import os
 import pickle
 import shutil
 import unittest
+from typing import AnyStr
 
 import six
 
@@ -92,7 +93,7 @@ class TestBase(unittest.TestCase, ABC):
         :return:
         """
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=np.float32)
+        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
         for x in range(0, shape[1]):
             for y in range(0, shape[0]):
                 color_index = (((x % num_shades) + (y % num_shades)) % num_shades) / num_shades
@@ -111,7 +112,7 @@ class TestBase(unittest.TestCase, ABC):
         :return:
         """
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=np.float32)
+        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
         half = shape / 2.0
         half_shade_step = (1 / num_shades) / 3.0 
         for x in range(0, shape[1]):
@@ -251,7 +252,7 @@ class TransformTestBase(TestBase):
     def TestOutputPath(self):
         return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
-    def GetMosaicFiles(self):
+    def GetMosaicFiles(self) -> list[AnyStr]:
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
     
     def GetMosaicFile(self, filenamebase):

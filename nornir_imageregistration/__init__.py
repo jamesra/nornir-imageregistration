@@ -29,6 +29,13 @@ import numpy as np
 import numpy.typing
 from PIL import Image
 
+
+def default_image_dtype():
+    '''
+    :return: The default dtype for image data
+    '''
+    return np.float32
+
 from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -240,6 +247,9 @@ from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
 from nornir_imageregistration.overlapmasking import GetOverlapMask
 
 from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKGridDivision
+
+import nornir_imageregistration.pillow_helpers
+from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_for_pillow_image
 
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')

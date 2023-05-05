@@ -81,7 +81,7 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
 def CreateDistanceImage(shape, dtype=None):
     if dtype is None:
-        dtype = np.float32
+        dtype = nornir_imageregistration.default_image_dtype()
 
     center = [shape[0] / 2.0, shape[1] / 2.0]
 
@@ -104,7 +104,7 @@ def CreateDistanceImage(shape, dtype=None):
 def CreateDistanceImage2(shape, dtype=None):
     # TODO, this has some obvious optimizations available
     if dtype is None:
-        dtype = np.float32
+        dtype = nornir_imageregistration.default_image_dtype()
 
     # center = [shape[0] / 2.0, shape[1] / 2.0]
     shape = np.asarray(shape, dtype=np.int64)
@@ -237,23 +237,25 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
 
     distanceImage = None
-
-    if os.path.exists(distance_array_path):
-        # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
+  
+    # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
+    try:
+        #             if use_memmap:
+        #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
+        #             else:
+        distanceImage = np.load(distance_array_path)
+    except FileNotFoundError:
+        #print("Distance_image %s does not exist" % distance_array_path)
+        pass
+    except:
+        print("Invalid distance_image %s" % distance_array_path)
         try:
-            #             if use_memmap:
-            #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
-            #             else:
-            distanceImage = np.load(distance_array_path)
+            os.remove(distance_array_path)
         except:
-            print("Unable to load distance_image %s" % distance_array_path)
-            try:
-                os.remove(distance_array_path)
-            except:
-                print("Unable to delete invalid distance_image: %s" % distance_array_path)
-                pass
-
+            print("Unable to delete invalid distance_image: %s" % distance_array_path)
             pass
+
+        pass
 
     if distanceImage is None:
         distanceImage = CreateDistanceImage2(imageShape)
