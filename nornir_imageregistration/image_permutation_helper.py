@@ -78,12 +78,15 @@ class ImagePermutationHelper(object):
                  dtype: numpy.typing.DTypeLike | None = None):
 
         if dtype is None:
-            dtype = img.dtype if np.issubdtype(img.dtype, np.floating) else nornir_imageregistration.default_image_dtype()
+            try:
+                dtype = img.dtype if np.issubdtype(img.dtype, np.floating) else nornir_imageregistration.default_image_dtype()
+            except:
+                dtype = nornir_imageregistration.default_image_dtype()
             
         self._image_with_mask_as_noise = None
 
         img = nornir_imageregistration.ImageParamToImageArray(img, dtype=dtype)
-        mask = nornir_imageregistration.ImageParamToImageArray(mask, dtype=bool)
+        mask = nornir_imageregistration.ImageParamToImageArray(mask, dtype=bool) if mask is not None else None
 
         self._extrema_size_cutoff_in_pixels = None
         if extrema_mask_size_cuttoff is None:
