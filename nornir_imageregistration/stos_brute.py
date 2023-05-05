@@ -61,50 +61,68 @@ def SliceToSliceBruteForce(FixedImageInput,
             WarpedImageScalingRequired = WarpedImageScaleFactors != 1
             WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray([WarpedImageScaleFactors, WarpedImageScaleFactors])
 
-    imFixed = None
-    if isinstance(FixedImageInput, str):
-        imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=nornir_imageregistration.default_image_dtype())
-        imFixedMask = None 
-        if FixedImageMaskPath is not None:
-            imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
+    target_image_data = nornir_imageregistration.ImagePermutationHelper(FixedImageInput, FixedImageMaskPath)
+    source_image_data = nornir_imageregistration.ImagePermutationHelper(WarpedImageInput, WarpedImageMaskPath)
 
-        imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed, imagemask=imFixedMask, Copy=False)
-    else:
-        imFixed = FixedImageInput
+    target_image = target_image_data.ImageWithMaskAsNoise
+    source_image = source_image_data.ImageWithMaskAsNoise
 
-    imWarped = None
-    if isinstance(WarpedImageInput, str):
-        imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=nornir_imageregistration.default_image_dtype())
-        imWarpedMask = None
-        if WarpedImageMaskPath is not None:
-            imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
-        imWarped = nornir_imageregistration.ReplaceImageExtremaWithNoise(imWarped, imagemask=imWarpedMask, Copy=False)
-        if WarpedImageScalingRequired:
-            imWarped = nornir_imageregistration.ResizeImage(imWarped, WarpedImageScaleFactors)
-    else:
-        imWarped = WarpedImageInput
+    target_stats = target_image_data.Stats
+    source_stats = source_image_data.Stats
+
+    del target_image_data
+    del source_image_data
+
+    #
+    # imFixed = None
+    # if isinstance(FixedImageInput, str):
+    #     imFixed = nornir_imageregistration.LoadImage(FixedImageInput, dtype=nornir_imageregistration.default_image_dtype())
+    #     imFixedMask = None
+    #     if FixedImageMaskPath is not None:
+    #         imFixedMask = nornir_imageregistration.LoadImage(FixedImageMaskPath, dtype=bool)
+    #
+    #     imFixed = nornir_imageregistration.ReplaceImageExtremaWithNoise(imFixed, imagemask=imFixedMask, Copy=False)
+    # else:
+    #     imFixed = FixedImageInput
+    #
+    # imWarped = None
+    # if isinstance(WarpedImageInput, str):
+    #     imWarped = nornir_imageregistration.LoadImage(WarpedImageInput, dtype=nornir_imageregistration.default_image_dtype())
+    #     imWarpedMask = None
+    #     if WarpedImageMaskPath is not None:
+    #         imWarpedMask = nornir_imageregistration.LoadImage(WarpedImageMaskPath, dtype=bool)
+    #     imWarped = nornir_imageregistration.ReplaceImageExtremaWithNoise(imWarped, imagemask=imWarpedMask, Copy=False)
+    #     if WarpedImageScalingRequired:
+    #         imWarped = nornir_imageregistration.ResizeImage(imWarped, WarpedImageScaleFactors)
+    # else:
+    #     imWarped = WarpedImageInput
 
     scalar = 1.0
-    if not LargestDimension is None:
-        scalar = nornir_imageregistration.ScalarForMaxDimension(LargestDimension, [imFixed.shape, imWarped.shape])
+    if LargestDimension is not None:
+        scalar = nornir_imageregistration.ScalarForMaxDimension(LargestDimension, [target_image.shape, source_image.shape])
 
     if scalar < 1.0:
-        imFixed = nornir_imageregistration.ReduceImage(imFixed, scalar)
-        imWarped = nornir_imageregistration.ReduceImage(imWarped, scalar)
+        target_image = nornir_imageregistration.ReduceImage(target_image, scalar)
+        source_image = nornir_imageregistration.ReduceImage(source_image, scalar)
 
     # Replace extrema with noise
-    UserDefinedAngleSearchRange = not AngleSearchRange is None
+    UserDefinedAngleSearchRange = AngleSearchRange is not None
     if not UserDefinedAngleSearchRange:
         AngleSearchRange = list(range(-178, 182, 2))
 
-    BestMatch = FindBestAngle(imFixed, imWarped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, use_cluster=Cluster)
+    BestMatch = _find_best_angle(target_image, source_image,
+                                 target_stats, source_stats,
+                                 AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, use_cluster=Cluster)
 
     IsFlipped = False
     if TestFlip:
-        imWarpedFlipped = np.copy(imWarped)
-        imWarpedFlipped = np.flipud(imWarpedFlipped)
+        #imWarpedFlipped = np.copy(source_image)
+        imWarpedFlipped = np.flipud(source_image)
     
-        BestMatchFlipped = FindBestAngle(imFixed, imWarpedFlipped, AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread, use_cluster=Cluster)
+        BestMatchFlipped = _find_best_angle(target_image, imWarpedFlipped,
+                                            target_stats, source_stats,
+                                            AngleSearchRange, MinOverlap=MinOverlap,
+                                            SingleThread=SingleThread, use_cluster=Cluster)
         BestMatchFlipped.flippedud = True
 
         # Determine if the best match is flipped or not
@@ -115,7 +133,10 @@ def SliceToSliceBruteForce(FixedImageInput,
         BestMatch = BestMatchFlipped
 
     if not UserDefinedAngleSearchRange:
-        BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)], MinOverlap=MinOverlap, SingleThread=SingleThread)
+        BestRefinedMatch = _find_best_angle(target_image, source_image,
+                                            target_stats, source_stats,
+                                            [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
+                                            MinOverlap=MinOverlap, SingleThread=SingleThread)
         BestRefinedMatch.flippedud = IsFlipped
     else:
         min_step_size = 0.25
@@ -133,7 +154,10 @@ def SliceToSliceBruteForce(FixedImageInput,
                 nSteps = int(refine_search_range / min_step_size)
                 stepsize = refine_search_range / nSteps
             
-            BestRefinedMatch = FindBestAngle(imFixed, imWarped, [(x * stepsize) + below for x in range(1, nSteps)], MinOverlap=MinOverlap, SingleThread=SingleThread)
+            BestRefinedMatch = _find_best_angle(target_image, source_image,
+                                                target_stats, source_stats,
+                                                [(x * stepsize) + below for x in range(1, nSteps)],
+                                                MinOverlap=MinOverlap, SingleThread=SingleThread)
             BestRefinedMatch.flippedud = IsFlipped
         else:
             BestRefinedMatch = BestMatch
@@ -153,7 +177,7 @@ def SliceToSliceBruteForce(FixedImageInput,
 
 
 def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
-                  FixedImageShape: NDArray, WarpedImageShape: NDArray,
+                  FixedImageShape: tuple[int, int], WarpedImageShape: tuple[int, int],
                   angle: float,
                   fixedStats: nornir_imageregistration.ImageStats | None = None, warpedStats: nornir_imageregistration.ImageStats | None = None,
                   FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
@@ -254,7 +278,14 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return (fixedStats, warpedStats)
 
 
-def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | None, MinOverlap: float = 0.75, SingleThread: bool = False, use_cluster: bool = False):
+def _find_best_angle(imFixed: NDArray[float],
+                     imWarped: NDArray[float],
+                     fixed_stats: nornir_imageregistration.ImageStats,
+                     warped_stats: nornir_imageregistration.ImageStats,
+                     AngleList: list[float] | None,
+                     MinOverlap: float = 0.75,
+                     SingleThread: bool = False,
+                     use_cluster: bool = False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
@@ -278,15 +309,16 @@ def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | 
     AngleMatchValues = list()
     taskList = list()
 
-    (fixedStats, warpedStats) = GetFixedAndWarpedImageStats(imFixed, imWarped)
-
 #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
 #    MinRotatedDimension = max(min(imFixed), min(imWarped))
 #
 #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 
-    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, MinOverlap=MinOverlap, ImageMedian=fixedStats.median, ImageStdDev=fixedStats.std)
+    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed,
+                                                                       MinOverlap=MinOverlap,
+                                                                       ImageMedian=fixed_stats.median,
+                                                                       ImageStdDev=fixed_stats.std)
 
     # Create a shared read-only memory map for the Padded fixed image
 
@@ -313,17 +345,20 @@ def FindBestAngle(imFixed: NDArray, imWarped: NDArray, AngleList: list[float] | 
     for i, theta in enumerate(AngleList): 
         if SingleThread:
             record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape,
-                                    warped_shape, theta, fixedStats=fixedStats,
-                                    warpedStats=warpedStats,
+                                    warped_shape, theta, fixedStats=fixed_stats,
+                                    warpedStats=warped_stats,
                                     MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         elif use_cluster:
             task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped,
-                                 fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats,
+                                 fixed_shape, warped_shape, theta, fixedStats=fixed_stats, warpedStats=warped_stats,
                                  MinOverlap=MinOverlap)
             taskList.append(task)
         else:
-            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata, fixed_shape, warped_shape, theta, fixedStats=fixedStats, warpedStats=warpedStats, MinOverlap=MinOverlap)
+            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata,
+                                 fixed_shape, warped_shape,
+                                 theta,
+                                 fixedStats=fixed_stats, warpedStats=warped_stats, MinOverlap=MinOverlap)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
