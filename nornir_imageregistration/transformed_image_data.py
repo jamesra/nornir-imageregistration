@@ -14,7 +14,7 @@ import nornir_pools
 import logging
 import shutil
 
-import atexit
+#import atexit
 
 _sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=tempfile.gettempdir())
 
@@ -22,7 +22,21 @@ _sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_
 # concurrent.futures.ThreadPoolExecutor system could not function in atext calls
 # So I reverted to shutil until it is fixed
 # atexit.register(nornir_shared.files.rmtree, _sharedTempRoot)
-atexit.register(shutil.rmtree, _sharedTempRoot)
+#atexit.register(shutil.rmtree, _sharedTempRoot)
+
+def SaveArrayToTemporaryFile(name: str, image: NDArray) -> str:
+    """
+    Save the image to a temporary file and return the name of the temporary file
+    :param name: Suffix to prepend to the filename
+    :param image: NDArray to save
+    :return: name of temporary file
+    """
+    if image is None:
+        raise ValueError("image cannot be None")
+
+    with tempfile.NamedTemporaryFile(suffix=name, dir=_sharedTempRoot, delete=False) as tfile:
+        np.save(tfile, image)
+        return tfile.name
 
 
 class TransformedImageData(object):
@@ -118,21 +132,17 @@ class TransformedImageData(object):
         # o._transform = transform
 
         if not SingleThreadedInvoke:
-            o.ConvertToMemmapIfLarge()
+            o.ConvertToTempFileIfLarge()
 
         return o
 
     def ConvertToMemmapIfLarge(self):
         if np.prod(self._image.shape) > TransformedImageData.memmap_threshold:
-            self._image_path = self.CreateMemoryMappedFilesForImage("Image", self._image)
-            # self._image_shape = self._image.shape
-            # self._image_dtype = self._image.dtype
+            self._image_path = self.SaveArrayToTemporaryFile("Image", self._image)
             self._image = None
 
         if np.prod(self._centerDistanceImage.shape) > TransformedImageData.memmap_threshold:
-            self._centerDistanceImage_path = self.CreateMemoryMappedFilesForImage("Distance", self._centerDistanceImage)
-            # self._centerDistanceImage_shape = self._centerDistanceImage.shape
-            # self._centerDistance_dtype = self._centerDistanceImage.dtype
+            self._centerDistanceImage_path = self.SaveArrayToTemporaryFile("Distance", self._centerDistanceImage)
             self._centerDistanceImage = None
 
         return
@@ -158,6 +168,28 @@ class TransformedImageData(object):
 
             # del memmapped_image
             return tempfilename
+
+    def ConvertToTempFileIfLarge(self):
+        '''
+        Save our image data into files.  This gets it out of memory, lowering our footprint.  When we return
+        to the calling process we do not need to marshal the images across a pipe.  This was replaced by
+        use of SharedMemory, but that implementation seems to destroy the sharedmemory before it can be
+        returned to the caller.
+        :return:
+        '''
+        if np.prod(self._image.shape) > TransformedImageData.memmap_threshold:
+            self._image_path = self.CreateMemoryMappedFilesForImage("Image", self._image)
+            # self._image_shape = self._image.shape
+            # self._image_dtype = self._image.dtype
+            self._image = None
+
+        if np.prod(self._centerDistanceImage.shape) > TransformedImageData.memmap_threshold:
+            self._centerDistanceImage_path = self.CreateMemoryMappedFilesForImage("Distance", self._centerDistanceImage)
+            # self._centerDistanceImage_shape = self._centerDistanceImage.shape
+            # self._centerDistance_dtype = self._centerDistanceImage.dtype
+            self._centerDistanceImage = None
+
+        return
 
     def Clear(self):
         """Sets attributes to None to encourage garbage collection"""
