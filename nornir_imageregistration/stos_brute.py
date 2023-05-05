@@ -200,9 +200,8 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         #with the inverse transform.  Hence negating the angle here.
         imWarped = scipy.ndimage.rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(imWarped.dtype, copy=False) #Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = np.isnan(imWarped)
-        result = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
-        imWarped[imWarpedEmptyIndicies] = result
-        np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
+        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(np.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype) 
+        #np.clip(imWarped, a_min=warpedStats.min, a_max=warpedStats.max, out=imWarped)
         OKToDelimWarped = True
 
     RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median, ImageStdDev=warpedStats.std, MinOverlap=MinOverlap)

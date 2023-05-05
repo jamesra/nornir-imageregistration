@@ -126,14 +126,13 @@ class ImageStats():
         :param array shape: Shape of the returned array 
         '''
         data = ((numpy.random.standard_normal(shape.astype(numpy.int64)) * self.std) + self.median).astype(dtype, copy=False)
-        np.clip(data, self.min, self.max)
+        return np.clip(data, self.min, self.max, out=data) # Ensure random data doesn't change range of the image
         #if self.median - (self.std * 4) < self.min:
         #data[data < self.min] = self.min
         
         #if self.median + (self.std * 4) > self.max:
         #data[data > self.max] = self.max
-             
-        return data
+              
 
 
 def Prune(filenames, MaxOverlap=None):
