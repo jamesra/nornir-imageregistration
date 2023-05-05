@@ -294,12 +294,12 @@ r plots of each iteration in the output path for debugging purposes
     target_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.ControlImageFullPath,
                                                                         mask=InputStos.ControlMaskFullPath,
                                                                         extrema_mask_size_cuttoff=None,
-                                                                        dtype=float)
+                                                                        dtype=np.float32)
 
     source_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.MappedImageFullPath,
                                                                         mask=InputStos.MappedMaskFullPath,
                                                                         extrema_mask_size_cuttoff=None,
-                                                                        dtype=float)
+                                                                        dtype=np.float32)
 
     with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
                                                                 target_img_data=target_image_data,
@@ -312,7 +312,7 @@ r plots of each iteration in the output path for debugging purposes
                                                                 max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                                 min_alignment_overlap=min_alignment_overlap,
                                                                 min_unmasked_area=min_unmasked_area,
-                                                                single_thread_processing=True) as settings:
+                                                                single_thread_processing=False) as settings:
 
         output_transform = RefineTransform(stosTransform,
                                            settings,
