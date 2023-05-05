@@ -15,7 +15,7 @@ import tempfile
 import numpy as np
 from numpy.typing import NDArray
 
-import nornir_imageregistration.core
+import nornir_imageregistration
 import nornir_pools
 import logging
 import shutil
@@ -160,10 +160,10 @@ class TransformedImageData(object):
 
     def ConvertToSharedMemory(self):
         if self._image_shared_mem_meta is None and self._image is not None:
-            self._image_shared_mem_meta, self._image = nornir_imageregistration.core.npArrayToReadOnlySharedArray(self._image)
+            self._image_shared_mem_meta, self._image = nornir_imageregistration.npArrayToReadOnlySharedArray(self._image)
 
         if self._center_distance_image_shared_mem_meta is None and self._centerDistanceImage is not None:
-            self._center_distance_image_shared_mem_meta, self._centerDistanceImage = nornir_imageregistration.core.npArrayToReadOnlySharedArray(self._centerDistanceImage)
+            self._center_distance_image_shared_mem_meta, self._centerDistanceImage = nornir_imageregistration.npArrayToReadOnlySharedArray(self._centerDistanceImage)
 
     def UnlinkSharedImageMemory(self):
         if self._image_shared_mem_meta is not None:
