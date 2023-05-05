@@ -128,10 +128,12 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
 
     ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=A, distanceImage=None,
                                                                                   target_space_scale=imageScale,
-                                                                                  TargetRegion=overlapping_rect)
+                                                                                  TargetRegion=overlapping_rect,
+                                                                                  SingleThreadedInvoke=True)
     BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=B, distanceImage=None,
                                                                                   target_space_scale=imageScale,
-                                                                                  TargetRegion=overlapping_rect)
+                                                                                  TargetRegion=overlapping_rect,
+                                                                                  SingleThreadedInvoke=True)
 
     # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
     # For TEM the stage position can be less reliable and the 1.5 scalar produces better results

@@ -8,8 +8,10 @@ import math
 from multiprocessing import shared_memory
 import multiprocessing.sharedctypes
 import os
+import typing
 import tempfile
 import warnings
+import weakref
 
 from PIL import Image
 
@@ -44,14 +46,15 @@ from nornir_imageregistration import ImageLike
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
 
-__known_shared_memory_allocations = {} # type: dict[str, shared_memory.SharedMemory]
+#A dictionary of finalizers and shared memory blocks that is used to close shared memory when it goes out of scope
+__known_shared_memory_allocations = {} # type: dict[str, (shared_memory.SharedMemory, typing.Callable)]
 
-@atexit.register
-def release_shared_memory():
-    for shared_mem in __known_shared_memory_allocations.values():
-        shared_mem.close()
-
-    __known_shared_memory_allocations.clear()
+#@atexit.register
+#def release_shared_memory():
+#    for shared_mem in __known_shared_memory_allocations.values():
+#        shared_mem.close()
+#
+#    __known_shared_memory_allocations.clear()
 
 # from memory_profiler import profile
 
@@ -131,7 +134,8 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
         shared_mem = shared_memory.SharedMemory(name=imageparam.name)
         image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
         image.setflags(write=not imageparam.readonly)
-        __known_shared_memory_allocations[shared_mem.name] = shared_mem
+        finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, imageparam)
+        __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer 
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:
             dtype = imageparam.dtype
@@ -571,6 +575,44 @@ def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:i
 
     return cropped
 
+def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+    '''
+    Checks if the input is shared memory, if it is, closes it to indicate
+    this process is done using it, but others may still be using it.
+    Note that once this function executes the dictionary entry is removed and
+    the memory cannot be unlinked.  So make sure the array does not go out of
+    scope if you are responsible for unlinking it.
+    '''
+    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
+        if input.name in __known_shared_memory_allocations:
+            shared_mem, finalizer = __known_shared_memory_allocations[input.name]
+            finalizer()
+            try:
+                del __known_shared_memory_allocations[input.name]
+            except KeyError:
+                pass
+                
+
+def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+    '''
+    Checks if the input is shared memory, if it is, closes it to indicate
+    this process is done using it and unlinks it to free the underlying 
+    memory block.  This renders it unusable for all other processes as well.
+    Make sure the array does not go out of
+    scope if you are responsible for unlinking it.
+    '''
+    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
+        if input.name in __known_shared_memory_allocations:
+            shared_mem, finalizer = __known_shared_memory_allocations[input.name]
+            shared_mem.unlink()
+            try:
+                del __known_shared_memory_allocations[input.name]
+            except KeyError:
+                pass
+
+            finalizer()
+        else:
+            prettyoutput.LogErr(f"Missing memory block, could not unlink {input.name}")
 
 def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
     """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
@@ -584,34 +626,28 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     shared_mem = shared_memory.SharedMemory(create=True, size=input.nbytes)
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
-    __known_shared_memory_allocations[shared_mem.name] = shared_mem
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+
+    #Create a finalizer to close the shared memory when the array is garbage collected
+    finalizer = weakref.finalize(shared_array, close_shared_memory, output)
+    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
     return output, shared_array
 
-    
-def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
-    '''
-    Checks if the input is shared memory, if it is, closes it to indicate
-    this process is done using it, but others may still be using it
-    '''
-    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
-        shared_mem = __known_shared_memory_allocations[input.name]
-        shared_mem.close()
-        del __known_shared_memory_allocations[input.name]
+def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike) -> tuple[nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
+    """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
+    when it is no longer in use.
+    :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
+    """
+    byte_size = shape.prod() * dtype.itemsize
+    shared_mem = shared_memory.SharedMemory(create=True, size=int(byte_size))
+    shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
 
-
-def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
-    '''
-    Checks if the input is shared memory, if it is, closes it to indicate
-    this process is done using it and unlinks it to free the underlying 
-    memory block.  This renders it unusable for all other processes as well
-    '''
-    if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
-        shared_mem = __known_shared_memory_allocations[input.name]
-        shared_mem.close()
-        shared_mem.unlink()
-        del __known_shared_memory_allocations[input.name]
-
+    #Create a finalizer to close the shared memory when the array is garbage collected
+    #finalizer = weakref.finalize(shared_array, close_shared_memory, output)
+    finalizer = None
+    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
+    return output, shared_array
 
 def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float, use_cp: bool | None = None, return_numpy: bool = True, dtype: DTypeLike | None = None):
     """
@@ -829,7 +865,6 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 #     im = Image.fromarray(image)
 #     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
 #
-
 
 def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
     """

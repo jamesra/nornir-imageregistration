@@ -21,6 +21,8 @@ import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
 
+import nornir_shared.tasktimer
+
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 # import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
@@ -229,7 +231,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
     else:
         fullImage = np.zeros(fullImage_shape, dtype=dtype)
 
-    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=np.float16)
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=np.float32)
     return fullImage, fullImageZbuffer
 
 
@@ -392,6 +394,9 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     :param float target_space_scale: Scalar for the source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
     4 images are used, this value should be 0.25.  Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
     """
+    timer = nornir_shared.tasktimer.TaskTimer()
+
+    timer.Start('Prep')
 
     logger = logging.getLogger('TilesToImageParallel')
     if pool is None:
@@ -432,10 +437,13 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     if first_tile is None:
         raise ValueError("Mosaic Tileset has no tiles.")
 
-    output_dtype = first_tile.Image.dtype
+    output_dtype = nornir_imageregistration.default_image_dtype()
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
                                                                 dtype=output_dtype)
 
+    timer.End('Prep')
+    timer.Start('Task Queuing')
+    timer.Start('Task Execution')
     CheckTaskInterval = multiprocessing.cpu_count() * 2
     tasks = []  # type: List[nornir_pools.Task]
     for i, tile in enumerate(mosaic_tileset.values()):
@@ -468,7 +476,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
         if not i % CheckTaskInterval == 0:
             continue
 
-        while len(tasks) > multiprocessing.cpu_count() * 2:  # Don't bother cleaning completed tasks if we can still add to the queue
+        while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
             iTask = len(tasks) - 1
             while iTask >= 0:
                 t = tasks[iTask]
@@ -476,11 +484,15 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                     transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
                     __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                         scaled_targetRect)
+                    transformed_image_data.UnlinkSharedImageMemory()
                     del transformed_image_data
                     del tasks[iTask]
     
                 iTask -= 1
-
+            
+            if len(tasks) > CheckTaskInterval: # Sleep a while if we are still over the limit
+                time.sleep(0.1)
+    timer.End('Task Queuing')
     logger.info('All warps queued, integrating results into final image')
 
     while len(tasks) > 0:
@@ -492,14 +504,16 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                 transformed_image_data = t.wait_return()
                 __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                     scaled_targetRect)
+                transformed_image_data.UnlinkSharedImageMemory()
                 del transformed_image_data
                 del tasks[iTask]
 
             iTask -= 1
 
         if len(tasks) > 0:
-            time.sleep(0.25) #Give tasks some time to complete before we interrogate again
+            time.sleep(0.1) #Give tasks some time to complete before we interrogate again
 
+    timer.End('Task Execution')
     logger.info('Final image complete, building mask')
 
     mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
@@ -698,14 +712,15 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           [source_image, distanceImage],
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
-                                                                          cval=[0, __MaxZBufferValue(np.float16)])
-
+                                                                          cval=[0, __MaxZBufferValue(distanceImage.dtype)],
+                                                                          return_shared_memory=not SingleThreadedInvoke)
+    
+    source_image_dtype = source_image.dtype
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage.astype(np.float16, copy=False),
-                                                                                       centerDistanceImage.astype(
-                                                                                           np.float16, copy=False),
+    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage,
+                                                                                       centerDistanceImage,
                                                                                        transform,
                                                                                        source_space_scale,
                                                                                        target_space_scale,
