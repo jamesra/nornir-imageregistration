@@ -656,7 +656,7 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints, cell_size=settings.cell_size)
     
-    os.environ['DEBUG'] = '1'
+    #os.environ['DEBUG'] = '1'
 
     for i in range(nPoints):
         targetPoint = targetPoints[i,:]
