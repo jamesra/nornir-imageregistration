@@ -82,7 +82,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.RunBasicBruteAlignment(FixedImagePath, WarpedImagePath, FlipUD=True)
 
-    def RunBasicBruteAlignment(self, FixedImagePath: str, WarpedImagePath: str, FlipUD: bool):
+    def RunBasicBruteAlignment(self, FixedImagePath: str, WarpedImagePath: str, FlipUD: bool, use_cp=False):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
@@ -93,25 +93,25 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
-        timer.Start("Single Thread Brute No Mask")
+        timer.Start(f"Single Thread Brute No Mask use_cp={use_cp}")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath, SingleThread=True, AngleSearchRange=None, #AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
-                               TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=True)
+                               TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=use_cp)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        timer.End("Single Thread Brute No Mask")
+        timer.End(f"Single Thread Brute No Mask use_cp={use_cp}")
 
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
-        timer.Start("Multi-Thread Brute No Mask")
+        timer.Start(f"Multi-Thread Brute No Mask use_cp={use_cp}")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath, SingleThread=False, Cluster=True,
-                               TestFlip = FlipUD, MinOverlap=MinOverlap, use_cp=True)
+                               TestFlip = FlipUD, MinOverlap=MinOverlap, use_cp=use_cp)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        timer.End("Multi-Thread Brute No Mask")
+        timer.End(f"Multi-Thread Brute No Mask use_cp={use_cp}")
 
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
