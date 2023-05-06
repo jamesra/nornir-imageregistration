@@ -16,6 +16,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.scripts.nornir_rotate_translate
 import nornir_imageregistration.stos_brute as stos_brute
 import nornir_shared.images as images
+from nornir_shared.tasktimer import TaskTimer
 
 from . import setup_imagetest
 
@@ -37,9 +38,9 @@ def CheckAlignmentRecord(test, arecord, angle, X, Y, flipud=False, adelta=None, 
 
         test.assertIsNotNone(arecord)
         test.assertEqual(arecord.flippedud, flipud, "Flip Up/Down mismatch: %s" % str(arecord))
-        #test.assertAlmostEqual(arecord.angle, angle, msg="Wrong angle found: %s" % str(arecord) , delta=adelta)
-        #test.assertAlmostEqual(arecord.peak[1], X, msg="Wrong X offset: %s" % str(arecord), delta=sdelta)
-        #test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
+        test.assertAlmostEqual(arecord.angle, angle, msg="Wrong angle found: %s" % str(arecord) , delta=adelta)
+        test.assertAlmostEqual(arecord.peak[1], X, msg="Wrong X offset: %s" % str(arecord), delta=sdelta)
+        test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
 
 class TestStos(setup_imagetest.ImageTestBase):
 
@@ -81,62 +82,70 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.RunBasicBruteAlignment(FixedImagePath, WarpedImagePath, FlipUD=True)
 
-    def RunBasicBruteAlignment(self, FixedImagePath, WarpedImagePath, FlipUD):
+    def RunBasicBruteAlignment(self, FixedImagePath: str, WarpedImagePath: str, FlipUD: bool):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         
         MinOverlap=0.5
 
+        timer = TaskTimer()
+
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
+        timer.Start("Single Thread Brute No Mask")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
                                WarpedImagePath, SingleThread=True, AngleSearchRange=None, #AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
                                TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=True)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        timer.End("Single Thread Brute No Mask")
+
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
+        timer.Start("Multi-Thread Brute No Mask")
         # Check both clustered and non-clustered output
-        # AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-        #                        WarpedImagePath, SingleThread=False, Cluster=True,
-        #                        TestFlip = FlipUD,MinOverlap=MinOverlap)
-        #
-        # self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        # CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
-        #
-        # AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-        #                        WarpedImagePath,MinOverlap=MinOverlap)
-        #
-        # self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        # CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
-        #
-        # # OK, try to save the stos file and reload it.  Make sure the transforms match
-        # savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
-        # self.assertIsNotNone(savedstosObj)
-        #
-        # FixedSize = core.GetImageSize(FixedImagePath)
-        # WarpedSize = core.GetImageSize(WarpedImagePath)
-        #
-        # alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
-        #
-        # if FlipUD:
-        #     stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_flipped.stos')
-        # else:
-        #     stosfilepath = os.path.join(self.VolumeDir, '17-18_brute.stos')
-        #
-        # savedstosObj.Save(stosfilepath)
-        #
-        # loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
-        # self.assertIsNotNone(loadedStosObj)
-        #
-        # self.assertFalse(loadedStosObj.HasMasks, "Stos file saved without masks should return false in HasMasks check")
-        # self.assertIsNone(loadedStosObj.ControlMaskName, "Mask in .stos does not match mask used in alignment\n")
-        # self.assertIsNone(loadedStosObj.MappedMaskName, "Mask in .stos does not match mask used in alignment\n")
-        #
-        # loadedTransform = nornir_imageregistration.transforms.factory.LoadTransform(loadedStosObj.Transform)
-        # self.assertIsNotNone(loadedTransform)
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                               WarpedImagePath, SingleThread=False, Cluster=True,
+                               TestFlip = FlipUD, MinOverlap=MinOverlap, use_cp=True)
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        timer.End("Multi-Thread Brute No Mask")
+
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
+
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                               WarpedImagePath,MinOverlap=MinOverlap)
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
+
+        # OK, try to save the stos file and reload it.  Make sure the transforms match
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
+        self.assertIsNotNone(savedstosObj)
+
+        FixedSize = core.GetImageSize(FixedImagePath)
+        WarpedSize = core.GetImageSize(WarpedImagePath)
+
+        alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
+
+        if FlipUD:
+            stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_flipped.stos')
+        else:
+            stosfilepath = os.path.join(self.VolumeDir, '17-18_brute.stos')
+
+        savedstosObj.Save(stosfilepath)
+
+        loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
+        self.assertIsNotNone(loadedStosObj)
+
+        self.assertFalse(loadedStosObj.HasMasks, "Stos file saved without masks should return false in HasMasks check")
+        self.assertIsNone(loadedStosObj.ControlMaskName, "Mask in .stos does not match mask used in alignment\n")
+        self.assertIsNone(loadedStosObj.MappedMaskName, "Mask in .stos does not match mask used in alignment\n")
+
+        loadedTransform = nornir_imageregistration.transforms.factory.LoadTransform(loadedStosObj.Transform)
+        self.assertIsNotNone(loadedTransform)
 
 
     def testStosBruteWithMask(self):
