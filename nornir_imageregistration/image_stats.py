@@ -158,28 +158,12 @@ class ImageStats():
         
         xp = cp if use_cp else numpy
         data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(float, copy=False)
-        xp.clip(data, self.min, self.max)
+        xp.clip(data, self.min, self.max, out=data) # Ensure random data doesn't change range of the image
         
         if return_numpy and isinstance(data, cp.ndarray):
             return data.get()
         
         return data
-            
-            
-        #result = nornir_imageregistration.GenRandomData(height=height, width=width, mean=self.mean, standardDev=self.std, min_val=self.min, max_val=self.max, return_numpy=return_numpy)
-        
-        #if one_d_result:
-            #return result.flatten()
-
-        #data = (numpy.random.standard_normal(shape.astype(numpy.int64)).astype(numpy.float32) * self.std) + self.median
-    
-        #if self.median - (self.std * 4) < self.min:
-        #data[data < self.min] = self.min
-        
-        #if self.median + (self.std * 4) > self.max:
-        #data[data > self.max] = self.max
-             
-        #return data
 
 
 def Prune(filenames, MaxOverlap=None):

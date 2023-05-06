@@ -201,7 +201,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #     """
     #
     #     stosFilePath = self.GetStosFilePath("testStosRefinementRPC3_449_450_From_Brute", "449-450_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
-    #      self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
     #     RefineStosFile(InputStos=stosFilePath,
     #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
     #                    num_iterations=5,
@@ -214,7 +214,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #                    min_unmasked_area=0.49,
     #                    SaveImages=False,
     #                    SavePlots=True)
-    #
+    
 
     # def testStosRefinementRPC3_13_14(self):
     #     # self.TestName = "StosRefinementRC2_617"
@@ -293,12 +293,12 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         target_image_data = nornir_imageregistration.ImagePermutationHelper(img=target_image_fullpath,
                                                                             mask=target_mask_fullpath,
                                                                             extrema_mask_size_cuttoff=None,
-                                                                            dtype=float)
+                                                                            dtype=nornir_imageregistration.default_image_dtype())
 
         source_image_data = nornir_imageregistration.ImagePermutationHelper(img=source_image_fullpath,
                                                                             mask=source_mask_fullpath,
                                                                             extrema_mask_size_cuttoff=None,
-                                                                            dtype=float)
+                                                                            dtype=nornir_imageregistration.default_image_dtype())
 
         with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
                                                                 target_img_data=target_image_data,

@@ -248,7 +248,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         self.OnTransformChanged()
 
     def __repr__(self):
-        return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}deg Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
+        return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x Angle: {self.angle:03g}rad Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
 
 
 class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):

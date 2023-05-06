@@ -299,7 +299,9 @@ def ResizeImage(image, scalar):
 
     # new_size = np.array(image.shape, dtype=np.float) * scalar
 
-    return scipy.ndimage.zoom(image, zoom=scalar, order=order).clip(original_min, original_max)
+    result = scipy.ndimage.zoom(image, zoom=scalar, order=order)
+    result = result.clip(original_min, original_max, out=result)
+    return result
 
 
 def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False, Bpp: int | None = None, Invert: bool = False, MinMax=None, Gamma: float | None = None):
@@ -1094,7 +1096,7 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
     return source_image[StartY:EndY, StartX:EndX]
 
 
-def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats.ImageStats=None, Copy=False) -> NDArray:
+def RandomNoiseMask(image: NDArray, Mask: NDArray[bool], imagestats:nornir_imageregistration.image_stats.ImageStats=None, Copy=False) -> NDArray:
     """
     Fill the masked area with random noise with gaussian distribution about the image
     mean and with standard deviation matching the image's standard deviation.  Mask
@@ -1109,21 +1111,19 @@ def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats
 
     assert (image.shape == Mask.shape)
 
-    MaskedImage = image
-    if Copy:
-        MaskedImage = image.copy()
+    MaskedImage = image.copy() if Copy else image
   
-    iPixelsToReplace = Mask.flat == 0
-
+    #iPixelsToReplace = Mask.flat == 0
+    iPixelsToReplace = np.logical_not(Mask.flat)
     numInvalidPixels = np.sum(iPixelsToReplace)
-
-    Image1D = MaskedImage.flat 
-    numValidPixels = len(Image1D) - numInvalidPixels
+ 
     if numInvalidPixels == 0:
         # Entire image is masked, there is no noise to create
-        return MaskedImage
+        return MaskedImage 
     
+    Image1D = MaskedImage.flat
     if imagestats is None:
+        numValidPixels = np.prod(image.shape) - numInvalidPixels
         # Create masked array for accurate stats
         if numValidPixels == 0:
             raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
@@ -1131,12 +1131,11 @@ def RandomNoiseMask(image, Mask, imagestats:nornir_imageregistration.image_stats
         elif numValidPixels <= 2:
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
     
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=np.float64).compressed()
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=Image1D.dtype).compressed()
         imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 
-    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)), dtype=image.dtype)
-    NoiseData = np.clip(NoiseData, imagestats.min, imagestats.max, out=NoiseData) # Ensure random data doesn't change range of the image
+    NoiseData = imagestats.GenerateNoise(np.array((1, numInvalidPixels)), dtype=image.dtype) 
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
     Image1D[iPixelsToReplace] = NoiseData

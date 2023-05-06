@@ -388,7 +388,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if adjustment_scalar != 0:
             transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
 
-        transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0))
+        transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0)) #This is a float, so don't bother with out parameter
 
         transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],  # Do not include finalize points because they have a distance of zero which throws off the composite scores
                                                    100.0 - transform_inclusion_percentile_this_pass)
@@ -397,7 +397,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if adjustment_scalar != 0:
             finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
 
-        finalize_percentile_this_pass = float(np.clip(finalize_percentile_this_pass, 10.0, 100.0))
+        finalize_percentile_this_pass = float(np.clip(finalize_percentile_this_pass, 10.0, 100.0)) #This is a float, so don't bother with out parameter
 
         finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
                                                   finalize_percentile_this_pass)
@@ -655,6 +655,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     alignment_records = list()
 
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints, cell_size=settings.cell_size)
+    
+    #os.environ['DEBUG'] = '1'
 
     for i in range(nPoints):
         targetPoint = targetPoints[i,:]
@@ -729,8 +731,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         if 'DEBUG' in os.environ:
             erec.TargetROI = arecord.TargetROI
             erec.SourceROI = arecord.SourceROI
-            erec.TranslatedSourceROI = nornir_imageregistration.CropImage(erec.SourceROI, int(np.floor(erec.peak[1])),
-                                                                          int(np.floor(erec.peak[0])),
+            erec.TranslatedSourceROI = nornir_imageregistration.CropImage(erec.SourceROI, int(np.floor(-erec.peak[1])),
+                                                                          int(np.floor(-erec.peak[0])),
                                                                           erec.SourceROI.shape[1], erec.SourceROI.shape[0],
                                                                           cval=float(np.median(erec.SourceROI.flat)))
 
