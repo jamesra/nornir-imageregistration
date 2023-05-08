@@ -216,16 +216,16 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         output_origin = target_coords.min(0)
   
     if not isinstance(output_origin, np.ndarray):
-        output_origin = np.asarray(output_origin, dtype=np.int64)
+        output_origin = np.asarray(output_origin, dtype=np.int32)
 
-    if output_origin.dtype != np.int64:
-        output_origin = np.asarray(output_origin, dtype=np.int64)
+    if output_origin.dtype != np.int32:
+        output_origin = np.asarray(output_origin, dtype=np.int32)
         
     if not isinstance(output_area, np.ndarray):
-        output_area = np.asarray(output_area, dtype=np.int64)
+        output_area = np.asarray(output_area, dtype=np.int32)
 
-    if output_area.dtype != np.int64:
-        output_area = np.asarray(output_area, dtype=np.int64)
+    if output_area.dtype != np.int32:
+        output_area = np.asarray(output_area, dtype=np.int32)
 
     if source_coords.shape[0] == 0:
         # No points transformed into the requested area, return empty image
