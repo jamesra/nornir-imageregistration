@@ -516,10 +516,11 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     timer.End('Task Execution')
     logger.info('Final image complete, building mask')
 
-    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
     del fullImageZbuffer
 
-    fullImage[fullImage < 0] = 0
+    #fullImage = np.clip(fullImage, 0, 1.0, out=fullImage)
+    fullImage = np.maximum(fullImage, 0, out=fullImage)
     # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
     # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
     # fullImage[fullImage > 1.0] = 1.0
