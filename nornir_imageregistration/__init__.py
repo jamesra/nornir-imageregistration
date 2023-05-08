@@ -34,7 +34,7 @@ def default_image_dtype():
     '''
     :return: The default dtype for image data
     '''
-    return np.float32
+    return np.float16
 
 from numpy.typing import *
 

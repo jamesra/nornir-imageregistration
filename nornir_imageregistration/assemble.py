@@ -97,7 +97,7 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate)
+    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
     (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
