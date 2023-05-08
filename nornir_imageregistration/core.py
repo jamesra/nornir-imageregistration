@@ -453,7 +453,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
+def CropImage(imageparam:NDArray | str, Xo: int, Yo: int, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -946,7 +946,7 @@ def LoadImage(ImageFullPath: str,
     return image
 
 
-def NormalizeImage(image):
+def NormalizeImage(image: NDArray):
     """Adjusts the image to have a range of 0 to 1.0"""
 
     miniszeroimage = image - image.min()
@@ -994,11 +994,11 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid
 
 
-def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.ndarray=None, coord_offset=None, cval=0):
-    """An iterator generating all tiles for an image
-    :param source_image:
-    :param np.ndarray tile_size: Shape of each tile
-    :param np.ndarray grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+def ImageToTilesGenerator(source_image: NDArray, tile_size: NDArray, grid_shape:NDArray | None = None, coord_offset=None, cval=0):
+    """An iterator generating that divides a large image into a collection of smaller non-overlapping tiles.
+    :param source_image: The image to divide
+    :param tile_size: Shape of each tile
+    :param grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
@@ -1012,7 +1012,6 @@ def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.nda
 
     (required_shape) = grid_shape * tile_size
 
-    source_image_padded = None
     if not np.array_equal(source_image.shape, required_shape):
         source_image_padded = CropImage(source_image,
                                         Xo=0, Yo=0,

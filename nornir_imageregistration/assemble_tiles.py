@@ -11,6 +11,7 @@ import os
 import tempfile
 import threading
 import time
+import weakref
 from typing import Iterable, Generator, Tuple, List
 from numpy.typing import NDArray, DTypeLike
 
@@ -31,7 +32,10 @@ DistanceImageCache = {}
 
 # TODO: Use atexit to delete the temporary files
 # TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
-use_memmap = True
+def _use_memmap() -> bool:
+    return False
+
+
 nextNumpyMemMapFilenameIndex = 0
 
 
@@ -161,23 +165,22 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
-def EmptyDistanceBuffer(shape, dtype=np.float16):
+def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
     global use_memmap
 
-    fullImageZbuffer = None
+    dtype = np.float16 if dtype is None else dtype
 
-    if False:  # use_memmap:
+    if _use_memmap():  # use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
             shape[0], shape[1], GetProcessAndThreadUniqueString()))
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
-        fullImageZbuffer[:] = __MaxZBufferValue(dtype)
-        fullImageZbuffer.flush()
-        del fullImageZbuffer
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)
+        fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+        return fullImageZbuffer
+        #fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
     else:
-        fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+        return np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
-    return fullImageZbuffer
+
 
 
 #
@@ -218,13 +221,14 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
         int(Height),
         int(Width))  # (int(np.ceil(target_space_scale * Height)), int(np.ceil(target_space_scale * Width)))
 
-    if False:  # use_memmap:
+    if _use_memmap():  # use_memmap:
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             # print("Open %s" % (fullimage_array_path))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
-            fullImage[:] = 0
+            fullImage.fill(0)
+            finalizer = weakref.finalize(fullImage, os.remove, fullimage_array_path)
         except:
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
@@ -368,10 +372,10 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
 
         del transformedImageData
 
-    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
     del fullImageZbuffer
 
-    fullImage[fullImage < 0] = 0
+    fullImage = np.maximum(fullImage, 0, out=fullImage)
     # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
     # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
     # fullImage[fullImage > 1.0] = 1.0

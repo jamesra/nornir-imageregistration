@@ -228,7 +228,9 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
             self._target_space_bounding_box = nornir_imageregistration.Rectangle.translate(
                 self._target_space_bounding_box, offset)
 
-    def AssembleImage(self, FixedRegion=None, usecluster=False, target_space_scale=None):
+    def AssembleImage(self, FixedRegion: nornir_imageregistration.Rectangle | None = None,
+                      usecluster: bool = False,
+                      target_space_scale: float | None = None) -> np.typing.NDArray:
         """Create a single image of the mosaic for the requested region.
         :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
         :param boolean usecluster: Offload work to other threads or nodes if true
