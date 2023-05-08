@@ -536,7 +536,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     return warpedImage
 
 
-def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] | NDArray, warpedImage: NDArray, CropUndefined: bool):
+def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] | NDArray, warpedImage: NDArray, CropUndefined: bool) -> NDArray:
     """
     Cut image into tiles, assemble small chunks
     :param transform: Transform to apply to point to map from warped image to fixed space
