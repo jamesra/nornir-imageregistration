@@ -251,7 +251,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                                                                                 padding=0, cval=cval)
         # subroi_warpedImage[] #Replace NaN entries with random values
         # Remove target coords that match removed source_coords
-        filtered_target_coords = inbounds_target_coords[source_coord_mask]
+        inbounds_target_coords = inbounds_target_coords[source_coord_mask]
 
         # source_coords, source_coord_mask = get_valid_coords(coords=source_coords, image_shape=subroi_warpedImage.shape, origin=(1,1), area=(subroi_warpedImage.shape) - 1) #Remove one for padding
         if subroi_warpedImage.shape[0] == 0 or subroi_warpedImage.shape[1] == 0:
@@ -267,10 +267,10 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         del source_image
     else:
         filtered_source_coords = source_coords
-        filtered_target_coords = inbounds_target_coords
+        #filtered_target_coords = inbounds_target_coords
         subroi_warpedImage = source_image
         
-    del inbounds_target_coords
+    #del inbounds_target_coords
 
     # Use a dtype interpolation.map_coordinates supports
     if subroi_warpedImage.dtype == np.float16:
@@ -294,7 +294,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     else:
         outputImage = np.full(output_area, cval, dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
 
-    target_coords_flat = nornir_imageregistration.ravel_index(filtered_target_coords, outputImage.shape).astype(
+    target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(
         np.int64, copy=False)
     outputImage.flat[target_coords_flat] = outputValues
     # outputImage[fixed_coords] = outputValues
