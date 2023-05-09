@@ -555,7 +555,7 @@ def __AddTransformedTileTaskToComposite(task,
             return fullImage, fullImageZBuffer
 
     CompositeOffset = (transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
-    CompositeOffset = CompositeOffset.astype(np.int64)
+    CompositeOffset = CompositeOffset.astype(np.int32)
 
     try:
         CompositeImageWithZBuffer(fullImage, fullImageZBuffer,
