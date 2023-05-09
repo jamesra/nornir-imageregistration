@@ -607,7 +607,7 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     shared_mem = shared_memory.SharedMemory(create=True, size=input.nbytes)
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
-    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=shared_mem)
 
     #Create a finalizer to close the shared memory when the array is garbage collected
     finalizer = weakref.finalize(shared_array, close_shared_memory, output)
@@ -622,11 +622,11 @@ def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike) -> tuple[n
     byte_size = shape.prod() * dtype.itemsize
     shared_mem = shared_memory.SharedMemory(create=True, size=int(byte_size))
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
-    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=shared_mem)
 
     #Create a finalizer to close the shared memory when the array is garbage collected
-    #finalizer = weakref.finalize(shared_array, close_shared_memory, output)
-    finalizer = None
+    finalizer = weakref.finalize(shared_array, close_shared_memory, output)
+    #finalizer = None
     __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
     return output, shared_array
 
