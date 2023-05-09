@@ -269,6 +269,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         filtered_source_coords = source_coords
         filtered_target_coords = inbounds_target_coords
         subroi_warpedImage = source_image
+        
+    del inbounds_target_coords
 
     # Use a dtype interpolation.map_coordinates supports
     if subroi_warpedImage.dtype == np.float16:
@@ -283,7 +285,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
                                                  mode='constant', order=order, cval=cval).astype(original_dtype, copy=False)
     #outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
-    
+    del filtered_source_coords
     #outputImage = np.full(output_area, cval, dtype=original_dtype) #Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
     output_shared_mem_meta = None
     if return_shared_memory:
