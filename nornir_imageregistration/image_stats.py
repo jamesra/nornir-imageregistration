@@ -108,14 +108,23 @@ class ImageStats():
         #if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
         #    image = image.astype(dtype=numpy.float64)
             
-        flatImage = image.flat 
-        obj._median = numpy.median(flatImage)
-        obj._mean = numpy.mean(flatImage)
-        obj._std = numpy.std(flatImage)
-        obj._max = numpy.max(flatImage)
-        obj._min = numpy.min(flatImage)
         
-        del flatImage
+        #This test for a masked array smells bad but began to be required
+        #after upgrading to numpy 1.23.5
+        if isinstance(image, np.ma.MaskedArray): 
+            obj._median = numpy.ma.median(image)
+            obj._mean = numpy.ma.mean(image)
+            obj._std = numpy.ma.std(image)
+            obj._max = numpy.ma.max(image)
+            obj._min = numpy.ma.min(image)
+        else: 
+            flatImage = image.flat 
+            obj._median = numpy.median(flatImage)
+            obj._mean = numpy.mean(flatImage)
+            obj._std = numpy.std(flatImage)
+            obj._max = numpy.max(flatImage)
+            obj._min = numpy.min(flatImage) 
+            del flatImage
          
 #        image.__IrtoolsImageStats__ = obj
         return obj
