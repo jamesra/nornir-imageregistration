@@ -289,7 +289,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     del filtered_source_coords
     #outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
-    del filtered_source_coords
+
     #outputImage = np.full(output_area, cval, dtype=original_dtype) #Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
     output_shared_mem_meta = None
     if return_shared_memory:
