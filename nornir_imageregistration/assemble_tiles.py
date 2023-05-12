@@ -569,9 +569,7 @@ def __AddTransformedTileTaskToComposite(task,
         # logger = logging.getLogger('TilesToImageParallel')
         prettyoutput.LogErr(f'Could not add tile to composite: {transformedImageData}\n{e}')
         pass
-
-    transformedImageData.Clear()
-
+  
     return
 
 

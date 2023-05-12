@@ -198,26 +198,32 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
 
         #It is hard to delete these temporary files because it is ambiguous on when
         #numpy releases the underlying file
-        #if self._centerDistanceImage_path is not None or self._image_path is not None:
-            #pool = nornir_pools.GetGlobalThreadPool()
-            #pool.add_task(self._image_path, TransformedImageDataViaTempFile._RemoveTempFiles, self._centerDistanceImage_path,
-                          #self._image_path)
+        if self._centerDistanceImage_path is not None or self._image_path is not None:
+            pool = nornir_pools.GetGlobalThreadPool()
+            pool.add_task(self._image_path, TransformedImageDataViaTempFile._RemoveTempFiles, self._centerDistanceImage_path,
+                          self._image_path)
 
     @staticmethod
     def _RemoveTempFiles(_centerDistanceImage_path, _image_path):
         try:
             if _centerDistanceImage_path is not None:
                 os.remove(_centerDistanceImage_path)
+        except FileNotFoundError:
+            pass
         except IOError as E:
             logging.warning("Could not delete temporary file {0}".format(_centerDistanceImage_path))
             pass
+        
 
         try:
             if _image_path is not None:
                 os.remove(_image_path)
+        except FileNotFoundError:
+            pass
         except IOError as E:
             logging.warning("Could not delete temporary file {0}".format(_image_path))
             pass
+        
 
     def __init__(self, errorMsg=None):
         self._image = None
