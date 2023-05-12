@@ -250,6 +250,10 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
         #             else:
         distanceImage = np.load(distance_array_path, mmap_mode='r')
+        if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
+            os.remove(distance_array_path)
+            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
+            distanceImage = None
     except FileNotFoundError:
         #print("Distance_image %s does not exist" % distance_array_path)
         pass
@@ -258,7 +262,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         try:
             os.remove(distance_array_path)
         except:
-            print("Unable to delete invalid distance_image: %s" % distance_array_path)
+            prettyoutput.LogErr("Unable to delete invalid distance_image: %s" % distance_array_path)
             pass
 
         pass
@@ -268,7 +272,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         try:
             np.save(distance_array_path, distanceImage)
         except:
-            print("Unable to save invalid distance_image: %s" % distance_array_path)
+            prettyoutput.LogErr("Unable to save invalid distance_image: %s" % distance_array_path)
             pass
 
     return distanceImage
