@@ -17,7 +17,7 @@ from numpy.typing import NDArray, DTypeLike
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble as assemble
-import nornir_imageregistration.transformed_image_data
+import nornir_imageregistration.transformed_image_data_temp_files
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
@@ -450,6 +450,9 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     timer.Start('Task Execution')
     CheckTaskInterval = multiprocessing.cpu_count() * 2
     tasks = []  # type: List[nornir_pools.Task]
+    #Ensure the shared memory manager has been created so child processes can
+    #access it
+    #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager() 
     for i, tile in enumerate(mosaic_tileset.values()):
         # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
         original_transform_target_rect = tile.TargetSpaceBoundingBox
@@ -508,7 +511,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                 transformed_image_data = t.wait_return()
                 __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                     scaled_targetRect)
-                transformed_image_data.UnlinkSharedImageMemory()
+                transformed_image_data.Clear()
                 del transformed_image_data
                 del tasks[iTask]
 
@@ -538,7 +541,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
 
 
 def __AddTransformedTileTaskToComposite(task,
-                                        transformedImageData: nornir_imageregistration.transformed_image_data.TransformedImageData,
+                                        transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
                                         fullImage: NDArray,
                                         fullImageZBuffer: NDArray,
                                         scaled_target_rect: nornir_imageregistration.Rectangle | None = None):
@@ -586,7 +589,7 @@ def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
                   target_space_scale: float = None,
                   TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
-                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.TransformedImageData:
+                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
     """
        Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
@@ -718,13 +721,13 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
                                                                           cval=[0, __MaxZBufferValue(distanceImage.dtype)],
-                                                                          return_shared_memory=not SingleThreadedInvoke)
+                                                                          return_shared_memory=False)#not SingleThreadedInvoke)
     
     source_image_dtype = source_image.dtype
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage,
+    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(fixedImage,
                                                                                        centerDistanceImage,
                                                                                        transform,
                                                                                        source_space_scale,
