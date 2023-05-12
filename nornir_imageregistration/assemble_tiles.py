@@ -491,7 +491,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                     transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
                     __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                         scaled_targetRect)
-                    transformed_image_data.UnlinkSharedImageMemory()
+                    transformed_image_data.Clear()
                     del transformed_image_data
                     del tasks[iTask]
     
