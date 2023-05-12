@@ -14,10 +14,8 @@ import nornir_pools
 import logging
 import shutil
 import atexit
-import asyncio
 import nornir_imageregistration
-from nornir_imageregistration.transformed_image_data import ITransformedImageData
-import transformed_image_data
+from nornir_imageregistration.transformed_image_data import ITransformedImageData 
 
 # When porting to Python 3.10 there was a regression where
 # concurrent.futures.ThreadPoolExecutor system could not function in atext calls
@@ -38,7 +36,6 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     _errmsg: str
 
     _temp_folder_created = False    
-    _atexit_registered = False
     sharedTempRoot = None
 
     '''
@@ -149,7 +146,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         if image is None:
             raise ValueError("image cannot be None")
 
-        with tempfile.NamedTemporaryFile(suffix=name, dir=TransformedImageDataViaTempFile._sharedTempRoot, delete=False) as tfile:
+        with tempfile.NamedTemporaryFile(suffix=name + '.npy', dir=TransformedImageDataViaTempFile._sharedTempRoot, delete=False) as tfile:
             np.save(tfile, image)
             return tfile.name
 
@@ -167,7 +164,8 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             
             #Create the temporary directory if it doesn't exist
             if not TransformedImageDataViaTempFile._temp_folder_created:
-                TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=tempfile.gettempdir())
+                temp_dir = os.environ['NORNIR_TEMP_DIR'] if 'NORNIR_TEMP_DIR' in os.environ else tempfile.gettempdir()
+                TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
                 TransformedImageDataViaTempFile._temp_folder_created = True
                 atexit.register(shutil.rmtree, TransformedImageDataViaTempFile._sharedTempRoot, ignore_errors=True)
 

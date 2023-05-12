@@ -36,6 +36,12 @@ def default_image_dtype():
     '''
     return np.float16
 
+def default_depth_image_dtype():
+    '''
+    :return: The default dtype for image data
+    '''
+    return np.float32
+
 from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose

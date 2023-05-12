@@ -18,12 +18,10 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 import nornir_pools
 import logging
-import shutil
-import atexit
+import shutil 
 
-from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
-from numpy.distutils.fcompiler import none
-from transformed_image_data import ITransformedImageData
+from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata 
+from nornir_imageregistration.transformed_image_data import ITransformedImageData
 
 class TransformedImageDataViaSharedMemory(ITransformedImageData):
     _image_shared_mem_meta : Shared_Mem_Metadata
@@ -39,27 +37,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient.
     '''
 
-    memmap_threshold: int = 64 * 64
-
-    #
-    #     def __getstate__(self):
-    #         odict = {}
-    #         odict["_image"] = self._image
-    #         odict["_centerDistanceImage"] = self._centerDistanceImage
-    #         odict["_source_space_scale"] = self._source_space_scale
-    #         odict["_transform"] = self._transform
-    #         odict["_errmsg"] = self._errmsg
-    #         odict["_image_path"] = self._image_path
-    #         odict["_centerDistanceImage_path"] = self._centerDistanceImage_path
-    #         odict["_tempdir"] = self._tempdir
-    #         odict["_image_shape"] = self._image_shape
-    #         odict["_centerDistanceImage_shape"] = self._centerDistanceImage_shape
-    #         odict["_image_dtype"] = self._image_dtype
-    #         odict["_centerDistance_dtype"] = self._centerDistance_dtype
-    #         return odict
-    #
-    #     def __setstate__(self, dictionary):
-    #         self.__dict__.update(dictionary)
+    memmap_threshold: int = 64 * 64 
 
     @property
     def image_shared_mem_meta(self) -> Shared_Mem_Metadata:
@@ -121,8 +99,8 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     def Create(cls, image: NDArray, centerDistanceImage: NDArray,
                transform,
                source_space_scale: float, target_space_scale: float,
-               rendered_target_space_origin: Tuple[float, float], SingleThreadedInvoke: bool) -> TransformedImageData:
-        o = TransformedImageData()
+               rendered_target_space_origin: Tuple[float, float], SingleThreadedInvoke: bool) -> TransformedImageDataViaSharedMemory:
+        o = TransformedImageDataViaSharedMemory()
 
         if isinstance(image, nornir_imageregistration.Shared_Mem_Metadata):
             o._image_shared_mem_meta = image
@@ -180,62 +158,9 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     #         self._centerDistanceImage = None
     #
     #     return
-
-    @staticmethod
-    def CreateMemoryMappedFilesForImage(name: str, image: NDArray) -> str:
-        """
-        Save the image to a temporary file and return the name of the temporary file
-        :param name: Suffix to prepend to the filename
-        :param image: NDArray to save
-        :return: name of temporary file
-        """
-
-        if image is None:
-            return None
-
-        with tempfile.NamedTemporaryFile(suffix=name, dir=_sharedTempRoot, delete=False) as tfile:
-            tempfilename = tfile.name
-            np.save(tfile, image)
-            # memmapped_image = np.memmap(tempfilename, dtype=image.dtype, mode='w+', shape=image.shape)
-            # np.copyto(memmapped_image, image)
-            # print("Write %s" % tempfilename)
-
-            # del memmapped_image
-            return tempfilename
-
-    def Clear(self):
-        """Sets attributes to None to encourage garbage collection"""
-        #self._image = None
-        #self._centerDistanceImage = None
-        #self._source_space_scale = None
-        #self._target_space_scale = None
-        #self._transform = None
-
-        #if self._centerDistanceImage_path is not None or self._image_path is not None:
-        #    pool = nornir_pools.GetGlobalMultithreadingPool()
-        #    pool.add_task(self._image_path, TransformedImageData._RemoveTempFiles, self._centerDistanceImage_path,
-        #               self._image_path, self._tempdir)
-        return
-
-    @staticmethod
-    def _RemoveTempFiles(_centerDistanceImage_path, _image_path, _tempdir):
-        try:
-            if _centerDistanceImage_path is not None:
-                os.remove(_centerDistanceImage_path)
-        except IOError as E:
-            logging.warning("Could not delete temporary file {0}".format(_centerDistanceImage_path))
-            pass
-
-        try:
-            if _image_path is not None:
-                os.remove(_image_path)
-        except IOError as E:
-            logging.warning("Could not delete temporary file {0}".format(_image_path))
-            pass
+ 
 
     def __init__(self, errorMsg: str | None = None):
-        #self._image_shared_mem_finalizer = None
-        #self._distance_image_shared_mem_finalizer = None
         self._image_shared_mem_meta = None
         self._center_distance_image_shared_mem_meta = None
         self._image = None
