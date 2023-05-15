@@ -138,7 +138,7 @@ def ShowMosaicSet(test, mosaicTileset, path=None, openwindow=True, usecluster=Tr
     (assembledImage, mask) = mosaicTileset.AssembleImage(usecluster=usecluster,
                                                   target_space_scale=target_space_scale)
     
-    if not path is None: 
+    if path is not None:
         pool = nornir_pools.GetGlobalThreadPool()
         pool.add_task("Save %s" % path, core.SaveImage, path, assembledImage, bpp=8)
         # core.SaveImage(mosaic_path, assembledImage)

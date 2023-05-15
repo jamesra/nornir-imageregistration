@@ -89,9 +89,9 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)
 
-        self.target_offset = np.asarray((self.target_offset[0], self.target_offset[1]), dtype=np.float64)
+        self.target_offset = np.asarray((self.target_offset[0], self.target_offset[1]), dtype=np.float32)
         self.source_space_center_of_rotation = np.asarray((self.source_space_center_of_rotation[0],
-                                                           self.source_space_center_of_rotation[1]), dtype=np.float64)
+                                                           self.source_space_center_of_rotation[1]), dtype=np.float32)
 
         self.OnChangeEventListeners = []
         self.OnTransformChanged()

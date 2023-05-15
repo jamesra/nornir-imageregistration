@@ -96,7 +96,7 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
     if MinOverlap >= MaxOverlap:
         raise ValueError("Minimum overlap must be less than maximum overlap")
  
-    QuadrantSize = np.asarray((CorrelationImageSize[0] / 2.0, CorrelationImageSize[1] / 2.0), dtype=np.float64)
+    QuadrantSize = np.asarray((CorrelationImageSize[0] / 2.0, CorrelationImageSize[1] / 2.0), dtype=np.float32)
     isOddDimension = np.mod(QuadrantSize, 1) > 0
     QuadrantSize = np.ceil(QuadrantSize).astype(np.int32, copy=False)
     Mask = np.zeros(QuadrantSize, dtype=bool)

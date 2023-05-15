@@ -11,12 +11,13 @@ import os
 import tempfile
 import threading
 import time
+import weakref
 from typing import Iterable, Generator, Tuple, List
 from numpy.typing import NDArray, DTypeLike
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble as assemble
-import nornir_imageregistration.transformed_image_data
+import nornir_imageregistration.transformed_image_data_temp_files
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
@@ -31,7 +32,10 @@ DistanceImageCache = {}
 
 # TODO: Use atexit to delete the temporary files
 # TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
-use_memmap = True
+def _use_memmap() -> bool:
+    return False
+
+
 nextNumpyMemMapFilenameIndex = 0
 
 
@@ -83,15 +87,15 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
 
 def CreateDistanceImage(shape, dtype=None):
     if dtype is None:
-        dtype = nornir_imageregistration.default_image_dtype()
+        dtype = nornir_imageregistration.default_depth_image_dtype()
 
     center = [shape[0] / 2.0, shape[1] / 2.0]
 
     x_range = np.linspace(-center[1], center[1], shape[1])
     y_range = np.linspace(-center[0], center[0], shape[0])
 
-    x_range = x_range * x_range
-    y_range = y_range * y_range
+    x_range **= 2
+    y_range **= 2
 
     distance = np.empty(shape, dtype=dtype)
 
@@ -106,7 +110,7 @@ def CreateDistanceImage(shape, dtype=None):
 def CreateDistanceImage2(shape, dtype=None):
     # TODO, this has some obvious optimizations available
     if dtype is None:
-        dtype = nornir_imageregistration.default_image_dtype()
+        dtype = nornir_imageregistration.default_depth_image_dtype()
 
     # center = [shape[0] / 2.0, shape[1] / 2.0]
     shape = np.asarray(shape, dtype=np.int64)
@@ -161,23 +165,22 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
-def EmptyDistanceBuffer(shape, dtype=np.float16):
+def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
     global use_memmap
 
-    fullImageZbuffer = None
+    dtype = np.float16 if dtype is None else dtype
 
-    if False:  # use_memmap:
+    if _use_memmap():  # use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
             shape[0], shape[1], GetProcessAndThreadUniqueString()))
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='w+', shape=shape)
-        fullImageZbuffer[:] = __MaxZBufferValue(dtype)
-        fullImageZbuffer.flush()
-        del fullImageZbuffer
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)
+        fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+        return fullImageZbuffer
+        #fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
     else:
-        fullImageZbuffer = np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+        return np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
-    return fullImageZbuffer
+
 
 
 #
@@ -218,20 +221,21 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
         int(Height),
         int(Width))  # (int(np.ceil(target_space_scale * Height)), int(np.ceil(target_space_scale * Width)))
 
-    if False:  # use_memmap:
+    if _use_memmap():  # use_memmap:
         try:
             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             # print("Open %s" % (fullimage_array_path))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
-            fullImage[:] = 0
+            fullImage.fill(0)
+            finalizer = weakref.finalize(fullImage, os.remove, fullimage_array_path)
         except:
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
     else:
         fullImage = np.zeros(fullImage_shape, dtype=dtype)
 
-    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=np.float32)
+    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape)
     return fullImage, fullImageZbuffer
 
 
@@ -245,7 +249,11 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         #             if use_memmap:
         #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
         #             else:
-        distanceImage = np.load(distance_array_path)
+        distanceImage = np.load(distance_array_path, mmap_mode='r')
+        if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
+            os.remove(distance_array_path)
+            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
+            distanceImage = None
     except FileNotFoundError:
         #print("Distance_image %s does not exist" % distance_array_path)
         pass
@@ -254,7 +262,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         try:
             os.remove(distance_array_path)
         except:
-            print("Unable to delete invalid distance_image: %s" % distance_array_path)
+            prettyoutput.LogErr("Unable to delete invalid distance_image: %s" % distance_array_path)
             pass
 
         pass
@@ -264,7 +272,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         try:
             np.save(distance_array_path, distanceImage)
         except:
-            print("Unable to save invalid distance_image: %s" % distance_array_path)
+            prettyoutput.LogErr("Unable to save invalid distance_image: %s" % distance_array_path)
             pass
 
     return distanceImage
@@ -368,10 +376,10 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
 
         del transformedImageData
 
-    mask = fullImageZbuffer < __MaxZBufferValue(fullImageZbuffer.dtype)
+    mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
     del fullImageZbuffer
 
-    fullImage[fullImage < 0] = 0
+    fullImage = np.maximum(fullImage, 0, out=fullImage)
     # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
     # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
     # fullImage[fullImage > 1.0] = 1.0
@@ -446,6 +454,9 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     timer.Start('Task Execution')
     CheckTaskInterval = multiprocessing.cpu_count() * 2
     tasks = []  # type: List[nornir_pools.Task]
+    #Ensure the shared memory manager has been created so child processes can
+    #access it
+    #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager() 
     for i, tile in enumerate(mosaic_tileset.values()):
         # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
         original_transform_target_rect = tile.TargetSpaceBoundingBox
@@ -484,7 +495,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                     transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
                     __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                         scaled_targetRect)
-                    transformed_image_data.UnlinkSharedImageMemory()
+                    transformed_image_data.Clear()
                     del transformed_image_data
                     del tasks[iTask]
     
@@ -504,7 +515,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                 transformed_image_data = t.wait_return()
                 __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                     scaled_targetRect)
-                transformed_image_data.UnlinkSharedImageMemory()
+                transformed_image_data.Clear()
                 del transformed_image_data
                 del tasks[iTask]
 
@@ -534,7 +545,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
 
 
 def __AddTransformedTileTaskToComposite(task,
-                                        transformedImageData: nornir_imageregistration.transformed_image_data.TransformedImageData,
+                                        transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
                                         fullImage: NDArray,
                                         fullImageZBuffer: NDArray,
                                         scaled_target_rect: nornir_imageregistration.Rectangle | None = None):
@@ -551,7 +562,7 @@ def __AddTransformedTileTaskToComposite(task,
             return fullImage, fullImageZBuffer
 
     CompositeOffset = (transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
-    CompositeOffset = CompositeOffset.astype(np.int64)
+    CompositeOffset = CompositeOffset.astype(np.int32)
 
     try:
         CompositeImageWithZBuffer(fullImage, fullImageZBuffer,
@@ -562,9 +573,7 @@ def __AddTransformedTileTaskToComposite(task,
         # logger = logging.getLogger('TilesToImageParallel')
         prettyoutput.LogErr(f'Could not add tile to composite: {transformedImageData}\n{e}')
         pass
-
-    transformedImageData.Clear()
-
+  
     return
 
 
@@ -582,7 +591,7 @@ def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
                   target_space_scale: float = None,
                   TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
-                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.TransformedImageData:
+                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
     """
        Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
@@ -714,13 +723,13 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
                                                                           cval=[0, __MaxZBufferValue(distanceImage.dtype)],
-                                                                          return_shared_memory=not SingleThreadedInvoke)
+                                                                          return_shared_memory=False)#not SingleThreadedInvoke)
     
     source_image_dtype = source_image.dtype
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data.TransformedImageData.Create(fixedImage,
+    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(fixedImage,
                                                                                        centerDistanceImage,
                                                                                        transform,
                                                                                        source_space_scale,

@@ -110,18 +110,23 @@ class ImageStats():
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
         #if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
         #    image = image.astype(dtype=numpy.float64)
-
-        xp = cp if use_cp else numpy
-
-        flatImage = image.ravel() if use_cp else image.flat
-
-        obj._median = xp.median(flatImage)
-        obj._mean = xp.mean(flatImage)
-        obj._std = xp.std(flatImage)
-        obj._max = xp.max(flatImage)
-        obj._min = xp.min(flatImage)
         
-        del flatImage
+        #This test for a masked array smells bad but began to be required
+        #after upgrading to numpy 1.23.5
+        if isinstance(image, np.ma.MaskedArray): 
+            obj._median = numpy.ma.median(image)
+            obj._mean = numpy.ma.mean(image)
+            obj._std = numpy.ma.std(image)
+            obj._max = numpy.ma.max(image)
+            obj._min = numpy.ma.min(image)
+        else: 
+            flatImage = image.ravel() if use_cp else image.flat
+            obj._median = xp.median(flatImage)
+            obj._mean = xp.mean(flatImage)
+            obj._std = xp.std(flatImage)
+            obj._max = xp.max(flatImage)
+            obj._min = xp.min(flatImage) 
+            del flatImage
          
 #        image.__IrtoolsImageStats__ = obj
         return obj
@@ -157,7 +162,7 @@ class ImageStats():
             use_cp = width * height > 4092
         
         xp = cp if use_cp else numpy
-        data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(float, copy=False)
+        data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
         xp.clip(data, self.min, self.max, out=data) # Ensure random data doesn't change range of the image
         
         if return_numpy and isinstance(data, cp.ndarray):

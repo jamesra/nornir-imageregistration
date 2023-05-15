@@ -5,7 +5,7 @@ scipy image arrays are indexed [y,x]
 import ctypes
 import atexit
 import math
-from multiprocessing import shared_memory
+from multiprocessing import shared_memory, managers
 import multiprocessing.sharedctypes
 import os
 import typing
@@ -42,6 +42,7 @@ from collections.abc import Iterable
 
 from nornir_imageregistration.mmap_metadata import memmap_metadata
 from nornir_imageregistration import ImageLike
+from multiprocessing.shared_memory import SharedMemory
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -99,7 +100,7 @@ def array_distance(array):
     return np.sqrt(np.sum(array ** 2, 1))
 
 
-# def GetBitsPerPixel(File): 
+# def GetBitsPerPixel(File):
 #    return shared_images.GetImageBpp(File)
 
 
@@ -117,7 +118,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
             image = imageparam
         elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max 
+            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
         else:
             image = imageparam.astype(dtype=dtype, copy=False)
     elif isinstance(imageparam, cp.ndarray):
@@ -131,11 +132,11 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam, dtype=dtype)
     elif isinstance(imageparam, nornir_imageregistration.Shared_Mem_Metadata):
-        shared_mem = shared_memory.SharedMemory(name=imageparam.name)
+        shared_mem = shared_memory.SharedMemory(name=imageparam.name, create=False)
         image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
         image.setflags(write=not imageparam.readonly)
         finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, imageparam)
-        __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer 
+        __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:
             dtype = imageparam.dtype
@@ -470,7 +471,7 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam:np.ndarray | str, Xo: int, Yo: int, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
+def CropImage(imageparam:NDArray | str, Xo: int, Yo: int, Width:int, Height:int, cval: float | int | str = None, image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
        If the requested area is outside the bounds of the array then the correct region is returned
@@ -586,19 +587,24 @@ def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
     scope if you are responsible for unlinking it.
     '''
     if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
-        if input.name in __known_shared_memory_allocations:
-            shared_mem, finalizer = __known_shared_memory_allocations[input.name]
-            finalizer()
-            try:
-                del __known_shared_memory_allocations[input.name]
-            except KeyError:
-                pass
-                
+        if input.shared_memory is not None:
+            input.shared_memory.close()
+    elif isinstance(input, SharedMemory):
+        input.close()
+
+        #if input.name in __known_shared_memory_allocations:
+        #    shared_mem, finalizer = __known_shared_memory_allocations[input.name]
+        #    shared_mem.close()
+        #    try:
+        #        del __known_shared_memory_allocations[input.name]
+        #    except KeyError:
+        #        pass
+
 
 def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
     '''
     Checks if the input is shared memory, if it is, closes it to indicate
-    this process is done using it and unlinks it to free the underlying 
+    this process is done using it and unlinks it to free the underlying
     memory block.  This renders it unusable for all other processes as well.
     Make sure the array does not go out of
     scope if you are responsible for unlinking it.
@@ -621,17 +627,18 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     when it is no longer in use.
     :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
     """
+
     use_cp = isinstance(input, cp.ndarray)
     if use_cp:
         input = input.get()
          
-    shared_mem = shared_memory.SharedMemory(create=True, size=input.nbytes)
+    shared_mem = SharedMemory(create=True, size=input.nbytes)
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
-    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=None)
 
     #Create a finalizer to close the shared memory when the array is garbage collected
-    finalizer = weakref.finalize(shared_array, close_shared_memory, output)
+    finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)
     __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
     return output, shared_array
 
@@ -640,14 +647,16 @@ def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike) -> tuple[n
     when it is no longer in use.
     :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
     """
+    #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
     byte_size = shape.prod() * dtype.itemsize
-    shared_mem = shared_memory.SharedMemory(create=True, size=int(byte_size))
+    #shared_mem = shared_memory_manager.SharedMemory(size=int(byte_size))
+    shared_mem = SharedMemory(size=int(byte_size))
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
-    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True)
+    output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=None)
 
     #Create a finalizer to close the shared memory when the array is garbage collected
-    #finalizer = weakref.finalize(shared_array, close_shared_memory, output)
-    finalizer = None
+    finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)
+    #finalizer = None
     __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
     return output, shared_array
 
@@ -986,7 +995,7 @@ def LoadImage(ImageFullPath: str,
     return image
 
 
-def NormalizeImage(image):
+def NormalizeImage(image: NDArray):
     """Adjusts the image to have a range of 0 to 1.0"""
 
     miniszeroimage = image - image.min()
@@ -1034,11 +1043,11 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid
 
 
-def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.ndarray=None, coord_offset=None, cval=0):
-    """An iterator generating all tiles for an image
-    :param source_image:
-    :param np.ndarray tile_size: Shape of each tile
-    :param np.ndarray grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
+def ImageToTilesGenerator(source_image: NDArray, tile_size: NDArray, grid_shape:NDArray | None = None, coord_offset=None, cval=0):
+    """An iterator generating that divides a large image into a collection of smaller non-overlapping tiles.
+    :param source_image: The image to divide
+    :param tile_size: Shape of each tile
+    :param grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :return: (iCol,iRow, tile_image)
@@ -1052,7 +1061,6 @@ def ImageToTilesGenerator(source_image, tile_size: np.ndarray, grid_shape:np.nda
 
     (required_shape) = grid_shape * tile_size
 
-    source_image_padded = None
     if not np.array_equal(source_image.shape, required_shape):
         source_image_padded = CropImage(source_image,
                                         Xo=0, Yo=0,

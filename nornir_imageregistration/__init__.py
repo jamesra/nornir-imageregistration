@@ -34,6 +34,12 @@ def default_image_dtype():
     '''
     :return: The default dtype for image data
     '''
+    return np.float16
+
+def default_depth_image_dtype():
+    '''
+    :return: The default dtype for image data
+    '''
     return np.float32
 
 from numpy.typing import *
@@ -177,6 +183,9 @@ from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
 import nornir_imageregistration.shared_mem_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
+
+import nornir_imageregistration.transformed_image_data
+from nornir_imageregistration.transformed_image_data import ITransformedImageData
 
 import nornir_imageregistration.igrid as igrid
 from nornir_imageregistration.igrid import IGrid
