@@ -94,8 +94,8 @@ def CreateDistanceImage(shape, dtype=None):
     x_range = np.linspace(-center[1], center[1], shape[1])
     y_range = np.linspace(-center[0], center[0], shape[0])
 
-    x_range = x_range * x_range
-    y_range = y_range * y_range
+    x_range **= 2
+    y_range **= 2
 
     distance = np.empty(shape, dtype=dtype)
 
