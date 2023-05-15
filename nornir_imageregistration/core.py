@@ -612,7 +612,7 @@ def npArrayToReadOnlySharedArray(input: NDArray) -> tuple[nornir_imageregistrati
     """
     #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
     #shared_mem = shared_memory_manager.SharedMemory(size=input.nbytes)
-    shared_mem = SharedMemory(size=input.nbytes)
+    shared_mem = SharedMemory(size=input.nbytes, create=True)
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=None)
@@ -630,7 +630,7 @@ def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike) -> tuple[n
     #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
     byte_size = shape.prod() * dtype.itemsize
     #shared_mem = shared_memory_manager.SharedMemory(size=int(byte_size))
-    shared_mem = SharedMemory(size=int(byte_size))
+    shared_mem = SharedMemory(size=int(byte_size), create=True)
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype, shape=shared_array.shape, readonly=True, shared_memory=None)
 
