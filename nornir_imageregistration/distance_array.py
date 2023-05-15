@@ -11,7 +11,6 @@ class DistanceSquaredArray(np.ndarray):
 
     def __new__(cls, shape, *args, **kwargs):
         obj = np.empty(shape, dtype=np.float32).view(cls)
-        ndims = len(shape)
         obj._center = np.zeros(len(shape))
         obj._distances = []
         obj._odd_dimension = np.zeros(len(shape), dtype=bool)
@@ -34,8 +33,6 @@ class DistanceSquaredArray(np.ndarray):
         return obj
 
     def __getitem__(self, index):
-        #print(self._distances)
-        #print(f'{index}')
         ndims = len(self.shape)
         output = []
         for i, slice in enumerate(index):
@@ -65,7 +62,6 @@ class DistanceArray(DistanceSquaredArray):
             return result
         else:
             return np.sqrt(result)
-
 
 
 if __name__ == '__main__':

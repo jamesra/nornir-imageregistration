@@ -64,7 +64,7 @@ def CompositeImage(FullImage, SubImage, offset):
     return FullImage
 
 
-def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offset):
+def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float], SubImage: NDArray, SubZBuffer: NDArray[float], offset: tuple[int, int]):
     minX = int(offset[1])
     minY = int(offset[0])
     maxX = int(minX + SubImage.shape[1])
@@ -168,7 +168,7 @@ def __MaxZBufferValue(dtype):
 def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
     global use_memmap
 
-    dtype = np.float16 if dtype is None else dtype
+    dtype = nornir_imageregistration.default_depth_image_dtype() if dtype is None else dtype
 
     if _use_memmap():  # use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
@@ -181,9 +181,6 @@ def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
         return np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
 
-
-
-#
 # def __CreateOutputBufferForTransforms(transforms, target_space_scale=None):
 #     '''Create output images using the passed rectangle
 #     :param tuple rectangle: (minY, minX, maxY, maxX)
@@ -243,7 +240,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
 
     distanceImage = None
-  
+
     # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
     try:
         #             if use_memmap:
@@ -282,9 +279,8 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
     '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
 
     assert (len(imageShape) == 2)
-    size = imageShape
     if distanceImage is not None:
-        if np.array_equal(distanceImage.shape, size):
+        if np.array_equal(distanceImage.shape, imageShape):
             return distanceImage
 
     return __GetOrCreateCachedDistanceImage(imageShape)
