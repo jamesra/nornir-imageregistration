@@ -1,7 +1,9 @@
+import math
+
 import numpy as np
 
 
-class DistanceArray(np.ndarray):
+class DistanceSquaredArray(np.ndarray):
     '''
     This returns the distance from any index to the center specified at creation, however it
     uses a function to calculate the distance instead of storing the values in memory
@@ -23,26 +25,18 @@ class DistanceArray(np.ndarray):
             obj._center[i] = center
 
             if is_odd_shape:
-                dist_values_squared = np.linspace(0, half_dim_size, num=half_dim_size + 1)
+                dist_values_squared = np.linspace(-half_dim_size, half_dim_size, num=dim_size)
             else:
-                dist_values_squared = np.linspace(0.5, half_dim_size - 0.5, num=half_dim_size)
+                dist_values_squared = np.linspace(-(half_dim_size - 0.5), half_dim_size - 0.5, num=dim_size)
 
-            #center += ((dim_size % 2) - 1) / 2.0
-            #dist_values_squared = np.linspace(-center, center, dim_size)
             dist_values_squared **= 2
-
-            #dim_reshape = [1] * ndims
-            #dim_reshape[i] = len(dist_values_squared)
-
             obj._distances.append(dist_values_squared)
         return obj
 
     def __getitem__(self, index):
-        print(self._distances)
-        print(f'{index}')
-        value = None
+        #print(self._distances)
+        #print(f'{index}')
         ndims = len(self.shape)
-        desired_shape = [1] * ndims
         output = []
         for i, slice in enumerate(index):
             a = self._distances[i][slice]
@@ -51,24 +45,38 @@ class DistanceArray(np.ndarray):
                 dim_reshape = [1] * ndims
                 dim_reshape[i] = len(a)
                 reshaped_a = a.reshape(dim_reshape)
-                print(f'i: {i} -> {a} -> res: {dim_reshape} -> {reshaped_a}')
+                #print(f'i: {i} -> {a} -> res: {dim_reshape} -> {reshaped_a}')
+                output.append(reshaped_a)
             else:
-                reshaped_a = a
-
-            output.append(reshaped_a)
+                output.append(a)
 
         o = np.broadcast_arrays(*output)
         sum = np.sum(o, axis=0)
-        print(f'o: {o} -> sum: {sum}')
-            # if value is None:
-            #     value = reshaped_a
-            # else:
-            #     value = np.add(value, reshaped_a)
+        return sum
 
-        return value
+class DistanceArray(DistanceSquaredArray):
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(cls, *args, **kwargs)
+
+    def __getitem__(self, index):
+        result = super().__getitem__(index)
+        if isinstance(result, np.ndarray):
+            np.sqrt(result, out=result)
+            return result
+        else:
+            return np.sqrt(result)
+
+
 
 if __name__ == '__main__':
-    da = DistanceArray((8,7))
+    da = DistanceSquaredArray((4,3))
+    print(f'distance: {da}')
     print(f'distance: {da[1:3,0:3]}')
     print(f'distance: {da[1,0:3]}')
     print(f'distance: {da[:,0:3]}')
+
+    da = DistanceArray((8, 7))
+    print(f'distance: {da}')
+    print(f'distance: {da[1:3, 0:3]}')
+    print(f'distance: {da[1, 0:3]}')
+    print(f'distance: {da[:, 0:3]}')
