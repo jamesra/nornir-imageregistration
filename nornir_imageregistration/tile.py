@@ -4,7 +4,6 @@ Created on Feb 21, 2014
 @author: u0490822
 '''
 
-import os
 import nornir_imageregistration
 import numpy as np
 from typing import Tuple

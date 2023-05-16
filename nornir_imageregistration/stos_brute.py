@@ -328,8 +328,8 @@ def _find_best_angle(imFixed: NDArray[float],
         #temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
         #temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
 
-        shared_fixed_metadata, SharedPaddedFixed = nornir_imageregistration.npArrayToReadOnlySharedArray(PaddedFixed)
-        shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToReadOnlySharedArray(imWarped)
+        shared_fixed_metadata, SharedPaddedFixed = nornir_imageregistration.npArrayToSharedArray(PaddedFixed)
+        shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToSharedArray(imWarped)
         # SharedPaddedFixed = np.save(PaddedFixed, )
     else:
         SharedPaddedFixed = PaddedFixed.astype(nornir_imageregistration.default_image_dtype(), copy=False)

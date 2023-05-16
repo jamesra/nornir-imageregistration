@@ -130,10 +130,11 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
 
     def ConvertToSharedMemory(self):
         if self._image_shared_mem_meta is None and self._image is not None:
-            self._image_shared_mem_meta, self._image = nornir_imageregistration.npArrayToReadOnlySharedArray(self._image)
+            self._image_shared_mem_meta, self._image = nornir_imageregistration.npArrayToSharedArray(self._image)
 
         if self._center_distance_image_shared_mem_meta is None and self._centerDistanceImage is not None:
-            self._center_distance_image_shared_mem_meta, self._centerDistanceImage = nornir_imageregistration.npArrayToReadOnlySharedArray(self._centerDistanceImage)
+            self._center_distance_image_shared_mem_meta, self._centerDistanceImage = nornir_imageregistration.npArrayToSharedArray(
+                self._centerDistanceImage)
 
     def Clear(self):
         if self._image_shared_mem_meta is not None:

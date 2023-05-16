@@ -1,5 +1,6 @@
 from typing import NamedTuple
 from numpy.typing import DTypeLike
+from multiprocessing.synchronize import Semaphore
 from multiprocessing.shared_memory import SharedMemory
 
 class Shared_Mem_Metadata(NamedTuple):
@@ -7,4 +8,4 @@ class Shared_Mem_Metadata(NamedTuple):
     shape: tuple
     dtype: DTypeLike
     readonly: bool
-    shared_memory: SharedMemory
+    shared_memory: SharedMemory | None

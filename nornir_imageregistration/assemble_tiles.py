@@ -64,7 +64,9 @@ def CompositeImage(FullImage, SubImage, offset):
     return FullImage
 
 
-def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float], SubImage: NDArray, SubZBuffer: NDArray[float], offset: tuple[int, int]):
+def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float],
+                              SubImage: NDArray, SubZBuffer: NDArray[float],
+                              offset: tuple[int, int]):
     minX = int(offset[1])
     minY = int(offset[0])
     maxX = int(minX + SubImage.shape[1])
@@ -79,8 +81,9 @@ def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float], S
         raise ValueError("Buffers have zero dimensions")
 
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] >= SubZBuffer
-    FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
     FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
+
+    FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
 
     return
 
@@ -442,13 +445,17 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
         raise ValueError("Mosaic Tileset has no tiles.")
 
     distance_image = __GetOrCreateDistanceImage(None, first_tile.ImageSize)
-    distance_image_shared_meta, distance_image = nornir_imageregistration.npArrayToReadOnlySharedArray(distance_image)
-    try:
-        output_dtype = nornir_imageregistration.default_image_dtype()
-        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
-                                                                    dtype=output_dtype)
+    distance_image_shared_meta, distance_image = nornir_imageregistration.npArrayToSharedArray(distance_image)
 
-        timer.End('Prep')
+    output_dtype = nornir_imageregistration.default_image_dtype()
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
+                                                                dtype=output_dtype)
+    full_image_shared_meta, fullImage = nornir_imageregistration.npArrayToSharedArray(fullImage, read_only=False)
+    full_distance_shared_meta, fullImageZbuffer = nornir_imageregistration.npArrayToSharedArray(fullImageZbuffer, read_only=False)
+
+    timer.End('Prep')
+
+    try:
         timer.Start('Task Queuing')
         timer.Start('Task Execution')
         CheckTaskInterval = multiprocessing.cpu_count() * 2
@@ -473,10 +480,12 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
             #scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
 
             task = pool.add_task(f"TransformTile {tile.ImagePath}",
-                                 TransformTile, tile=tile,
+                                 TransformTileAndComposite, tile=tile,
                                  distanceImage=distance_image_shared_meta,
                                  target_space_scale=target_space_scale, TargetRegion=regionToRender,
-                                 SingleThreadedInvoke=False)
+                                 composite_image_shared_meta=full_image_shared_meta,
+                                 composite_distance_shared_meta=full_distance_shared_meta,
+                                 scaled_target_rect=scaled_targetRect)
             task.transform = tile.Transform
             task.regionToRender = regionToRender
             #task.scaled_region_rendered = scaled_region_rendered
@@ -491,11 +500,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
                 while iTask >= 0:
                     t = tasks[iTask]
                     if t.iscompleted:
-                        transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
-                        __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
-                                                            scaled_targetRect)
-                        transformed_image_data.Clear()
-                        del transformed_image_data
+                        success = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
                         del tasks[iTask]
 
                     iTask -= 1
@@ -511,11 +516,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
             while iTask >= 0:
                 t = tasks[iTask]
                 if t.iscompleted:
-                    transformed_image_data = t.wait_return()
-                    __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
-                                                        scaled_targetRect)
-                    transformed_image_data.Clear()
-                    del transformed_image_data
+                    success = t.wait_return()
                     del tasks[iTask]
 
                 iTask -= 1
@@ -543,10 +544,11 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
         return fullImage, mask
     finally:
         nornir_imageregistration.unlink_shared_memory(distance_image_shared_meta)
+        nornir_imageregistration.unlink_shared_memory(full_image_shared_meta)
+        nornir_imageregistration.unlink_shared_memory(full_distance_shared_meta)
 
 
-def __AddTransformedTileTaskToComposite(task,
-                                        transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
+def __AddTransformedTileTaskToComposite(transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
                                         fullImage: NDArray,
                                         fullImageZBuffer: NDArray,
                                         scaled_target_rect: nornir_imageregistration.Rectangle | None = None):
@@ -604,8 +606,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
        :param SingleThreadedInvoke:
        :param TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
     """
-    if distanceImage is not None:
-        distanceImage = nornir_imageregistration.ImageParamToImageArray(distanceImage)
+
 
     TargetRegionRect = None
     if TargetRegion is not None:
@@ -686,39 +687,10 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     target_minX = int(target_minX)
     target_minY = int(target_minY)
 
-    # if TargetRegion is None:
-    #     TargetRegion = nornir_imageregistration.Rectangle.SafeRound(tile.TargetSpaceBoundingBox)
-    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(tile.TargetSpaceBoundingBox, target_space_scale)
-    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
-    #
-    #     width = Scaled_TargetRegionRect.Width
-    #     height = Scaled_TargetRegionRect.Height
+    if distanceImage is not None:
+        distanceImage = nornir_imageregistration.ImageParamToImageArray(distanceImage)
 
-    # if TargetRegion is None:
-    #     if hasattr(transform, 'FixedBoundingBox'):
-    #         width = transform.FixedBoundingBox.Width
-    #         height = transform.FixedBoundingBox.Height
-    #
-    #         TargetRegionRect = transform.FixedBoundingBox
-    #         TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
-    #         Scaled_TargetRegionRect = TargetRegionRect
-    #
-    #         (minY, minX, maxY, maxX) = TargetRegionRect.ToTuple()
-    #     else:
-    #         width = warpedImage.shape[1]
-    #         height = warpedImage.shape[0]
-    #         TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), warpedImage.shape)
-    #         Scaled_TargetRegionRect = TargetRegionRect
-    # else:
-    #     assert(len(TargetRegion) == 4)
-    #     (minY, minX, maxY, maxX) = Scaled_TargetRegionRect.ToTuple()
-    #     height = maxY - minY
-    #     width = maxX - minX
-
-    # Round up to the nearest integer value
-    #height = np.ceil(height)
-    #width = np.ceil(width)
-
+    #Even if we have a distance image, double-check that the dimensions are correct for this tile
     distanceImage = __GetOrCreateDistanceImage(distanceImage, source_image.shape[0:2])
 
     (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,
@@ -740,6 +712,45 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                                        rendered_target_space_origin=(target_minY * (1.0 / target_space_scale), target_minX * (1.0 / target_space_scale)),
                                                                                        SingleThreadedInvoke=SingleThreadedInvoke)
 
+def TransformTileAndComposite(tile: nornir_imageregistration.Tile,
+                              distanceImage: NDArray | None,
+                              target_space_scale: float,
+                              TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None,
+                              composite_image_shared_meta: nornir_imageregistration.Shared_Mem_Metadata,
+                              composite_distance_shared_meta: nornir_imageregistration.Shared_Mem_Metadata,
+                              scaled_target_rect: nornir_imageregistration.Rectangle):
+    '''
+    This function replaced a direct call to TransformTile from TilesToImageParallel.  It runs the composite operation
+    in the child process instead of marshalling results back to the parent process
+    :param tile:
+    :param distanceImage:
+    :param target_space_scale:
+    :param TargetRegion:
+    :param composite_image_shared_meta:
+    :param composite_distance_shared_meta:
+    :return:
+    '''
+    transformed_image_data = TransformTile(tile=tile, distanceImage=distanceImage, target_space_scale=target_space_scale,
+                                           TargetRegion=TargetRegion, SingleThreadedInvoke=True)
+
+    try:
+
+        composite_image_shared = nornir_imageregistration.ImageParamToImageArray(composite_image_shared_meta)
+        composite_distance_shared = nornir_imageregistration.ImageParamToImageArray(composite_distance_shared_meta)
+        nornir_pools.shared_lock.acquire()
+        try:
+            __AddTransformedTileTaskToComposite(transformed_image_data,
+                                      fullImage=composite_image_shared, fullImageZBuffer=composite_distance_shared,
+                                      scaled_target_rect=scaled_target_rect)
+
+            return True
+        except ValueError as e:
+            # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
+            # logger = logging.getLogger('TilesToImageParallel')
+            prettyoutput.LogErr(f'Could not add tile to composite: {transformed_image_data}\n{e}')
+            return False
+    finally:
+        nornir_pools.shared_lock.release()
 
 if __name__ == '__main__':
     pass
