@@ -23,6 +23,7 @@ import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
 
 import nornir_shared.tasktimer
+import transformed_image_data
 
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
@@ -82,9 +83,7 @@ def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float],
 
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] >= SubZBuffer
     FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
-
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
-
     return
 
 
@@ -742,13 +741,19 @@ def TransformTileAndComposite(tile: nornir_imageregistration.Tile,
             __AddTransformedTileTaskToComposite(transformed_image_data,
                                       fullImage=composite_image_shared, fullImageZBuffer=composite_distance_shared,
                                       scaled_target_rect=scaled_target_rect)
-
+            
+            
+            transformed_image_data.Clear()
+            del transformed_image_data
+        
             return True
         except ValueError as e:
             # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
             # logger = logging.getLogger('TilesToImageParallel')
             prettyoutput.LogErr(f'Could not add tile to composite: {transformed_image_data}\n{e}')
             return False
+        
+        
     finally:
         nornir_pools.shared_lock.release()
 
