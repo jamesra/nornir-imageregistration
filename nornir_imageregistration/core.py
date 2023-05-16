@@ -645,7 +645,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     Generate random data of shape with the specified mean and standard deviation
     """
     dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
-    image = (np.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
+    image = ((np.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
     np.clip(image, a_min=min_val, a_max=max_val, out=image)
 
     return image
