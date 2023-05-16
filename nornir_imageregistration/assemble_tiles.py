@@ -250,6 +250,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         #             else:
         distanceImage = np.load(distance_array_path, mmap_mode='r')
         if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
+            distanceImage = None 
             os.remove(distance_array_path)
             prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
             distanceImage = None
@@ -543,7 +544,7 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
         return fullImage, mask
     finally:
         nornir_imageregistration.unlink_shared_memory(distance_image_shared_meta)
-        nornir_imageregistration.unlink_shared_memory(full_image_shared_meta)
+        #nornir_imageregistration.unlink_shared_memory(full_image_shared_meta)
         nornir_imageregistration.unlink_shared_memory(full_distance_shared_meta)
 
 
