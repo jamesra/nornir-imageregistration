@@ -275,7 +275,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     return distanceImage
 
 
-def __GetOrCreateDistanceImage(distanceImage, imageShape):
+def __GetOrCreateDistanceImage(distanceImage: NDArray | None, imageShape):
     '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
 
     assert (len(imageShape) == 2)
@@ -441,103 +441,108 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     if first_tile is None:
         raise ValueError("Mosaic Tileset has no tiles.")
 
-    output_dtype = nornir_imageregistration.default_image_dtype()
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
-                                                                dtype=output_dtype)
+    distance_image = __GetOrCreateDistanceImage(None, first_tile.ImageSize)
+    distance_image_shared_meta, distance_image = nornir_imageregistration.npArrayToReadOnlySharedArray(distance_image)
+    try:
+        output_dtype = nornir_imageregistration.default_image_dtype()
+        (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
+                                                                    dtype=output_dtype)
 
-    timer.End('Prep')
-    timer.Start('Task Queuing')
-    timer.Start('Task Execution')
-    CheckTaskInterval = multiprocessing.cpu_count() * 2
-    tasks = []  # type: List[nornir_pools.Task]
-    #Ensure the shared memory manager has been created so child processes can
-    #access it
-    #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager() 
-    for i, tile in enumerate(mosaic_tileset.values()):
-        # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
-        original_transform_target_rect = tile.TargetSpaceBoundingBox
-        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
+        timer.End('Prep')
+        timer.Start('Task Queuing')
+        timer.Start('Task Execution')
+        CheckTaskInterval = multiprocessing.cpu_count() * 2
+        tasks = []  # type: List[nornir_pools.Task]
+        #Ensure the shared memory manager has been created so child processes can
+        #access it
+        #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
+        for i, tile in enumerate(mosaic_tileset.values()):
+            # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
+            original_transform_target_rect = tile.TargetSpaceBoundingBox
+            transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
 
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
-        if regionToRender is None:
-            continue
+            regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
+            if regionToRender is None:
+                continue
 
-        if regionToRender.Area == 0:
-            continue
+            if regionToRender.Area == 0:
+                continue
 
-        #Replaced by rendered_target_space_origin on TransformedImageData
-        #scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
-        #scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
+            #Replaced by rendered_target_space_origin on TransformedImageData
+            #scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
+            #scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
 
-        task = pool.add_task(f"TransformTile {tile.ImagePath}",
-                             TransformTile, tile=tile,
-                             distanceImage=None,
-                             target_space_scale=target_space_scale, TargetRegion=regionToRender,
-                             SingleThreadedInvoke=False)
-        task.transform = tile.Transform
-        task.regionToRender = regionToRender
-        #task.scaled_region_rendered = scaled_region_rendered
-        task.transform_fixed_rect = transform_target_rect
-        tasks.append(task)
+            task = pool.add_task(f"TransformTile {tile.ImagePath}",
+                                 TransformTile, tile=tile,
+                                 distanceImage=distance_image_shared_meta,
+                                 target_space_scale=target_space_scale, TargetRegion=regionToRender,
+                                 SingleThreadedInvoke=False)
+            task.transform = tile.Transform
+            task.regionToRender = regionToRender
+            #task.scaled_region_rendered = scaled_region_rendered
+            task.transform_fixed_rect = transform_target_rect
+            tasks.append(task)
 
-        if not i % CheckTaskInterval == 0:
-            continue
+            if not i % CheckTaskInterval == 0:
+                continue
 
-        while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
+            while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
+                iTask = len(tasks) - 1
+                while iTask >= 0:
+                    t = tasks[iTask]
+                    if t.iscompleted:
+                        transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
+                        __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
+                                                            scaled_targetRect)
+                        transformed_image_data.Clear()
+                        del transformed_image_data
+                        del tasks[iTask]
+
+                    iTask -= 1
+
+                if len(tasks) > CheckTaskInterval: # Sleep a while if we are still over the limit
+                    time.sleep(0.1)
+        timer.End('Task Queuing')
+        logger.info('All warps queued, integrating results into final image')
+
+        while len(tasks) > 0:
+            # Pass through the entire loop and eliminate completed tasks in case any finished out of order
             iTask = len(tasks) - 1
             while iTask >= 0:
                 t = tasks[iTask]
                 if t.iscompleted:
-                    transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
+                    transformed_image_data = t.wait_return()
                     __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                         scaled_targetRect)
                     transformed_image_data.Clear()
                     del transformed_image_data
                     del tasks[iTask]
-    
+
                 iTask -= 1
-            
-            if len(tasks) > CheckTaskInterval: # Sleep a while if we are still over the limit
-                time.sleep(0.1)
-    timer.End('Task Queuing')
-    logger.info('All warps queued, integrating results into final image')
 
-    while len(tasks) > 0:
-        # Pass through the entire loop and eliminate completed tasks in case any finished out of order
-        iTask = len(tasks) - 1
-        while iTask >= 0:
-            t = tasks[iTask]
-            if t.iscompleted:
-                transformed_image_data = t.wait_return()
-                __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
-                                                    scaled_targetRect)
-                transformed_image_data.Clear()
-                del transformed_image_data
-                del tasks[iTask]
+            if len(tasks) > 0:
+                time.sleep(0.1) #Give tasks some time to complete before we interrogate again
 
-            iTask -= 1
+        timer.End('Task Execution')
+        logger.info('Final image complete, building mask')
 
-        if len(tasks) > 0:
-            time.sleep(0.1) #Give tasks some time to complete before we interrogate again
+        mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
+        del fullImageZbuffer
 
-    timer.End('Task Execution')
-    logger.info('Final image complete, building mask')
+        #fullImage = np.clip(fullImage, 0, 1.0, out=fullImage)
+        fullImage = np.maximum(fullImage, 0, out=fullImage)
+        # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+        # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+        # fullImage[fullImage > 1.0] = 1.0
 
-    mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
-    del fullImageZbuffer
+        logger.info('Assemble complete')
 
-    #fullImage = np.clip(fullImage, 0, 1.0, out=fullImage)
-    fullImage = np.maximum(fullImage, 0, out=fullImage)
-    # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
-    # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
-    # fullImage[fullImage > 1.0] = 1.0
+        if isinstance(fullImage, np.memmap):
+            fullImage.flush()
 
-    logger.info('Assemble complete')
-
-    if isinstance(fullImage, np.memmap):
-        fullImage.flush()
-
-    return fullImage, mask
+        return fullImage, mask
+    finally:
+        nornir_imageregistration.unlink_shared_memory(distance_image_shared_meta)
 
 
 def __AddTransformedTileTaskToComposite(task,
@@ -599,6 +604,8 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
        :param SingleThreadedInvoke:
        :param TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
     """
+    if distanceImage is not None:
+        distanceImage = nornir_imageregistration.ImageParamToImageArray(distanceImage)
 
     TargetRegionRect = None
     if TargetRegion is not None:
