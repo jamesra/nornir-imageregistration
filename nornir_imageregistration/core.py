@@ -119,7 +119,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
         shared_mem = shared_memory.SharedMemory(name=imageparam.name, create=False)
         image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
         image.setflags(write=not imageparam.readonly)
-        finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, imageparam)
+        finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, shared_mem)
         __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:

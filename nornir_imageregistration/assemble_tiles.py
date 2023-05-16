@@ -252,8 +252,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
             distanceImage = None 
             os.remove(distance_array_path)
-            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
-            distanceImage = None
+            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path) 
     except FileNotFoundError:
         #print("Distance_image %s does not exist" % distance_array_path)
         pass
