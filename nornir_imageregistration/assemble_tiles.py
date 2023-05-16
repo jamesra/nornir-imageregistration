@@ -23,7 +23,6 @@ import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
 
 import nornir_shared.tasktimer
-import transformed_image_data
 
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
@@ -65,9 +64,7 @@ def CompositeImage(FullImage, SubImage, offset):
     return FullImage
 
 
-def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float],
-                              SubImage: NDArray, SubZBuffer: NDArray[float],
-                              offset: tuple[int, int]):
+def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offset):
     minX = int(offset[1])
     minY = int(offset[0])
     maxX = int(minX + SubImage.shape[1])
@@ -82,8 +79,9 @@ def CompositeImageWithZBuffer(FullImage: NDArray, FullZBuffer: NDArray[float],
         raise ValueError("Buffers have zero dimensions")
 
     iUpdate = FullZBuffer[minY:maxY, minX:maxX] >= SubZBuffer
-    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
     FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
+    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
+
     return
 
 
@@ -170,7 +168,7 @@ def __MaxZBufferValue(dtype):
 def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
     global use_memmap
 
-    dtype = nornir_imageregistration.default_depth_image_dtype() if dtype is None else dtype
+    dtype = np.float16 if dtype is None else dtype
 
     if _use_memmap():  # use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
@@ -183,6 +181,9 @@ def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
         return np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
 
+
+
+#
 # def __CreateOutputBufferForTransforms(transforms, target_space_scale=None):
 #     '''Create output images using the passed rectangle
 #     :param tuple rectangle: (minY, minX, maxY, maxX)
@@ -242,7 +243,7 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
 
     distanceImage = None
-
+  
     # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
     try:
         #             if use_memmap:
@@ -250,9 +251,9 @@ def __GetOrCreateCachedDistanceImage(imageShape):
         #             else:
         distanceImage = np.load(distance_array_path, mmap_mode='r')
         if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
-            distanceImage = None 
             os.remove(distance_array_path)
-            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path) 
+            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
+            distanceImage = None
     except FileNotFoundError:
         #print("Distance_image %s does not exist" % distance_array_path)
         pass
@@ -277,12 +278,13 @@ def __GetOrCreateCachedDistanceImage(imageShape):
     return distanceImage
 
 
-def __GetOrCreateDistanceImage(distanceImage: NDArray | None, imageShape):
+def __GetOrCreateDistanceImage(distanceImage, imageShape):
     '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
 
     assert (len(imageShape) == 2)
+    size = imageShape
     if distanceImage is not None:
-        if np.array_equal(distanceImage.shape, imageShape):
+        if np.array_equal(distanceImage.shape, size):
             return distanceImage
 
     return __GetOrCreateCachedDistanceImage(imageShape)
@@ -443,111 +445,107 @@ def TilesToImageParallel(mosaic_tileset : nornir_imageregistration.MosaicTileset
     if first_tile is None:
         raise ValueError("Mosaic Tileset has no tiles.")
 
-    distance_image = __GetOrCreateDistanceImage(None, first_tile.ImageSize)
-    distance_image_shared_meta, distance_image = nornir_imageregistration.npArrayToSharedArray(distance_image)
-
     output_dtype = nornir_imageregistration.default_image_dtype()
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
                                                                 dtype=output_dtype)
-    full_image_shared_meta, fullImage = nornir_imageregistration.npArrayToSharedArray(fullImage, read_only=False)
-    full_distance_shared_meta, fullImageZbuffer = nornir_imageregistration.npArrayToSharedArray(fullImageZbuffer, read_only=False)
 
     timer.End('Prep')
+    timer.Start('Task Queuing')
+    timer.Start('Task Execution')
+    CheckTaskInterval = multiprocessing.cpu_count() * 2
+    tasks = []  # type: List[nornir_pools.Task]
+    #Ensure the shared memory manager has been created so child processes can
+    #access it
+    #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager() 
+    for i, tile in enumerate(mosaic_tileset.values()):
+        # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
+        original_transform_target_rect = tile.TargetSpaceBoundingBox
+        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
 
-    try:
-        timer.Start('Task Queuing')
-        timer.Start('Task Execution')
-        CheckTaskInterval = multiprocessing.cpu_count() * 2
-        tasks = []  # type: List[nornir_pools.Task]
-        #Ensure the shared memory manager has been created so child processes can
-        #access it
-        #shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
-        for i, tile in enumerate(mosaic_tileset.values()):
-            # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
-            original_transform_target_rect = tile.TargetSpaceBoundingBox
-            transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
+        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
+        if regionToRender is None:
+            continue
 
-            regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
-            if regionToRender is None:
-                continue
+        if regionToRender.Area == 0:
+            continue
 
-            if regionToRender.Area == 0:
-                continue
+        #Replaced by rendered_target_space_origin on TransformedImageData
+        #scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
+        #scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
 
-            #Replaced by rendered_target_space_origin on TransformedImageData
-            #scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
-            #scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
+        task = pool.add_task(f"TransformTile {tile.ImagePath}",
+                             TransformTile, tile=tile,
+                             distanceImage=None,
+                             target_space_scale=target_space_scale, TargetRegion=regionToRender,
+                             SingleThreadedInvoke=False)
+        task.transform = tile.Transform
+        task.regionToRender = regionToRender
+        #task.scaled_region_rendered = scaled_region_rendered
+        task.transform_fixed_rect = transform_target_rect
+        tasks.append(task)
 
-            task = pool.add_task(f"TransformTile {tile.ImagePath}",
-                                 TransformTileAndComposite, tile=tile,
-                                 distanceImage=distance_image_shared_meta,
-                                 target_space_scale=target_space_scale, TargetRegion=regionToRender,
-                                 composite_image_shared_meta=full_image_shared_meta,
-                                 composite_distance_shared_meta=full_distance_shared_meta,
-                                 scaled_target_rect=scaled_targetRect)
-            task.transform = tile.Transform
-            task.regionToRender = regionToRender
-            #task.scaled_region_rendered = scaled_region_rendered
-            task.transform_fixed_rect = transform_target_rect
-            tasks.append(task)
+        if not i % CheckTaskInterval == 0:
+            continue
 
-            if not i % CheckTaskInterval == 0:
-                continue
-
-            while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
-                iTask = len(tasks) - 1
-                while iTask >= 0:
-                    t = tasks[iTask]
-                    if t.iscompleted:
-                        success = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
-                        del tasks[iTask]
-
-                    iTask -= 1
-
-                if len(tasks) > CheckTaskInterval: # Sleep a while if we are still over the limit
-                    time.sleep(0.1)
-        timer.End('Task Queuing')
-        logger.info('All warps queued, integrating results into final image')
-
-        while len(tasks) > 0:
-            # Pass through the entire loop and eliminate completed tasks in case any finished out of order
+        while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
             iTask = len(tasks) - 1
             while iTask >= 0:
                 t = tasks[iTask]
                 if t.iscompleted:
-                    success = t.wait_return()
+                    transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
+                    __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
+                                                        scaled_targetRect)
+                    transformed_image_data.Clear()
+                    del transformed_image_data
                     del tasks[iTask]
-
+    
                 iTask -= 1
+            
+            if len(tasks) > CheckTaskInterval: # Sleep a while if we are still over the limit
+                time.sleep(0.1)
+    timer.End('Task Queuing')
+    logger.info('All warps queued, integrating results into final image')
 
-            if len(tasks) > 0:
-                time.sleep(0.1) #Give tasks some time to complete before we interrogate again
+    while len(tasks) > 0:
+        # Pass through the entire loop and eliminate completed tasks in case any finished out of order
+        iTask = len(tasks) - 1
+        while iTask >= 0:
+            t = tasks[iTask]
+            if t.iscompleted:
+                transformed_image_data = t.wait_return()
+                __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
+                                                    scaled_targetRect)
+                transformed_image_data.Clear()
+                del transformed_image_data
+                del tasks[iTask]
 
-        timer.End('Task Execution')
-        logger.info('Final image complete, building mask')
+            iTask -= 1
 
-        mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
-        del fullImageZbuffer
+        if len(tasks) > 0:
+            time.sleep(0.1) #Give tasks some time to complete before we interrogate again
 
-        #fullImage = np.clip(fullImage, 0, 1.0, out=fullImage)
-        fullImage = np.maximum(fullImage, 0, out=fullImage)
-        # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
-        # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
-        # fullImage[fullImage > 1.0] = 1.0
+    timer.End('Task Execution')
+    logger.info('Final image complete, building mask')
 
-        logger.info('Assemble complete')
+    mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
+    del fullImageZbuffer
 
-        if isinstance(fullImage, np.memmap):
-            fullImage.flush()
+    #fullImage = np.clip(fullImage, 0, 1.0, out=fullImage)
+    fullImage = np.maximum(fullImage, 0, out=fullImage)
+    # Checking for > 1.0 makes sense for floating point images.  During the DM4 migration
+    # I was getting images which used 0-255 values, and the 1.0 check set them to entirely black
+    # fullImage[fullImage > 1.0] = 1.0
 
-        return fullImage, mask
-    finally:
-        nornir_imageregistration.unlink_shared_memory(distance_image_shared_meta)
-        #nornir_imageregistration.unlink_shared_memory(full_image_shared_meta)
-        nornir_imageregistration.unlink_shared_memory(full_distance_shared_meta)
+    logger.info('Assemble complete')
+
+    if isinstance(fullImage, np.memmap):
+        fullImage.flush()
+
+    return fullImage, mask
 
 
-def __AddTransformedTileTaskToComposite(transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
+def __AddTransformedTileTaskToComposite(task,
+                                        transformedImageData: nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile,
                                         fullImage: NDArray,
                                         fullImageZBuffer: NDArray,
                                         scaled_target_rect: nornir_imageregistration.Rectangle | None = None):
@@ -605,7 +603,6 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
        :param SingleThreadedInvoke:
        :param TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
     """
-
 
     TargetRegionRect = None
     if TargetRegion is not None:
@@ -686,10 +683,39 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     target_minX = int(target_minX)
     target_minY = int(target_minY)
 
-    if distanceImage is not None:
-        distanceImage = nornir_imageregistration.ImageParamToImageArray(distanceImage)
+    # if TargetRegion is None:
+    #     TargetRegion = nornir_imageregistration.Rectangle.SafeRound(tile.TargetSpaceBoundingBox)
+    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.scale_on_origin(tile.TargetSpaceBoundingBox, target_space_scale)
+    #     Scaled_TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(Scaled_TargetRegionRect)
+    #
+    #     width = Scaled_TargetRegionRect.Width
+    #     height = Scaled_TargetRegionRect.Height
 
-    #Even if we have a distance image, double-check that the dimensions are correct for this tile
+    # if TargetRegion is None:
+    #     if hasattr(transform, 'FixedBoundingBox'):
+    #         width = transform.FixedBoundingBox.Width
+    #         height = transform.FixedBoundingBox.Height
+    #
+    #         TargetRegionRect = transform.FixedBoundingBox
+    #         TargetRegionRect = nornir_imageregistration.Rectangle.SafeRound(TargetRegionRect)
+    #         Scaled_TargetRegionRect = TargetRegionRect
+    #
+    #         (minY, minX, maxY, maxX) = TargetRegionRect.ToTuple()
+    #     else:
+    #         width = warpedImage.shape[1]
+    #         height = warpedImage.shape[0]
+    #         TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), warpedImage.shape)
+    #         Scaled_TargetRegionRect = TargetRegionRect
+    # else:
+    #     assert(len(TargetRegion) == 4)
+    #     (minY, minX, maxY, maxX) = Scaled_TargetRegionRect.ToTuple()
+    #     height = maxY - minY
+    #     width = maxX - minX
+
+    # Round up to the nearest integer value
+    #height = np.ceil(height)
+    #width = np.ceil(width)
+
     distanceImage = __GetOrCreateDistanceImage(distanceImage, source_image.shape[0:2])
 
     (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,
@@ -711,51 +737,6 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                                        rendered_target_space_origin=(target_minY * (1.0 / target_space_scale), target_minX * (1.0 / target_space_scale)),
                                                                                        SingleThreadedInvoke=SingleThreadedInvoke)
 
-def TransformTileAndComposite(tile: nornir_imageregistration.Tile,
-                              distanceImage: NDArray | None,
-                              target_space_scale: float,
-                              TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None,
-                              composite_image_shared_meta: nornir_imageregistration.Shared_Mem_Metadata,
-                              composite_distance_shared_meta: nornir_imageregistration.Shared_Mem_Metadata,
-                              scaled_target_rect: nornir_imageregistration.Rectangle):
-    '''
-    This function replaced a direct call to TransformTile from TilesToImageParallel.  It runs the composite operation
-    in the child process instead of marshalling results back to the parent process
-    :param tile:
-    :param distanceImage:
-    :param target_space_scale:
-    :param TargetRegion:
-    :param composite_image_shared_meta:
-    :param composite_distance_shared_meta:
-    :return:
-    '''
-    transformed_image_data = TransformTile(tile=tile, distanceImage=distanceImage, target_space_scale=target_space_scale,
-                                           TargetRegion=TargetRegion, SingleThreadedInvoke=True)
-
-    try:
-
-        composite_image_shared = nornir_imageregistration.ImageParamToImageArray(composite_image_shared_meta)
-        composite_distance_shared = nornir_imageregistration.ImageParamToImageArray(composite_distance_shared_meta)
-        nornir_pools.shared_lock.acquire()
-        try:
-            __AddTransformedTileTaskToComposite(transformed_image_data,
-                                      fullImage=composite_image_shared, fullImageZBuffer=composite_distance_shared,
-                                      scaled_target_rect=scaled_target_rect)
-            
-            
-            transformed_image_data.Clear()
-            del transformed_image_data
-        
-            return True
-        except ValueError as e:
-            # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
-            # logger = logging.getLogger('TilesToImageParallel')
-            prettyoutput.LogErr(f'Could not add tile to composite: {transformed_image_data}\n{e}')
-            return False
-        
-        
-    finally:
-        nornir_pools.shared_lock.release()
 
 if __name__ == '__main__':
     pass
