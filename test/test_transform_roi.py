@@ -11,7 +11,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
     @classmethod
     def create_tiny_image(cls, shape):
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, numpy.int32)
-        image = numpy.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
+        image = numpy.zeros(shape, dtype=numpy.float32) #Needs to be float32 for numpy functions used in the test to support it
         for x in range(0, shape[1]):
             for y in range(0, shape[0]):
                 color_index = (((x % 4) + (y % 4)) % 4) / 4

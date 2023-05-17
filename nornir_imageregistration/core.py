@@ -1113,7 +1113,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[bool],
         elif numValidPixels <= 2:
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
 
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=Image1D.dtype).compressed()
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace).compressed()
         imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 
