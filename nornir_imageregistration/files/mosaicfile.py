@@ -338,7 +338,7 @@ class MosaicFile(object):
                         t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
                         angle=t.angle)
                 elif isinstance(t, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
-                    outTrans = nornir_imageregistration.transforms.Rigid(
+                    outTrans = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
                         target_offset=(t.target_offset[1], t.target_offset[0]),
                         source_rotation_center=(
                         t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
