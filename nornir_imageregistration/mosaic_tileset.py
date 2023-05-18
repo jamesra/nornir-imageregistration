@@ -348,12 +348,12 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
             del _mask
 
-            task_timer.Start(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1}')
+            task_timer.Start(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
             (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
                                                                        tile_size=tile_dims,
                                                                        grid_shape=working_image_grid_dims,
                                                                        coord_offset=(0, iColumn)))
-            task_timer.End(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1}')                                                                       
+            task_timer.End(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')                                                                       
             del working_image
 
             iColumn += working_image_grid_dims[1]
