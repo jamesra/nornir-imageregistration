@@ -526,7 +526,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     
     stostransform.Scale(scalar)
 
-    warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
+    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
@@ -565,43 +565,44 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
                                         output_area=fixedImageShape, extrapolate=not CropUndefined)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
-        sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)
-        mpool = nornir_pools.GetGlobalMultithreadingPool()
-
-        for iY in range(0, height, int(tilesize[0])):
-
-            end_iY = iY + tilesize[0]
-            if end_iY > height:
-                end_iY = height
-
-            for iX in range(0, width, int(tilesize[1])):
-
-                end_iX = iX + tilesize[1]
-                if end_iX > width:
-                    end_iX = width
-
-                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
-                                      sharedwarpedimage_metadata, output_botleft=[iY, iX],
-                                      output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined,
-                                      return_shared_memory=True)
-                task.iY = iY
-                task.end_iY = end_iY
-                task.iX = iX
-                task.end_iX = end_iX
-
-                tasks.append(task)
-
-                # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
-                # outputImage[iY:end_iY, iX:end_iX] = registeredTile
-        mpool.wait_completion()
-
-        for task in tasks:
-            registered_shared_mem_meta = task.wait_return()
-            registered_tile = nornir_imageregistration.ImageParamToImageArray(registered_shared_mem_meta)
-            outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
-            nornir_imageregistration.unlink_shared_memory(registered_shared_mem_meta)
-
-        nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
-        del sharedWarpedImage
+        try:
+            sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)
+            mpool = nornir_pools.GetGlobalMultithreadingPool()
+    
+            for iY in range(0, height, int(tilesize[0])):
+    
+                end_iY = iY + tilesize[0]
+                if end_iY > height:
+                    end_iY = height
+    
+                for iX in range(0, width, int(tilesize[1])):
+    
+                    end_iX = iX + tilesize[1]
+                    if end_iX > width:
+                        end_iX = width
+    
+                    task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
+                                          sharedwarpedimage_metadata, output_botleft=[iY, iX],
+                                          output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined,
+                                          return_shared_memory=False)
+                    task.iY = iY
+                    task.end_iY = end_iY
+                    task.iX = iX
+                    task.end_iX = end_iX
+    
+                    tasks.append(task)
+    
+                    # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                    # outputImage[iY:end_iY, iX:end_iX] = registeredTile
+            mpool.wait_completion()
+    
+            for task in tasks:
+                result = task.wait_return()
+                registered_tile = nornir_imageregistration.ImageParamToImageArray(result)
+                outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
+                nornir_imageregistration.unlink_shared_memory(result)
+        finally:
+            nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
+            del sharedWarpedImage
 
     return outputImage

@@ -110,8 +110,8 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
             #                                                                               output_area=source_rectangle.Size,
             #                                                                               extrapolate=True, cval=np.nan)
             target_roi, source_roi = nornir_imageregistration.local_distortion_correction.BuildAlignmentROIs(transform=transform,
-                                                                                                             targetImage=target_image,
-                                                                                                             sourceImage=source_image,
+                                                                                                             targetImage_param=target_image,
+                                                                                                             sourceImage_param=source_image,
                                                                                                              target_image_stats=target_stats,
                                                                                                              source_image_stats=source_stats,
                                                                                                              target_controlpoint=source_point,
