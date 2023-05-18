@@ -31,7 +31,10 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     _source_space_scale: float
     _target_space_scale: float
     #_transform: nornir_imageregistration.ITransform
-    _errmsg: str
+
+    @property
+    def errormsg(self) -> str | None:
+        return None
 
     '''
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient.
@@ -44,7 +47,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         return self._image_shared_mem_meta
 
     @property
-    def image(self):
+    def image(self) -> NDArray:
         if self._image is None:
             if self._image_shared_mem_meta is not None:
                 self._image = nornir_imageregistration.ImageParamToImageArray(self._image_shared_mem_meta)
@@ -59,7 +62,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         return self._center_distance_image_shared_mem_meta
 
     @property
-    def centerDistanceImage(self):
+    def centerDistanceImage(self) -> NDArray:
         if self._centerDistanceImage is None:
             if self._center_distance_image_shared_mem_meta is not None:
                 self._centerDistanceImage = nornir_imageregistration.ImageParamToImageArray(self._center_distance_image_shared_mem_meta)
@@ -70,11 +73,11 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         return self._centerDistanceImage
 
     @property
-    def source_space_scale(self):
+    def source_space_scale(self) -> float:
         return self._source_space_scale
 
     @property
-    def target_space_scale(self):
+    def target_space_scale(self) -> float:
         return self._target_space_scale
 
     @property
@@ -91,9 +94,6 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     #def transform(self):
     #    return self._transform
 
-    @property
-    def errormsg(self):
-        return self._errmsg
 
     @classmethod
     def Create(cls, image: NDArray, centerDistanceImage: NDArray,

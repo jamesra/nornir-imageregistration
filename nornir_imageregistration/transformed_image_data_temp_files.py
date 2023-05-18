@@ -42,7 +42,11 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
     '''
 
-    memmap_threshold = 64 * 64
+    tempfile_threshold = 64 * 64
+
+    @property
+    def errormsg(self) -> str | None:
+        return None
 
     #
     #     def __getstate__(self):
@@ -66,7 +70,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     #
 
     @property
-    def image(self):
+    def image(self) -> NDArray:
         if self._image is None:
             if self._image_path is None:
                 return None
@@ -77,7 +81,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return self._image
 
     @property
-    def centerDistanceImage(self):
+    def centerDistanceImage(self) -> NDArray:
         if self._centerDistanceImage is None:
             if self._centerDistanceImage_path is None:
                 return None
@@ -88,11 +92,11 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return self._centerDistanceImage
 
     @property
-    def source_space_scale(self):
+    def source_space_scale(self) -> float:
         return self._source_space_scale
 
     @property
-    def target_space_scale(self):
+    def target_space_scale(self) -> float:
         return self._target_space_scale
 
     @property
@@ -109,9 +113,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     #def transform(self):
     #    return self._transform
 
-    @property
-    def errormsg(self):
-        return self._errmsg
+
 
     @classmethod
     def Create(cls, image: NDArray, centerDistanceImage: NDArray,
@@ -158,7 +160,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         returned to the caller.
         :return:
         '''
-        if np.prod(self._image.shape) > TransformedImageDataViaTempFile.memmap_threshold:
+        if np.prod(self._image.shape) > TransformedImageDataViaTempFile.tempfile_threshold:
             _image_path_task = None
             _centerDistanceImage_path_task = None
             

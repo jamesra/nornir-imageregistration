@@ -4,22 +4,25 @@ import abc
 from numpy.typing import NDArray
 from typing import Tuple
 
+import nornir_imageregistration
+
+
 class ITransformedImageData(abc.ABC):
 
     @abc.abstractmethod
-    def image(self):
+    def image(self) -> NDArray | nornir_imageregistration.Shared_Mem_Metadata:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def centerDistanceImage(self):
+    def centerDistanceImage(self) -> NDArray | nornir_imageregistration.Shared_Mem_Metadata:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def source_space_scale(self):
+    def source_space_scale(self) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def target_space_scale(self):
+    def target_space_scale(self) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -37,3 +40,16 @@ class ITransformedImageData(abc.ABC):
     @abc.abstractmethod
     def Clear(self):
         raise NotImplementedError()
+
+    def errormsg(self) -> str | None:
+        raise NotImplementedError()
+
+class TransformedImageDataError(ITransformedImageData):
+    _errmsg: str
+
+    @property
+    def errormsg(self) -> str | None:
+        return self._errmsg
+
+    def __init__(self, error_msg: str):
+        self._errmsg = error_msg

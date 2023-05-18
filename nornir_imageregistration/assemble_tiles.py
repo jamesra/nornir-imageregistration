@@ -629,10 +629,10 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         # warpedImage = nornir_imageregistration.ImageParamToImageArray(tile.Image, dtype=np.float32)
         source_image = tile.Image
     except IOError:
-        return nornir_imageregistration.transformed_image_data.TransformedImageData(
-            errorMsg='Tile does not exist ' + tile.ImagePath)
+        return nornir_imageregistration.transformed_image_data.TransformedImageDataError(
+            error_msg=f'Tile does not exist {tile.ImagePath}')
     except ValueError as ve:
-        return nornir_imageregistration.transformed_image_data.TransformedImageData(errorMsg=f'{ve}')
+        return nornir_imageregistration.transformed_image_data.TransformedImageDataError(error_msg=f'{ve}')
 
     source_image = nornir_imageregistration.ForceGrayscale(source_image)
 
