@@ -4,28 +4,25 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import math
 import numpy
-from typing import Callable
-from numpy.typing import NDArray
-import scipy.interpolate
-import nornir_imageregistration
-
-import nornir_pools
-import scipy.linalg
 import scipy.spatial
+from numpy.typing import NDArray
 
-from . import utils
-from .triangulation import Triangulation
+import nornir_imageregistration
 import nornir_imageregistration.transforms
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
-from nornir_imageregistration.transforms.transform_type import TransformType
-from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransform,\
-    ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, ITriangulatedTargetSpace
+from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformScaling, \
+    ITransformRelativeScaling, ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, \
+    ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
+from nornir_imageregistration.transforms.transform_type import TransformType
+from . import utils
 
-class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation,
-                          ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace, DefaultTransformChangeEvents):
+
+class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
+                          ITransformTargetRotation,
+                          ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
+                          DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -44,9 +41,9 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
     def ToITKString(self) -> str:
         return self._discrete_transform.ToITKString()
-    
+
     def __getstate__(self):
-        odict = super(GridWithRBFFallback, self).__getstate__() 
+        odict = super(GridWithRBFFallback, self).__getstate__()
         odict['_discrete_transform'] = self._discrete_transform
         odict['_continuous_transform'] = self._continuous_transform
         return odict
@@ -58,7 +55,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
     def InitializeDataStructures(self):
         self._continuous_transform.InitializeDataStructures()
-        #self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
+        # self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -106,7 +103,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-            
+
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
@@ -154,12 +151,14 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         super(GridWithRBFFallback, self).__init__()
 
         self._discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
-        self._continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
+        self._continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(
+            grid.SourcePoints, grid.TargetPoints)
 
     def AddTransform(self, mappedTransform: IControlPoints, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
-        return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
-        
+        return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance,
+                                                                 create_copy=create_copy)
+
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
@@ -256,7 +255,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     @property
     def FixedTriangles(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.FixedTriangles
-    
+
     @property
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.target_space_trianglulation
@@ -304,7 +303,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self.OnTransformChanged()
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float] | None) -> int | NDArray[int]:
-        #Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
+        # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
         result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
         self._continuous_transform.UpdateTargetPointsByIndex(index, point)
         self.OnTransformChanged()
@@ -316,11 +315,12 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self.OnTransformChanged()
         return result
 
+
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],
-                  [0, 10, 0, -10],
-                  [10, 0, -10, 0],
-                  [10, 10, -10, -10]])
+                     [0, 10, 0, -10],
+                     [10, 0, -10, 0],
+                     [10, 10, -10, -10]])
 
     (Fixed, Moving) = numpy.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)
@@ -375,5 +375,3 @@ if __name__ == '__main__':
 
     print("\nFixedPointsInRect")
     print(T.GetFixedPointsRect([-1, -1, 14, 4]))
-
-

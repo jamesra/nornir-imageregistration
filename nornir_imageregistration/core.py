@@ -3,37 +3,32 @@ scipy image arrays are indexed [y,x]
 """
 
 import math
-from multiprocessing import shared_memory, managers
 import multiprocessing.sharedctypes
 import os
 import typing
 import warnings
 import weakref
-
-from PIL import Image
-
-import scipy.misc
-import scipy.ndimage.measurements
-
-import nornir_pools
-import nornir_imageregistration.image_stats
-import nornir_imageregistration
-import nornir_shared.images
-import nornir_shared.prettyoutput as prettyoutput
+from collections.abc import Iterable
+from multiprocessing import shared_memory
+from multiprocessing.shared_memory import SharedMemory
 
 import matplotlib.pyplot as plt
-
 import numpy as np
-from numpy.typing import NDArray, DTypeLike
 # import numpy.fft.fftpack as fftpack
-import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested. 
+import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested.
+import scipy.misc
 import scipy.ndimage.interpolation as interpolation
+import scipy.ndimage.measurements
+from PIL import Image
+from numpy.typing import NDArray, DTypeLike
 
-from collections.abc import Iterable
-
-from nornir_imageregistration.mmap_metadata import memmap_metadata
+import nornir_imageregistration
+import nornir_imageregistration.image_stats
+import nornir_pools
+import nornir_shared.images
+import nornir_shared.prettyoutput as prettyoutput
 from nornir_imageregistration import ImageLike
-from multiprocessing.shared_memory import SharedMemory
+from nornir_imageregistration.mmap_metadata import memmap_metadata
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -607,7 +602,8 @@ def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
             prettyoutput.LogErr(f"Missing memory block, could not unlink {input.name}")
 
 
-def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
+def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
+    nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
     """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
     when it is no longer in use.
     :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
@@ -618,7 +614,8 @@ def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[nornir
     shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
     np.copyto(shared_array, input)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype,
-                                                          shape=shared_array.shape, readonly=read_only, shared_memory=None)
+                                                          shape=shared_array.shape, readonly=read_only,
+                                                          shared_memory=None)
 
     # Create a finalizer to close the shared memory when the array is garbage collected
     finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)
@@ -638,7 +635,8 @@ def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike, read_only:
     shared_mem = SharedMemory(size=int(byte_size), create=True)
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype,
-                                                          shape=shared_array.shape, readonly=read_only, shared_memory=None)
+                                                          shape=shared_array.shape, readonly=read_only,
+                                                          shared_memory=None)
 
     # Create a finalizer to close the shared memory when the array is garbage collected
     finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)

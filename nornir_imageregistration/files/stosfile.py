@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import typing
 
 import nornir_imageregistration
 import nornir_shared.checksum
@@ -456,15 +455,15 @@ class StosFile(object):
             # Ensure any relative paths to images in the .stos file are relative to the position of the stos file
             if self.ControlImageFullPath is not None:
                 if not os.path.isabs(self.ControlImageFullPath):
-                    self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath) 
+                    self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath)
 
             if self.MappedImageFullPath is not None:
                 if not os.path.isabs(self.MappedImageFullPath):
-                    self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath) 
+                    self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath)
 
             if self.ControlMaskFullPath is not None:
                 if not os.path.isabs(self.ControlMaskFullPath):
-                    self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath) 
+                    self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath)
 
             if self.MappedMaskFullPath is not None:
                 if not os.path.isabs(self.MappedMaskFullPath):
@@ -483,7 +482,8 @@ class StosFile(object):
         assert (transformObj is not None)
 
         if isinstance(transformObj, nornir_imageregistration.IControlPoints):
-            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor, ignore_rotation)
+            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor,
+                                                                                          ignore_rotation)
             updated_transform = blended_transform.ToITKString()
             transform_changed = updated_transform != self.Transform
             self.Transform = updated_transform
@@ -548,22 +548,23 @@ class StosFile(object):
         else:
             transformObj = nornir_imageregistration.transforms.LoadTransform(self.Transform, pixelSpacing=1.0)
             assert (transformObj is not None)
-            
+
             if isinstance(transformObj, nornir_imageregistration.transforms.ITransformScaling):
                 transformObj.Scale(scale)
             else:
-                raise ValueError(f"Transform needs to be scaled but does not support ITransformScaling interface {transformObj}")
+                raise ValueError(
+                    f"Transform needs to be scaled but does not support ITransformScaling interface {transformObj}")
 
             NewStosFile._Downsample = newspacing
 
-            #if hasattr(transformObj, 'gridWidth'):
-                # Save as a stos grid if we can
+            # if hasattr(transformObj, 'gridWidth'):
+            # Save as a stos grid if we can
             #    bounds = (NewStosFile.MappedImageDim[1], NewStosFile.MappedImageDim[0], NewStosFile.MappedImageDim[3],
             #              NewStosFile.MappedImageDim[2])
             #    NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transformObj,
             #                                                                                         bounds=bounds)
-            #else:
-            #NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(
+            # else:
+            # NewStosFile.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(
             #        transformObj)  # , bounds=NewStosFile.MappedImageDim)
 
             NewStosFile.Transform = transformObj.ToITKString()

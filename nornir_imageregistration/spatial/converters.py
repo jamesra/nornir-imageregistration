@@ -6,6 +6,7 @@ Created on Apr 26, 2019
 
 import numpy
 from numpy.typing import NDArray
+
 import nornir_imageregistration
 from nornir_imageregistration.spatial import iPoint, iPoint3, Rectangle, BoundingBox
 
@@ -42,9 +43,9 @@ def BoundsArrayFromPoints(points):
     min_point = numpy.min(points, 0)
     max_point = numpy.max(points, 0)
 
-    if (points.shape[1] == 2):
+    if points.shape[1] == 2:
         return numpy.array((min_point[iPoint.Y], min_point[iPoint.X], max_point[iPoint.Y], max_point[iPoint.X]))
-    elif (points.shape[1] == 3):
+    elif points.shape[1] == 3:
         return numpy.array((min_point[iPoint3.Z], min_point[iPoint3.Y], min_point[iPoint3.X], max_point[iPoint3.Z],
                             max_point[iPoint3.Y], max_point[iPoint3.X]))
     else:
@@ -52,7 +53,7 @@ def BoundsArrayFromPoints(points):
 
 
 def BoundingPrimitiveFromPoints(
-        points: NDArray) ->  Rectangle |  BoundingBox:
+        points: NDArray) -> Rectangle | BoundingBox:
     '''Return either a rectangle or bounding box for a set of points'''
 
     bounds = BoundsArrayFromPoints(points)

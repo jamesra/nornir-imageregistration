@@ -5,7 +5,8 @@ Created on Apr 23, 2019
 '''
 import numpy.typing
 from PIL import Image
-#Disable decompression bomb protection since we are dealing with huge images on purpose
+
+# Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
 import numpy as np
 
@@ -20,7 +21,7 @@ def _try_read_bpp_from_pillow_mode(im):
         mode = im
     else:
         mode = im.mode
-        
+
     bits = None
     try:
         parts = mode.split(';')
@@ -28,8 +29,9 @@ def _try_read_bpp_from_pillow_mode(im):
             bits = int(parts[1])
     except:
         pass
-    
+
     return bits
+
 
 def _try_estimate_dtype_from_extrema(im):
     '''
@@ -41,14 +43,14 @@ def _try_estimate_dtype_from_extrema(im):
         mode = im
     else:
         mode = im.mode
-        
+
     if not (mode[0] == 'I' or mode[0] == 'F'):
         raise ValueError('Image mode must be I or F')
-    
+
     (min_val, max_val) = im.getextrema()
     if mode[0] == 'I':
         if max_val <= 255:
-            assert(min_val >= 0)
+            assert (min_val >= 0)
             return np.uint8
         elif max_val <= (1 << 16):
             if min_val < 0:
@@ -56,23 +58,23 @@ def _try_estimate_dtype_from_extrema(im):
             else:
                 return np.uint16
         elif max_val < (1 << 32):
-            if min_val < 0:    
+            if min_val < 0:
                 return np.int32
             else:
-                assert(min_val >= 0)
+                assert (min_val >= 0)
                 return np.uint32
         else:
             return np.int64
-        
+
     elif mode[0] == 'F':
-        return np.float32 #This is a floating point image already, just trust that float32 is plenty
-    
+        return np.float32  # This is a floating point image already, just trust that float32 is plenty
+
     raise ValueError("Unexpected image or mode passed")
 
 
 def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
     mode = im.mode
-         
+
     if mode == '1':
         return bool
     if mode[0] == 'L':
@@ -80,19 +82,19 @@ def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
     if mode[0] == 'P':
         return np.uint8
     if mode == 'RGB':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode == 'RGBA':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode == 'CMYK':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode == 'YCbCr':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode == 'LAB':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode == 'HSV':
-        return np.uint8 #Numpy should create a 3rd axis for other channels
+        return np.uint8  # Numpy should create a 3rd axis for other channels
     if mode[0] == 'I':
-        
+
         bits = _try_read_bpp_from_pillow_mode(im)
         if bits is not None:
             if bits == 1:
@@ -102,24 +104,26 @@ def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
             elif bits <= 16:
                 return np.uint16
             else:
-                return np.uint32 #According to Pillow docs the 32-bit integers are signed
+                return np.uint32  # According to Pillow docs the 32-bit integers are signed
         else:
             return _try_estimate_dtype_from_extrema(im)
-        
-    if mode[0] == 'F': 
+
+    if mode[0] == 'F':
         bits = _try_read_bpp_from_pillow_mode(im)
         if bits <= 8:
             return np.float16
         elif bits <= 16:
             return np.float16
         else:
-            return np.float32 #According to Pillow docs the 32-bit integers are signed
-    
+            return np.float32  # According to Pillow docs the 32-bit integers are signed
+
     raise ValueError("Unexpected pillow image mode: {0}".format(mode))
+
 
 def get_image_file_dtype(ImageFullPath: str) -> np.typing.DTypeLike:
     with Image.open(ImageFullPath) as im:
         return dtype_for_pillow_image(im)
+
 
 if __name__ == '__main__':
     pass

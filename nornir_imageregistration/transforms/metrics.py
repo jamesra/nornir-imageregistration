@@ -5,8 +5,10 @@ Created on Aug 31, 2018
 '''
 
 import numpy
+
 from nornir_imageregistration.spatial import ArcAngle
-from . import triangulation, utils
+from . import triangulation
+
 
 # /// <summary>
 # /// Angle of arc between A & B with Origin
@@ -23,7 +25,6 @@ from . import triangulation, utils
 #     double AngleB = Math.Atan2(B.Y, B.X);
 #     return AngleB - AngleA; 
 # }
-
 
 
 def TriangleAngleDelta(transform):
@@ -63,12 +64,13 @@ def TriangleAngles(triangle_indicies, points):
 
     OriginAAngles = numpy.abs(ArcAngle(A, B, C))
     OriginBAngles = numpy.abs(ArcAngle(B, C, A))
-    #anglesC = numpy.abs(ArcAngle(C, A, B))
+    # anglesC = numpy.abs(ArcAngle(C, A, B))
     calcAnglesC = numpy.pi - (OriginAAngles + OriginBAngles)
 
-    #numpy.array_equal(anglesC, calcAnglesC)
+    # numpy.array_equal(anglesC, calcAnglesC)
 
-    return numpy.swapaxes(numpy.vstack((OriginAAngles, OriginBAngles, calcAnglesC)),0,1)
+    return numpy.swapaxes(numpy.vstack((OriginAAngles, OriginBAngles, calcAnglesC)), 0, 1)
+
 
 def TriangleVertexAngleDelta(transform):
     '''
@@ -97,5 +99,4 @@ def TriangleVertexAngleDelta(transform):
 
 
 if __name__ == '__main__':
-    
     pass

@@ -8,12 +8,10 @@ import unittest
 
 import nornir_imageregistration as nir
 import nornir_imageregistration.tileset as tiles
-
 from . import setup_imagetest
 
 
 class TestTiles(setup_imagetest.ImageTestBase):
-
 
     def testBrightfieldShading(self):
 
@@ -34,7 +32,8 @@ class TestTiles(setup_imagetest.ImageTestBase):
 
         nir.SaveImage(shadedImageV2Path, shadedImageV2)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath, shadedImageV2Path], shadingMask, self.TestOutputPath,
+                                         correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [originalImage, shadedImage, shadingMask]
 
@@ -66,7 +65,8 @@ class TestTiles(setup_imagetest.ImageTestBase):
         shadedImage = nir.LoadImage(ShadedImagePath)
         shadingMask = nir.LoadImage(ShadingReferencePath)
 
-        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath, correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
+        OutputPaths = tiles.ShadeCorrect([ShadedImagePath], shadingMask, self.TestOutputPath,
+                                         correction_type=tiles.ShadeCorrectionTypes.BRIGHTFIELD)
 
         shownImages = [shadedImage, shadingMask]
 

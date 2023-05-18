@@ -6,15 +6,13 @@ Created on Mar 29, 2013
 
 import copy
 import os
+
 import numpy as np
 
-
 import nornir_imageregistration
-from nornir_imageregistration.files.mosaicfile import MosaicFile
-  
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
-import nornir_pools 
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 
 
 class Mosaic(object):
@@ -28,14 +26,14 @@ class Mosaic(object):
     @classmethod
     def LoadFromMosaicFile(cls, mosaicfile):
         '''Return a dictionary mapping tiles to transform objects'''
-        
+
         ImageToTransform = {}
         if isinstance(mosaicfile, str):
             print("Loading mosaic: " + mosaicfile)
             mosaicObj = MosaicFile.Load(mosaicfile)
             if mosaicObj is None:
                 raise ValueError("Expected valid mosaic file path: {}".format(mosaicfile))
-            
+
             # Don't copy, we throw away the mosaic object
             ImageToTransform = mosaicObj.ImageToTransformString
         elif isinstance(mosaicfile, MosaicFile):
@@ -49,12 +47,10 @@ class Mosaic(object):
         # keys = list(mosaicfile.ImageToTransformString.keys())
         # keys.sort()
         # for k, v in mosaicfile.ImageToTransformString.items():
-            # print("Parsing transform for : " + k)
-            # ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
+        # print("Parsing transform for : " + k)
+        # ImageToTransform[k] = tfactory.LoadTransform(v, pixelSpacing=1.0)
 
         return Mosaic(ImageToTransform)
-    
-    
 
     def ToMosaicFile(self):
         mfile = MosaicFile()
@@ -98,7 +94,7 @@ class Mosaic(object):
             Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
 
         self._ImageToTransform = ImageToTransform
-        self.ImageScale = 1 #All .mosaic file transforms are stored on disk at full resolution
+        self.ImageScale = 1  # All .mosaic file transforms are stored on disk at full resolution
 
     @classmethod
     def _ConvertTransformStringsToTransforms(cls, image_to_transform):
@@ -125,8 +121,6 @@ class Mosaic(object):
         DeprecationWarning("Use SourceBoundingBox of mosaic_tileset instead")
         return tutils.MappedBoundingBox(list(self.ImageToTransform.values()))
 
-    
-
     def TileFullPaths(self, tilesDir):
         '''Return a list of full paths to the tile for each transform'''
         return [os.path.join(tilesDir, x) for x in list(self.ImageToTransform.keys())]
@@ -149,7 +143,7 @@ class Mosaic(object):
         '''Translate the fixed space coordinates of all images in the mosaic'''
         for t in list(self.ImageToTransform.values()):
             t.TranslateFixed(offset)
-    
+
     def EnsureTransformsHaveMappedBoundingBoxes(self, image_scale, image_path, all_same_dims=True):
         '''
         If a transform does not have a mapped bounding box, define it using the image dimensions
@@ -158,24 +152,23 @@ class Mosaic(object):
         :parma str image_path: Directory containing image files
         :param bool all_same_dims: If true, cache image dimensions and re-use for all transforms. 
         '''
-        
+
         cached_tile_shape = None
-        
-        for (file, transform) in self.ImageToTransform.items(): 
-             
+
+        for (file, transform) in self.ImageToTransform.items():
+
             if transform.MappedBoundingBox is None:
-                if all_same_dims == True: 
+                if all_same_dims == True:
                     mapped_bbox_shape = cached_tile_shape
-                
+
                 if mapped_bbox_shape is None:
                     image_full_path = os.path.join(image_path, file)
                     mapped_bbox_shape = nornir_imageregistration.GetImageSize(image_full_path)
                     mapped_bbox_shape = np.array(mapped_bbox_shape, dtype=np.int32) * (1.0 / image_scale)
                     cached_tile_shape = mapped_bbox_shape
-                    
-                transform.MappedBoundingBox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0,0), mapped_bbox_shape)      
-            
-    
+
+                transform.MappedBoundingBox = nornir_imageregistration.Rectangle.CreateFromPointAndArea((0, 0),
+                                                                                                        mapped_bbox_shape)
 
     @classmethod
     def TranslateLayout(cls, Images, Positions, ImageScale=1):
@@ -187,7 +180,7 @@ class Mosaic(object):
     def CreateTilesPathList(self, tilesPath, keys=None):
         if keys is None:
             keys = sorted(self.ImageToTransform.keys())
-            
+
         if tilesPath is None:
             return keys
         else:
@@ -195,17 +188,15 @@ class Mosaic(object):
 
     def _TransformsSortedByKey(self):
         '''Return a list of transforms sorted according to the sorted key values'''
-        
+
         values = []
         for k, item in sorted(self.ImageToTransform.items()):
             values.append(item)
-            
+
         return values
 
-    
-    
     def QualityScore(self, tilespath, downsample):
-        tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(self, image_folder=tilespath, image_to_source_space_scale=downsample)
+        tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(self, image_folder=tilespath,
+                                                                           image_to_source_space_scale=downsample)
         score = nornir_imageregistration.arrange_mosaic.ScoreMosaicQuality(tileset)
         return score
-

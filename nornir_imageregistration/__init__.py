@@ -23,9 +23,8 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
-import math
 from typing import Iterable
-import numpy as np
+
 import numpy.typing
 from PIL import Image
 
@@ -36,13 +35,13 @@ def default_image_dtype():
     '''
     return np.float16
 
+
 def default_depth_image_dtype():
     '''
     :return: The default dtype for image data
     '''
     return np.float32
 
-from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -52,6 +51,8 @@ import collections.abc
 import matplotlib.pyplot as plt
 
 plt.ioff()
+ 
+from nornir_shared.mathhelper import RoundingPrecision
 
 import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
@@ -178,8 +179,6 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
 
     return points
 
-import nornir_shared.mathhelper
-from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
 import nornir_imageregistration.shared_mem_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
@@ -265,5 +264,3 @@ np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 __all__ = ['image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']
-
-

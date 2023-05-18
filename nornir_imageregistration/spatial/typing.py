@@ -1,5 +1,5 @@
-
 from typing import Sequence
+
 from numpy.typing import NDArray
 
 """A type for points used for typing"""

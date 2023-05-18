@@ -1,8 +1,8 @@
-import numpy as np
-from numpy.typing import NDArray
 from typing import NamedTuple
 
-from nornir_shared.mathhelper import RoundingPrecision
+import numpy as np
+from numpy.typing import NDArray
+
 import nornir_imageregistration
 from nornir_imageregistration.transforms import TransformType, ITransform, IControlPoints
 
@@ -45,15 +45,16 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     reflected = d < 0
     if reflected:
         sp = source_points
-        sp = sp - source_rotation_center #Flip points across center
-        sp[:,0] = -sp[:,0]
-        ignore_source_rotation_center, rotation_matrix, scale, translation, ignore_reflected = _kabsch_umeyama(target_points, sp)
+        sp = sp - source_rotation_center  # Flip points across center
+        sp[:, 0] = -sp[:, 0]
+        ignore_source_rotation_center, rotation_matrix, scale, translation, ignore_reflected = _kabsch_umeyama(
+            target_points, sp)
         return source_rotation_center, rotation_matrix, scale, translation, True
-        
+
     S = np.diag([1] * (num_dims - 1) + [d])
     # if reflected:
     #    U[:, -1] = -U[:, -1]
-    
+
     rotation_matrix = U @ S @ VT
 
     # OK, there are errors in the scale caluclation, to help it out I transform the points with the rotation, then re-run the algorithm with just scaling and translation
@@ -68,7 +69,7 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB)
 
-    #if reflected:
+    # if reflected:
     #    S = np.diag([1] * (num_dims - 1) + [d])
     #    rotation_matrix = U @ S @ VT 
     #    rotation_matrix[1, 1] = -rotation_matrix[1, 1]
@@ -98,7 +99,7 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[float], source_po
     # VarB = np.mean(np.linalg.norm(centered_B, axis=1) ** 2)
 
     H = (centered_A.T @ centered_B) / num_pts
-    D = np.linalg.svd(H, compute_uv=False) 
+    D = np.linalg.svd(H, compute_uv=False)
 
     scale = VarA / np.trace(np.diag(D))
     # Total translation, does not factor in translation of B to EB for rotation
@@ -110,12 +111,11 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[float], source_po
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
                                              source_points: NDArray[float],
                                              ignore_rotation: bool = False) -> RigidComponents:
-
     source_rotation_center = np.zeros((1, 2))
 
     if not ignore_rotation:
         source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points,
-                                                                                             source_points)
+                                                                                                 source_points)
 
         # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then
         # performs the final translation into target space.
@@ -134,6 +134,7 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
         scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points)
         return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=0,
                                translation=adjusted_translation, scale=scale, reflected=False)
+
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
                      **kwargs) -> ITransform:

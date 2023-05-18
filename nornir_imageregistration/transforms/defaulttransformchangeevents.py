@@ -7,9 +7,9 @@ from nornir_imageregistration.transforms.base import ITransformChangeEvents
 class DefaultTransformChangeEvents(ITransformChangeEvents, metaclass=ABCMeta):
     def __init__(self):
         self.OnChangeEventListeners = []
-    
+
     def __getstate__(self):
-        #odict = super(GridWithRBFFallback, self).__getstate__()
+        # odict = super(GridWithRBFFallback, self).__getstate__()
         odict = dict()
         return odict
 

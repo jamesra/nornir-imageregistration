@@ -10,14 +10,10 @@ import os
 import sys
 
 import nornir_imageregistration.assemble
-
 import nornir_shared.misc
 
 
 def __CreateArgParser(ExecArgs=None):
-
-
-
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
     parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file")
 
@@ -83,6 +79,7 @@ def OnUseError(message):
 
     sys.exit()
 
+
 def ValidateArgs(Args):
     if not os.path.exists(Args.inputpath):
         OnUseError("Input stos file not found: " + Args.inputpath)
@@ -101,20 +98,21 @@ def ValidateArgs(Args):
     if not os.path.exists(Args.inputpath):
         OnUseError("Input stos file not found: " + Args.inputpath)
 
+
 def Execute(ExecArgs=None):
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
-        
+
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)
 
     nornir_imageregistration.assemble.TransformStos(transformData=Args.inputpath,
-                                   OutputFilename=Args.outputpath,
-                                   fixedImage=Args.fixedimagepath,
-                                   warpedImage=Args.warpedimagepath,
-                                   scalar=Args.scalar,
-                                   CropUndefined=False)
+                                                    OutputFilename=Args.outputpath,
+                                                    fixedImage=Args.fixedimagepath,
+                                                    warpedImage=Args.warpedimagepath,
+                                                    scalar=Args.scalar,
+                                                    CropUndefined=False)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
@@ -123,7 +121,6 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
-
     (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))

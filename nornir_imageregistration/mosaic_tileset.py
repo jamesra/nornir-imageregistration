@@ -1,17 +1,17 @@
 from __future__ import annotations
+
+import copy
+import logging
+import os
 import typing
 
 import numpy as np
-import os
-import logging
-import copy
 
 import nornir_imageregistration
 
-import nornir_pools
 
-
-def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str, image_to_source_space_scale: float) -> MosaicTileset:
+def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
+                     image_to_source_space_scale: float) -> MosaicTileset:
     """
     :param mosaic: The mosaic we are pulling transforms and image filenames from
     :param image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
@@ -98,6 +98,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     """
 
     def __init__(self, image_to_source_space_scale: float):
+        super().__init__()
         if image_to_source_space_scale is None:
             raise ValueError("image_to_source_space_scale is None")
 
@@ -197,7 +198,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param float expected_scale: The scale factor applied to the mosaic before dividing it into tiles, default is 1
         """
         tile_dims = np.asarray(tile_dims, dtype=np.int64)
-        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64, copy=False)
+        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64,
+                                                                                                              copy=False)
         return nornir_imageregistration.TileGridShape(scaled_fixed_bounding_box_shape, tile_size=tile_dims)
 
     def TranslateToZeroOrigin(self):
@@ -251,7 +253,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # transformList = [self[path] for path in tilesPathList]
 
         if usecluster and len(tilesPathList) > 1:
-            #cpool = nornir_pools.GetGlobalMultithreadingPool()
+            # cpool = nornir_pools.GetGlobalMultithreadingPool()
             return nornir_imageregistration.assemble_tiles.TilesToImageParallel(self,
                                                                                 pool=None,
                                                                                 TargetRegion=FixedRegion,
@@ -375,7 +377,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     def ToMosaic(self):
         '''Return a mosaic object for this mosaic set'''
         output = {}
-        for (id, tile) in self.items():
+        for (ID, tile) in self.items():
             output[os.path.basename(tile.ImagePath)] = copy.deepcopy(tile.Transform)
 
         return nornir_imageregistration.Mosaic(output)

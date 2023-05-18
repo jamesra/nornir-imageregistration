@@ -1,4 +1,5 @@
 import copy
+
 import numpy as np
 import scipy
 
@@ -12,7 +13,7 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
     :param ndarray TriangleVerts: An Nx3x2 array of verticies of triangles
     '''
     numCentroids = Centroids.shape[0]
-    distance = np.zeros((numCentroids))
+    distance = np.zeros(numCentroids)
     for i in range(0, Centroids.shape[0]):
         distances = scipy.spatial.distance.cdist([Centroids[i]], TriangleVerts[i])
         distance[i] = np.min(distances)
@@ -22,7 +23,7 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
 
 def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,
                   EnrichTolerance: float | None = None,
-                  create_copy:bool = True):
+                  create_copy: bool = True):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param BToC_Unaltered_Transform:
     :param AToB_mapped_Transform:
@@ -34,7 +35,8 @@ def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: I
         return _AddGridTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform)
 
     if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
-        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance, create_copy=create_copy)
+        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance,
+                                       create_copy=create_copy)
     else:
         return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
 
@@ -54,6 +56,7 @@ def _AddGridTransforms(BToC_Unaltered_Transform: ITransform,
     new_transform = nornir_imageregistration.transforms.GridWithRBFFallback(new_grid)
     return new_transform
 
+
 def _AddMeshTransforms(BToC_Unaltered_Transform: ITransform,
                        AToB_mapped_Transform: IControlPoints,
                        create_copy: bool = True):
@@ -72,12 +75,12 @@ def _AddMeshTransforms(BToC_Unaltered_Transform: ITransform,
         return AToB_mapped_Transform
 
 
-def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints, epsilon=None, create_copy=True):
-
+def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints, epsilon=None,
+                            create_copy=True):
     A_To_B_Transform = AToB_mapped_Transform
     B_To_C_Transform = BToC_Unaltered_Transform
 
-    #print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
+    # print("Begin enrichment with %d verticies" % np.shape(A_To_B_Transform.points)[0])
 
     PointsAdded = True
     while PointsAdded:
@@ -86,7 +89,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
 
         A_Centroids = A_To_B_Transform.GetWarpedCentroids()
 
-     #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
+        #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
         # Get the centroids from B using A-B transform that correspond to A_Centroids
         B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
 
@@ -102,7 +105,8 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
         # So ignore centroids falling too close to an existing vertex
         CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, np.bool)
         A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles[CentroidMisplaced]]
-        CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced], A_CentroidTriangles)
+        CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced],
+                                                                              A_CentroidTriangles)
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
         # Add new verticies for the qualifying centroids
@@ -119,13 +123,13 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
             if starting_num_points == ending_num_points:
                 break
 
-            #print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
-            #print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
-            #print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
+            # print("Mean Centroid Error: %g" % np.mean(Distances[AddCentroid]))
+            # print("Added %d centroids, %d centroids OK" % (np.sum(AddCentroid), np.shape(AddCentroid)[0] - np.sum(AddCentroid)))
+            # print("Total Verticies %d" % np.shape(A_To_B_Transform.points)[0])
 
             # TODO: Preserve the array indicating passing centroids to the next loop and do not repeat the test to save time.
 
-    #print("End enrichment")
+    # print("End enrichment")
 
     if create_copy:
         output_transform = copy.deepcopy(AToB_mapped_Transform)

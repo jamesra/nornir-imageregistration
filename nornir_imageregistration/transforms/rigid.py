@@ -1,15 +1,16 @@
 import typing
-from typing import *
+
+import numpy as np
 from numpy.typing import NDArray
+
 import nornir_imageregistration.transforms
 import nornir_imageregistration.transforms.defaulttransformchangeevents
-from nornir_imageregistration.transforms import base, triangulation, TransformType, DefaultTransformChangeEvents
-
 from nornir_imageregistration.spatial import Rectangle
-import numpy as np
+from nornir_imageregistration.transforms import base, TransformType, DefaultTransformChangeEvents
 
 
-class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTranslation, DefaultTransformChangeEvents):
+class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTranslation,
+                      DefaultTransformChangeEvents):
     '''This class is legacy and probably needs a deprecation warning'''
 
     @property
@@ -160,13 +161,12 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     def update_rotation_matrix(self):
         self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
         self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
-        
+
         if self.flip_ud:
             flip_y_matrix = nornir_imageregistration.transforms.utils.FlipMatrixY()
             self.forward_rotation_matrix = flip_y_matrix @ self.forward_rotation_matrix
-            self.inverse_rotation_matrix = flip_y_matrix @ self.inverse_rotation_matrix 
+            self.inverse_rotation_matrix = flip_y_matrix @ self.inverse_rotation_matrix
 
- 
     @property
     def angle(self):
         return self._angle
@@ -195,11 +195,11 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         numPoints = points.shape[0]
 
         centered_points = points - self.source_space_center_of_rotation
-        #centered_points = np.transpose(centered_points)
+        # centered_points = np.transpose(centered_points)
         centered_points = np.hstack((centered_points, np.ones((numPoints, 1))))
 
         centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
-        #centered_rotated_points = np.transpose(centered_rotated_points)
+        # centered_rotated_points = np.transpose(centered_rotated_points)
         centered_rotated_points = centered_rotated_points[:, 0:2]
 
         rotated_points = centered_rotated_points + self.source_space_center_of_rotation
@@ -218,11 +218,11 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         input_points = points - self.target_offset
         centered_points = input_points - self.source_space_center_of_rotation
 
-        #centered_points = np.transpose(centered_points)
+        # centered_points = np.transpose(centered_points)
         centered_points = np.hstack((centered_points, np.zeros((numPoints, 1))))
-        #rotated_points = centered_points @ self.inverse_rotation_matrix
+        # rotated_points = centered_points @ self.inverse_rotation_matrix
         rotated_points = (self.inverse_rotation_matrix @ centered_points.T).T
-        #rotated_points = np.transpose(rotated_points)
+        # rotated_points = np.transpose(rotated_points)
         rotated_points = rotated_points[:, 0:2]
 
         output_points = rotated_points + self.source_space_center_of_rotation
@@ -242,7 +242,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
 
         # We aren't changing the relative scale of either space compared to the other
         # We are changing the scale of both spaces, so simply adjust the target and source space offsets
-        #Do not call super, this method is a replacement
+        # Do not call super, this method is a replacement
         self.target_offset = self.target_offset * scalar
         self.source_space_center_of_rotation = self.source_space_center_of_rotation * scalar
         self.OnTransformChanged()
@@ -291,7 +291,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        #This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
+        # This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
                                                                                                    -self.angle,
                                                                                                    self.source_space_center_of_rotation[
@@ -325,15 +325,16 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         numPoints = points.shape[0]
 
         centered_points = points - self.source_space_center_of_rotation
-        #centered_points = np.transpose(centered_points)
-        centered_points = np.hstack((centered_points, np.ones((numPoints, 1))))  # Add a row so we can multiply the matrix
+        # centered_points = np.transpose(centered_points)
+        centered_points = np.hstack(
+            (centered_points, np.ones((numPoints, 1))))  # Add a row so we can multiply the matrix
 
         if self._scalar != 1.0:
             centered_points = centered_points * self._scalar
 
-        #centered_rotated_points = centered_points @ self.forward_rotation_matrix
+        # centered_rotated_points = centered_points @ self.forward_rotation_matrix
         centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
-        #centered_rotated_points = np.transpose(centered_rotated_points)
+        # centered_rotated_points = np.transpose(centered_rotated_points)
         centered_rotated_points = centered_rotated_points[:, 0:2]
 
         rotated_points = centered_rotated_points + self.source_space_center_of_rotation
@@ -352,21 +353,19 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         input_points = points - self.target_offset
         centered_points = input_points - self.source_space_center_of_rotation
 
-        #centered_points = np.transpose(centered_points)
+        # centered_points = np.transpose(centered_points)
         centered_points = np.hstack((centered_points, np.ones((numPoints, 1))))
 
         if self._scalar != 1.0:
             centered_points = centered_points / self._scalar
 
-        #rotated_points = centered_points @ self.inverse_rotation_matrix
+        # rotated_points = centered_points @ self.inverse_rotation_matrix
         rotated_points = (self.inverse_rotation_matrix @ centered_points.T).T
-        #rotated_points = np.transpose(rotated_points)
+        # rotated_points = np.transpose(rotated_points)
         rotated_points = rotated_points[:, 0:2]
 
         output_points = rotated_points + self.source_space_center_of_rotation
         return np.asarray(output_points)
-
-
 
     def __repr__(self):
         return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}:04g".format(self.scalar)

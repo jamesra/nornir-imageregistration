@@ -14,11 +14,9 @@ import nornir_shared.misc
 
 
 def __CreateArgParser(ExecArgs=None):
-
-
-
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
-    parser = argparse.ArgumentParser(description="Maps the control space of the warped transform to the control space of the fixed transform and saves the resulting transform as a new .stos file.")
+    parser = argparse.ArgumentParser(
+        description="Maps the control space of the warped transform to the control space of the fixed transform and saves the resulting transform as a new .stos file.")
 
     parser.add_argument('-output', '-o',
                         action='store',
@@ -36,7 +34,7 @@ def __CreateArgParser(ExecArgs=None):
                         dest='inputpath'
                         )
 
-    parser.add_argument('-scale','-s',
+    parser.add_argument('-scale', '-s',
                         action='store',
                         required=True,
                         type=float,
@@ -66,6 +64,7 @@ def OnUseError(message):
 
     sys.exit()
 
+
 def ValidateArgs(Args):
     if not os.path.exists(Args.fixedpath):
         OnUseError("Fixed stos file not found: " + Args.fixedpath)
@@ -80,18 +79,13 @@ def ValidateArgs(Args):
 def Execute(ExecArgs=None):
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
-        
+
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)
 
     MToVStos = stosfile.Scale(Args.scale)
     MToVStos.Save(Args.outputpath)
-    
-    
-    
-    
-    
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
@@ -100,7 +94,6 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
-
     (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))

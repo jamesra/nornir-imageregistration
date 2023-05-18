@@ -4,17 +4,11 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-import math
-
-from nornir_imageregistration.spatial import iPoint
-from nornir_imageregistration.transforms import triangulation
 import numpy
 import scipy.interpolate
 
-import scipy.linalg as linalg
-import scipy.spatial as spatial
-
-from . import utils
+from nornir_imageregistration.spatial import iPoint
+from nornir_imageregistration.transforms import triangulation
 
 
 class ScipyRbf(triangulation.Triangulation):
@@ -27,35 +21,39 @@ class ScipyRbf(triangulation.Triangulation):
         odict['_ReverseRbfiX'] = self._ReverseRbfiX
         odict['_ReverseRbfiY'] = self._ReverseRbfiY
 
-        return odict 
-    
+        return odict
+
     @property
     def ForwardRbfiX(self):
         if self._ForwardRbfiX is None:
-            self._ForwardRbfiX = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X], self.SourcePoints[:, iPoint.X])
-             
+            self._ForwardRbfiX = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X],
+                                                       self.SourcePoints[:, iPoint.X])
+
         return self._ForwardRbfiX
-    
+
     @property
     def ForwardRbfiY(self):
         if self._ForwardRbfiY is None:
-            self._ForwardRbfiY = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X], self.SourcePoints[:, iPoint.Y])
-             
+            self._ForwardRbfiY = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X],
+                                                       self.SourcePoints[:, iPoint.Y])
+
         return self._ForwardRbfiY
-    
+
     @property
     def ReverseRbfiX(self):
         if self._ReverseRbfiX is None:
-            self._ReverseRbfiX = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X], self.TargetPoints[:, iPoint.X])
+            self._ReverseRbfiX = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X],
+                                                       self.TargetPoints[:, iPoint.X])
 
-        return self._ReverseRbfiX 
+        return self._ReverseRbfiX
 
     @property
     def ReverseRbfiY(self):
         if self._ReverseRbfiY is None:
-            self._ReverseRbfiY = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X], self.TargetPoints[:, iPoint.Y])
+            self._ReverseRbfiY = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X],
+                                                       self.TargetPoints[:, iPoint.Y])
 
-        return self._ReverseRbfiY  
+        return self._ReverseRbfiY
 
     def __init__(self, WarpedPoints, FixedPoints, BasisFunction=None):
 
@@ -67,7 +65,6 @@ class ScipyRbf(triangulation.Triangulation):
         self._ReverseRbfiX = None
         self._ReverseRbfiY = None
 
-
     def Transform(self, Points, MaxChunkSize=65536):
 
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
@@ -77,7 +74,7 @@ class ScipyRbf(triangulation.Triangulation):
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
         if NumPts <= MaxChunkSize:
             transformedX = self.ForwardRbfiX(Points[:, iPoint.Y], Points[:, iPoint.X])
-            transformedY = self.ForwardRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X]) 
+            transformedY = self.ForwardRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X])
 
             return numpy.vstack((transformedY, transformedX)).transpose()
         else:
@@ -92,8 +89,8 @@ class ScipyRbf(triangulation.Triangulation):
                 transformedChunk = self.Transform(Points[iStart:iEnd, :])
 
                 # Failing these asserts means we are stomping earlier results
-                assert(transformedData[iStart, 0] == 0)
-                assert(transformedData[iStart, 1] == 0)
+                assert (transformedData[iStart, 0] == 0)
+                assert (transformedData[iStart, 1] == 0)
 
                 transformedData[iStart:iEnd, :] = transformedChunk
 
@@ -108,10 +105,9 @@ class ScipyRbf(triangulation.Triangulation):
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
 
         transformedX = self.ReverseRbfiX(Points[:, iPoint.Y], Points[:, iPoint.X])
-        transformedY = self.ReverseRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X]) 
+        transformedY = self.ReverseRbfiY(Points[:, iPoint.Y], Points[:, iPoint.X])
 
         return numpy.vstack((transformedY, transformedX)).transpose()
-
 
 #
 # class RBFTransform(triangulation.Triangulation):
@@ -273,5 +269,3 @@ class ScipyRbf(triangulation.Triangulation):
 #
 #    print "\nFixedPointsInRect"
 #    print T.GetFixedPointsRect([-1, -1, 14, 4])
-
-

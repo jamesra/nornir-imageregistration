@@ -5,16 +5,15 @@ Created on Jan 27, 2014
 '''
 import unittest
 
-from nornir_imageregistration.transforms import *
-
 import numpy as np
 import volume
 
+from nornir_imageregistration.transforms import *
 
 IdentityTransformPoints = np.array([[0, 0, 0, 0],
-                              [0, 10, 0, 10],
-                              [10, 0, 10, 0],
-                              [10, 10, 10, 10]])
+                                    [0, 10, 0, 10],
+                                    [10, 0, 10, 0],
+                                    [10, 10, 10, 10]])
 
 MirrorTransformPoints = np.array([[0, 0, 0, 0],
                                   [0, -10, 0, -10],
@@ -22,12 +21,9 @@ MirrorTransformPoints = np.array([[0, 0, 0, 0],
                                   [-10, -10, 10, 10]])
 
 
-
 class TestVolume(unittest.TestCase):
 
-
     def testBoundsZeroAlign(self):
-
         OneToTwo = meshwithrbffallback.MeshWithRBFFallback(IdentityTransformPoints)
         OneToThree = meshwithrbffallback.MeshWithRBFFallback(MirrorTransformPoints)
 
