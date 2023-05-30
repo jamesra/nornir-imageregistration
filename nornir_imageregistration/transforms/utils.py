@@ -103,7 +103,10 @@ def FlipMatrixX() -> NDArray[float]:
     return np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
 
 
-def BlendWithLinear(transform: IControlPoints, linear_factor: float, ignore_rotation: bool) -> ITransform:
+def BlendWithLinear(transform: IControlPoints,
+                    linear_factor: float | None = None,
+                    travel_limit: float | None = None,
+                    ignore_rotation: bool = False) -> ITransform:
     """
     Blends a transform with the estimate linear transform of its control points.  The goal is to "flatten" a transform to gradually reduce folds and other high distortion areas.
     :param transform:
@@ -112,15 +115,7 @@ def BlendWithLinear(transform: IControlPoints, linear_factor: float, ignore_rota
     :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
     match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
     """
-    if linear_factor < 0 or linear_factor > 1.0:
-        raise ValueError(f"linear_factor must be between 0 and 1.0, got {linear_factor}")
-
-    if linear_factor == 0:
-        return transform
-
-    source_points = transform.SourcePoints
-    target_points = transform.TargetPoints
-
+    
     # This check is here to help the IDE with autocompletion
     if not isinstance(transform, nornir_imageregistration.ITransform):
         raise ValueError("transform")
@@ -129,12 +124,62 @@ def BlendWithLinear(transform: IControlPoints, linear_factor: float, ignore_rota
                                                                                                        ignore_rotation=ignore_rotation)
     if linear_factor == 1.0:
         return linear_transform
+    
+    return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor, travel_limit=travel_limit)
+    
+def BlendTransforms(transform: IControlPoints,
+                    linear_transform: ITransform,
+                    linear_factor: float | None = None,
+                    travel_limit: float | None = None):
+    '''
+    Transfrom the control points from transform through both transform and linear_transform.
+    Blend the results according to parameters and return a new transform with the blended
+    point positions as the target space control points.
+    :param linear_factor:  The weight the linearized transform should have in calculating the new points
+    :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
+    :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
+    match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
+    '''
+    
+    if linear_factor is not None and (linear_factor < 0 or linear_factor > 1.0):
+        raise ValueError(f"linear_factor must be between 0 and 1.0, got {linear_factor}")
+    
+    if linear_factor is None and travel_limit is None:
+        raise ValueError(f"Either travel_limit or linear_factor must have a value")
+    
+    if travel_limit is not None and travel_limit < 0:
+        raise ValueError(f"travel_limit must be positive {travel_limit}")
 
+    if linear_factor == 0 and travel_limit is None:
+        #Why are we calling this?  Should I throw?
+        return transform
+ 
+    
+    source_points = transform.SourcePoints
+    target_points = transform.TargetPoints
+    
     linear_points = linear_transform.Transform(source_points)
 
-    blended_target_points = target_points * (1.0 - linear_factor)
-    blended_linear_points = linear_points * linear_factor
-    output_target_points = blended_target_points + blended_linear_points
+    if travel_limit is not None:
+        delta = linear_points - target_points
+        dist_squared = delta * delta 
+        hyp = np.sum(dist_squared, axis=1)
+        distances = np.sqrt(hyp)
+        
+        #Arbitrary, but for a first pass points less than half of the travel distance use the transform
+        #points more than halfway to the travel_limit have progressively more rigid tranfsorm blended in
+        travel_blend_start_distance = travel_limit / 2
+        travel_blend_range = travel_limit - travel_blend_start_distance
+        linear_factors = (distances - travel_blend_start_distance) / travel_blend_range
+        linear_factors.clip(0, 1.0, out=linear_factors)
+        linear_factors = linear_factors.squeeze()  
+        blended_target_points = (target_points.swapaxes(0,1) * (1.0 - linear_factors)).swapaxes(0,1)
+        blended_linear_points = (linear_points.swapaxes(0,1) *  linear_factors).swapaxes(0,1)
+        output_target_points = blended_target_points + blended_linear_points
+    else:
+        blended_target_points = target_points * (1.0 - linear_factor)
+        blended_linear_points = linear_points * linear_factor
+        output_target_points = blended_target_points + blended_linear_points
 
     if isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
         output_grid = nornir_imageregistration.ITKGridDivision(source_shape=transform.grid.source_shape,

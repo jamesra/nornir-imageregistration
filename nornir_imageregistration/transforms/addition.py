@@ -5,6 +5,7 @@ import scipy
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import distance, ITransform, IControlPoints, IGridTransform
+from Tools.scripts.objgraph import ignore
 
 
 def CentroidToVertexDistance(Centroids, TriangleVerts):
@@ -138,3 +139,28 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
     else:
         AToB_mapped_Transform.points = A_To_C_Transform.points
         return AToB_mapped_Transform
+    
+def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,
+                  EnrichTolerance: float | None = None,
+                  create_copy: bool = True,
+                  linear_factor: float | None = None,
+                  travel_limit: float | None = None,
+                  ignore_rotation: bool = False):
+    '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
+    :param BToC_Unaltered_Transform:
+    :param AToB_mapped_Transform:
+    :param EnrichTolerance:
+    :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.
+    :return: ndarray of points that can be assigned as control points for a transform'''
+    
+    nonlinear_transform = AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance, True)
+    linear_BToC_Ttransform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(BToC_Unaltered_Transform,
+                                                                                                       ignore_rotation=ignore_rotation)
+    linear_transform = AddTransforms(linear_BToC_Ttransform, AToB_mapped_Transform, EnrichTolerance, True)
+    
+    
+    blended_transform = nornir_imageregistration.transforms.utils.BlendTransforms(nonlinear_transform, linear_transform, linear_factor=linear_factor,
+                                                              travel_limit=travel_limit)
+    
+    return blended_transform
+     

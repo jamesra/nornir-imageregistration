@@ -469,12 +469,18 @@ class StosFile(object):
                 if not os.path.isabs(self.MappedMaskFullPath):
                     self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
 
-    def BlendWithLinear(self, linear_factor: float, ignore_rotation: bool = False):
+    def BlendWithLinear(self, linear_factor: float | None = None,
+                        travel_limit: float | None = None, 
+                        ignore_rotation: bool = False,
+                        ):
         '''
         Blends a stos file using a control point transform with a rigid linear approximation of
         the same transform (rotation, translation, scaling) with the passed blending factor
         :param linear_factor:  0 to 1.0, amount of weight to assign points passed through linear transform
         :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
+        :param travel_limit: Transformed points that are beyond the travel_limit distance from the predicted rigid location are placed
+        at the rigid transform position.  This allows local movement but blocks global distortion from travelling features (Suggested by
+        Art Wetzel)
         :return:
         '''
 
@@ -483,7 +489,8 @@ class StosFile(object):
 
         if isinstance(transformObj, nornir_imageregistration.IControlPoints):
             blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor,
-                                                                                          ignore_rotation)
+                                                                                           travel_limit=travel_limit,
+                                                                                          ignore_rotation=ignore_rotation)
             updated_transform = blended_transform.ToITKString()
             transform_changed = updated_transform != self.Transform
             self.Transform = updated_transform
@@ -667,7 +674,10 @@ class StosFile(object):
 
 def AddStosTransforms(A_To_B,
                       B_To_C,
-                      EnrichTolerance: float | None) -> StosFile:
+                      EnrichTolerance: float | None,
+                      linear_factor: float | None = None,
+                      travel_limit: float | None = None,
+                      ignore_rotation: bool = False) -> StosFile:
     '''
     :param EnrichTolerance:
     :param A_To_B: Commonly a single section transform, "4->3"
@@ -682,7 +692,16 @@ def AddStosTransforms(A_To_B,
 
     # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
 
-    A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
+    if linear_factor is None and travel_limit is None:
+        A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
+    else:
+        A_To_C_Transform = nornir_imageregistration.transforms.addition.AddTransformsWithLinearCorrection(B_To_C_Transform, 
+                                                         A_To_B_Transform,
+                                                         EnrichTolerance,
+                                                         create_copy=False,
+                                                         linear_factor=linear_factor,
+                                                         travel_limit=travel_limit,
+                                                         ignore_rotation=ignore_rotation)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.ControlSectionNumber = B_To_C_Stos.ControlSectionNumber
