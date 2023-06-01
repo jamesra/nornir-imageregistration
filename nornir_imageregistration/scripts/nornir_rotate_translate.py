@@ -49,10 +49,10 @@ def __CreateArgParser(ExecArgs=None):
                         )
     
     parser.add_argument('-checkflip', '-flip',
-                        action='store',
+                        action='store_true',
                         required=False,
-                        type=bool,
-                        default=False,
+                        #type=bool,
+                        #default=False,
                         help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
                         dest='testflip'
                         )
@@ -60,8 +60,8 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-cuda', '-c',
                         action='store_true',
                         required=False,
-                        type=bool,
-                        default=False,
+                        #type=bool,
+                        #default=False,
                         help='Use GPU for calculations if available',
                         dest='use_cp'
                         )
