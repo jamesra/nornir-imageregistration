@@ -104,7 +104,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     if TestFlip:
         #imWarpedFlipped = np.copy(source_image)
         imWarpedFlipped = np.flipud(source_image)
-    
+
         BestMatchFlipped = _find_best_angle(target_image, imWarpedFlipped,
                                             target_stats, source_stats,
                                             AngleSearchRange, MinOverlap=MinOverlap,
@@ -113,17 +113,23 @@ def SliceToSliceBruteForce(FixedImageInput,
 
         # Determine if the best match is flipped or not
         IsFlipped = BestMatchFlipped.weight > BestMatch.weight
-        
+
     if IsFlipped:
         imWarped = imWarpedFlipped
         BestMatch = BestMatchFlipped
     else:
         imWarped = source_image
 
+    # Note Clement - the RefinedAngleSearch list below is not centered around the current best angle
+    # Default angle search range every 2 degrees
+    # Old RefinedAngleSearch list: [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)]
+    # New RefinedAngleSearch list (length 39): [(x * 0.1 + BestMatch.angle) for x in range(-19, 20)]
+    # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + BestMatch.angle) for x in range(-9, 10)]
     if not UserDefinedAngleSearchRange:
         BestRefinedMatch = _find_best_angle(target_image, imWarped,
                                             target_stats, source_stats,
-                                            [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
+                                            # [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
+                                            [(x * 0.1 + BestMatch.angle) for x in range(-19, 20)],
                                             MinOverlap=MinOverlap, SingleThread=SingleThread, use_cp=use_cp)
         BestRefinedMatch.flippedud = IsFlipped
     else:
