@@ -117,9 +117,11 @@ def SliceToSliceBruteForce(FixedImageInput,
     if IsFlipped:
         imWarped = imWarpedFlipped
         BestMatch = BestMatchFlipped
+    else:
+        imWarped = source_image
 
     if not UserDefinedAngleSearchRange:
-        BestRefinedMatch = _find_best_angle(target_image, source_image,
+        BestRefinedMatch = _find_best_angle(target_image, imWarped,
                                             target_stats, source_stats,
                                             [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
                                             MinOverlap=MinOverlap, SingleThread=SingleThread, use_cp=use_cp)
@@ -140,7 +142,7 @@ def SliceToSliceBruteForce(FixedImageInput,
                 nSteps = int(refine_search_range / min_step_size)
                 stepsize = refine_search_range / nSteps
             
-            BestRefinedMatch = _find_best_angle(target_image, source_image,
+            BestRefinedMatch = _find_best_angle(target_image, imWarped,
                                                 target_stats, source_stats,
                                                 [(x * stepsize) + below for x in range(1, nSteps)],
                                                 MinOverlap=MinOverlap, SingleThread=SingleThread, use_cp=use_cp)
@@ -401,7 +403,7 @@ def _find_best_angle(imFixed: NDArray[float],
 
         # ShowGrayscale(NormCorrelationImage)
 
-    # print str(AngleMatchValues)
+    # print(str(AngleMatchValues))
     
     # Delete the pool to ensure extra python threads do not stick around
     # if pool is not None:
