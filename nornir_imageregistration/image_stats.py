@@ -105,7 +105,8 @@ class ImageStats():
 #             pass
 
         use_cp = isinstance(image, cp.ndarray)
-        
+        xp = cp if use_cp else np
+
         obj = ImageStats()
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
         #if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
