@@ -141,7 +141,7 @@ class ImageStats():
         height = 1
         width = 1
         one_d_result = False
-        if isinstance(shape, int) or isinstance(shape, np.int32):
+        if isinstance(shape, int) or isinstance(shape, np.integer):
             size = shape
             height = shape
             width = 1
