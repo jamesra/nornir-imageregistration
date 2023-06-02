@@ -88,7 +88,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         
-        MinOverlap=0.5
+        MinOverlap=0.75
 
         timer = TaskTimer()
 
