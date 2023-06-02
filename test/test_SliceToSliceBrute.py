@@ -72,18 +72,45 @@ class TestStos(setup_imagetest.ImageTestBase):
 
 
 class TestStosBrute(setup_imagetest.ImageTestBase):
- 
-    def testStosBrute(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.RunBasicBruteAlignment(FixedImagePath, WarpedImagePath, FlipUD=False)
 
-    def testStosBruteWithFlip(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_flippedud.png")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.RunBasicBruteAlignment(FixedImagePath, WarpedImagePath, FlipUD=True)
+    def setUp(self):
+        super(TestStosBrute, self).setUp()
+        self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.WarpedImagePathFlipped = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
+        self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
-    def RunBasicBruteAlignment(self, FixedImagePath: str, WarpedImagePath: str, FlipUD: bool, use_cp=False):
+    def testStosBrute_SingleThread(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
+
+    def testStosBrute_MultiThread(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, FlipUD=False)
+
+    def testStosBrute_Cluster(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True, FlipUD=False)
+
+    def testStosBrute_GPU(self):
+       self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False, use_cp=True)
+
+    def testStosBruteWithFlip_SingleThread(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
+
+    def testStosBruteWithFlip_MultiThread(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, FlipUD=True)
+
+    def testStosBruteWithFlip_Cluster(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, Cluster=True, FlipUD=True)
+
+    def testStosBruteWithFlip_GPU(self):
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True, use_cp=True)
+
+    def RunBasicBruteAlignment(self, FixedImagePath: str,
+                               WarpedImagePath: str,
+                               FlipUD: bool=False,
+                               SingleThread: bool=False,
+                               Cluster: bool=False,
+                               use_cp: bool=False):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
@@ -94,32 +121,21 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         # In photoshop the correct transform is X: -4  Y: 22 Angle: 132
 
-        timer.Start(f"Single Thread Brute No Mask use_cp={use_cp}")
+        timer.Start(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
         # Check both clustered and non-clustered output
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=True, AngleSearchRange=None, #AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
-                               TestFlip = FlipUD,MinOverlap=MinOverlap, use_cp=use_cp)
+                                                            WarpedImagePath,
+                                                            SingleThread=SingleThread,
+                                                            AngleSearchRange=None,
+                                                            # AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
+                                                            TestFlip=FlipUD,
+                                                            MinOverlap=MinOverlap,
+                                                            Cluster=Cluster,
+                                                            use_cp=use_cp)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        timer.End(f"Single Thread Brute No Mask use_cp={use_cp}")
+        timer.End(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
 
-        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
-
-        timer.Start(f"Multi-Thread Brute No Mask use_cp={use_cp}")
-        # Check both clustered and non-clustered output
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath, SingleThread=False, Cluster=True,
-                               TestFlip = FlipUD, MinOverlap=MinOverlap, use_cp=use_cp)
-
-        self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        timer.End(f"Multi-Thread Brute No Mask use_cp={use_cp}")
-
-        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
-
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath,MinOverlap=MinOverlap)
-
-        self.Logger.info("Best alignment: " + str(AlignmentRecord))
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
