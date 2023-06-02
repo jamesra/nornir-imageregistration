@@ -216,6 +216,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(savedstosObj)
 
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
+        if os.path.isfile(stosfilepath):
+            os.remove(stosfilepath)
         savedstosObj.Save(stosfilepath)
 
         loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
