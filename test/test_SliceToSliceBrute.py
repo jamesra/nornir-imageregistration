@@ -18,7 +18,8 @@ import nornir_imageregistration.stos_brute as stos_brute
 import nornir_shared.images as images
 from nornir_shared.tasktimer import TaskTimer
 
-from . import setup_imagetest
+# from . import setup_imagetest
+import setup_imagetest
 
 import cupy as cp
 
