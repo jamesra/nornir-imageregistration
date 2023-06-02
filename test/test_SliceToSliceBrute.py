@@ -283,7 +283,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
         self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
 
-    def testStosBruteExecute(self):
+    def testStosBruteExecuteWithMask(self):
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.WarpedImageMaskPath), "Missing test input")
@@ -299,7 +299,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
 
-    def testStosBruteExecute_GPU(self):
+    def testStosBruteExecuteWithMask_GPU(self):
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.WarpedImageMaskPath), "Missing test input")
