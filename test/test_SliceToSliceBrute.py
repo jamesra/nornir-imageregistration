@@ -169,8 +169,25 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(loadedTransform)
 
 
-    def testStosBruteWithMask(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+    def testStosBruteWithMask_MultiThread(self):
+        self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
+                                            self.FixedImageMaskPath, self.WarpedImageMaskPath,
+                                            SingleThread=False, FlipUD=False)
+
+    def testStosBruteWithMask_GPU(self):
+        self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
+                                            self.FixedImageMaskPath, self.WarpedImageMaskPath,
+                                            SingleThread=True, FlipUD=False, use_cp=True)
+
+    def RunBasicBruteAlignmentWithMask(self,
+                                       FixedImagePath: str,
+                                       WarpedImagePath: str,
+                                       FixedImageMaskPath: str,
+                                       WarpedImageMaskPath: str,
+                                       FlipUD: bool=False,
+                                       SingleThread: bool=False,
+                                       Cluster: bool=False,
+                                       use_cp: bool=False):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
@@ -183,12 +200,23 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedImageMaskPath = os.path.join(self.ImportedDataPath, controlMaskName)
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
 
+        controlMaskName = os.path.basename(FixedImageMaskPath)
+        warpedMaskName = os.path.basename(WarpedImageMaskPath)
+
+        timer = TaskTimer()
+        timer.Start(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
+
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath,
-                               FixedImageMaskPath,
-                               WarpedImageMaskPath)
+                                                            WarpedImagePath,
+                                                            FixedImageMaskPath,
+                                                            WarpedImageMaskPath,
+                                                            SingleThread=SingleThread,
+                                                            TestFlip=FlipUD,
+                                                            Cluster=Cluster,
+                                                            use_cp=use_cp)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
+        timer.End(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
 
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
