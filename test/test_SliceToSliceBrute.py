@@ -333,30 +333,73 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 #                       FixedImageMaskPath)
 #        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
 
-    def testSameTEMImageFast(self):
+    def testSameTEMImageFast_MultiThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(self.FixedImagePath,
-                               self.FixedImagePath,
-                               self.FixedImageMaskPath,
-                               self.FixedImageMaskPath,
-                               AngleSearchRange=[-2,0,2],
-                               SingleThread=False)
-        print(AlignmentRecord)
-        CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               AngleSearchRange=[-2,0,2],
+                                               SingleThread=False)
         
-    def testSameTEMImage(self):
+    def testSameTEMImage_SingleThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(self.FixedImagePath,
-                               self.FixedImagePath,
-                               self.FixedImageMaskPath,
-                               self.FixedImageMaskPath,
-                               SingleThread=False)
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               SingleThread=True)
+
+    def testSameTEMImage_MultiThread(self):
+        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               SingleThread=False)
+
+    def testSameTEMImage_GPU(self):
+        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               SingleThread=True,
+                                               use_cp=True)
+
+    def RunBasicBruteAlignmentToSameImage(self, FixedImagePath: str,
+                                          WarpedImagePath: str,
+                                          FixedImageMaskPath: str,
+                                          WarpedImageMaskPath: str,
+                                          AngleSearchRange: list[float] | None = None,
+                                          FlipUD: bool = False,
+                                          SingleThread: bool = False,
+                                          Cluster: bool = False,
+                                          use_cp: bool = False):
+        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
+        self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
+
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+                                                            WarpedImagePath,
+                                                            FixedImageMaskPath,
+                                                            WarpedImageMaskPath,
+                                                            AngleSearchRange=AngleSearchRange,
+                                                            SingleThread=SingleThread,
+                                                            use_cp=use_cp)
         print(AlignmentRecord)
         CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
 
