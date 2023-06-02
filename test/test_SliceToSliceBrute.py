@@ -303,6 +303,11 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
 class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
+    def setUp(self):
+        super(TestStosBruteToSameImage, self).setUp()
+        self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+
 #    def testSameSimpleImage(self):
 #        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
 #        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
@@ -330,15 +335,13 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImageFast(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               FixedImagePath,
-                               FixedImageMaskPath,
-                               FixedImageMaskPath,
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(self.FixedImagePath,
+                               self.FixedImagePath,
+                               self.FixedImageMaskPath,
+                               self.FixedImageMaskPath,
                                AngleSearchRange=[-2,0,2],
                                SingleThread=False)
         print(AlignmentRecord)
@@ -346,15 +349,13 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
         
     def testSameTEMImage(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               FixedImagePath,
-                               FixedImageMaskPath,
-                               FixedImageMaskPath, 
+        AlignmentRecord = stos_brute.SliceToSliceBruteForce(self.FixedImagePath,
+                               self.FixedImagePath,
+                               self.FixedImageMaskPath,
+                               self.FixedImageMaskPath,
                                SingleThread=False)
         print(AlignmentRecord)
         CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
