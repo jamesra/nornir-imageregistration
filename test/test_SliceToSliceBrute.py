@@ -299,6 +299,23 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
 
+    def testStosBruteExecute_GPU(self):
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.WarpedImageMaskPath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+
+        stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
+
+        nornir_imageregistration.scripts.nornir_rotate_translate.Execute(ExecArgs=['-f', self.FixedImagePath,
+                                                                                   '-w', self.WarpedImagePath,
+                                                                                   '-fm', self.FixedImageMaskPath,
+                                                                                   '-wm', self.WarpedImageMaskPath,
+                                                                                   '-o', stosfilepath,
+                                                                                   '-cuda'])
+
+        self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
+
 
 
 class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
