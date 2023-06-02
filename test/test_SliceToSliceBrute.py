@@ -78,8 +78,6 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.WarpedImagePathFlipped = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
-        self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
     def testStosBrute_SingleThread(self):
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
@@ -168,6 +166,16 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         loadedTransform = nornir_imageregistration.transforms.factory.LoadTransform(loadedStosObj.Transform)
         self.assertIsNotNone(loadedTransform)
 
+
+class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
+
+    def setUp(self):
+        super(TestStosBruteWithMask, self).setUp()
+        self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.WarpedImagePathFlipped = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
+        self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
     def testStosBruteWithMask_MultiThread(self):
         self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
@@ -317,7 +325,6 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
 
 
-
 class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def setUp(self):
@@ -419,6 +426,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                                             use_cp=use_cp)
         print(AlignmentRecord)
         CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
+
 
 if __name__ == "__main__":
     # import syssys.argv = ['', 'Test.testName']
