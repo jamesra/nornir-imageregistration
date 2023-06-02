@@ -189,15 +189,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                        Cluster: bool=False,
                                        use_cp: bool=False):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-
-        controlMaskName = "mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png"
-        warpedMaskName = "0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png"
-
-        WarpedImageMaskPath = os.path.join(self.ImportedDataPath, warpedMaskName)
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
-        FixedImageMaskPath = os.path.join(self.ImportedDataPath, controlMaskName)
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
 
         controlMaskName = os.path.basename(FixedImageMaskPath)
