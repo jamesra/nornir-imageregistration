@@ -357,7 +357,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 #                       FixedImageMaskPath)
 #        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
 
-    def testSameTEMImageFast_MultiThread(self):
+    def testSameTEMImageFast_SingleThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
@@ -367,8 +367,33 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                                self.FixedImageMaskPath,
                                                self.FixedImageMaskPath,
                                                AngleSearchRange=[-2,0,2],
+                                               SingleThread=True)
+
+    def testSameTEMImageFast_MultiThread(self):
+        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               AngleSearchRange=[-2, 0, 2],
                                                SingleThread=False)
-        
+
+    def testSameTEMImageFast_GPU(self):
+        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+
+        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+                                               self.FixedImagePath,
+                                               self.FixedImageMaskPath,
+                                               self.FixedImageMaskPath,
+                                               AngleSearchRange=[-2, 0, 2],
+                                               SingleThread=True,
+                                               use_cp=True)
+
     def testSameTEMImage_SingleThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
