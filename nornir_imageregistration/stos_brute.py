@@ -171,7 +171,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
                   FixedImageShape: tuple[int, int], WarpedImageShape: tuple[int, int],
                   angle: float,
                   fixedStats: nornir_imageregistration.ImageStats | None = None, warpedStats: nornir_imageregistration.ImageStats | None = None,
-                  FixedImagePrePadded: bool=True, MinOverlap: float=0.75, use_cp: bool | None = None):
+                  FixedImagePrePadded: bool=True, MinOverlap: float=0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
     imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=nornir_imageregistration.default_image_dtype())
@@ -359,21 +359,18 @@ def _find_best_angle(imFixed: NDArray[float],
             record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape,
                                     warped_shape, theta, fixedStats=fixed_stats,
                                     warpedStats=warped_stats,
-                                    MinOverlap=MinOverlap,
-                                    use_cp=use_cp)
+                                    MinOverlap=MinOverlap)
             AngleMatchValues.append(record)
         elif use_cluster:
             task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped,
                                  fixed_shape, warped_shape, theta, fixedStats=fixed_stats, warpedStats=warped_stats,
-                                 MinOverlap=MinOverlap,
-                                 use_cp=use_cp)
+                                 MinOverlap=MinOverlap)
             taskList.append(task)
         else:
             task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata,
                                  fixed_shape, warped_shape,
                                  theta,
-                                 fixedStats=fixed_stats, warpedStats=warped_stats, MinOverlap=MinOverlap,
-                                 use_cp=use_cp)
+                                 fixedStats=fixed_stats, warpedStats=warped_stats, MinOverlap=MinOverlap)
             taskList.append(task)
 
         if not i % CheckTaskInterval == 0:
