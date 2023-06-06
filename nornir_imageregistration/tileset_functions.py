@@ -60,24 +60,32 @@ def GetTempDirForLevelDir(fullpath):
     return os.path.join(tempfile.gettempdir(), os.path.basename(fullpath))
 
 
-def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft, TopRight, BottomLeft, BottomRight, OutputFileFullPath):
+def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft:str, TopRight:str, BottomLeft:str, BottomRight:str,
+                                              OutputFileFullPath: str, input_level_temp_dir: str | None,
+                                              output_level_temp_dir: str | None):
     '''Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots 
        of small IO calls instead of reading the entire file. 
        The temporary files are not removed so the next tileset level can utilize the local data.
-       Use ClearTempDirectories to clean up the temporary data'''
+       Use ClearTempDirectories to clean up the temporary data
 
-    temp_dir = tempfile.gettempdir()
+       :param input_level_temp_dir: Input temporary directory.  If passed, it is assumed the directory exists
+       :param output_level_temp_dir: Output temporary directory.  If passed, it is assumed the directory exists
+       '''
+
+    if input_level_temp_dir is None:
+        LevelDir = os.path.basename(os.path.dirname(TopLeft))
+        temp_input_dir = os.path.join(tempfile.gettempdir(), LevelDir)
+        os.makedirs(temp_input_dir, exist_ok=True)
+
+    if output_level_temp_dir is None:
+        output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
+        temp_output_dir = os.path.join(tempfile.gettempdir(), output_level_dir)
+        os.makedirs(temp_output_dir, exist_ok=True)
 
     TopLeftBase = os.path.basename(TopLeft)
     TopRightBase = os.path.basename(TopRight)
     BottomLeftBase = os.path.basename(BottomLeft)
     BottomRightBase = os.path.basename(BottomRight)
-
-    LevelDir = os.path.basename(os.path.dirname(TopLeft))
-
-    temp_input_dir = os.path.join(tempfile.gettempdir(), LevelDir)
-
-    os.makedirs(temp_input_dir, exist_ok=True)
 
     temp_TopLeft = os.path.join(temp_input_dir, TopLeftBase)
     temp_TopRight = os.path.join(temp_input_dir, TopRightBase)
@@ -113,12 +121,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft, TopRight, Botto
         pass
 
     outputbase = os.path.basename(OutputFileFullPath)
-    output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
-
-    temp_output_dir = os.path.join(temp_dir, output_level_dir)
     temp_output = os.path.join(temp_output_dir, outputbase)
-
-    os.makedirs(temp_output_dir, exist_ok=True)
 
     CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
                                    temp_output)
