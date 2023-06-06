@@ -10,8 +10,6 @@ import multiprocessing.sharedctypes
 import os
 from time import sleep
 
-import cupyx.scipy.ndimage
-
 import nornir_imageregistration
 from numpy.fft import fftshift 
  
@@ -20,7 +18,6 @@ import numpy as np
 import cupy as cp
 import cupyx
 from numpy.typing import NDArray
-import scipy
 
 
 # from memory_profiler import profile
@@ -180,16 +177,16 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original, dtype=nornir_imageregistration.default_image_dtype())
     imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original, dtype=nornir_imageregistration.default_image_dtype())
 
-    if use_cp is None:
-        use_cp = isinstance(imFixed, cp.ndarray)
-        
-    xp = cp if use_cp else np
-    rotate = cupyx.scipy.ndimage.rotate if use_cp else scipy.ndimage.rotate
-    fft = cp.fft if use_cp else np.fft
+    use_cp = isinstance(imFixed, cp.ndarray)
+    # Use of cupy or numpy
+    xp = cp.get_array_module(imFixed_original)
+    # Use of cupyx.scipy.fft or scipy.fft
+    xp_scipy = cupyx.scipy.get_array_module(imFixed_original)
+    rotate = xp_scipy.ndimage.rotate
 
-    imFixed = cp.asarray(imFixed) if use_cp and not isinstance(imFixed, cp.ndarray) else imFixed
-    imWarped = cp.asarray(imWarped) if use_cp  and not isinstance(imWarped, cp.ndarray)  else imWarped
- 
+    # imFixed = cp.asarray(imFixed) if use_cp and not isinstance(imFixed, cp.ndarray) else imFixed
+    # imWarped = cp.asarray(imWarped) if use_cp  and not isinstance(imWarped, cp.ndarray)  else imWarped
+
     # gc.set_debug(gc.DEBUG_LEAK)
     if fixedStats is None:
         fixedStats = nornir_imageregistration.ImageStats.CalcStats(imFixed)
@@ -243,18 +240,18 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
 
     del RotatedWarped
     
-    if use_cp and not isinstance(PaddedFixed, cp.ndarray):
-        PaddedFixed = cp.asarray(PaddedFixed)
-    
-    if use_cp and not isinstance(RotatedPaddedWarped, cp.ndarray):
-        RotatedPaddedWarped = cp.asarray(RotatedPaddedWarped)
+    # if use_cp and not isinstance(PaddedFixed, cp.ndarray):
+    #     PaddedFixed = cp.asarray(PaddedFixed)
+    #
+    # if use_cp and not isinstance(RotatedPaddedWarped, cp.ndarray):
+    #     RotatedPaddedWarped = cp.asarray(RotatedPaddedWarped)
  
     CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped, fixedStats.mean, warpedStats.mean)
 
     del PaddedFixed
     del RotatedPaddedWarped
 
-    CorrelationImage = fft.fftshift(CorrelationImage)
+    CorrelationImage = xp_scipy.fft.fftshift(CorrelationImage)
     try:
         CorrelationImage -= CorrelationImage.min()
         CorrelationImage /= CorrelationImage.max()
@@ -265,6 +262,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
 
     # Timer.Start('Find Peak')
 
+    # Note - Clement: OverlapMask still uses numpy (and not cupy)
     OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape, CorrelationImage.shape, MinOverlap, MaxOverlap=1.0)
     if use_cp and not isinstance(OverlapMask, cp.ndarray):
         OverlapMask = cp.asarray(OverlapMask)
