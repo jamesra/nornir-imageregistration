@@ -36,11 +36,12 @@ class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
         with open(mosaic_tileset_filepath, "rb") as mosaic_tileset_file:
             mosaic_tileset = pickle.load(mosaic_tileset_file)
 
+        self.align_two_tiles(mosaic_tileset, volume_dir, 2, 372, 394)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 898, 899)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 847, 848)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 868, 869)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 776, 802)
-        self.align_two_tiles(mosaic_tileset, volume_dir, 2, 372, 394)
+        
 
     def align_two_tiles(self, mosaic_tileset, volume_dir, iPass, TileA_ID, TileB_ID):
         layout_files_dir = os.path.join(volume_dir, "Layouts", "Min_0.0")

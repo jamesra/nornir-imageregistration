@@ -220,8 +220,11 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
     def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True, title: str = None,
                     target_space_scale: float = None, image_to_source_space_scale: float = None):
-
-        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic,
+ 
+        if isinstance(mosaic, nornir_imageregistration.mosaic_tileset.MosaicTileset):
+            mosaicTileset = mosaic
+        else:
+            mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic,
                                                                                  image_folder=None,
                                                                                  image_to_source_space_scale=image_to_source_space_scale)
 
@@ -623,7 +626,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         print("Translate Quality Score: %g" % (translated_score))
 
         if openwindow:
-            self._ShowMosaic(translated_mosaic, OutputMosaicDir)
+            self._ShowMosaic(translated_mosaic, OutputMosaicDir, image_to_source_space_scale=1 / downsample)
 
     #     def test_RC2_0001_Mosaic(self):
 
@@ -719,7 +722,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
                            TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
                            downsample=4,
-                           openwindow=False,
+                           openwindow=True,
                            config=config)
 
         print("All done")
