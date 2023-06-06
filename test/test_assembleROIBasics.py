@@ -69,7 +69,7 @@ class TestROIBasics(setup_imagetest.ImageTestBase):
         
         self.assertTrue(numpy.allclose(adjusted_coords_mask, valid_coords_mask))
         flat_valid_coords = nornir_imageregistration.ravel_index(valid_adjusted_coords, image.shape)
-        expected_image = numpy.zeros(image.shape, dtype=numpy.float)
+        expected_image = numpy.zeros(image.shape, dtype=numpy.float64)
         expected_image.flat[flat_valid_coords] = image.flat[flat_valid_coords]
           
         self.assertTrue(nornir_imageregistration.ShowGrayscale((image, (expected_image, cropped_image)), title=f"Cropped version of image padded by {padding} pixel if outside boundaries.\nOrigin at {bottom_left} and area {area}", rois=(roi,(None,None)), PassFail=True))
