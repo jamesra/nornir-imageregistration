@@ -113,20 +113,13 @@ def ApproxEqual(a, b, epsilon=None):
 
 def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
     image = None
-    if isinstance(imageparam, np.ndarray):
+    if (isinstance(imageparam, np.ndarray) or isinstance(imageparam, cp.ndarray)):
+        xp = cp.get_array_module(imageparam)
         if dtype is None:
             image = imageparam
-        elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
+        elif xp.issubdtype(imageparam.dtype, np.integer) and xp.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
-        else:
-            image = imageparam.astype(dtype=dtype, copy=False)
-    elif isinstance(imageparam, cp.ndarray):
-        if dtype is None:
-            image = imageparam
-        elif cp.issubdtype(imageparam.dtype, np.integer) and cp.issubdtype(dtype, np.floating):
-            # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / cp.iinfo(imageparam.dtype).max 
+            image = imageparam.astype(dtype, copy=False) / xp.iinfo(imageparam.dtype).max
         else:
             image = imageparam.astype(dtype=dtype, copy=False)
     elif isinstance(imageparam, str):
@@ -166,10 +159,11 @@ def ScalarForMaxDimension(max_dim: float, shapes):
 
 
 def ReduceImage(image: NDArray, scalar: float):
-    if isinstance(image, np.ndarray):
-        return scipy.ndimage.zoom(image, scalar)
-    elif isinstance(image, cp.ndarray):
-        return cupyx.scipy.ndimage.zoom(image, scalar)
+    """
+    Returns a zoomed array using spline interpolation (CPU/GPU agnostic function)
+    """
+    xp = cupyx.scipy.get_array_module(image)
+    return xp.ndimage.zoom(image, scalar)
 
 
 def ExtractROI(image: NDArray, center, area):
@@ -1299,7 +1293,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     OriginalWidth = Width
 
     use_cp = isinstance(image, cp.ndarray)
-    xp = cp if use_cp else np
+    xp = cp.get_array_module(image)
 
     if OriginalShape is not None:
         OriginalWidth = OriginalShape[1]
@@ -1344,11 +1338,11 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         desired_type = np.float32
 
     #use_cp = use_cp or NewHeight * NewWidth > 4092
-    xp = cp if use_cp else np
+    #xp = cp if use_cp else np
 
     PaddedImage = xp.zeros((int(NewHeight), int(NewWidth)), dtype=desired_type)
-    if use_cp:
-        image = xp.asarray(image)
+    # if use_cp:
+    #     image = xp.asarray(image)
 
     PaddedImageXOffset = int(np.floor((NewWidth - Width) / 2.0))
     PaddedImageYOffset = int(np.floor((NewHeight - Height) / 2.0))
@@ -1398,9 +1392,7 @@ def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
     """
-    use_cp = isinstance(FixedImage, cp.ndarray)
-    xp = cp if use_cp else np
-    xfftpack = cp.fft if use_cp else np.fft
+    xp = cp.get_array_module(FixedImage)
 
     if not (FixedImage.shape == MovingImage.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -1422,8 +1414,8 @@ def ImagePhaseCorrelation(FixedImage, MovingImage, fixed_mean=None, moving_mean=
     if moving_mean is None:
         moving_mean = xp.mean(MovingImage)
  
-    FFTFixed = xfftpack.fft2(FixedImage - fixed_mean)
-    FFTMoving = xfftpack.fft2(MovingImage - moving_mean) 
+    FFTFixed = xp.fft.fft2(FixedImage - fixed_mean)
+    FFTMoving = xp.fft.fft2(MovingImage - moving_mean)
 
     return FFTPhaseCorrelation(FFTFixed, FFTMoving, True)
 
@@ -1457,9 +1449,8 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
     
-    use_cp = isinstance(FFTFixed, cp.ndarray)
-    xp = cp if use_cp else np
-    xfftpack = cp.fft if use_cp else scipy.fft
+    xp = cp.get_array_module(FFTFixed)
+    xp_fft = cupyx.scipy.get_array_module(FFTFixed)
 
     conjFFTFixed = xp.conjugate(FFTFixed)
     if delete_input:
@@ -1494,7 +1485,7 @@ def FFTPhaseCorrelation(FFTFixed, FFTMoving, delete_input=False):
     # del wht_expon_adjustment
     del abs_conjFFTFixed
 
-    CorrelationImage = xp.real(xfftpack.ifft2(conjFFTFixed))
+    CorrelationImage = xp.real(xp_fft.fft.ifft2(conjFFTFixed))
     del conjFFTFixed
 
     return CorrelationImage
@@ -1512,8 +1503,8 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     :rtype: (tuple, float)
     """
     use_cupy = isinstance(image, cp.ndarray)
-    xp = cp if use_cupy else np
-    sp = cupyx.scipy if use_cupy else scipy
+    xp = cp.get_array_module(image)
+    sp = cupyx.scipy.get_array_module(image)
 
     if Cutoff is None:
         Cutoff = 0.996
@@ -1562,7 +1553,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         if use_cupy:
             OtherPeaks = LabelSums[LabelSums != PeakStrength]
         else:
-            OtherPeaks = np.delete(LabelSums, PeakValueIndex) 
+            OtherPeaks = np.delete(LabelSums, PeakValueIndex)
         
         FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         #FalsePeakStrength = OtherPeaks.max()

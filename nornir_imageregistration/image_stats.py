@@ -105,7 +105,7 @@ class ImageStats():
 #             pass
 
         use_cp = isinstance(image, cp.ndarray)
-        xp = cp if use_cp else np
+        xp = cp.get_array_module(image)
 
         obj = ImageStats()
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
@@ -121,7 +121,8 @@ class ImageStats():
             obj._max = numpy.ma.max(image)
             obj._min = numpy.ma.min(image)
         else: 
-            flatImage = image.ravel() if use_cp else image.flat
+            #flatImage = image.ravel() if use_cp else image.flat
+            flatImage = xp.ravel(image)
             obj._median = xp.median(flatImage)
             obj._mean = xp.mean(flatImage)
             obj._std = xp.std(flatImage)
