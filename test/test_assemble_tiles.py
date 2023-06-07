@@ -229,7 +229,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         
         nRows = expected_grid_dims[0]
         tiles = [[None for iCol in range(expected_grid_dims[1])] for iRow in range(expected_grid_dims[0])]#[[None] * expected_grid_dims[1]] * expected_grid_dims[0]
-        tile_returned = np.zeros(expected_grid_dims, dtype=np.bool)
+        tile_returned = np.zeros(expected_grid_dims, dtype=bool)
         #out = list(mosaic.GenerateOptimizedTiles(tilesPath=TilesDir, tile_dims=tile_dims, usecluster=False, target_space_scale=expectedScale))
         for t in mosaicTileset.GenerateOptimizedTiles(tile_dims=tile_dims,
                                                       usecluster=False,
