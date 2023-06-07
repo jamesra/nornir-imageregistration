@@ -494,7 +494,7 @@ def CropImage(imageparam:NDArray | str, Xo: int, Yo: int, Width:int, Height:int,
     #         Height = int(Height)
 
     assert (isinstance(Width, int) or isinstance(Width, np.integer))
-    assert (isinstance(Height, int) or isinstance(Width, np.integer))
+    assert (isinstance(Height, int) or isinstance(Height, np.integer))
 
     if isinstance(cval, str) and cval != 'random':
         raise ValueError("'random' is the only supported string argument for cval")
