@@ -14,6 +14,8 @@ import nornir_imageregistration
 from nornir_imageregistration import IGrid
 from nornir_imageregistration.transforms.base import ITransform
 
+from nornir_shared.mathhelper import NearestPowerOfTwo
+
 
 def build_coords_array(grid_dims: NDArray[int]) -> NDArray[int]:
     """
@@ -239,7 +241,7 @@ class ITKGridDivision(GridDivisionBase):
             self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing) + 1
 
         if self._cell_size is None:  # Estimate a reasonable cell_size with overlap if it has not been determined, (passed grid dimensions only perhaps)
-            self._cell_size = nornir_imageregistration.NearestPowerOfTwo(self._grid_dims)
+            self._cell_size = NearestPowerOfTwo(self._grid_dims)
 
         # Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
         self._grid_spacing = source_shape / (
