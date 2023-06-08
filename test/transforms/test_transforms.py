@@ -12,6 +12,8 @@ from test.transforms import TransformCheck, ForwardTransformCheck, NearestFixedC
     CompressedTransformPoints, MirrorTransformPoints, IdentityTransformPoints, OffsetTransformPoints
 
 import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms import MeshWithRBFFallback, OneWayRBFWithLinearCorrection, Triangulation, utils
+
 from nornir_imageregistration.transforms import * 
 
 
@@ -474,7 +476,7 @@ class TestTransforms(unittest.TestCase):
 
     def test_bounds(self):
         global IdentityTransformPoints
-        IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
+        IdentityTransform = Triangulation(IdentityTransformPoints)
 
 
 #        print "Fixed Verts"
