@@ -45,7 +45,7 @@ def ClearTempDirectories(level_paths):
     pool.wait_completion()
 
 
-def GetTempPathForTile(fullpath):
+def GetTempPathForTile(fullpath: str):
     '''
     Given a tileset image, return the temporary filename for the tile
     '''
@@ -53,7 +53,7 @@ def GetTempPathForTile(fullpath):
     return os.path.join(tempfile.gettempdir(), LevelDir)
 
 
-def GetTempDirForLevelDir(fullpath):
+def GetTempDirForLevelDir(fullpath: str):
     '''
     Given a tileset level, return the temporary level directory
     '''
@@ -76,11 +76,15 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft:str, TopRight:st
         LevelDir = os.path.basename(os.path.dirname(TopLeft))
         temp_input_dir = os.path.join(tempfile.gettempdir(), LevelDir)
         os.makedirs(temp_input_dir, exist_ok=True)
+    else:
+        temp_input_dir = input_level_temp_dir
 
     if output_level_temp_dir is None:
         output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
         temp_output_dir = os.path.join(tempfile.gettempdir(), output_level_dir)
         os.makedirs(temp_output_dir, exist_ok=True)
+    else:
+        temp_output_dir = output_level_temp_dir
 
     TopLeftBase = os.path.basename(TopLeft)
     TopRightBase = os.path.basename(TopRight)
