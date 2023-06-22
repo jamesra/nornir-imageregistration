@@ -316,14 +316,14 @@ class IDOCTests(TestMosaicAssemble):
     @property
     def TestName(self):
         return "IDOC1"
-    
-    def test_AssembleIDOC(self):
+
+    def test_AssembleIDOC_DS4(self):
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='004')
-    
+
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
-    
-    def test_AssembleIDOCParallel(self):
+
+    def test_AssembleIDOC_DS1_Parallel(self):
     
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
