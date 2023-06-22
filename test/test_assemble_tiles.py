@@ -49,7 +49,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         os.remove(outputImagePath)
 
 
-    def AssembleMosaic(self, mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False, downsamplePath=None):
+    def AssembleMosaic(self, mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False, use_cp: bool=False, downsamplePath=None):
 
         SaveFiles = not outputMosaicPath is None
 
@@ -70,7 +70,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
                      
         timer.Start(timing_key)
 
-        (mosaicImage, mask) = mosaic_set.AssembleImage(usecluster=parallel)
+        (mosaicImage, mask) = mosaic_set.AssembleImage(usecluster=parallel, use_cp=use_cp)
 
         timer.End(timing_key, True)
 
@@ -262,10 +262,10 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         self.assertTrue(nornir_imageregistration.ShowGrayscale(tiles, title=title, PassFail=True))
         
 
-    def CreateAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str):
+    def CreateAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str, use_cp: bool=False):
 
         for m in mosaicFiles:
-            self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaicTypeDS4', parallel=False)
+            self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaicTypeDS4', parallel=False, use_cp=use_cp)
             # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
 
         print("All done")
@@ -294,7 +294,15 @@ class PMGTests(TestMosaicAssemble):
 
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
-    def test_AssemblePMGParallel(self):
+    def test_AssemblePMG_GPU(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath()
+
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir, use_cp=True)
+
+    def test_AssemblePMG_Parallel(self):
         testName = "PMG1"
 
         mosaicFiles = self.GetMosaicFiles()
