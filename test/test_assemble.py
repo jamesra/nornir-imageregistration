@@ -6,6 +6,7 @@ Created on Apr 3, 2013
 import os
 import unittest
 import numpy
+import numpy as np
 import scipy
 
 import nornir_imageregistration
@@ -21,7 +22,12 @@ def ShowComparison(*args, **kwargs):
 
 
 class TestAssemble(setup_imagetest.ImageTestBase):
-    
+
+    def setUp(self):
+        super(TestAssemble, self).setUp()
+        self.WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+
     def test_TransformImageIdentity(self):
         # Too small to require more than one tile
         self.CallTransformImage(imageDim=10)
@@ -45,16 +51,15 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
-        
+
     def test_warpedImageToFixedSpaceTranslate(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
 
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
-        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
-        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -62,23 +67,45 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage, bpp=8)
 
         #rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), axes=(0,1), angle=angle)
-#
+
         self.assertTrue(ShowComparison([fixedImage, transformedImage], title="Image should be translated +100x,+50y but not rotated.", PassFail=True, image_titles=('Original', 'Translated')))
-        return
+        # return
 
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())
 
+    def test_warpedImageToFixedSpaceTranslate_GPU(self):
+            self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+
+            angle = 0
+            arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
+
+            fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+            warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+
+            transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
+
+            transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage, use_cp=True)
+            nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage, bpp=8)
+
+            # rotatedWarped = interpolation.rotate(warpedImage.astype(numpy.float32), axes=(0,1), angle=angle)
+            #
+            # self.assertTrue(ShowComparison([fixedImage, transformedImage],
+            #                                title="Image should be translated +100x,+50y but not rotated.",
+            #                                PassFail=True, image_titles=('Original', 'Translated')))
+
+
+            # delta = fixedImage[1:64, 1:64] - transformedImage
+            # self.assertTrue((delta < 0.01).all())
 
     def test_warpedImageToFixedSpaceRotateTransform(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
 
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
-        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
-        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -89,22 +116,50 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=-angle, reshape=False)
 #
 #
-        self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
-                                       title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True,
-                                       image_titles=(('Target', 'My Transform'),('SciPy ', 'SciPy negated angle'))))
+        # self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
+        #                                title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True,
+        #                                image_titles=(('Target', 'My Transform'),('SciPy ', 'SciPy negated angle'))))
+        #
+        # # delta = fixedImage[512:544, 512:544] - rotatedWarped
+        # self.assertTrue((delta < 0.01).all())
+
+    def test_warpedImageToFixedSpaceRotateTransform_GPU(self):
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+
+        angle = 30
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
+
+        fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+
+        transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
+
+        transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage, use_cp=True)
+        nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
+
+        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=angle,
+                                              reshape=False)
+        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=-angle,
+                                              reshape=False)
+        #
+        #
+        # self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
+        #                                title="Rotate transform should match scipy.interpolate.rotate result",
+        #                                PassFail=True,
+        #                                image_titles=(
+        #                                ('Target', 'My Transform'), ('SciPy ', 'SciPy negated angle'))))
 
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())
 
     def test_warpedImageToFixedSpaceIdentityTransform(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
 
 
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
-        fixedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
-        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
@@ -113,24 +168,55 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         delta = fixedImage[0:64, 0:64] - transformedImage
 
-        # nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
+        #nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
+        self.assertTrue((delta < 0.01).all())
+
+    def test_warpedImageToFixedSpaceIdentityTransform_GPU(self):
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+
+
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
+
+        fixedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+
+        transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
+
+        transformedImage = assemble.SourceImageToTargetSpace(transform, warpedImage, (0, 0), (64, 64), use_cp=True)
+        # nornir_imageregistration.SaveImage("C:\\Temp\\17.png", transformedImage)
+
+        delta = fixedImage[0:64, 0:64] - transformedImage
+
+        #nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
         self.assertTrue((delta < 0.01).all())
 
 
     def test_warpedImageToFixedSpace(self):
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
-        fixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
-        warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
+        fixedImage = nornir_imageregistration.LoadImage(self.FixedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
 
         transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
 
         transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage)
+        nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage, bpp=8)
+
+    def test_warpedImageToFixedSpace_GPU(self):
+        self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+
+        arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
+
+        fixedImage = nornir_imageregistration.LoadImage(self.FixedImagePath)
+        warpedImage = nornir_imageregistration.LoadImage(self.WarpedImagePath)
+
+        transform = arecord.ToTransform(fixedImage.shape, warpedImage.shape)
+
+        transformedImage = assemble.WarpedImageToFixedSpace(transform, warpedImage, use_cp=True)
         nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage, bpp=8)
 
 class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
