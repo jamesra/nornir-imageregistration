@@ -80,7 +80,8 @@ def write_to_source_roi_coords(transform: ITransform,
 def write_to_target_roi_coords(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
                                area: tuple[float, float] | NDArray,
-                               extrapolate: bool=False) -> tuple[NDArray, NDArray]:
+                               extrapolate: bool=False,
+                               use_cp: bool=False) -> tuple[NDArray, NDArray]:
     """
     This function is used to generate coordinates to transform image data in source space forward into target space.
 
@@ -221,7 +222,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                output_origin: NDArray[int] | tuple[int, int] | None,
                                output_area: NDArray[int] | tuple[float, float],
                                cval=0,
-                               return_shared_memory: bool=False):
+                               return_shared_memory: bool=False,
+                               use_cp: bool=False):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -232,24 +234,36 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :Param cval: Value to place in unmappable regions, defaults to zero.
     :param use_shared_memory: If true, create and write output to a shared memory array
     """
+
+    xp = cp.get_array_module(source_image)
+    xp_scipy = cupyx.scipy.get_array_module(source_image)
+    use_cp = isinstance(source_image,cp.ndarray)
+
     if output_origin is None:
         output_origin = target_coords.min(0)
-  
+
     if not isinstance(output_origin, np.ndarray):
         output_origin = np.asarray(output_origin, dtype=np.int32)
 
     if output_origin.dtype != np.int32:
         output_origin = np.asarray(output_origin, dtype=np.int32)
-        
+
     if not isinstance(output_area, np.ndarray):
         output_area = np.asarray(output_area, dtype=np.int32)
 
     if output_area.dtype != np.int32:
         output_area = np.asarray(output_area, dtype=np.int32)
 
+
+    output_origin = cp.asarray(output_origin) if use_cp and not isinstance(output_origin,
+                                                                             cp.ndarray) else output_origin
+    output_area = cp.asarray(output_area) if use_cp and not isinstance(output_area,
+                                                                           cp.ndarray) else output_area
+
+
     if source_coords.shape[0] == 0:
         # No points transformed into the requested area, return empty image
-        transformedImage = np.full(output_area, cval, dtype=source_image.dtype)
+        transformedImage = xp.full(output_area, cval, dtype=source_image.dtype)
         return transformedImage
 
     # Convert to a type the interpolation.map_coordinates supports
@@ -283,7 +297,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                 outputImage.fill(cval)
                 return output_shared_mem_meta
             else:
-                return np.full(output_area, cval, dtype=original_dtype)
+                return xp.full(output_area, cval, dtype=original_dtype)
 
         del source_image
     else:
@@ -303,9 +317,21 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # TODO: Order appears to not matter so setting to zero may help
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
-    order = 1 if np.any(np.isnan(subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3 #Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
-    outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
-                                                 mode='constant', order=order, cval=cval).astype(original_dtype, copy=False)
+    order = 1 if xp.any(xp.isnan(subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3 #Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
+    # Update Clement - manual spline filter for CuPy
+    # subroi_warpedImage_filtered = xp_scipy.ndimage.spline_filter(subroi_warpedImage, order=3, output=np.float32, mode='reflect')
+    # outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage_filtered,
+    #                                                 filtered_source_coords.transpose(),
+    #                                                 mode='constant',
+    #                                                 order=order,
+    #                                                 cval=cval,
+    #                                                 prefilter=False).astype(original_dtype, copy=False)
+
+    outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
+                                                    filtered_source_coords.transpose(),
+                                                    mode='constant',
+                                                    order=order,
+                                                    cval=cval).astype(original_dtype, copy=False)
 
     del filtered_source_coords
     #outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
@@ -316,17 +342,25 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area, dtype=original_dtype)
         outputImage.fill(cval)
     else:
-        outputImage = np.full(output_area, cval, dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
+        if use_cp:
+            outputImage = cp.full(output_area.get(), cval, dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
+        else:
+            outputImage = np.full(output_area, cval,
+                                  dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
 
     target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(
         np.int32, copy=False)
     #del filtered_target_coords
 
-    outputImage.flat[target_coords_flat] = outputValues
-    # outputImage[fixed_coords] = outputValues
+    # Note - Clement: flat assignment doesn't work with cupy
+    if use_cp:
+        cp.ravel(outputImage)[target_coords_flat] = outputValues
+    else:
+        outputImage.flat[target_coords_flat] = outputValues
+    #outputImage[fixed_coords] = outputValues
 
     # Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
-    np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
+    xp.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
 
     # outputImage = outputImage.reshape(area)
      
@@ -419,17 +453,17 @@ def TargetImageToSourceSpace(transform: ITransform,
 
 
 def WarpedImageToFixedSpace(transform: ITransform, DataToTransform, botleft=None, area=None, cval=None,
-                            extrapolate=False):
+                            extrapolate=False, use_cp: bool=False):
     warnings.warn("WarpedImageToFixedSpace should be replaced with TargetImageToSourceSpace", DeprecationWarning)
     return SourceImageToTargetSpace(transform, DataToTransform, output_botleft=None, output_area=None, cval=None,
-                                    extrapolate=False)
+                                    extrapolate=False, use_cp=use_cp)
 
 
 def SourceImageToTargetSpace(transform: ITransform, 
                              DataToTransform,
                              output_botleft: NDArray | tuple[float, float] | None = None,
                              output_area: NDArray | tuple[float, float] | None = None,
-                             cval=None, extrapolate=False, return_shared_memory:bool=False):
+                             cval=None, extrapolate=False, use_cp: bool=False, return_shared_memory:bool=False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :param output_shape: shape of the output image
@@ -468,10 +502,21 @@ def SourceImageToTargetSpace(transform: ITransform,
     if cval is None:
         cval = 0
 
+    # output_botleft = cp.asarray(output_botleft) if use_cp and not isinstance(output_botleft,
+    #                                                                          cp.ndarray) else output_botleft
+    # output_area = cp.asarray(output_area) if use_cp and not isinstance(output_area, cp.ndarray) else output_area
+
+
     # This sometimes appears backwards, but what we are doing is defining the region in target space we want to obtain
     # values for, then determining the Source space coordinates for each pixel in the target image.  Then we map values
     # to each pixel using the source space coordinates
-    (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate)
+    (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate, use_cp=use_cp)
+
+    roi_read_coords = cp.asarray(roi_read_coords) if use_cp and not isinstance(roi_read_coords,
+                                                                               cp.ndarray) else roi_read_coords
+    roi_write_coords = cp.asarray(roi_write_coords) if use_cp and not isinstance(roi_write_coords,
+                                                                                 cp.ndarray) else roi_write_coords
+
 
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
@@ -479,13 +524,17 @@ def SourceImageToTargetSpace(transform: ITransform,
 
         output_list = []
         for i, wi in enumerate(ImagesToTransform):
-            fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i], return_shared_memory=return_shared_memory)
+            wi = cp.asarray(wi) if use_cp and not isinstance(wi,cp.ndarray) else wi
+            fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i], return_shared_memory=return_shared_memory, use_cp=use_cp)
+            fi = fi.get() if use_cp else fi
             output_list.append(fi)
             #nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
         return output_list
     else:
-        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval, return_shared_memory=return_shared_memory)
+        ImagesToTransform = cp.asarray(ImagesToTransform) if use_cp and not isinstance(ImagesToTransform, cp.ndarray) else ImagesToTransform
+        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval, return_shared_memory=return_shared_memory, use_cp=use_cp)
+        result = result.get() if use_cp else result
         #nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
 
