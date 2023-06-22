@@ -5,7 +5,6 @@ Created on Apr 3, 2013
 '''
 import os
 import unittest
-import numpy
 import numpy as np
 import scipy
 
@@ -38,16 +37,16 @@ class TestAssemble(setup_imagetest.ImageTestBase):
     def CallTransformImage(self, imageDim):
         
         Height = int(imageDim)
-        Width = int(numpy.round(imageDim / 2))
+        Width = int(np.round(imageDim / 2))
         
-        identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(numpy.array([[0, 0, 0, 0],
+        identity_transform = nornir_imageregistration.transforms.triangulation.Triangulation(np.array([[0, 0, 0, 0],
                                                                               [Height, 0, Height, 0],
                                                                               [0, Width, 0, Width],
                                                                               [Height, Width, Height, Width]]))
         
-        warpedImage = numpy.ones([Height, Width])
+        warpedImage = np.ones([Height, Width])
 
-        outputImage = assemble.TransformImage(identity_transform, numpy.array([Height, Width]), warpedImage, CropUndefined=False)
+        outputImage = assemble.TransformImage(identity_transform, np.array([Height, Width]), warpedImage, CropUndefined=False)
         self.assertIsNotNone(outputImage, msg="No image produced by TransformImage")
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
@@ -93,8 +92,8 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
-        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=angle, reshape=False)
-        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=-angle, reshape=False)
+        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(np.float32, copy=False), angle=angle, reshape=False)
+        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(np.float32, copy=False), angle=-angle, reshape=False)
 
         # self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
         #                                title="Rotate transform should match scipy.interpolate.rotate result", PassFail=True,
@@ -114,9 +113,9 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
-        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=angle,
+        rotatedWarpedA = scipy.ndimage.rotate(warpedImage.astype(np.float32, copy=False), angle=angle,
                                               reshape=False)
-        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(numpy.float32, copy=False), angle=-angle,
+        rotatedWarpedB = scipy.ndimage.rotate(warpedImage.astype(np.float32, copy=False), angle=-angle,
                                               reshape=False)
 
         # self.assertTrue(ShowComparison(((fixedImage, transformedImage), (rotatedWarpedA, rotatedWarpedB)),
