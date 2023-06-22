@@ -8,6 +8,8 @@ import warnings
 import os
 import scipy
 import numpy as np
+import cupy as cp
+import cupyx
 from numpy.typing import NDArray
 from collections.abc import Iterable, Sequence
 
@@ -158,22 +160,24 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
        :return: (cropped_image, translated_coordinates, coordinate_mask) Returns the cropped image, the coordinates translated into the cropped image, and a mask set to False for any coordinates that did not fit within the image boundaries
        """
 
-    bottom_left = np.floor(np.min(coordinates, 0))
+    xp = cp.get_array_module(input_image)
+
+    bottom_left = xp.floor(xp.min(coordinates, 0))
     #bottom_left[bottom_left < 0] = 0
-    top_right = np.ceil(np.max(coordinates, 0))
+    top_right = xp.ceil(xp.max(coordinates, 0))
     #top_right_out_of_bounds = top_right >= input_image.shape
     #top_right[top_right >= input_image.shape] = np.min(top_right, input_image.shape)
 
     filtered_coordinates, coord_mask = get_valid_coords(coordinates, input_image.shape, origin=(0, 0),
                                                         area=(top_right - bottom_left) + 1)
 
-    if np.all(coord_mask == False):
+    if xp.all(coord_mask == False):
         #No mappable coords, just return an empty image
-        return np.empty((0, 0)), np.empty((0, 2)), coord_mask
+        return xp.empty((0, 0)), xp.empty((0, 2)), coord_mask
 
     # Recalculate boundaries to account for filtered coords
-    filtered_bottom_left = np.floor(np.min(filtered_coordinates, 0))
-    filtered_top_right = np.ceil(np.max(filtered_coordinates, 0))
+    filtered_bottom_left = xp.floor(xp.min(filtered_coordinates, 0))
+    filtered_top_right = xp.ceil(xp.max(filtered_coordinates, 0))
 
     padded_bottom_left = filtered_bottom_left - padding
     # padded_top_right = filtered_top_right + padding
