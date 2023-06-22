@@ -68,15 +68,17 @@ def ravel_index(idx: NDArray, shp: NDArray):
                                     [X2,Y2],
                                     [XN,YN]]
     """
+    xp = cp.get_array_module(idx)
+
     if shp[0] == 1:
         return idx[:, 1]
 
     if idx.shape[1] == len(shp):
-        idx = np.transpose(idx)
+        idx = xp.transpose(idx)
     else:
         pass
 
-    result = np.ravel_multi_index(idx, shp)
+    result = xp.ravel_multi_index(idx, shp)
     return result
     #return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1], [1])).dot(idx))
 
@@ -481,6 +483,7 @@ def CropImage(imageparam:NDArray | str, Xo: int, Yo: int, Width:int, Height:int,
        :return: Cropped image
        :rtype: ndarray
        """
+    xp = cp.get_array_module(imageparam)
 
     image = ImageParamToImageArray(imageparam)
 
@@ -551,17 +554,17 @@ def CropImage(imageparam:NDArray | str, Xo: int, Yo: int, Width:int, Height:int,
     # Create mask
     rMask = None
     if cval == 'random':
-        rMask = np.zeros((Height, Width), dtype=bool)
+        rMask = xp.zeros((Height, Width), dtype=bool)
         rMask[out_startY:out_endY, out_startX:out_endX] = True
 
     # Create output image
     cropped = None
     if cval is None:
-        cropped = np.zeros((Height, Width), dtype=image.dtype)
+        cropped = xp.zeros((Height, Width), dtype=image.dtype)
     elif cval == 'random':
-        cropped = np.ones((Height, Width), dtype=image.dtype)
+        cropped = xp.ones((Height, Width), dtype=image.dtype)
     else:
-        cropped = np.ones((Height, Width), dtype=image.dtype) * cval
+        cropped = xp.ones((Height, Width), dtype=image.dtype) * cval
         if cropped.dtype != image.dtype:
             raise ValueError(f"cval (={cval}) changed the dtype of the input")
 
