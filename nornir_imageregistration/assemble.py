@@ -120,11 +120,14 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
     :return: The coordinates greater than or equal to origin and less than origin + area and a mask indicating (== True) which coordinates met the criteria
     """
 
+    xp = cp.get_array_module(coords)
+    use_cp = isinstance(coords,cp.ndarray)
+
     if isinstance(origin, int):
         adjusted_origin = np.array((origin, origin), dtype=np.int32)
     elif isinstance(origin, tuple):
         adjusted_origin = np.array(origin)
-    elif isinstance(origin, np.ndarray):
+    elif isinstance(origin, np.ndarray) or isinstance(origin, cp.ndarray):
         adjusted_origin = origin.copy()
     else:
         raise ValueError("Unexpected type passed to origin")
@@ -133,19 +136,32 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
         adjusted_area = np.array((area, area), dtype=np.int32)
     elif isinstance(area, tuple):
         adjusted_area = np.array(area)
-    elif isinstance(area, np.ndarray):
+    elif isinstance(area, np.ndarray) or isinstance(area, cp.ndarray):
         adjusted_area = area.copy()
     elif area is None: 
-        adjusted_area = np.copy(image_shape)
+        adjusted_area = xp.copy(image_shape)
     else:
         raise ValueError("Unexpected type passed to area")
+
+    origin = cp.asarray(origin) if use_cp and not isinstance(origin,cp.ndarray) else origin
+    image_shape = cp.asarray(image_shape) if use_cp and not isinstance(image_shape, cp.ndarray) else image_shape
+
+    adjusted_origin = cp.asarray(adjusted_origin) if use_cp and not isinstance(adjusted_origin,
+                                                                           cp.ndarray) else adjusted_origin
+    adjusted_area = cp.asarray(adjusted_area) if use_cp and not isinstance(adjusted_area,
+                                                                               cp.ndarray) else adjusted_area
 
     adjust_area_mask = adjusted_origin < 0
     adjusted_area[adjust_area_mask] = adjusted_area[adjust_area_mask] + adjusted_origin[adjust_area_mask]
     adjusted_origin[adjust_area_mask] = 0
+    # Warning - Clement: adjusted_area and adjusted_origin are not being used below...
 
-    valid_coords_mask = np.logical_and(np.min(coords >= origin, 1), np.min(coords < image_shape, 1))
-    valid_adjusted_coords = np.delete(coords, np.logical_not(valid_coords_mask), 0) # coords[valid_coords_mask, :]
+    valid_coords_mask = xp.logical_and(xp.min(coords >= origin, 1), xp.min(coords < image_shape, 1))
+    if use_cp:
+        valid_adjusted_coords = coords[valid_coords_mask, :]
+    else:
+        valid_adjusted_coords = xp.delete(coords, xp.logical_not(valid_coords_mask), 0) # coords[valid_coords_mask, :]
+
     return valid_adjusted_coords, valid_coords_mask
 
 
