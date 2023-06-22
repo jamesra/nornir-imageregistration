@@ -329,6 +329,18 @@ class IDOCTests(TestMosaicAssemble):
 
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
+    def test_AssembleIDOC_DS1_GPU(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='001')
+
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir, use_cp=True)
+
+    def test_AssembleIDOC_DS4_GPU(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='004')
+
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir, use_cp=True)
+
     def test_AssembleIDOC_DS1_Parallel(self):
     
         mosaicFiles = self.GetMosaicFiles()
