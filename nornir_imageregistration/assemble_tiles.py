@@ -21,6 +21,7 @@ import nornir_imageregistration.transformed_image_data_temp_files
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import numpy as np
+import cupy as cp
 
 import nornir_shared.tasktimer
 
@@ -292,12 +293,14 @@ def __GetOrCreateDistanceImage(distanceImage, imageShape):
 
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                  TargetRegion: nornir_imageregistration.Rectangle | List[float] = None,
-                 target_space_scale: float | None = None) -> Tuple[NDArray | None, NDArray | None]:
+                 target_space_scale: float | None = None,
+                 use_cp: bool=False) -> Tuple[NDArray | None, NDArray | None]:
     """
     Generate an image of the TargetRegion.
     :param MosaicTileset mosaic_tileset: Tileset to assemble
     :param tuple TargetRegion: (MinX, MinY, Width, Height) or Rectangle class.  Specifies the SourceSpace to render from
     :param float target_space_scale: Scalar for the target space coordinates.  Used to downsample or upsample the output image.  Changes the coordinates of the target space control points of the transform. 
+    :param use_cp: use CuPy library for GPU processing
     """
 
     if target_space_scale is not None and target_space_scale > 1.0:
@@ -359,7 +362,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         distanceImage = __GetOrCreateDistanceImage(distanceImage, tile.ImageSize)
 
         transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
-                                             TargetRegion=regionToRender, SingleThreadedInvoke=True)
+                                             TargetRegion=regionToRender, SingleThreadedInvoke=True, use_cp=use_cp)
         if transformedImageData.image is None:
             # logger = logging.getLogger('TilesToImageParallel')
             prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
@@ -591,7 +594,8 @@ def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
                   target_space_scale: float = None,
                   TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
-                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
+                  SingleThreadedInvoke: bool = False,
+                  use_cp: bool=False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
     """
        Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
@@ -601,6 +605,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                    between input image size and the image size of the transform. i.e.  If the source_space is downsampled by 4 then the target_space will be downsampled to match
        :param tile:
        :param SingleThreadedInvoke:
+       :param use_cp: use CuPy library for GPU processing
        :param TargetRegion: [MinY MinX MaxY MaxX] If specified only the specified region is populated.  Otherwise transform the entire image.'''
     """
 
@@ -723,7 +728,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
                                                                           cval=[0, __MaxZBufferValue(distanceImage.dtype)],
-                                                                          return_shared_memory=False)#not SingleThreadedInvoke)
+                                                                          return_shared_memory=False, use_cp=use_cp)#not SingleThreadedInvoke)
     
     source_image_dtype = source_image.dtype
     del source_image

@@ -230,12 +230,16 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
     def AssembleImage(self, FixedRegion: nornir_imageregistration.Rectangle | None = None,
                       usecluster: bool = False,
+                      use_cp: bool = False,
                       target_space_scale: float | None = None) -> np.typing.NDArray:
         """Create a single image of the mosaic for the requested region.
         :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
         :param boolean usecluster: Offload work to other threads or nodes if true
+        :param use_cp: use CuPy library for GPU processing
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         """
+
+        usecluster = False if use_cp else usecluster
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
 
@@ -260,6 +264,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
             return nornir_imageregistration.assemble_tiles.TilesToImage(self,
+                                                                        use_cp=use_cp,
                                                                         TargetRegion=FixedRegion,
                                                                         target_space_scale=target_space_scale)
 
