@@ -52,11 +52,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertEqual(outputImage.shape[0], Height, msg="Output image height should match")
         self.assertEqual(outputImage.shape[1], Width, msg="Output image width should match")
 
-    def test_warpedImageToFixedSpaceTranslate(self):
+    def test_SourceImageToTargetSpace_Translate(self):
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord)
 
@@ -66,11 +66,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())
 
-    def test_warpedImageToFixedSpaceTranslate_GPU(self):
+    def test_SourceImageToTargetSpace_Translate_GPU(self):
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord,
                                                                      use_cp=True)
@@ -83,11 +83,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         # delta = fixedImage[1:64, 1:64] - transformedImage
         # self.assertTrue((delta < 0.01).all())
 
-    def test_warpedImageToFixedSpaceRotateTransform(self):
+    def test_SourceImageToTargetSpace_RotateTransform(self):
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord)
 
@@ -103,11 +103,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())
 
-    def test_warpedImageToFixedSpaceRotateTransform_GPU(self):
+    def test_SourceImageToTargetSpace_RotateTransform_GPU(self):
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord,
                                                                      use_cp=True)
@@ -128,10 +128,10 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         # delta = fixedImage[512:544, 512:544] - rotatedWarped
         # self.assertTrue((delta < 0.01).all())
 
-    def test_warpedImageToFixedSpaceIdentityTransform(self):
+    def test_SourceImageToTargetSpace_IdentityTransform(self):
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord,
                                                                      (0, 0),
@@ -144,10 +144,10 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         #nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
         self.assertTrue((delta < 0.01).all())
 
-    def test_warpedImageToFixedSpaceIdentityTransform_GPU(self):
+    def test_SourceImageToTargetSpace_IdentityTransform_GPU(self):
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.WarpedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord,
                                                                      (0, 0),
@@ -162,25 +162,25 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue((delta < 0.01).all())
 
 
-    def test_warpedImageToFixedSpace(self):
+    def test_SourceImageToTargetSpace(self):
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.FixedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.FixedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord)
 
         nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage, bpp=8)
 
-    def test_warpedImageToFixedSpace_GPU(self):
+    def test_SourceImageToTargetSpace_GPU(self):
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
-        (fixedImage, warpedImage, transformedImage) = self.Run_warpedImageToFixedSpaceTransform(self.FixedImagePath,
+        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.FixedImagePath,
                                                                      self.WarpedImagePath,
                                                                      arecord,
                                                                      use_cp=True)
         nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"), transformedImage, bpp=8)
 
-    def Run_warpedImageToFixedSpaceTransform(self, FixedImagePath: str,
+    def Run_SourceImageToTargetSpaceTransform(self, FixedImagePath: str,
                                              WarpedImagePath: str,
                                              alignment_record: AlignmentRecord,
                                              output_botleft = None,
