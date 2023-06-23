@@ -102,7 +102,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
 
 
-    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath:str, tilesDir:str, downsample:float):
+    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath:str, tilesDir:str, downsample:float, use_cp: bool=False):
         """
         1) Assemble the entire mosaic
         2) Assemble subregion of the mosaic
@@ -129,7 +129,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         imageKey = intersecting_tile.ImagePath
         transform = intersecting_tile.Transform
   
-        (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False, target_space_scale=1.0/downsample)
+        (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False, use_cp = use_cp, target_space_scale=1.0/downsample)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         (clustertileImage, clustertileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=True, target_space_scale=1.0/downsample)
@@ -167,7 +167,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         # self.assertTrue(np.array_equal(clustertileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
 
-    def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample):
+    def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample, SingleThread: bool=False, use_cp: bool=False):
         mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         mosaicBaseName = os.path.basename(mosaicFilePath)
 
@@ -186,13 +186,13 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         tile = nornir_imageregistration.tile.Tile(transform, os.path.join(TilesDir, imageKey),
                                                   image_to_source_space_scale=downsample, ID=0)
 
-        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MaxY, MinX + 256))
+        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MaxY, MinX + 256), SingleThreadedInvoke=SingleThread, use_cp=use_cp)
         self.assertEqual(result.image.shape, (np.ceil(expected_height * expectedScale), np.ceil(256 * expectedScale)))
 
-        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MinY + 256, MaxX))
+        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY, MinX, MinY + 256, MaxX), SingleThreadedInvoke=SingleThread, use_cp=use_cp)
         self.assertEqual(result.image.shape, (np.ceil(256 * expectedScale), np.ceil(expected_width * expectedScale)))
 
-        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512))
+        result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512), SingleThreadedInvoke=SingleThread, use_cp=use_cp)
         self.assertEqual(result.image.shape, (np.ceil(512 * expectedScale), np.ceil(512 * expectedScale)))
 
     def CreateAssembleOptimizedTileTwo(self, mosaicTileset, tile_dims=None, numColumnsPerPass=None):
