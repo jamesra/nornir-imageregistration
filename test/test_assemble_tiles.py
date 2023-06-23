@@ -399,9 +399,52 @@ class IDOCTests(TestMosaicAssemble):
         mosaicTileset.TranslateToZeroOrigin()
          
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
-        
-        
-        
+
+    def test_AssembleOptimizedTileIDoc_DS1_MultiThread(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '001'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
+
+    def test_AssembleOptimizedTileIDoc_DS1_SingleThread(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '001'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True)
+
+    def test_AssembleOptimizedTileIDoc_DS1_GPU(self):
+        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '001'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True, use_cp=True)
+
     # def test_AssembleTilesIDoc_JPeg2000(self):
     #     '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
     #
