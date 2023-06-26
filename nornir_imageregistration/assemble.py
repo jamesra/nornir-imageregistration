@@ -319,15 +319,26 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     order = 1 if xp.any(xp.isnan(subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3 #Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
     # Update Clement - manual spline filter for CuPy
-    # subroi_warpedImage_filtered = xp_scipy.ndimage.spline_filter(subroi_warpedImage, order=3, output=np.float32, mode='reflect')
+    # subroi_warpedImage_filtered = xp_scipy.ndimage.spline_filter(subroi_warpedImage,
+    #                                                              order=3,
+    #                                                              output=np.float32,
+    #                                                              mode='reflect')
     # outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage_filtered,
     #                                                 filtered_source_coords.transpose(),
     #                                                 mode='constant',
     #                                                 order=order,
     #                                                 cval=cval,
     #                                                 prefilter=False).astype(original_dtype, copy=False)
-
-    outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
+    # Warning Clement - spline filter in CuPy generates nan values
+    if use_cp:
+        outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
+                                                        filtered_source_coords.transpose(),
+                                                        mode='constant',
+                                                        order=order,
+                                                        cval=cval,
+                                                        prefilter=False).astype(original_dtype, copy=False)
+    else:
+        outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
                                                     filtered_source_coords.transpose(),
                                                     mode='constant',
                                                     order=order,
