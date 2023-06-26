@@ -548,7 +548,6 @@ def SourceImageToTargetSpace(transform: ITransform,
 
         return output_list
     else:
-        ImagesToTransform = cp.asarray(ImagesToTransform) if use_cp and not isinstance(ImagesToTransform, cp.ndarray) else ImagesToTransform
         result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval, return_shared_memory=return_shared_memory, use_cp=use_cp)
         #nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
