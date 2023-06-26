@@ -268,22 +268,25 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                                                                         TargetRegion=FixedRegion,
                                                                         target_space_scale=target_space_scale)
 
-    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True, target_space_scale=None,
+    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True, use_cp=False, target_space_scale=None,
                                source_space_scale=None):
         """
         Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
         :param max_temp_image_area:
         :param tuple tile_dims: Size of the optimized tiles
         :param boolean usecluster: Offload work to other threads or nodes if true
+        :param boolean use_cp: Use GPU processing via CuPy
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         """
 
-        # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes 
+        # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes
         if tile_dims is None:
             tile_dims = (512, 512)
 
         tile_dims = np.asarray(tile_dims)
+
+        usecluster = False if use_cp else usecluster
 
         if source_space_scale is None:
             source_space_scale = self.image_to_source_space_scale  # nornir_imageregistration.tileset.MostCommonScalar(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
@@ -344,6 +347,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
             (working_image, _mask) = self.AssembleImage(
                 FixedRegion=fixed_region,
                 usecluster=usecluster,
+                use_cp=use_cp,
                 target_space_scale=target_space_scale)
             # source_space_scale=source_space_scale)
 
