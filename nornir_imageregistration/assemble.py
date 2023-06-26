@@ -235,30 +235,34 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :param use_shared_memory: If true, create and write output to a shared memory array
     """
 
-    xp = cp.get_array_module(source_image)
-    xp_scipy = cupyx.scipy.get_array_module(source_image)
-    use_cp = isinstance(source_image,cp.ndarray)
+    xp = cp if use_cp else np
+    xp_scipy = cupyx.scipy if use_cp else scipy
+
 
     if output_origin is None:
         output_origin = target_coords.min(0)
 
-    if not isinstance(output_origin, np.ndarray):
-        output_origin = np.asarray(output_origin, dtype=np.int32)
+    if use_cp:
+        if not isinstance(target_coords, cp.ndarray):
+            target_coords = cp.asarray(target_coords)
+        if not isinstance(source_coords, cp.ndarray):
+            source_coords = cp.asarray(source_coords)
+        if not isinstance(source_image, cp.ndarray):
+            source_image = cp.asarray(source_image)
+        if not isinstance(output_origin, cp.ndarray):
+            output_origin = cp.asarray(output_origin, dtype=np.int32)
+        if not isinstance(output_area, cp.ndarray):
+            output_area = cp.asarray(output_area, dtype=np.int32)
+    else:
+        if not isinstance(output_origin, np.ndarray):
+            output_origin = np.asarray(output_origin, dtype=np.int32)
+        if not isinstance(output_area, np.ndarray):
+            output_area = np.asarray(output_area, dtype=np.int32)
 
     if output_origin.dtype != np.int32:
-        output_origin = np.asarray(output_origin, dtype=np.int32)
-
-    if not isinstance(output_area, np.ndarray):
-        output_area = np.asarray(output_area, dtype=np.int32)
-
+        output_origin = xp.asarray(output_origin, dtype=np.int32)
     if output_area.dtype != np.int32:
-        output_area = np.asarray(output_area, dtype=np.int32)
-
-
-    output_origin = cp.asarray(output_origin) if use_cp and not isinstance(output_origin,
-                                                                             cp.ndarray) else output_origin
-    output_area = cp.asarray(output_area) if use_cp and not isinstance(output_area,
-                                                                           cp.ndarray) else output_area
+        output_area = xp.asarray(output_area, dtype=np.int32)
 
 
     if source_coords.shape[0] == 0:
@@ -297,7 +301,10 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                 outputImage.fill(cval)
                 return output_shared_mem_meta
             else:
-                return xp.full(output_area, cval, dtype=original_dtype)
+                if use_cp:
+                    return xp.full(output_area, cval, dtype=original_dtype).get()
+                else:
+                    return xp.full(output_area, cval, dtype=original_dtype)
 
         del source_image
     else:
@@ -385,7 +392,13 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     #         fixed_coords_rounded = np.round(fixed_coords).astype(dtype=np.int64)
     #         transformedImage[fixed_coords_rounded[:, 0], fixed_coords_rounded[:, 1]] = outputImage
     #         return transformedImage
-    return output_shared_mem_meta if return_shared_memory else outputImage
+    if return_shared_memory:
+        return output_shared_mem_meta
+    else:
+        if use_cp:
+            return outputImage.get()
+        else:
+            return outputImage
 
 
 def _ReplaceFilesWithImages(listImages: list[str] | list[NDArray] | NDArray | str):
@@ -523,21 +536,13 @@ def SourceImageToTargetSpace(transform: ITransform,
     # to each pixel using the source space coordinates
     (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate, use_cp=use_cp)
 
-    roi_read_coords = cp.asarray(roi_read_coords) if use_cp and not isinstance(roi_read_coords,
-                                                                               cp.ndarray) else roi_read_coords
-    roi_write_coords = cp.asarray(roi_write_coords) if use_cp and not isinstance(roi_write_coords,
-                                                                                 cp.ndarray) else roi_write_coords
-
-
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
             cval = [cval] * len(DataToTransform)
 
         output_list = []
         for i, wi in enumerate(ImagesToTransform):
-            wi = cp.asarray(wi) if use_cp and not isinstance(wi,cp.ndarray) else wi
             fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft, output_area=output_area, cval=cval[i], return_shared_memory=return_shared_memory, use_cp=use_cp)
-            fi = fi.get() if use_cp else fi
             output_list.append(fi)
             #nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
@@ -545,7 +550,6 @@ def SourceImageToTargetSpace(transform: ITransform,
     else:
         ImagesToTransform = cp.asarray(ImagesToTransform) if use_cp and not isinstance(ImagesToTransform, cp.ndarray) else ImagesToTransform
         result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform, output_origin=output_botleft, output_area=output_area, cval=cval, return_shared_memory=return_shared_memory, use_cp=use_cp)
-        result = result.get() if use_cp else result
         #nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
 
