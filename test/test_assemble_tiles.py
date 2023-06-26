@@ -195,7 +195,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         result = at.TransformTile(tile, distanceImage=None, target_space_scale=None, TargetRegion=(MinY + 2048, MinX + 2048, MinY + 2048 + 512, MinX + 2048 + 512), SingleThreadedInvoke=SingleThread, use_cp=use_cp)
         self.assertEqual(result.image.shape, (np.ceil(512 * expectedScale), np.ceil(512 * expectedScale)))
 
-    def CreateAssembleOptimizedTileTwo(self, mosaicTileset, tile_dims=None, numColumnsPerPass=None):
+    def CreateAssembleOptimizedTileTwo(self, mosaicTileset, tile_dims=None, numColumnsPerPass=None, usecluster: bool=False, use_cp: bool=False):
         
         if tile_dims is None:
             tile_dims = (512,512)
@@ -232,7 +232,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         tile_returned = np.zeros(expected_grid_dims, dtype=bool)
         #out = list(mosaic.GenerateOptimizedTiles(tilesPath=TilesDir, tile_dims=tile_dims, usecluster=False, target_space_scale=expectedScale))
         for t in mosaicTileset.GenerateOptimizedTiles(tile_dims=tile_dims,
-                                                      usecluster=False,
+                                                      usecluster=usecluster,
+                                                      use_cp=use_cp,
                                                       max_temp_image_area=max_temp_image_area,
                                                       target_space_scale=expectedScale):
             (iRow, iCol, tile_image) = t
@@ -355,7 +356,7 @@ class IDOCTests(TestMosaicAssemble):
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleOptimizedTilesIDoc(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -365,12 +366,60 @@ class IDOCTests(TestMosaicAssemble):
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
-        
+
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 2")
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=2)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 3")
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=3)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 1")
         self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=1)
-        self.CreateAssembleOptimizedTileTwo(mosaicTileset) 
-        
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass None")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset)
+
+    def test_AssembleOptimizedTilesIDoc_GPU(self):
+        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 2")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=2, use_cp=True)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 3")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=3, use_cp=True)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 1")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=1, use_cp=True)
+        print("CreateAssembleOptimizedTileTwo - ColumnsPerPass None")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset)
+
+    def test_AssembleOptimizedTilesIDoc_Cluster(self):
+        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 2")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=2, usecluster=True, use_cp=False)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 3")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=3, usecluster=True, use_cp=False)
+        print("CreateAssembleOptimizedTileTwo - numColumnsPerPass 1")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset, numColumnsPerPass=1, usecluster=True, use_cp=False)
+        print("CreateAssembleOptimizedTileTwo - ColumnsPerPass None")
+        self.CreateAssembleOptimizedTileTwo(mosaicTileset)
+
     def test_AssembleAndTransformTileIDoc(self):
         '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
 
@@ -385,7 +434,7 @@ class IDOCTests(TestMosaicAssemble):
         
         self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))  
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
-    
+
     def test_AssembleOptimizedTileIDoc(self):
         '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
 
