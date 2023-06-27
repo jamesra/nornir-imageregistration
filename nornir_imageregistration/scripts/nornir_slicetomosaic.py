@@ -62,6 +62,13 @@ def __CreateArgParser(ExecArgs=None):
                         dest='scalar'
                         )
 
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
+
     return parser
 
 
@@ -110,11 +117,12 @@ def Execute(ExecArgs=None):
     ValidateArgs(Args)
 
     nornir_imageregistration.assemble.TransformStos(transformData=Args.inputpath,
-                                   OutputFilename=Args.outputpath,
-                                   fixedImage=Args.fixedimagepath,
-                                   warpedImage=Args.warpedimagepath,
-                                   scalar=Args.scalar,
-                                   CropUndefined=False)
+                                                    OutputFilename=Args.outputpath,
+                                                    fixedImage=Args.fixedimagepath,
+                                                    warpedImage=Args.warpedimagepath,
+                                                    scalar=Args.scalar,
+                                                    CropUndefined=False,
+                                                    use_cp=Args.use_cp)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
