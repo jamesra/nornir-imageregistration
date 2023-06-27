@@ -356,7 +356,7 @@ class IDOCTests(TestMosaicAssemble):
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleOptimizedTilesIDoc(self):
-        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -377,7 +377,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTileTwo(mosaicTileset)
 
     def test_AssembleOptimizedTilesIDoc_GPU(self):
-        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -399,7 +399,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTileTwo(mosaicTileset)
 
     def test_AssembleOptimizedTilesIDoc_Cluster(self):
-        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -421,7 +421,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTileTwo(mosaicTileset)
 
     def test_AssembleAndTransformTileIDoc(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -436,7 +436,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleAndTransformTileIDoc_GPU(self):
-        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -452,7 +452,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True, use_cp=True)
 
     def test_AssembleOptimizedTileIDoc(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '004'
 
@@ -466,7 +466,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleOptimizedTileIDoc_DS1_MultiThread(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '001'
 
@@ -481,7 +481,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleOptimizedTileIDoc_DS1_SingleThread(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '001'
 
@@ -496,7 +496,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True)
 
     def test_AssembleOptimizedTileIDoc_DS1_GPU(self):
-        '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
+        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
 
         downsamplePath = '001'
 
