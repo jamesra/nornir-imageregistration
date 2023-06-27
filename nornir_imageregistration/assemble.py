@@ -575,7 +575,7 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
 
 
 def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=None, warpedImage=None,
-                  scalar: float=1.0, CropUndefined: bool=False):
+                  scalar: float=1.0, CropUndefined: bool=False, use_cp: bool=False):
     """Assembles an image based on the passed transform.
     :param transformData:
     :param OutputFilename:
@@ -583,6 +583,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     :param str warpedImage: Image we will warp into fixed space, either a string or ndarray
     :param float scalar: Amount to scale the transform before passing the image through
     :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
+    :param bool use_cp: Use CuPy library for GPU processing
     """
 
     stos = None
@@ -609,7 +610,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     
     stostransform.Scale(scalar)
 
-    warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
+    warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined, use_cp=use_cp)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
@@ -617,13 +618,17 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     return warpedImage
 
 
-def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] | NDArray, warpedImage: NDArray, CropUndefined: bool) -> NDArray:
+def TransformImage(transform: ITransform,
+                   fixedImageShape: tuple[float, float] | NDArray,
+                   warpedImage: NDArray, CropUndefined: bool,
+                   use_cp: bool=False) -> NDArray:
     """
     Cut image into tiles, assemble small chunks
     :param transform: Transform to apply to point to map from warped image to fixed space
     :param fixedImageShape: Width and Height of the image to create
     :param warpedImage: Image to transform to fixed space
     :param CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
+    :param bool use_cp: Use CuPy library for GPU processing
     :return: An ndimage array of the transformed image
     """
 
@@ -645,7 +650,7 @@ def TransformImage(transform: ITransform, fixedImageShape: tuple[float, float] |
     if np.all(grid_shape == np.array([1, 1])):
         # Single threaded
         return SourceImageToTargetSpace(transform, warpedImage, output_botleft=np.array([0, 0]),
-                                        output_area=fixedImageShape, extrapolate=not CropUndefined)
+                                        output_area=fixedImageShape, extrapolate=not CropUndefined, use_cp=use_cp)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToReadOnlySharedArray(warpedImage)
