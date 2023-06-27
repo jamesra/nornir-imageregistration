@@ -435,6 +435,22 @@ class IDOCTests(TestMosaicAssemble):
         self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))  
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
+    def test_AssembleAndTransformTileIDoc_GPU(self):
+        # '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+
+        downsamplePath = '004'
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath)
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
+                                                                                 float(downsamplePath))
+        mosaicTileset.TranslateToZeroOrigin()
+
+        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], tilesDir, float(downsamplePath), use_cp=True)
+        self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True, use_cp=True)
+
     def test_AssembleOptimizedTileIDoc(self):
         '''Assemble small 256x265 tiles from a transform and image in a mosaic'''
 
