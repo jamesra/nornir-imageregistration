@@ -53,6 +53,12 @@ def __CreateArgParser(ExecArgs=None):
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath'
                         )
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
 
     return parser
 
@@ -104,8 +110,11 @@ def Execute(ExecArgs=None):
     
     mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic, Args.tilepath, image_to_source_space_scale= 1.0 / Args.scalar) 
     mosaicTileset.TranslateToZeroOrigin()
-    
-    (mosaicImage, mosaicMask)  = mosaicTileset.AssembleImage(usecluster=True, target_space_scale=Args.scalar)
+
+    if Args.use_cp:
+        (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(usecluster=False, use_cp=True, target_space_scale=Args.scalar)
+    else:
+        (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(usecluster=True, use_cp=False, target_space_scale=Args.scalar)
      
     output_dirname = os.path.dirname(Args.outputpath)
     output_filename = os.path.basename(Args.outputpath)

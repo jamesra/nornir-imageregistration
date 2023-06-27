@@ -61,6 +61,12 @@ def __CreateArgParser(ExecArgs=None):
                         default=1.0,
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath')
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
 
     return parser
 
@@ -106,8 +112,9 @@ def Execute(ExecArgs=None):
                                                                              image_folder=Args.tilepath,
                                                                              image_to_source_space_scale=1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
-    
-    mosaicImage = mosaicTileset.AssembleImage(Args.tilepath)
+
+    # Note: usecluster is not enabled by default?
+    mosaicImage = mosaicTileset.AssembleImage(Args.tilepath, use_cp=Args.use_cp)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath = Args.outputpath + '.png'
