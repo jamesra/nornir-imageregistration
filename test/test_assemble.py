@@ -212,20 +212,24 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
-    def RunStosAssemble(self, stosFullPath):
+    def RunStosAssemble(self, stosFullPath, use_cp: bool=False):
         OutputPath = os.path.join(self.VolumeDir, "test_StosAssemble.png")
 
-        warpedImage = assemble.TransformStos(stosFullPath, OutputPath, self.FixedImagePath, self.WarpedImagePath)
+        warpedImage = assemble.TransformStos(stosFullPath, OutputPath, self.FixedImagePath, self.WarpedImagePath, use_cp=use_cp)
         self.assertIsNotNone(warpedImage)
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
 
-        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[0], nornir_imageregistration.GetImageSize(OutputPath)[0])
-        self.assertEquals(nornir_imageregistration.GetImageSize(self.FixedImagePath)[1], nornir_imageregistration.GetImageSize(OutputPath)[1])
+        self.assertEqual(nornir_imageregistration.GetImageSize(self.FixedImagePath)[0], nornir_imageregistration.GetImageSize(OutputPath)[0])
+        self.assertEqual(nornir_imageregistration.GetImageSize(self.FixedImagePath)[1], nornir_imageregistration.GetImageSize(OutputPath)[1])
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
         self.RunStosAssemble(stosFullPath)
+
+    def test_GridStosAssemble_GPU(self):
+        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
+        self.RunStosAssemble(stosFullPath, use_cp=True)
 
     def test_MeshStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
