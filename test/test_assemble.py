@@ -234,7 +234,10 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
     def test_MeshStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
         self.RunStosAssemble(stosFullPath)
-         
+
+    def test_MeshStosAssemble_GPU(self):
+        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
+        self.RunStosAssemble(stosFullPath, use_cp=True)
 
 
 if __name__ == "__main__":
