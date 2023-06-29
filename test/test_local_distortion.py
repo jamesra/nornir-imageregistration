@@ -87,21 +87,21 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #         stosFile = self.GetStosFile("0164-0162_brute_32")
     #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
     #
-    # def testStosRefinementRC2_617(self):
-    #     # self.TestName = "StosRefinementRC2_617"
-    #     stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
-    #     # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
-    #     RefineStosFile(InputStos=stosFilePath,
-    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-    #                    num_iterations=5,
-    #                    cell_size=(256, 256),
-    #                    grid_spacing=(128, 128),
-    #                    angles_to_search=[-5, 0, 5],
-    #                    max_travel_for_finalization=1,
-    #                    max_travel_for_finalization_improvement=256,
-    #                    min_alignment_overlap=0.5,
-    #                    SaveImages=False,
-    #                    SavePlots=True)
+    def testStosRefinementRC2_617(self):
+        # self.TestName = "StosRefinementRC2_617"
+        stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
+        # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+        RefineStosFile(InputStos=stosFilePath,
+                       OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+                       num_iterations=5,
+                       cell_size=(256, 256),
+                       grid_spacing=(128, 128),
+                       angles_to_search=[-5, 0, 5],
+                       max_travel_for_finalization=1,
+                       max_travel_for_finalization_improvement=256,
+                       min_alignment_overlap=0.5,
+                       SaveImages=False,
+                       SavePlots=True)
 
     #     def testStosRefinementRC2_1034(self):
     #         #self.TestName = "StosRefinementRC2_1034"
@@ -371,7 +371,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                        transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
                                                                        finalize_cutoff=finalize_percentile / 100,
                                                                        line_pos_list=None if FirstPassFinalizeValue is None else [
-                                                                           FirstPassFinalizeValue])
+                                                                           FirstPassFinalizeValue],
+                                                                       title=f"Histogram of Weights, pass #{i}")
                     vector_field_filename = os.path.join(self.TestOutputPath, f'Vector_field_pass{i}.png')
                     nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),
                                                                 vector_field_filename,
