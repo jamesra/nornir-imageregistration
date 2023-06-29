@@ -1531,19 +1531,25 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     scaled_offset, Weight = FindPeak(image, OverlapMask, Cutoff=new_cutoff)
         #     return scaled_offset, Weight
 
-        OtherPeaks = np.delete(LabelSums, PeakValueIndex)
+        mean_pixel = np.mean(image)
+        peak_pixel = scipy.ndimage.maximum(ThresholdImage, LabelImage, int(PeakValueIndex+1))
+        signal_to_noise = peak_pixel / mean_pixel
 
-        FalsePeakStrength = np.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
-        # FalsePeakStrength = OtherPeaks.max()
+        ########################################################################
+        # This was my original implementation to understand signal strength. 
+        # Art Wetzel convinced me to use signal to noise by dividing the
+        # peak pixel intensity by the median pixel intensity
+         
+        # OtherPeaks = np.delete(LabelSums, PeakValueIndex)
+        # FalsePeakStrength = np.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
 
-        if FalsePeakStrength == 0:
-            Weight = PeakStrength
-        else:
-            Weight = PeakStrength / FalsePeakStrength
+        # if FalsePeakStrength == 0:
+        #     Weight = PeakStrength
+        # else:
+        #     Weight = PeakStrength / FalsePeakStrength
 
-        # if PeakArea > 0:
-        #    Weight /= PeakArea
-
+        ########################################################################
+        
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
 
         # center_of_mass returns results as (y,x)
@@ -1558,7 +1564,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         del ThresholdImage
         del LabelSums
 
-        return scaled_offset, Weight
+        return scaled_offset, signal_to_noise
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
