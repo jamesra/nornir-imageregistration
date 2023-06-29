@@ -283,7 +283,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     order = 1 if np.any(np.isnan(
         subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
     outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
-                                                 mode='constant', order=order, cval=cval).astype(original_dtype,
+                                                 mode='constant', order=order, cval=cval, prefilter=True).astype(original_dtype,
                                                                                                  copy=False)
 
     del filtered_source_coords

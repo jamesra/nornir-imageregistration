@@ -725,8 +725,11 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           [source_image, distanceImage],
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
-                                                                          cval=[0,
-                                                                                __MaxZBufferValue(distanceImage.dtype)],
+                                                                          cval=[0, np.sum(distanceImage.shape)],
+                                                                                #I initially used max float value, but map_coordinates calls spline_filter, which 
+                                                                                #somehow interacts with the max value to produce an invalid result for pixels 
+                                                                                #outside the image boundary.
+                                                                                #__MaxZBufferValue(distanceImage.dtype) / 2.0],
                                                                           return_shared_memory=False)  # not SingleThreadedInvoke)
 
     source_image_dtype = source_image.dtype
