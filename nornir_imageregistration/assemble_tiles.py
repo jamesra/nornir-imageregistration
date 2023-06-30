@@ -727,7 +727,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           [source_image, distanceImage],
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
-                                                                          cval=[0, __MaxZBufferValue(distanceImage.dtype)],
+                                                                          cval=[0, np.sum(distanceImage.shape)],
                                                                           return_shared_memory=False, use_cp=use_cp)#not SingleThreadedInvoke)
     
     source_image_dtype = source_image.dtype
