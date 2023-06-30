@@ -693,7 +693,7 @@ def AddStosTransforms(A_To_B,
     # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
 
     if linear_factor is None and travel_limit is None:
-        A_To_C_Transform = B_To_C_Transform.AddTransform(A_To_B_Transform, EnrichTolerance, create_copy=False)
+        A_To_C_Transform = nornir_imageregistration.transforms.addition.AddTransforms(B_To_C_Transform, A_To_B_Transform, EnrichTolerance, create_copy=False)
     else:
         A_To_C_Transform = nornir_imageregistration.transforms.addition.AddTransformsWithLinearCorrection(B_To_C_Transform, 
                                                          A_To_B_Transform,

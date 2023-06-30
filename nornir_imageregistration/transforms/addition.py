@@ -5,7 +5,7 @@ import scipy
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import distance, ITransform, IControlPoints, IGridTransform
-from Tools.scripts.objgraph import ignore
+import nornir_imageregistration
 
 
 def CentroidToVertexDistance(Centroids, TriangleVerts):
@@ -32,15 +32,57 @@ def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: I
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.
     :return: ndarray of points that can be assigned as control points for a transform'''
 
-    if isinstance(AToB_mapped_Transform, nornir_imageregistration.IGridTransform):
+    if isinstance(AToB_mapped_Transform, nornir_imageregistration.transforms.RigidNoRotation):
+        return _AddRigidTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform)
+    elif isinstance(AToB_mapped_Transform, nornir_imageregistration.IGridTransform):
         return _AddGridTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform)
-
-    if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
-        return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance,
-                                       create_copy=create_copy)
+    
+    elif isinstance(AToB_mapped_Transform, IControlPoints):
+        if AToB_mapped_Transform.points.shape[0] < 250 and EnrichTolerance:
+            return _AddAndEnrichTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, epsilon=EnrichTolerance,
+                                           create_copy=create_copy)
+        else:
+            return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
     else:
-        return _AddMeshTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, create_copy)
+        raise ValueError(f'Unexpected transform types:\n A to B is {AToB_mapped_Transform.__class__}\n B to C is {BToC_Unaltered_Transform.__class__}')
+        
 
+def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
+                       AToB_mapped_Transform: ITransform):
+    
+    if isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.RigidNoRotation):
+        target_offset = AToB_mapped_Transform.target_offset + BToC_Unaltered_Transform.target_offset
+        if BToC_Unaltered_Transform.angle == 0 and AToB_mapped_Transform.angle == 0:
+            return nornir_imageregistration.transforms.RigidNoRotation(target_offset=target_offset,
+                                                                       source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation)
+        elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform) or \
+             isinstance(AToB_mapped_Transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
+            return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                target_offset=target_offset,
+                source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation,
+                angle=AToB_mapped_Transform.angle+BToC_Unaltered_Transform.angle,
+                scalar=AToB_mapped_Transform.scalar * BToC_Unaltered_Transform.scalar,                
+                )
+        else:
+            return nornir_imageregistration.transforms.Rigid(
+                target_offset=target_offset,
+                source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation,
+                angle=AToB_mapped_Transform.angle+BToC_Unaltered_Transform.angle)
+    elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IGridTransform):
+        AToC_source_points = AToB_mapped_Transform.InverseTransform(BToC_Unaltered_Transform.SourcePoints)
+        old_grid = AToB_mapped_Transform.grid
+        new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
+                                                            cell_size=old_grid.cell_size,
+                                                            grid_dims=old_grid.grid_dims)
+        new_grid.SourcePoints = AToC_source_points
+        new_grid.TargetPoints = BToC_Unaltered_Transform.ControlPoints
+        return nornir_imageregistration.transforms.GridWithRBFFallback(new_grid)
+    elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IControlPoints):
+        AToC_source_points = AToB_mapped_Transform.InverseTransform(BToC_Unaltered_Transform.SourcePoints)
+        AToC_pointPairs = np.hstack((BToC_Unaltered_Transform.ControlPoints, AToB_mapped_Transform.SourcePoints)) 
+        return nornir_imageregistration.transforms.MeshWithRBFFallback(AToC_pointPairs)
+    
+    raise NotImplementedError()
 
 def _AddGridTransforms(BToC_Unaltered_Transform: ITransform,
                        AToB_mapped_Transform: IGridTransform):
@@ -157,8 +199,7 @@ def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB
     linear_BToC_Ttransform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(BToC_Unaltered_Transform,
                                                                                                        ignore_rotation=ignore_rotation)
     linear_transform = AddTransforms(linear_BToC_Ttransform, AToB_mapped_Transform, EnrichTolerance, True)
-    
-    
+
     blended_transform = nornir_imageregistration.transforms.utils.BlendTransforms(nonlinear_transform, linear_transform, linear_factor=linear_factor,
                                                               travel_limit=travel_limit)
     

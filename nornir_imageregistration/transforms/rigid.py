@@ -106,8 +106,7 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"Rigid2DTransf" \
-               f"orm_double_2_2 vp 3 {-self._angle} {self.target_offset[1]} {self.target_offset[0]} fp 2 {self.source_space_center_of_rotation[1]} {self.source_space_center_of_rotation[0]}"
+        return f"Rigid2DTransform_double_2_2 vp 3 {-self._angle} {self.target_offset[1]} {self.target_offset[0]} fp 2 {self.source_space_center_of_rotation[1]} {self.source_space_center_of_rotation[0]}"
 
     def Transform(self, points, **kwargs):
 
