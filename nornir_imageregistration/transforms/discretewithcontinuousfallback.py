@@ -4,24 +4,19 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import math
 import numpy
-from typing import Callable
 from numpy.typing import NDArray
-import scipy.interpolate
+
 import nornir_imageregistration
-
-import nornir_pools
-import scipy.linalg
-import scipy.spatial
-
-from . import utils
-from .triangulation import Triangulation
-from nornir_imageregistration.transforms.transform_type import TransformType
-from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform, ITransformRelativeScaling
+from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransform, \
+    ITransformRelativeScaling, ITransformScaling
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
+from nornir_imageregistration.transforms.transform_type import TransformType
+from . import utils
 
-class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, DefaultTransformChangeEvents):
+
+class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
+                                     DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -29,7 +24,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
     @property
     def type(self) -> TransformType:
         return TransformType.MESH
-    
+
     def __getstate__(self):
         odict = super(DiscreteWithContinuousFallback, self).__getstate__()
         odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
@@ -87,7 +82,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-            
+
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
@@ -137,10 +132,12 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         if not isinstance(discrete_transform, IDiscreteTransform):
             raise ValueError("Discrete transform should implement IDiscreteTransform")
 
-        if not (isinstance(discrete_transform, ITransformRelativeScaling) and isinstance(continuous_transform, ITransformRelativeScaling)):
+        if not (isinstance(discrete_transform, ITransformRelativeScaling) and isinstance(continuous_transform,
+                                                                                         ITransformRelativeScaling)):
             raise ValueError("Discrete and continuous transform should implement ITransformRelativeScaling")
 
-        if not (isinstance(discrete_transform, ITransformScaling) and isinstance(continuous_transform, ITransformScaling)):
+        if not (isinstance(discrete_transform, ITransformScaling) and isinstance(continuous_transform,
+                                                                                 ITransformScaling)):
             raise ValueError("Discrete and continuous transform should implement ITransformScaling")
 
         super(DiscreteWithContinuousFallback, self).__init__()
@@ -148,7 +145,6 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         self._continuous_transform = continuous_transform
         self._discrete_transform = discrete_transform
 
-        
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
@@ -206,11 +202,12 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         self._continuous_transform.ScaleFixed(scalar)
         self.OnTransformChanged()
 
+
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],
-                  [0, 10, 0, -10],
-                  [10, 0, -10, 0],
-                  [10, 10, -10, -10]])
+                     [0, 10, 0, -10],
+                     [10, 0, -10, 0],
+                     [10, 10, -10, -10]])
 
     (Fixed, Moving) = numpy.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)
@@ -265,5 +262,3 @@ if __name__ == '__main__':
 
     print("\nFixedPointsInRect")
     print(T.GetFixedPointsRect([-1, -1, 14, 4]))
-
-

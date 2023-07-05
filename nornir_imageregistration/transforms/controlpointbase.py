@@ -1,5 +1,5 @@
-import operator
 from abc import ABCMeta, abstractmethod
+import operator
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,10 +26,6 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         self.__dict__.update(dictionary)
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
-
-    @property
-    def NumControlPoints(self):
-        return self._points.shape[0]
 
     @staticmethod
     def FindDuplicates(points: NDArray[float], new_points: NDArray[float]) -> NDArray[bool]:
@@ -115,7 +111,6 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         distance, index = self.FixedKDTree.query(new_points)
         same = distance <= 0
         return same
-
 
     def OnTransformChanged(self):
         self.ClearDataStructures()
@@ -270,7 +265,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[float]):
         '''Rotate all points about a center by a given angle'''
 
-        rt = nornir_imageregistration.transforms.Rigid(target_offset=(0,0),
+        rt = nornir_imageregistration.transforms.Rigid(target_offset=(0, 0),
                                                        source_rotation_center=rotationCenter,
                                                        angle=rangle)
         rotated = rt.Transform(points)

@@ -4,8 +4,9 @@ Created on Jan 27, 2014
 @author: u0490822
 '''
 
-import nornir_imageregistration.transforms.utils
 import numpy as np
+
+import nornir_imageregistration.transforms.utils
 
 
 def _SortArrayByColumn(arr, SortColumn=None):
@@ -25,13 +26,14 @@ def _SortArrayByColumn(arr, SortColumn=None):
 
     indicies = np.lexsort(columns)
 
-    return (arr[:, indicies], indicies)
+    return arr[:, indicies], indicies
 
 
 class Volume(object):
     '''
     A collection of slice-to-volume transforms that can map a point from any section into the volume
     '''
+
     @property
     def SectionToVolumeTransforms(self):
         return self._SectionToVolumeTransforms
@@ -45,9 +47,9 @@ class Volume(object):
         '''Adds a transform for a section, raise ValueError if it exists'''
         if SectionID in self._SectionToVolumeTransforms:
             raise ValueError("Key %s already in _SectionToVolumeTransforms" % (str(SectionID)))
-        
+
         self._SectionToVolumeTransforms[SectionID] = transform
-        
+
     def AddOrUpdateSection(self, SectionID, transform):
         '''Adds a transform for a section, replacing it if it already exists'''
         self._SectionToVolumeTransforms[SectionID] = transform
@@ -75,13 +77,12 @@ class Volume(object):
         outputPoints = points.copy()
 
         (numRows, numCols) = points.shape()
-        assert(numCols == 3)
+        assert (numCols == 3)
         sorted_points, unsorted_indicies = _SortArrayByColumn(points, SortColumn=2)
 
         # sectionNumbers, sectionIndicies = np.unique(points[:, 2], return_index=False, return_inverse=True)
         iRow = 0
         while iRow < numRows:
-
             sectionNumber = sorted_points[iRow, 2]
             iEnd = np.searchsorted(sorted_points[:, 2], sectionNumber, side='right')
 
@@ -94,7 +95,6 @@ class Volume(object):
 
             iRow = iEnd
 
-
     ##############################
     # Boundary data              #
     ##############################
@@ -103,7 +103,7 @@ class Volume(object):
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
         return nornir_imageregistration.transforms.utils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
-    
+
     def IsOriginAtZero(self):
         return nornir_imageregistration.transforms.utils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
 

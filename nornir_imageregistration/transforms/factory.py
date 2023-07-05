@@ -6,15 +6,15 @@ Created on Nov 13, 2012
 The factory is focused on the loading and saving of transforms
 """
 
-from typing import Sequence
-import numpy as np
 from collections.abc import Iterable
+from typing import Sequence
 
+import numpy as np
+
+from nornir_imageregistration.spatial import *
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms.base import *
-from nornir_imageregistration.spatial import *
-
-from . import utils, float_to_shortest_string
+from . import float_to_shortest_string
 
 
 def TransformToIRToolsString(transformObj, bounds=None):
@@ -41,7 +41,7 @@ def _GetMappedBoundsExtents(transform, bounds=None):
     else:
         (bottom, left, top, right) = bounds
 
-    return (bottom, left, top, right)
+    return bottom, left, top, right
 
 
 def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: int, bounds=None) -> str:
@@ -54,7 +54,6 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: in
     :return:
     """
 
-
     if not isinstance(Transform, nornir_imageregistration.IControlPoints):
         raise ValueError("Transform must implement IControlPoints to generate an ITK Grid transform")
     numPoints = Transform.SourcePoints.shape[0]
@@ -62,7 +61,7 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: in
     # Find the extent of the mapped boundaries
     (bottom, left, top, right) = Transform.MappedBoundingBox.ToTuple()
     image_width = (
-                right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
+            right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
     image_height = (top - bottom)
 
     output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
@@ -74,7 +73,7 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: in
     for CY, CX, MY, MX in Transform.points:
         pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
         output.append(pstr)
-        NumAdded = NumAdded + 1
+        NumAdded += 1
 
     # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
     # then 1024 should be written to the file.
@@ -154,17 +153,17 @@ def SplitTransform(transformstring):
 
     VariableParts = []
     iVp = 2
-    while (parts[iVp] != 'fp'):
+    while parts[iVp] != 'fp':
         VariableParts = float(parts[iVp])
-        iVp = iVp + 1
+        iVp += 1
 
     # skip vp # entries
-    iVp = iVp + 2
+    iVp += 2
     FixedParts = []
     for iVp in range(iVp, len(parts)):
         FixedParts = float(parts[iVp])
 
-    return (transformName, FixedParts, VariableParts)
+    return transformName, FixedParts, VariableParts
 
 
 def LoadTransform(Transform, pixelSpacing=None):
@@ -209,25 +208,26 @@ def ParseGridTransform(parts, pixelSpacing=None):
         iX = (i / 2) % gridWidth
 
         # We subtract one from ImageWidth because the pixels are indexed at zero->Width-1
-        mappedX = (float(iX) / float(gridWidth - 1)) * (ImageWidth)
-        mappedY = (float(iY) / float(gridHeight - 1)) * (ImageHeight)
+        mappedX = (float(iX) / float(gridWidth - 1)) * ImageWidth
+        mappedY = (float(iY) / float(gridHeight - 1)) * ImageHeight
         ControlX = VariableParameters[i]
         ControlY = VariableParameters[i + 1]
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
     PointPairs = np.array(PointPairs)
     grid = nornir_imageregistration.ITKGridDivision((ImageHeight, ImageWidth),
-                                                    cell_size=(256, 256), #cell_size doesn't matter for how this object is going to be used
+                                                    cell_size=(256, 256),
+                                                    # cell_size doesn't matter for how this object is going to be used
                                                     grid_dims=(gridHeight, gridWidth))
     grid.TargetPoints = PointPairs[:, 0:2]
 
-    #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
-    #continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
+    # discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
+    # continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
     T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
 
-    #T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
-    #T.gridWidth = gridWidth
-    #T.gridHeight = gridHeight
+    # T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
+    # T.gridWidth = gridWidth
+    # T.gridHeight = gridHeight
     return T
 
 
@@ -245,8 +245,8 @@ def ParseMeshTransform(parts, pixelSpacing=None):
     PointPairs = []
 
     for i in range(0, len(VariableParameters) - 1, 4):
-        mappedX = (VariableParameters[i + 0] * (ImageWidth)) + Left
-        mappedY = (VariableParameters[i + 1] * (ImageHeight)) + Bottom
+        mappedX = (VariableParameters[i + 0] * ImageWidth) + Left
+        mappedY = (VariableParameters[i + 1] * ImageHeight) + Bottom
         ControlX = float(VariableParameters[i + 2]) * pixelSpacing
         ControlY = float(VariableParameters[i + 3]) * pixelSpacing
 
@@ -330,7 +330,7 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-    angle = -float(VariableParameters[0]) #We negate angle to be compatible with ITK
+    angle = -float(VariableParameters[0])  # We negate angle to be compatible with ITK
     xoffset = float(VariableParameters[1])
     yoffset = float(VariableParameters[2])
 
@@ -355,7 +355,7 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
     scale = float(VariableParameters[0])
-    angle = -float(VariableParameters[1]) #We negate angle to be compatible with ITK
+    angle = -float(VariableParameters[1])  # We negate angle to be compatible with ITK
     x_center = float(VariableParameters[2])
     y_center = float(VariableParameters[3])
     xoffset = float(VariableParameters[4])
@@ -377,10 +377,11 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
                                                                                  scale=scale)
 
 
-def __CorrectOffsetForMismatchedImageSizes(offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
-                                           FixedImageShape: NDArray[int],
-                                           MovingImageShape: NDArray[int],
-                                           scale: float = 1.0) -> tuple[float, float]:
+def __CorrectOffsetForMismatchedImageSizes(
+        offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
+        FixedImageShape: NDArray[int],
+        MovingImageShape: NDArray[int],
+        scale: float = 1.0) -> tuple[float, float]:
     '''
     :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
     '''
@@ -430,12 +431,12 @@ def CreateRigidTransform(warped_offset, rangle: float, target_image_shape, sourc
 
     # Subtract 1 because we are defining this transform as a rotation of the center of an image.
     # the image will be indexed from 0 to N-1, so the center point as indexed for a 10x10 image is 4.5 since it is indexed from 0 to 9
-    source_rotation_center = source_bounding_rect.Center #- 0.5
+    source_rotation_center = source_bounding_rect.Center  # - 0.5
 
     # Adjust offset for any mismatch in dimensions
     # Adjust the center of rotation to be consistent with the original ir-tools
-    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape, #- np.array((1, 1)),
-                                                            source_image_shape) # - np.array((1, 1)))
+    AdjustedOffset = __CorrectOffsetForMismatchedImageSizes(warped_offset, target_image_shape,  # - np.array((1, 1)),
+                                                            source_image_shape)  # - np.array((1, 1)))
 
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
     # fixed space we should obtain the warped_offset value
@@ -484,7 +485,6 @@ def CreateRigidMeshTransform(target_image_shape: NDArray[int] | tuple[int, int],
                                               scale=scale)
 
 
-
 def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDArray[int],
                                        rangle: float,
                                        target_space_offset: tuple[float, float] | NDArray[float],
@@ -502,7 +502,8 @@ def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDA
     return transform
 
 
-def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, offset: tuple[float, float], flip_ud: bool = False,
+def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, offset: tuple[float, float],
+                                    flip_ud: bool = False,
                                     scale: float = 1.0) -> NDArray[float]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
        Flip, if requested, is performed before the rotation and translation
@@ -515,16 +516,16 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, of
     :rtype: numpy.ndarray
     '''
 
-
     # The corners of an X,Y image that starts at 0,0 are located at X-1,Y-1.  So we subtract one from the size
     size = np.array(size, int)  # - np.array((1, 1))
-    r = nornir_imageregistration.transforms.Rigid(angle=rangle, target_offset=offset, source_rotation_center=size/2.0, flip_ud=flip_ud)
+    r = nornir_imageregistration.transforms.Rigid(angle=rangle, target_offset=offset, source_rotation_center=size / 2.0,
+                                                  flip_ud=flip_ud)
 
     ymax, xmax = size
     corners = np.array([[0, 0],
-               [0, xmax],
-               [ymax, 0],
-               [ymax, xmax]])
+                        [0, xmax],
+                        [ymax, 0],
+                        [ymax, xmax]])
 
     out_corners = r.Transform(corners)
     return out_corners
@@ -552,7 +553,6 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, of
     # out_plane_corners = out_bounds_corners.T + center_offset
     # #out_plane_corners = out_plane_corners + offset
     # return out_plane_corners
-
 
     # ScaleMatrix = None
     # if scale is not None:

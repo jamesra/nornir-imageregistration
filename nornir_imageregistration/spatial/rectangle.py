@@ -6,14 +6,15 @@ Points are represented as (Y,X)
 """
 
 from __future__ import annotations
-from typing import Tuple, List, Iterable, Sequence, Generator
+
+from typing import Generator, Iterable, Sequence
+
 import numpy as np
 from numpy.typing import NDArray
-import nornir_imageregistration.spatial
-from nornir_imageregistration.spatial import iPoint, iRect, iArea
-from nornir_imageregistration.spatial.typing import PointLike
 
-RectLike = NDArray | Sequence[float] | tuple[float, float, float, float]
+import nornir_imageregistration.spatial
+from nornir_imageregistration.spatial import iArea, iPoint, iRect
+from nornir_imageregistration.spatial.typing import PointLike, RectLike
 
 
 def RaiseValueErrorOnInvalidBounds(bounds):
@@ -21,12 +22,12 @@ def RaiseValueErrorOnInvalidBounds(bounds):
         raise ValueError("Negative dimensions are not allowed")
 
 
-def IsValidBoundingBox(bounds):
+def IsValidBoundingBox(bounds) -> bool:
     """Raise a value error if the bounds have negative dimensions"""
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
 
 
-def IsValidRectangleInputArray(bounds):
+def IsValidRectangleInputArray(bounds) -> bool:
     if bounds.ndim == 1:
         return bounds.size == 4
     elif bounds.ndim > 1:
@@ -501,12 +502,13 @@ class Rectangle(object):
         """
         if point is None:
             raise ValueError('point')
-        
+
         if area is None:
             raise ValueError('area')
-        
+
         return Rectangle(bounds=(
-        point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height], point[iPoint.X] + area[iArea.Width]))
+            point[iPoint.Y], point[iPoint.X], point[iPoint.Y] + area[iArea.Height],
+            point[iPoint.X] + area[iArea.Width]))
 
     @staticmethod
     def CreateFromBounds(bounds: NDArray[float]) -> Rectangle:
@@ -530,7 +532,8 @@ class Rectangle(object):
 
         if isinstance(primitive, Sequence) | isinstance(primitive, np.ndarray):
             if len(primitive) == 2:
-                Warning("This constructor appears odd, investigate this path.  It probably is using rectangle to approximate a point")
+                Warning(
+                    "This constructor appears odd, investigate this path.  It probably is using rectangle to approximate a point")
                 return Rectangle((primitive[0], primitive[1], primitive[0], primitive[1]))
             elif len(primitive) == 4:
                 return Rectangle(primitive)
@@ -549,10 +552,11 @@ class Rectangle(object):
         if isinstance(B, Sequence) | isinstance(B, np.ndarray):
             if len(B) == 2:
                 y, x = B
-                return x >= A.BoundingBox[nornir_imageregistration.iRect.MinX] and \
-                       x <= A.BoundingBox[nornir_imageregistration.iRect.MaxX] and \
-                       y >= A.BoundingBox[nornir_imageregistration.iRect.MinY] and \
-                       y <= A.BoundingBox[nornir_imageregistration.iRect.MaxY]
+                return \
+                    A.BoundingBox[nornir_imageregistration.iRect.MinX] <= x <= A.BoundingBox[
+                        nornir_imageregistration.iRect.MaxX] and \
+                        A.BoundingBox[nornir_imageregistration.iRect.MinY] <= y <= A.BoundingBox[
+                        nornir_imageregistration.iRect.MaxY]
             elif len(B) == 4:
                 B = Rectangle(B)
             else:
@@ -697,9 +701,9 @@ class Rectangle(object):
            This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
            cause them to have mismatched bounding boxes"""
 
-        #Rounding is done in the transforms for now, but this may be worth restoring
-        #bottomleft = np.around(A.BottomLeft, 6)
-        #topright = np.around(A.TopRight, 6)
+        # Rounding is done in the transforms for now, but this may be worth restoring
+        # bottomleft = np.around(A.BottomLeft, 6)
+        # topright = np.around(A.TopRight, 6)
         bottomleft = A.BottomLeft
         topright = A.TopRight
         size = topright - bottomleft
@@ -724,18 +728,18 @@ class Rectangle(object):
            This is useful to prevent the case where two images have rectangles that are later scaled, but precision and rounding issues
            cause them to have mismatched bounding boxes"""
 
-        #Rounding is done in the transforms for now, but this may be worth restoring
-        #bottomleft = np.around(A.BottomLeft, 6)
-        #topright = np.around(A.TopRight, 6)
+        # Rounding is done in the transforms for now, but this may be worth restoring
+        # bottomleft = np.around(A.BottomLeft, 6)
+        # topright = np.around(A.TopRight, 6)
         bottomleft = A.BottomLeft
         topright = A.TopRight
         size = topright - bottomleft
 
         bottomleft = np.floor(bottomleft)
         topright = bottomleft + np.ceil(size)
-  
+
         return cls.CreateFromPointAndArea(bottomleft, topright - bottomleft)
 
     def __str__(self):
         return "MinX: %g MinY: %g MaxX: %g MaxY: %g" % (
-        self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])
+            self._bounds[iRect.MinX], self._bounds[iRect.MinY], self._bounds[iRect.MaxX], self._bounds[iRect.MaxY])

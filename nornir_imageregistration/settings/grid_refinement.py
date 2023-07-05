@@ -3,10 +3,13 @@ Created on Apr 26, 2022
 
 @author: u0490822
 """
-from __future__ import annotations 
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray
+
 import nornir_imageregistration
+
 
 class GridRefinement(object):
     """
@@ -87,7 +90,7 @@ class GridRefinement(object):
                  min_alignment_overlap: float = None,
                  min_unmasked_area: float = None,
                  single_thread_processing: bool = False,
-                 cupy_processing:bool = False):
+                 cupy_processing: bool = False):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
@@ -150,12 +153,16 @@ class GridRefinement(object):
 
         self.target_image_stats = target_image_stats
         self.source_image_stats = source_image_stats
-  
+
         if not single_thread_processing:
-            self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToReadOnlySharedArray(self.source_image)
-            self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToReadOnlySharedArray(self.target_image)
-            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(self.source_mask)
-            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(self.target_mask)
+            self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToReadOnlySharedArray(
+                self.source_image)
+            self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToReadOnlySharedArray(
+                self.target_image)
+            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(
+                self.source_mask)
+            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(
+                self.target_mask)
         else:
             self.source_image_meta = self.source_image
             self.target_image_meta = self.target_image
@@ -167,82 +174,82 @@ class GridRefinement(object):
         self.num_iterations = 10 if num_iterations is None else num_iterations
         self.max_travel_for_finalization = np.sqrt(
             np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization
-        self.max_travel_for_finalization_improvement = float("inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
+        self.max_travel_for_finalization_improvement = float(
+            "inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
         self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
         self.min_unmasked_area = 0.49 if min_unmasked_area is None else min_unmasked_area
 
-
-
     @staticmethod
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
-                                 source_img_data: nornir_imageregistration.ImagePermutationHelper,
-                                 num_iterations: int = None,
-                                 cell_size=None,
-                                 grid_spacing=None,
-                                 angles_to_search=None,
-                                 final_pass_angles=None,
-                                 max_travel_for_finalization: float = None,
-                                 max_travel_for_finalization_improvement: float = None,
-                                 min_alignment_overlap: float = None,
-                                 min_unmasked_area: float = None,
-                                 single_thread_processing: bool = False,
-                                 cupy_processing: bool = False) -> GridRefinement:
+                                     source_img_data: nornir_imageregistration.ImagePermutationHelper,
+                                     num_iterations: int = None,
+                                     cell_size=None,
+                                     grid_spacing=None,
+                                     angles_to_search=None,
+                                     final_pass_angles=None,
+                                     max_travel_for_finalization: float = None,
+                                     max_travel_for_finalization_improvement: float = None,
+                                     min_alignment_overlap: float = None,
+                                     min_unmasked_area: float = None,
+                                     single_thread_processing: bool = False,
+                                     cupy_processing: bool = False) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
 
-        return GridRefinement(target_image = target_img_data.ImageWithMaskAsNoise,
-                             source_image = source_img_data.ImageWithMaskAsNoise,
-                             target_image_stats=target_img_data.Stats,
-                             source_image_stats=source_img_data.Stats,
-                             target_mask = target_img_data.BlendedMask,
-                             source_mask=source_img_data.BlendedMask,
-                             num_iterations=num_iterations,
-                             cell_size=cell_size,
-                             grid_spacing=grid_spacing,
-                             angles_to_search=angles_to_search,
-                             final_pass_angles=final_pass_angles,
-                             max_travel_for_finalization=max_travel_for_finalization,
-                             max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
-                             min_alignment_overlap=min_alignment_overlap,
-                             min_unmasked_area=min_unmasked_area,
-                             single_thread_processing=single_thread_processing,
-                             cupy_processing=cupy_processing)
+        return GridRefinement(target_image=target_img_data.ImageWithMaskAsNoise,
+                              source_image=source_img_data.ImageWithMaskAsNoise,
+                              target_image_stats=target_img_data.Stats,
+                              source_image_stats=source_img_data.Stats,
+                              target_mask=target_img_data.BlendedMask,
+                              source_mask=source_img_data.BlendedMask,
+                              num_iterations=num_iterations,
+                              cell_size=cell_size,
+                              grid_spacing=grid_spacing,
+                              angles_to_search=angles_to_search,
+                              final_pass_angles=final_pass_angles,
+                              max_travel_for_finalization=max_travel_for_finalization,
+                              max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                              min_alignment_overlap=min_alignment_overlap,
+                              min_unmasked_area=min_unmasked_area,
+                              single_thread_processing=single_thread_processing,
+                              cupy_processing=cupy_processing)
 
     @staticmethod
     def CreateWithUnproccessedImages(
-                 target_image: nornir_imageregistration.ImageLike,
-                 source_image: nornir_imageregistration.ImageLike,
-                 target_mask: nornir_imageregistration.ImageLike | None = None,
-                 source_mask: nornir_imageregistration.ImageLike | None = None,
-                 extrema_mask_size_cuttoff: float | int | NDArray | None = None,
-                 num_iterations: int = None,
-                 cell_size=None,
-                 grid_spacing=None,
-                 angles_to_search=None,
-                 final_pass_angles=None,
-                 max_travel_for_finalization: float = None,
-                 max_travel_for_finalization_improvement: float = None,
-                 min_alignment_overlap: float = None,
-                 min_unmasked_area: float = None,
-                 single_thread_processing: bool = False,
-                 cupy_processing: bool = False) -> GridRefinement:
+            target_image: nornir_imageregistration.ImageLike,
+            source_image: nornir_imageregistration.ImageLike,
+            target_mask: nornir_imageregistration.ImageLike | None = None,
+            source_mask: nornir_imageregistration.ImageLike | None = None,
+            extrema_mask_size_cuttoff: float | int | NDArray | None = None,
+            num_iterations: int = None,
+            cell_size=None,
+            grid_spacing=None,
+            angles_to_search=None,
+            final_pass_angles=None,
+            max_travel_for_finalization: float = None,
+            max_travel_for_finalization_improvement: float = None,
+            min_alignment_overlap: float = None,
+            min_unmasked_area: float = None,
+            single_thread_processing: bool = False,
+            cupy_processing: bool = False) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
-        target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask, extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
+        target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
+                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
         source_img_data = nornir_imageregistration.ImagePermutationHelper(source_image, source_mask,
                                                                           extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
 
         return GridRefinement.CreateWithPreprocessedImages(target_img_data, source_img_data,
-                                        num_iterations=num_iterations,
-                                        cell_size=cell_size,
-                                        grid_spacing = grid_spacing,
-                                        angles_to_search = angles_to_search,
-                                        final_pass_angles = final_pass_angles,
-                                        max_travel_for_finalization= max_travel_for_finalization,
-                                        max_travel_for_finalization_improvement = max_travel_for_finalization_improvement,
-                                        min_alignment_overlap = min_alignment_overlap,
-                                        min_unmasked_area = min_unmasked_area,
-                                        single_thread_processing=single_thread_processing,
-                                        cupy_processing=cupy_processing)
+                                                           num_iterations=num_iterations,
+                                                           cell_size=cell_size,
+                                                           grid_spacing=grid_spacing,
+                                                           angles_to_search=angles_to_search,
+                                                           final_pass_angles=final_pass_angles,
+                                                           max_travel_for_finalization=max_travel_for_finalization,
+                                                           max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                                                           min_alignment_overlap=min_alignment_overlap,
+                                                           min_unmasked_area=min_unmasked_area,
+                                                           single_thread_processing=single_thread_processing,
+                                                           cupy_processing=cupy_processing)
 
     def __str__(self):
         return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'

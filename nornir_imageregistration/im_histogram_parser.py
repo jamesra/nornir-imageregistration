@@ -27,21 +27,21 @@ def MinMaxValues(lines):
             maxVal = intensityVal
             break
 
-    return (minVal, maxVal)
+    return minVal, maxVal
 
 
 def ParseHistogramLine(line):
     line = line.strip()
 
-    if(len(line) == 0):
-        return (None, None)
+    if len(line) == 0:
+        return None, None
 
     parts = line.split(':', 1)
     if len(parts) <= 1:
-        return  (None, None)
+        return None, None
 
     if len(parts[0]) <= 0:
-        return  (None, None)
+        return None, None
 
     count = int(parts[0])
 
@@ -51,14 +51,14 @@ def ParseHistogramLine(line):
     iEndTuple = parts[1].find(')')
 
     if iStartTuple < 0 or iEndTuple < 0:
-        return  (None, None)
+        return None, None
 
     tupleStr = str(parts[iStartTuple:iEndTuple])
     tupleParts = tupleStr.split(',')
 
     intensityVal = int(tupleParts[1])
 
-    return (intensityVal, count)
+    return intensityVal, count
 
 
 def Parse(lines, minVal=None, maxVal=None, numBins=None):
@@ -81,7 +81,7 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
             maxVal = ActualMax
 
     # If this happens perhaps ImageMagick doesn't sort the output anymore?
-    assert(minVal < maxVal)
+    assert (minVal < maxVal)
 
     if minVal is None:
         minVal = 0

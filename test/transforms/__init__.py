@@ -3,20 +3,23 @@ __all__ = ['ForwardTransformCheck', 'TransformCheck', 'NearestFixedCheck', 'Near
            'TranslateRotateTransformPoints', 'TranslateRotateScaleTransformPoints', 'TransformInverseCheck',
            'TransformAgreementCheck']
 
-import nornir_imageregistration
-from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransform
 import numpy as np
 from numpy.typing import NDArray
 
+import nornir_imageregistration
+from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransform
+
 __transform_tolerance = 1e-5
+
 
 def TransformInverseCheck(test, transform: ITransform, warpedPoint):
     """Ensures that a point can map to its expected transformed position and back again.
     Does not validate that the transformed point is an expected value"""
     fp = transform.Transform(warpedPoint)
-    #np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
+    # np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
     wp = transform.InverseTransform(fp)
     np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
+
 
 def ForwardTransformCheck(test, transform: ITransform, warpedPoint, fixedPoint):
     '''Ensures that a point can map to its expected transformed position and back again'''
@@ -196,9 +199,9 @@ TranslateRotateTransformPoints = np.array([[1, -3, 1, 2],
 
 # Translate points by (1,2) and rotate about (0,0) by 90
 TranslateRotateFlippedTransformPoints = np.array([[2, -3, 1, 2],
-                                           [2, -4, 2, 2],
-                                           [1, -3, 1, 3],
-                                           [1, -4, 2, 3]])
+                                                  [2, -4, 2, 2],
+                                                  [1, -3, 1, 3],
+                                                  [1, -4, 2, 3]])
 
 ### TranslateRotateScaleTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###

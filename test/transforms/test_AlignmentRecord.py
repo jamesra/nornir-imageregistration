@@ -23,24 +23,23 @@ Rotated 90 Degrees::
 
 
 '''
-import unittest
 import os
+import unittest
 
-import nornir_imageregistration 
-from nornir_imageregistration.files.stosfile import StosFile
-from scipy import pi
-import test.setup_imagetest
 import numpy as np
+from scipy import pi
 
-from . import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, TranslateRotateFlippedTransformPoints
- 
+import nornir_imageregistration
+from nornir_imageregistration.files.stosfile import StosFile
+import test.setup_imagetest
+from . import TransformCheck, TranslateRotateFlippedTransformPoints
 
 
 # ##An alignment record records how a warped image should be translated and rotated to be
 # ##positioned over a fixed image.  For this reason if we map 0,0 from the warped image it
 # ##should return the -peak in the alignment record
-class TestAlignmentRecord(unittest.TestCase): 
-    
+class TestAlignmentRecord(unittest.TestCase):
+
     def testIdentity(self):
         record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 0)
         self.assertEqual(round(record.rangle, 3), 0.0, "Degrees angle not converting to radians")
@@ -52,7 +51,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [10, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -70,7 +69,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -88,7 +87,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 10]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -105,7 +104,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [0, 0]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
         transform = record.ToTransform([10, 10], [10, 10])
@@ -128,8 +127,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    [13, 11]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
 
         self.assertTrue((Corners == predictedArray).all())
 
@@ -149,7 +147,7 @@ class TestAlignmentRecord(unittest.TestCase):
                                    ])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
         record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, 90)
@@ -164,7 +162,7 @@ class TestAlignmentRecord(unittest.TestCase):
 
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
-        Corners = record.GetTransformedCornerPoints(np.array((10, 10),int))
+        Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
         self.assertTrue((Corners == predictedArray).all())
 
     def testAlignmentTransformSizeMismatch(self):
@@ -204,7 +202,7 @@ class TestAlignmentRecord(unittest.TestCase):
 
 
 class TestIO(test.setup_imagetest.ImageTestBase):
-    
+
     def testReadWriteTransformSimple(self):
         '''A simple test of a transform which maps points from a 10,10 image to a 100,100 without translation or rotation'''
         WarpedImagePath = os.path.join(self.ImportedDataPath, "10x10.png")
@@ -241,7 +239,8 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         self.assertIsNotNone(loadedTransform)
 
         if hasattr(alignmentTransform, 'points'):
-            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(),
+                            "Transform different after save/load")
 
         TransformCheck(self, loadedTransform, [[0, 0]], [[0, 0]])
         TransformCheck(self, loadedTransform, [[9, 9]], [[9, 9]])
@@ -282,17 +281,19 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         self.assertIsNotNone(loadedTransform)
 
         if hasattr(alignmentTransform, 'points'):
-            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(),
+                            "Transform different after save/load")
 
         TransformCheck(self, loadedTransform, [[0, 0]], [[45, 495]])
         TransformCheck(self, alignmentTransform, [[9, 9]], [[54, 504]])
 
-
     def testTranslateReadWriteAlignment(self):
 
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath,
+                                       "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath,
+                                      "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (20, 5)
@@ -303,7 +304,8 @@ class TestIO(test.setup_imagetest.ImageTestBase):
 
         alignmentTransform = arecord.ToTransform(FixedSize, WarpedSize)
 
-        TransformCheck(self, alignmentTransform, [[(WarpedSize[0] / 2.0), (WarpedSize[1] / 2.0)]], [[(FixedSize[0] / 2.0) + peak[0], (FixedSize[1] / 2.0) + peak[1]]])
+        TransformCheck(self, alignmentTransform, [[(WarpedSize[0] / 2.0), (WarpedSize[1] / 2.0)]],
+                       [[(FixedSize[0] / 2.0) + peak[0], (FixedSize[1] / 2.0) + peak[1]]])
 
         # OK, try to save the stos file and reload it.  Make sure the transforms match
         savedstosObj = arecord.ToStos(FixedImagePath, WarpedImagePath, PixelSpacing=1)
@@ -318,7 +320,9 @@ class TestIO(test.setup_imagetest.ImageTestBase):
         self.assertIsNotNone(loadedTransform)
 
         if hasattr(alignmentTransform, 'points'):
-            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
+            self.assertTrue((alignmentTransform.points == loadedTransform.points).all(),
+                            "Transform different after save/load")
+
 
 #    def TestReadWriteAlignment(self):
 #
@@ -352,7 +356,6 @@ class TestIO(test.setup_imagetest.ImageTestBase):
 #        self.assertIsNotNone(loadedTransform)
 #
 #        self.assertTrue((alignmentTransform.points == loadedTransform.points).all(), "Transform different after save/load")
-
 
 
 if __name__ == "__main__":

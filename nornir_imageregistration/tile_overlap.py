@@ -1,5 +1,6 @@
-import nornir_imageregistration
 import numpy as np
+
+import nornir_imageregistration
 
 
 def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diagonal_overlaps: bool = False):
@@ -10,7 +11,7 @@ def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diag
 
     for (A, B) in rset.EnumerateOverlapping():
         if min_overlap is None:
-            yield (list_tiles[A], list_tiles[B])
+            yield list_tiles[A], list_tiles[B]
         elif nornir_imageregistration.Rectangle.overlap(list_rects[A], list_rects[B]) > min_overlap:
 
             # Check for diagonal overlap if we've requested to exclude them
@@ -18,7 +19,7 @@ def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diag
                                                                                                     list_rects[B]):
                 continue
 
-            yield (list_tiles[A], list_tiles[B])
+            yield list_tiles[A], list_tiles[B]
 
 
 def IterateTileOverlaps(list_tiles, image_to_source_space_scale: float = 1.0, min_overlap: float = None,
@@ -69,7 +70,7 @@ class TileOverlap(object):
     def ID(self):
         '''ID tuple of (A.ID, B.ID)'''
         assert (self._Tiles[0].ID < self._Tiles[1].ID)
-        return (self._Tiles[0].ID, self._Tiles[1].ID)
+        return self._Tiles[0].ID, self._Tiles[1].ID
 
     @property
     def Tiles(self):
@@ -229,17 +230,18 @@ class TileOverlap(object):
         area_scale = self._imageScale ** 2
         val = "({0},{1}) ({2:02f}%,{3:02f}%)".format(self.ID[0], self.ID[1],
                                                      float((self._scaled_overlapping_source_rects[0].Area / (
-                                                                 self.A.FixedBoundingBox.Area * area_scale)) * 100.0),
+                                                             self.A.FixedBoundingBox.Area * area_scale)) * 100.0),
                                                      float((self._scaled_overlapping_source_rects[1].Area / (
-                                                                 self.B.FixedBoundingBox.Area * area_scale)) * 100.0))
+                                                             self.B.FixedBoundingBox.Area * area_scale)) * 100.0))
 
         if self.feature_scores[0] is not None and self.feature_scores[1] is not None:
-            val = val + " {0}".format(str(self.feature_scores))
+            val += " {0}".format(str(self.feature_scores))
 
         return val
 
     @staticmethod
-    def Calculate_Overlapping_Regions(A: nornir_imageregistration.Tile, B: nornir_imageregistration.Tile, inter_tile_distance_scale=1.0):
+    def Calculate_Overlapping_Regions(A: nornir_imageregistration.Tile, B: nornir_imageregistration.Tile,
+                                      inter_tile_distance_scale=1.0):
         '''
         :param nornir_imageregistration.Tile A:
         :param nornir_imageregistration.Tile B:
@@ -273,7 +275,7 @@ class TileOverlap(object):
 
         overlapping_target_rect = nornir_imageregistration.Rectangle.overlap_rect(A_target_bbox, B_target_bbox)
         if overlapping_target_rect is None:
-            return (None, None, None, None)
+            return None, None, None, None
 
         overlapping_rect_A = A.Get_Overlapping_Source_Rect(overlapping_target_rect)
         overlapping_rect_B = B.Get_Overlapping_Source_Rect(overlapping_target_rect)
@@ -282,7 +284,7 @@ class TileOverlap(object):
                                                                           original_offset - OffsetAdjustment)
         # overlapping_target_rect = nornir_imageregistration.Rectangle.translate(overlapping_target_rect, original_offset - OffsetAdjustment)
 
-        return (overlapping_rect_A, overlapping_rect_B, overlapping_target_rect, OffsetAdjustment)
+        return overlapping_rect_A, overlapping_rect_B, overlapping_target_rect, OffsetAdjustment
 
     @staticmethod
     def scale_overlapping_rects(overlapping_rect_A, overlapping_rect_B, scalar):
@@ -302,7 +304,7 @@ class TileOverlap(object):
         assert (downsampled_overlapping_rect_A.Width == downsampled_overlapping_rect_B.Width)
         assert (downsampled_overlapping_rect_A.Height == downsampled_overlapping_rect_B.Height)
 
-        return (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B)
+        return downsampled_overlapping_rect_A, downsampled_overlapping_rect_B
 
     @staticmethod
     def Calculate_Largest_Possible_Region(A, B):

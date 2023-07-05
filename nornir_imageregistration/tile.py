@@ -4,13 +4,14 @@ Created on Feb 21, 2014
 @author: u0490822
 '''
 
-import os
-import nornir_imageregistration
-import numpy as np
 from typing import Tuple
+
+import numpy as np
 from numpy.typing import NDArray
+
+import nornir_imageregistration
 from nornir_imageregistration.transforms.base import IDiscreteTransform
-from nornir_shared import prettyoutput 
+from nornir_shared import prettyoutput
 
 
 class Tile(object):
@@ -74,7 +75,7 @@ class Tile(object):
         return self.FixedBoundingBox
 
     @property
-    def FullResolutionImageSize(self) -> Tuple[float,float]:
+    def FullResolutionImageSize(self) -> Tuple[float, float]:
         dims = self.MappedBoundingBox
         return (dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY],
                 dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
@@ -102,7 +103,8 @@ class Tile(object):
     def Image(self) -> NDArray:
         if self._image is None:
             try:
-                self._image = nornir_imageregistration.LoadImage(self._imagepath, dtype=nornir_imageregistration.default_image_dtype())
+                self._image = nornir_imageregistration.LoadImage(self._imagepath,
+                                                                 dtype=nornir_imageregistration.default_image_dtype())
             except IOError:
                 prettyoutput.LogErr(f'Unable to load {self._imagepath}')
                 raise
@@ -264,7 +266,7 @@ class Tile(object):
             raise ValueError("imagepath must be str or ndarray type")
 
         self._paddedimage = None  # type: NDArray | None
-        self._fftimage = None     # type: NDArray | None
+        self._fftimage = None  # type: NDArray | None
 
         self._source_bounding_box = None  # type: nornir_imageregistration.Rectangle | None
         self._target_bounding_box = None  # type: nornir_imageregistration.Rectangle | None

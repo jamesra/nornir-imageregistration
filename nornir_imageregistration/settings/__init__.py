@@ -1,10 +1,11 @@
-import json 
+import json
 
 from .grid_refinement import GridRefinement
+from .mosaic_tile_offset import LoadMosaicOffsets, SaveMosaicOffsets, TileOffset
 from .translate import TranslateSettings
-from .mosaic_tile_offset import TileOffset, LoadMosaicOffsets, SaveMosaicOffsets
 
-def GetOrSaveTranslateSettings(settings:TranslateSettings, path:str):
+
+def GetOrSaveTranslateSettings(settings: TranslateSettings, path: str):
     '''
     Check if a .json file exists, if it does load and return it.  Otherwise 
     save the provide settings file as a .json file 

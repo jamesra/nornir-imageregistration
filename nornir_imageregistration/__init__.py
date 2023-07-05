@@ -23,11 +23,10 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
-import math
 from typing import Iterable
-import numpy as np
-import numpy.typing
+
 from PIL import Image
+import numpy.typing
 
 
 def default_image_dtype():
@@ -36,13 +35,13 @@ def default_image_dtype():
     '''
     return np.float16
 
+
 def default_depth_image_dtype():
     '''
     :return: The default dtype for image data
     '''
     return np.float32
 
-from numpy.typing import *
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -53,10 +52,8 @@ import matplotlib.pyplot as plt
 
 plt.ioff()
 
-import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
 
-import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
 
@@ -90,7 +87,7 @@ def ImageMaxPixelValue(image) -> int:
     probable_bpp = int(image.itemsize * 8)
     if probable_bpp > 8:
         if 'i' == image.dtype.kind:  # Signed integers we use a smaller probable_bpp
-            probable_bpp = probable_bpp - 1
+            probable_bpp -= 1
     return (1 << probable_bpp) - 1
 
 
@@ -119,7 +116,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
             raise ValueError("points must be Iterable")
 
         if dtype is None:
-            if isinstance(points[0], int):
+            if isinstance(next(iter(points)), int):
                 dtype = np.int32
             else:
                 dtype = np.float32
@@ -177,6 +174,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
         raise ValueError("There are not 4 columns in the corrected array")
 
     return points
+
 
 import nornir_shared.mathhelper
 from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
@@ -265,5 +263,3 @@ np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
 __all__ = ['image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']
-
-

@@ -13,10 +13,10 @@ if __name__ == '__main__':
     from setuptools import setup, find_packages
 
     packages = find_packages()
-    
-    #OK to use pools v1.3.1, no changes made for v1.3.2
-    
-    #Starting with 1.3.4 Image Magick 7 is required
+
+    # OK to use pools v1.3.1, no changes made for v1.3.2
+
+    # Starting with 1.3.4 Image Magick 7 is required
 
     install_requires = ["nornir_pools>=1.5.0",
                         "nornir_shared>=1.5.0",
@@ -25,7 +25,8 @@ if __name__ == '__main__':
                         "matplotlib>=1.3.0",
                         "pillow>=9.0",
                         "six",
-                        "hypothesis"]
+                        "hypothesis",
+                        "cupy"]
 
     dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.5.0",
                         "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.5.0"]
@@ -40,16 +41,15 @@ if __name__ == '__main__':
                'nornir-stos-grid-refinement = nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute',
                'nornir-show-mosaic-layout =   nornir_imageregistration.scripts.nornir_show_mosaic_layout:Execute'
                ]
-               
-    
+
     # named_scripts = []
-    
+
     # script_template = '%s = %s'
     # for script_path in scripts:
-        # renamed = get_script_name(script_path)
-        # entry = script_template % (renamed, script_path)
-        # named_scripts.append(entry)
-        
+    # renamed = get_script_name(script_path)
+    # entry = script_template % (renamed, script_path)
+    # named_scripts.append(entry)
+
     entry_points = {'console_scripts': scripts}
 
     classifiers = ['Programming Language :: Python :: 3.7',

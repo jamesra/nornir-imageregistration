@@ -35,7 +35,7 @@ class TileOffset(object):
 
     @property
     def Offset(self):
-        return (self._Y, self._X)
+        return self._Y, self._X
 
     def __init__(self, A, B, Y, X, Comment=None):
         self._A = A if A < B else B

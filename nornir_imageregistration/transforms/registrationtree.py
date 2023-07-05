@@ -4,11 +4,11 @@ Created on Nov 14, 2012
 @author: u0490822
 """
 from __future__ import annotations
-import operator
+
 from collections import namedtuple
 from collections.abc import Iterable
-import typing
-from typing import Sequence, AbstractSet, Generator
+import operator
+from typing import Generator, Sequence
 
 MappedToRootWalkTuple = namedtuple('MappedToRootWalkTuple', ['RootNode', 'ParentNode', 'MappedNode'])
 
@@ -340,7 +340,8 @@ class RegistrationTree(object):
         for root in self.RootNodes.values():
             yield from self.GenerateOrderedMappingsToRootNode(root)
 
-    def GenerateOrderedMappingsToRootNode(self, rootNode: RegistrationTreeNode) -> (RegistrationTreeNode, RegistrationTreeNode, RegistrationTreeNode):
+    def GenerateOrderedMappingsToRootNode(self, rootNode: RegistrationTreeNode) -> (
+            RegistrationTreeNode, RegistrationTreeNode, RegistrationTreeNode):
         """
         Yields mappings to control sections in root -> leaf order.
         So that for any given mapped section N the root and any intermediate section

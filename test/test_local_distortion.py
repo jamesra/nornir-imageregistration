@@ -3,34 +3,24 @@ Created on Sep 26, 2018
 
 @author: u0490822
 '''
-import unittest
-
 import os
 import os.path
-import pickle
-import nornir_pools
-import nornir_shared.plot
-import nornir_shared.plot as plot
-import numpy as np
+import unittest
+
 import cupy as cp
+import numpy as np
+
 import nornir_imageregistration
-
-from nornir_imageregistration.local_distortion_correction import _RefineGridPointsForTwoImages, RefineStosFile, \
-    AlignRecordsToControlPoints
-from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 from nornir_imageregistration import local_distortion_correction
+from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 import nornir_imageregistration.assemble
-
+from nornir_imageregistration.local_distortion_correction import AlignRecordsToControlPoints, RefineStosFile, \
+    _RefineGridPointsForTwoImages
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement
-
-from nornir_shared.files import try_locate_file
-
+import nornir_pools
 import setup_imagetest
-import test_arrange
-from exceptiongroup._catch import catch
 
-
-init_context = cp.asarray((1,2,3))
+init_context = cp.asarray((1, 2, 3))
 init_context = init_context.mean()
 
 
@@ -169,18 +159,19 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #                    SaveImages=False,
     #                    SavePlots=True)
     #     return
-    
+
     def testStosRefinementRPC3_13_14_Incorrect_Brute_Alignment(self):
         """
         This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
         """
-    
-        #Do not stress about this test until you verify the input transform was 
-        #not affected by the grid transform saving bug and that it is a valid 
-        #starting point
-    
+
+        # Do not stress about this test until you verify the input transform was
+        # not affected by the grid transform saving bug and that it is a valid
+        # starting point
+
         # self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+        stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
+                                            "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
         # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
         RefineStosFile(InputStos=stosFilePath,
                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
@@ -194,7 +185,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                        min_unmasked_area=0.49,
                        SaveImages=False,
                        SavePlots=False)
-    
+
     # def testStosRefinementRPC3_449_450(self):
     #     """
     #     This is a simple test case where the rigid translation is accurate and the images are barely rotated relative to each other
@@ -214,7 +205,6 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #                    min_unmasked_area=0.49,
     #                    SaveImages=False,
     #                    SavePlots=True)
-    
 
     # def testStosRefinementRPC3_13_14(self):
     #     # self.TestName = "StosRefinementRC2_617"
@@ -301,14 +291,14 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                             dtype=nornir_imageregistration.default_image_dtype())
 
         with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
-                                                                target_img_data=target_image_data,
-                                                                source_img_data=source_image_data,
-                                                                num_iterations=10,
-                                                                cell_size=128, grid_spacing=96,
-                                                                angles_to_search=None, final_pass_angles=[0],
-                                                                max_travel_for_finalization=None,
-                                                                min_alignment_overlap=0.5,
-                                                                min_unmasked_area=0.49) as settings:
+                target_img_data=target_image_data,
+                source_img_data=source_image_data,
+                num_iterations=10,
+                cell_size=128, grid_spacing=96,
+                angles_to_search=None, final_pass_angles=[0],
+                max_travel_for_finalization=None,
+                min_alignment_overlap=0.5,
+                min_unmasked_area=0.49) as settings:
 
             FirstPassWeightScoreCutoff = None
             FirstPassCompositeScoreCutoff = None
@@ -351,7 +341,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                     updated_and_finalized_alignment_points)
 
                 transform_inclusion_percentile_this_pass = 33.3  # - (CutoffPercentilePerIteration * i)
-                transform_inclusion_percentile_this_pass = np.clip(transform_inclusion_percentile_this_pass, 10.0, 100.0)
+                transform_inclusion_percentile_this_pass = np.clip(transform_inclusion_percentile_this_pass, 10.0,
+                                                                   100.0)
 
                 (updatedTransform, included_alignment_records,
                  weight_distance_composite_scores) = local_distortion_correction._PeakListToTransform(
@@ -392,10 +383,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                                                                 xlim=(0, settings.target_image.shape[0]),
                                                                 attrib='weight')
 
-                new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(alignment_points,
-                                                                                                         percentile=finalize_percentile,
-                                                                                                         max_travel_distance=settings.max_travel_for_finalization,
-                                                                                                         weight_cutoff=FinalizeCutoffThisPass)
+                new_finalized_points = local_distortion_correction.CalculateFinalizedAlignmentPointsMask(
+                    alignment_points,
+                    percentile=finalize_percentile,
+                    max_travel_distance=settings.max_travel_for_finalization,
+                    weight_cutoff=FinalizeCutoffThisPass)
 
                 if FirstPassFinalizeValue is None:
                     FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0], finalize_percentile)
@@ -489,14 +481,15 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
 
                     pool = nornir_pools.GetGlobalThreadPool()
                     pool.add_task(f'delta_pass{i}.png', nornir_imageregistration.SaveImage,
-                                  os.path.join(self.TestOutputPath, f'delta_pass{i}.png'), np.copy(ComparisonImage), bpp=8)
+                                  os.path.join(self.TestOutputPath, f'delta_pass{i}.png'), np.copy(ComparisonImage),
+                                  bpp=8)
                     pool.add_task(f'image_pass{i}.png', nornir_imageregistration.SaveImage,
                                   os.path.join(self.TestOutputPath, f'image_pass{i}.png'), np.copy(warpedToFixedImage),
                                   bpp=8)
 
                 # nornir_imageregistration.core.ShowGrayscale([target_image, unrefined_warped_image, warpedToFixedImage, ComparisonImage])
 
-                i = i + 1
+                i += 1
 
                 # Build a final transform using only finalized points
                 # stosTransform = updatedTransform
@@ -540,9 +533,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             # finalTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(AlignRecordsToControlPoints(finalized_points.values()))
 
             stosObj.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(finalTransform,
-                                                                                            source_image_shape=settings.source_image.shape,
-                                                                                            cell_size=settings.cell_size,
-                                                                                            grid_spacing=settings.grid_spacing)
+                                                                                                    source_image_shape=settings.source_image.shape,
+                                                                                                    cell_size=settings.cell_size,
+                                                                                                    grid_spacing=settings.grid_spacing)
             stosObj.Save(os.path.join(self.TestOutputPath, "Final_Transform.stos"))
             return
 
@@ -668,7 +661,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
             records2.append(r)
 
         (
-        transform2, included_alignment_records, calculated_cutoff_2) = local_distortion_correction._PeakListToTransform(
+            transform2, included_alignment_records,
+            calculated_cutoff_2) = local_distortion_correction._PeakListToTransform(
             records2)
         test2 = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected2 = np.asarray(((9, 11), (14, 16), (19, 21)))
@@ -689,10 +683,10 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         mesh_t = nornir_imageregistration.transforms.MeshWithRBFFallback(InitialTransformPoints)
 
         grid_t = nornir_imageregistration.transforms.ConvertTransformToGridTransform(mesh_t,
-                                                                                                      source_image_shape=(
-                                                                                                      10, 10),
-                                                                                                      cell_size=1,
-                                                                                                      grid_dims=(10, 5))
+                                                                                     source_image_shape=(
+                                                                                         10, 10),
+                                                                                     cell_size=1,
+                                                                                     grid_dims=(10, 5))
 
         test_points = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected_points = np.asarray(((10, 10), (15, 15), (20, 20)))

@@ -4,20 +4,18 @@ Created on Oct 18, 2012
 @author: Jamesan
 '''
 
-import math
-import numpy as np
 from typing import Callable
+
+import numpy as np
 from numpy.typing import NDArray
 import scipy.interpolate
-import nornir_imageregistration
-
-import nornir_pools
 import scipy.linalg
 import scipy.spatial
 
-from . import utils
-from .triangulation import Triangulation
+import nornir_imageregistration
 from nornir_imageregistration.transforms.transform_type import TransformType
+import nornir_pools
+from .triangulation import Triangulation
 
 
 class OneWayRBFWithLinearCorrection(Triangulation):
@@ -30,9 +28,10 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         super(OneWayRBFWithLinearCorrection, self).__setstate__(state)
         self._weights = state['_weights']
         rigid_transform = state.get('_rigid_transform', None)
-        self._rigid_transform = None if rigid_transform is None else nornir_imageregistration.transforms.LoadTransform(rigid_transform)
+        self._rigid_transform = None if rigid_transform is None else nornir_imageregistration.transforms.LoadTransform(
+            rigid_transform)
 
-        #TODO: Can I serialize a python function pointer?
+        # TODO: Can I serialize a python function pointer?
         self.BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
         return
 
@@ -138,7 +137,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
             return MatrixWeightSumX, MatrixWeightSumY
 
     def Transform(self, Points: NDArray[float], **kwargs):
-        #if self._rigid_transform is not None:
+        # if self._rigid_transform is not None:
         #   return self._rigid_transform.Transform(Points)
 
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
@@ -296,13 +295,14 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 # prettyoutput.Log("RBF transform is approximately Rigid")
                 use_rigid_transform = True
 
-            #source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+            # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
 
             return np.hstack([WeightsX, WeightsY]), use_rigid_transform
         except np.linalg.LinAlgError as e:
             if e.args[0] == 'Matrix is singular.':
-                #This is a distraction for now, but I should be able to fill in these weights correctly
-                source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+                # This is a distraction for now, but I should be able to fill in these weights correctly
+                source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
+                    ControlPoints, WarpedPoints)
 
                 WeightsY = np.zeros(SolutionMatrix_Y.shape)
                 WeightsY[-3] = rotation_matrix[1, 0]

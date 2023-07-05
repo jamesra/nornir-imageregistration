@@ -3,45 +3,43 @@ Created on Mar 21, 2013
 
 @author: u0490822
 '''
-import logging
 import os
 import unittest
 
-from nornir_imageregistration import alignment_record
-import nornir_imageregistration
-import nornir_imageregistration.files
-import nornir_imageregistration.transforms
+import cupy as cp
 
+import nornir_imageregistration
+from nornir_imageregistration import alignment_record
 import nornir_imageregistration.core as core
+import nornir_imageregistration.files
 import nornir_imageregistration.scripts.nornir_rotate_translate
 import nornir_imageregistration.stos_brute as stos_brute
-import nornir_shared.images as images
+import nornir_imageregistration.transforms
 from nornir_shared.tasktimer import TaskTimer
-
 # from . import setup_imagetest
 import setup_imagetest
 
-import cupy as cp
+init_context = cp.zeros((64, 64))
 
-init_context = cp.zeros((64,64))
 
 def CheckAlignmentRecord(test, arecord, angle, X, Y, flipud=False, adelta=None, sdelta=None):
-        '''Verifies that an alignment record is more or less equal to expected values'''
+    '''Verifies that an alignment record is more or less equal to expected values'''
 
-        angle = float(angle)
-        X = float(X)
-        Y = float(Y)
+    angle = float(angle)
+    X = float(X)
+    Y = float(Y)
 
-        if adelta is None:
-            adelta = 1.0
-        if sdelta is None:
-            sdelta = 2.0
+    if adelta is None:
+        adelta = 1.0
+    if sdelta is None:
+        sdelta = 2.0
 
-        test.assertIsNotNone(arecord)
-        test.assertEqual(arecord.flippedud, flipud, "Flip Up/Down mismatch: %s" % str(arecord))
-        test.assertAlmostEqual(arecord.angle, angle, msg="Wrong angle found: %s" % str(arecord) , delta=adelta)
-        test.assertAlmostEqual(arecord.peak[1], X, msg="Wrong X offset: %s" % str(arecord), delta=sdelta)
-        test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
+    test.assertIsNotNone(arecord)
+    test.assertEqual(arecord.flippedud, flipud, "Flip Up/Down mismatch: %s" % str(arecord))
+    test.assertAlmostEqual(arecord.angle, angle, msg="Wrong angle found: %s" % str(arecord), delta=adelta)
+    test.assertAlmostEqual(arecord.peak[1], X, msg="Wrong X offset: %s" % str(arecord), delta=sdelta)
+    test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
+
 
 class TestStos(setup_imagetest.ImageTestBase):
 
@@ -49,9 +47,11 @@ class TestStos(setup_imagetest.ImageTestBase):
         InputDir = 'C:\\Buildscript\\Test\\images\\'
         OutputDir = 'C:\\Temp\\'
 
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        WarpedImagePath = os.path.join(self.ImportedDataPath,
+                                       "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        FixedImagePath = os.path.join(self.ImportedDataPath,
+                                      "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
         peak = (-4.4, 22.41)
@@ -77,7 +77,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         super(TestStosBrute, self).setUp()
         self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.WarpedImagePathFlipped = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
+        self.WarpedImagePathFlipped = self.GetImagePath(
+            "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
 
     def testStosBrute_SingleThread(self):
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
@@ -86,10 +87,12 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, FlipUD=False)
 
     def testStosBrute_Cluster(self):
-        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True, FlipUD=False)
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True,
+                                    FlipUD=False)
 
     def testStosBrute_GPU(self):
-       self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False, use_cp=True)
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False,
+                                    use_cp=True)
 
     def testStosBruteWithFlip_SingleThread(self):
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
@@ -98,17 +101,19 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, FlipUD=True)
 
     def testStosBruteWithFlip_Cluster(self):
-        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, Cluster=True, FlipUD=True)
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, Cluster=True,
+                                    FlipUD=True)
 
     def testStosBruteWithFlip_GPU(self):
-        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True, use_cp=True)
+        self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True,
+                                    use_cp=True)
 
     def RunBasicBruteAlignment(self, FixedImagePath: str,
                                WarpedImagePath: str,
-                               FlipUD: bool=False,
-                               SingleThread: bool=False,
-                               Cluster: bool=False,
-                               use_cp: bool=False):
+                               FlipUD: bool = False,
+                               SingleThread: bool = False,
+                               Cluster: bool = False,
+                               use_cp: bool = False):
 
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
@@ -173,7 +178,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         super(TestStosBruteWithMask, self).setUp()
         self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        self.WarpedImagePathFlipped = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
+        self.WarpedImagePathFlipped = self.GetImagePath(
+            "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
         self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
@@ -192,10 +198,10 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                                        WarpedImagePath: str,
                                        FixedImageMaskPath: str,
                                        WarpedImageMaskPath: str,
-                                       FlipUD: bool=False,
-                                       SingleThread: bool=False,
-                                       Cluster: bool=False,
-                                       use_cp: bool=False):
+                                       FlipUD: bool = False,
+                                       SingleThread: bool = False,
+                                       Cluster: bool = False,
+                                       use_cp: bool = False):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
@@ -220,7 +226,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         timer.End(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
 
-        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath,
+                                              PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
 
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
@@ -233,51 +240,56 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
 
         self.assertTrue(loadedStosObj.HasMasks, ".stos file is expected to have masks")
 
-        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
-        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
 
     def testStosBruteScaleMismatchWithMask(self):
         ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
         Downsample = '032'
         Filter = 'Leveled'
-        TEM1Resolution = 2.176 #nm/pixel, section 503, Fixed
-        TEM2Resolution = 2.143 #nm/pixel, section 502, Warped
+        TEM1Resolution = 2.176  # nm/pixel, section 503, Fixed
+        TEM2Resolution = 2.143  # nm/pixel, section 502, Warped
 
         # Approximate correct answer
         # X: -165
         # Y: +90
         # Angle: 176
 
-        #We are registering 502 onto 503, so TEM2 is warped and TEM1 is fixed
+        # We are registering 502 onto 503, so TEM2 is warped and TEM1 is fixed
 
-        WarpedImagePath = os.path.join(ImageRootPath,"502",Filter,"Images",str(Downsample),"0502_TEM_{0}.png".format(Filter))
+        WarpedImagePath = os.path.join(ImageRootPath, "502", Filter, "Images", str(Downsample),
+                                       "0502_TEM_{0}.png".format(Filter))
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input: " + WarpedImagePath)
-        FixedImagePath = os.path.join(ImageRootPath,"503",Filter,"Images",str(Downsample),"0503_TEM_{0}.png".format(Filter))
+        FixedImagePath = os.path.join(ImageRootPath, "503", Filter, "Images", str(Downsample),
+                                      "0503_TEM_{0}.png".format(Filter))
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input: " + FixedImagePath)
 
         controlMaskName = "0503_TEM_Mask.png"
         warpedMaskName = "0502_TEM_Mask.png"
 
-        WarpedImageMaskPath = os.path.join(ImageRootPath,"502","Mask","Images",str(Downsample),"0502_TEM_Mask.png")
+        WarpedImageMaskPath = os.path.join(ImageRootPath, "502", "Mask", "Images", str(Downsample), "0502_TEM_Mask.png")
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input: " + WarpedImageMaskPath)
-        FixedImageMaskPath = os.path.join(ImageRootPath,"503","Mask","Images",str(Downsample),"0503_TEM_Mask.png")
+        FixedImageMaskPath = os.path.join(ImageRootPath, "503", "Mask", "Images", str(Downsample), "0503_TEM_Mask.png")
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input: " + FixedImageMaskPath)
 
         WarpedImageScalar = TEM2Resolution / TEM1Resolution
-        #WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution
+        # WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution
 
         AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath,
-                               FixedImageMaskPath,
-                               WarpedImageMaskPath,
-                               WarpedImageScaleFactors = WarpedImageScalar,
-                               TestFlip=False,
-                               AngleSearchRange=range(160,200,1))
+                                                            WarpedImagePath,
+                                                            FixedImageMaskPath,
+                                                            WarpedImageMaskPath,
+                                                            WarpedImageScaleFactors=WarpedImageScalar,
+                                                            TestFlip=False,
+                                                            AngleSearchRange=range(160, 200, 1))
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        #CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
+        # CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
 
-        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath,
+                                              PixelSpacing=1)
         self.assertIsNotNone(savedstosObj)
 
         stosfilepath = os.path.join(self.VolumeDir, '502-503_brute_WithMask_scalemismatch.stos')
@@ -288,8 +300,10 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
 
         self.assertTrue(loadedStosObj.HasMasks, ".stos file is expected to have masks")
 
-        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
-        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
 
     def testStosBruteExecuteWithMask(self):
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
@@ -300,10 +314,10 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
 
         nornir_imageregistration.scripts.nornir_rotate_translate.Execute(ExecArgs=['-f', self.FixedImagePath,
-                                                                             '-w', self.WarpedImagePath,
-                                                                             '-fm', self.FixedImageMaskPath,
-                                                                             '-wm', self.WarpedImageMaskPath,
-                                                                             '-o', stosfilepath])
+                                                                                   '-w', self.WarpedImagePath,
+                                                                                   '-fm', self.FixedImageMaskPath,
+                                                                                   '-wm', self.WarpedImageMaskPath,
+                                                                                   '-o', stosfilepath])
 
         self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
 
@@ -332,30 +346,30 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
         self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
-#    def testSameSimpleImage(self):
-#        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-#        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
-#        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
-#        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#
-#        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath, FixedImagePath)
-#
-#        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
-#
-#
-#    def testSameSimpleImageWithMask(self):
-#        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-#        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
-#        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
-#        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
-#
-#        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-#                       FixedImagePath,
-#                       FixedImageMaskPath,
-#                       FixedImageMaskPath)
-#        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
+    #    def testSameSimpleImage(self):
+    #        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+    #        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
+    #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+    #        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
+    #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+    #
+    #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath, FixedImagePath)
+    #
+    #        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
+    #
+    #
+    #    def testSameSimpleImageWithMask(self):
+    #        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+    #        FixedImagePath = os.path.join(self.ImportedDataPath, "fixed.png")
+    #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+    #        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
+    #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+    #
+    #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+    #                       FixedImagePath,
+    #                       FixedImageMaskPath,
+    #                       FixedImageMaskPath)
+    #        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
 
     def testSameTEMImageFast_SingleThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
@@ -366,7 +380,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                                self.FixedImagePath,
                                                self.FixedImageMaskPath,
                                                self.FixedImageMaskPath,
-                                               AngleSearchRange=[-2,0,2],
+                                               AngleSearchRange=[-2, 0, 2],
                                                SingleThread=True)
 
     def testSameTEMImageFast_MultiThread(self):
@@ -394,16 +408,16 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                                SingleThread=True,
                                                use_cp=True)
 
-    def testSameTEMImage_SingleThread(self):
-        '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
-        self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
-
-        self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
-                                               self.FixedImagePath,
-                                               self.FixedImageMaskPath,
-                                               self.FixedImageMaskPath,
-                                               SingleThread=True)
+    # def testSameTEMImage_SingleThread(self):
+    #     '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+    #     self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
+    #     self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
+    #
+    #     self.RunBasicBruteAlignmentToSameImage(self.FixedImagePath,
+    #                                            self.FixedImagePath,
+    #                                            self.FixedImageMaskPath,
+    #                                            self.FixedImageMaskPath,
+    #                                            SingleThread=True)
 
     def testSameTEMImage_MultiThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''

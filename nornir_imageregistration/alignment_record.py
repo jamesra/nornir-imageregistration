@@ -1,14 +1,14 @@
 '''
 '''
 
+from math import pi
 import os
 
 import numpy as np
 from numpy.typing import NDArray
-from math import pi
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms import ITransform, CenteredSimilarity2DTransform, Rigid
+from nornir_imageregistration.transforms import ITransform
 
 
 class AlignmentRecord(object):
@@ -71,7 +71,7 @@ class AlignmentRecord(object):
 
     def translate(self, value: NDArray[float]):
         '''Translates the peak position using tuple (Y,X)'''
-        self._peak = self._peak + value
+        self._peak += value
 
     def Invert(self):
         '''
@@ -126,11 +126,13 @@ class AlignmentRecord(object):
     def GetTransformedCornerPoints(self, warpedImageSize: NDArray[int]) -> NDArray[float]:
         '''
         '''
-        #Adjust image size by 1 since the images are indexed by 0
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize - 1, self.rangle,
+        # Adjust image size by 1 since the images are indexed by 0
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize - 1,
+                                                                                           self.rangle,
                                                                                            self.peak, self.flippedud)
 
-    def ToTransform(self, fixedImageSize: NDArray | tuple[int, int], warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
+    def ToTransform(self, fixedImageSize: NDArray | tuple[int, int],
+                    warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
         '''
         Generates a rigid transform for the alignment record.
         :param (Height, Width) fixedImageSize: Size of translated image in fixed space
@@ -144,10 +146,11 @@ class AlignmentRecord(object):
         warpedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(warpedImageSize)
         fixedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(fixedImageSize)
 
-        source_center_of_rotation = (warpedImageSize-1) / 2.0 #Subtract 1 because images are indexed starting at zero
-        #Adjust the center of rotation by 0.5 if there is an even dimension
-        #source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
-        target_center = (fixedImageSize-1) / 2.0
+        source_center_of_rotation = (
+                                            warpedImageSize - 1) / 2.0  # Subtract 1 because images are indexed starting at zero
+        # Adjust the center of rotation by 0.5 if there is an even dimension
+        # source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
+        target_center = (fixedImageSize - 1) / 2.0
 
         target_translation = (source_center_of_rotation - target_center) + self.peak
 
@@ -156,7 +159,7 @@ class AlignmentRecord(object):
                                                          angle=self.rangle,
                                                          flip_ud=self.flippedud)
 
-        #return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak,
+        # return nornir_imageregistration.transforms.factory.CreateRigidTransform(warped_offset=self.peak,
         #                                                                        rangle=self.rangle,
         #                                                                        target_image_shape=fixedImageSize,
         #                                                                        source_image_shape=warpedImageSize,
@@ -169,7 +172,6 @@ class AlignmentRecord(object):
         #                                                                         warped_offset=self.peak,
         #                                                                         flip_ud=self.flippedud,
         #                                                                         scale=self.scale)
- 
 
     def ToStos(self, ImagePath, WarpedImagePath, FixedImageMaskPath=None, WarpedImageMaskPath=None, PixelSpacing=1):
         stos = nornir_imageregistration.StosFile()
@@ -202,17 +204,17 @@ class AlignmentRecord(object):
         #                                 'y' : -Match.peak[1],
         #                                 'mapwidth' : stos.MappedImageDim[0]/2,
         #                                 'mapheight' : stos.MappedImageDim[1]/2}
-        
-        #transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
- 
+
+        # transformTemplate = "GridTransform_double_2_2 vp 8 %(coordString)s fp 7 0 1 1 0 0 %(width)d %(height)d"
 
         # I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
         # have a -1 to account for the zero origin
-        #stos.Transform = transformTemplate % {'coordString': coordString,
-                                              #'width': stos.MappedImageDim[0],
-                                              #'height': stos.MappedImageDim[1]}
-                                              
-        transform = self.ToTransform(fixedImageSize=(ControlHeight, ControlWidth), warpedImageSize=(MappedHeight, MappedWidth))
+        # stos.Transform = transformTemplate % {'coordString': coordString,
+        # 'width': stos.MappedImageDim[0],
+        # 'height': stos.MappedImageDim[1]}
+
+        transform = self.ToTransform(fixedImageSize=(ControlHeight, ControlWidth),
+                                     warpedImageSize=(MappedHeight, MappedWidth))
 
         stos.Transform = transform.ToITKString()
 

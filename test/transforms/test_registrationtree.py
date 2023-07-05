@@ -15,11 +15,13 @@ def _NodesToNumberList(Nodes):
 
     return nums
 
+
 def checkRegistrationTree(test, RT, ControlSection, MappedSectionList):
     Node = RT.Nodes[ControlSection]
 
     MappedSectionList.sort()
-    test.assertTrue(_NodesToNumberList(Node.Children) == MappedSectionList, "Expected %s to be %s" % (_NodesToNumberList(Node.Children), MappedSectionList))
+    test.assertTrue(_NodesToNumberList(Node.Children) == MappedSectionList,
+                    "Expected %s to be %s" % (_NodesToNumberList(Node.Children), MappedSectionList))
     return
 
 
@@ -57,7 +59,6 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 3, [2, 1])
         checkRegistrationTree(self, RT, 4, [2, 3])
 
-
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
         self.assertTrue(center in RT.RootNodes, "Center number not in RootNodes")
 
@@ -65,7 +66,6 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 2, [1])
         checkRegistrationTree(self, RT, 3, [2])
         checkRegistrationTree(self, RT, 4, [3])
-
 
         numbers = list(range(1, 6))
         center = 3
@@ -78,7 +78,6 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 4, [5])
         checkRegistrationTree(self, RT, 5, [])
 
-
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
         self.assertTrue(center in RT.RootNodes, "Center number not in RootNodes")
 
@@ -87,8 +86,6 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 3, [2, 4])
         checkRegistrationTree(self, RT, 4, [5])
         checkRegistrationTree(self, RT, 5, [])
-
-
 
     def test_InvalidCenter(self):
         ''' Check registration tree using center that does not exist '''
@@ -108,7 +105,6 @@ class TestRegistrationTree(unittest.TestCase):
         checkRegistrationTree(self, RT, 5, [6])
         checkRegistrationTree(self, RT, 6, [])
 
-
     def test_EmptyList(self):
         ''' Check registration tree using center that does not exist '''
 
@@ -117,7 +113,6 @@ class TestRegistrationTree(unittest.TestCase):
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
         self.assertEqual(len(RT.RootNodes), 0, "Should not be a root if input was empty list")
         self.assertTrue(RT.IsEmpty, "Tree without nodes should report itself as empty")
-
 
     def test_SingleEntryList(self):
         ''' Check registration tree using center that does not exist '''
@@ -130,7 +125,6 @@ class TestRegistrationTree(unittest.TestCase):
         self.assertEqual(root.SectionNumber, numbers[0], "Root should be the only entry in the list")
 
         checkRegistrationTree(self, RT, 3, [])
-
 
     def test_InsertLeafOnlyNodes(self):
         ''' Check registration tree using center that does not exist '''
@@ -166,17 +160,16 @@ class TestRegistrationTree(unittest.TestCase):
         RT.AddNonControlSections([1, 32])
         checkRegistrationTree(self, RT, 4, [1, 2])
         checkRegistrationTree(self, RT, 30, [31, 32])
-        
+
     def test_RegistrationTreeIteration(self):
         ''' Check that we can iterate sections from the root to leaves in order of root -> intermediate -> leaf numbers.'''
 
         numbers = [4, 7, 10, 12, 20, 30]
         center = 19
         RT = registrationtree.RegistrationTree.CreateRegistrationTree(numbers, adjacentThreshold=1, center=center)
-        
+
         for mapping in RT.GenerateOrderedMappingsToRoots():
             print(str(mapping))
-        
 
 
 if __name__ == "__main__":

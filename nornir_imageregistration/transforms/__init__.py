@@ -1,7 +1,8 @@
 __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid', "registrationtree", "utils",
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
-           'ITransformScaling', 'ITransformRelativeScaling', 'IControlPoints', 'ITransformTargetRotation', 'ITransformSourceRotation',
+           'ITransformScaling', 'ITransformRelativeScaling', 'IControlPoints', 'ITransformTargetRotation',
+           'ITransformSourceRotation', 'TransformType',
            'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
            'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
@@ -13,6 +14,7 @@ from numpy.typing import NDArray
 # if __name__ == "__main__":
 
 NumberOfControlPointsToTriggerMultiprocessing = 20
+
 
 def distance(A: NDArray[float], B: NDArray[float]) -> NDArray[float]:
     """Distance between two arrays of points with equal numbers"""
@@ -32,9 +34,9 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 
 import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
-     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
-     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
-     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
+    IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
+    ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
+    IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
 
 import nornir_imageregistration.transforms.defaulttransformchangeevents as defaulttransformchangeevents
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
@@ -76,11 +78,12 @@ from nornir_imageregistration.transforms.matrixtransform import AffineMatrixTran
 
 import nornir_imageregistration.transforms.converters as converters
 from nornir_imageregistration.transforms.converters import ConvertTransform, ConvertTransformToGridTransform, \
-    ConvertTransformToMeshTransform, ConvertTransformToRigidTransform,ConvertRigidTransformToCenteredSimilarityTransform
+    ConvertTransformToMeshTransform, ConvertTransformToRigidTransform, \
+    ConvertRigidTransformToCenteredSimilarityTransform
 
 import nornir_imageregistration.transforms.addition as addition
 from nornir_imageregistration.transforms.addition import AddTransforms
 
 import nornir_imageregistration.transforms.utils as utils
-from nornir_imageregistration.transforms.utils import BlendWithLinear, RotationMatrix, ScaleMatrixXY, TranslateMatrixXY, TranslateToZeroOrigin, IdentityMatrix
-
+from nornir_imageregistration.transforms.utils import BlendWithLinear, RotationMatrix, ScaleMatrixXY, TranslateMatrixXY, \
+    TranslateToZeroOrigin, IdentityMatrix

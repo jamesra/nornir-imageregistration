@@ -1,7 +1,9 @@
-from numpy.typing import NDArray, DTypeLike
 import tempfile
-import numpy as np
+
 import cupy as cp
+import numpy as np
+from numpy.typing import DTypeLike, NDArray
+
 
 class memmap_metadata(object):
     """meta-data for a memmap array"""

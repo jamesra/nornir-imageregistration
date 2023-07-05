@@ -1,8 +1,10 @@
-
 from __future__ import annotations
+
 import abc
-from numpy.typing import NDArray
 from typing import Tuple
+
+from numpy.typing import NDArray
+
 
 class ITransformedImageData(abc.ABC):
 
