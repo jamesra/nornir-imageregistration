@@ -98,8 +98,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     """
 
     def __init__(self, image_to_source_space_scale: float):
-        super(MosaicTileset, self).__init__()
-
+        super().__init__()
         if image_to_source_space_scale is None:
             raise ValueError("image_to_source_space_scale is None")
 
@@ -388,7 +387,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     def ToMosaic(self):
         '''Return a mosaic object for this mosaic set'''
         output = {}
-        for (id, tile) in self.items():
+        for (ID, tile) in self.items():
             output[os.path.basename(tile.ImagePath)] = copy.deepcopy(tile.Transform)
 
         return nornir_imageregistration.Mosaic(output)

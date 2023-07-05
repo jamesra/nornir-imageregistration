@@ -695,9 +695,9 @@ def __tile_offset_remote(A_Filename, B_Filename, scaled_overlapping_source_rect_
                                                                                             cval='random', dtype=dtype)
 
     valid_mask_fraction_A = OverlappingRegionA_extremaMask.sum() / (
-            OverlappingRegionA_extremaMask.shape[0] * OverlappingRegionA_extremaMask.shape[1])
+                OverlappingRegionA_extremaMask.shape[0] * OverlappingRegionA_extremaMask.shape[1])
     valid_mask_fraction_B = OverlappingRegionB_extremaMask.sum() / (
-            OverlappingRegionB_extremaMask.shape[0] * OverlappingRegionB_extremaMask.shape[1])
+                OverlappingRegionB_extremaMask.shape[0] * OverlappingRegionB_extremaMask.shape[1])
     valid_mask_fraction_scalar = min(valid_mask_fraction_A, valid_mask_fraction_B)
 
     # extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA_original, size_cutoff=0.01)

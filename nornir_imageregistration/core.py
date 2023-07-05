@@ -16,7 +16,6 @@ from PIL import Image
 import cupy as cp
 import cupyx
 import cupyx.scipy.ndimage
-import cupyx.scipy.ndimage
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
@@ -26,12 +25,12 @@ import scipy.misc
 import scipy.ndimage.measurements
 
 import nornir_imageregistration
-from nornir_imageregistration import ImageLike
 import nornir_imageregistration.image_stats
-from nornir_imageregistration.mmap_metadata import memmap_metadata
 import nornir_pools
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
+from nornir_imageregistration import ImageLike
+from nornir_imageregistration.mmap_metadata import memmap_metadata
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
@@ -120,7 +119,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
         shared_mem = shared_memory.SharedMemory(name=imageparam.name, create=False)
         image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
         image.setflags(write=not imageparam.readonly)
-        finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, imageparam)
+        finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, shared_mem)
         __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer
     elif isinstance(imageparam, memmap_metadata):
         if dtype is None:
@@ -233,9 +232,9 @@ def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
     resample = kwargs.pop('resample', None)
 
     if resample is None:
-        resample = resample = Image.Resampling.BILINEAR
+        resample = resample = Image.BILINEAR
         if Scalar < 1.0:
-            resample = Image.Resampling.LANCZOS
+            resample = Image.LANCZOS
 
     with Image.open(InFile, mode='r') as img:
 
@@ -568,7 +567,7 @@ def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: i
     return cropped
 
 
-def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | SharedMemory):
     '''
     Checks if the input is shared memory, if it is, closes it to indicate
     this process is done using it, but others may still be using it.
@@ -1142,7 +1141,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[bool],
         elif numValidPixels <= 2:
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
 
-        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace, dtype=MaskedImage.dtype).compressed()
+        UnmaskedImage1D = np.ma.masked_array(Image1D, iPixelsToReplace).compressed()
         imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
         del UnmaskedImage1D
 

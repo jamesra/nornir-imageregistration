@@ -662,40 +662,40 @@ def TransformImage(transform: ITransform,
             warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
 
-        for iY in range(0, height, int(tilesize[0])):
+            for iY in range(0, height, int(tilesize[0])):
 
-            end_iY = iY + tilesize[0]
-            if end_iY > height:
-                end_iY = height
+                end_iY = iY + tilesize[0]
+                if end_iY > height:
+                    end_iY = height
 
-            for iX in range(0, width, int(tilesize[1])):
+                for iX in range(0, width, int(tilesize[1])):
 
-                end_iX = iX + tilesize[1]
-                if end_iX > width:
-                    end_iX = width
+                    end_iX = iX + tilesize[1]
+                    if end_iX > width:
+                        end_iX = width
 
-                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
-                                      sharedwarpedimage_metadata, output_botleft=[iY, iX],
-                                      output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined,
-                                      return_shared_memory=True)
-                task.iY = iY
-                task.end_iY = end_iY
-                task.iX = iX
-                task.end_iX = end_iX
+                    task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
+                                          sharedwarpedimage_metadata, output_botleft=[iY, iX],
+                                          output_area=[end_iY - iY, end_iX - iX], extrapolate=not CropUndefined,
+                                          return_shared_memory=False)
+                    task.iY = iY
+                    task.end_iY = end_iY
+                    task.iX = iX
+                    task.end_iX = end_iX
 
-                tasks.append(task)
+                    tasks.append(task)
 
-                # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
-                # outputImage[iY:end_iY, iX:end_iX] = registeredTile
-        mpool.wait_completion()
+                    # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
+                    # outputImage[iY:end_iY, iX:end_iX] = registeredTile
+            mpool.wait_completion()
 
-        for task in tasks:
-            registered_shared_mem_meta = task.wait_return()
-            registered_tile = nornir_imageregistration.ImageParamToImageArray(registered_shared_mem_meta)
-            outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
-            nornir_imageregistration.unlink_shared_memory(registered_shared_mem_meta)
-
-        nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
-        del sharedWarpedImage
+            for task in tasks:
+                result = task.wait_return()
+                registered_tile = nornir_imageregistration.ImageParamToImageArray(result)
+                outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
+                nornir_imageregistration.unlink_shared_memory(result)
+        finally:
+            nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
+            del sharedWarpedImage
 
     return outputImage

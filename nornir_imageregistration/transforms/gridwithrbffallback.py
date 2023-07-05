@@ -5,14 +5,14 @@ Created on Oct 18, 2012
 """
 
 import numpy
-from numpy.typing import NDArray
 import scipy.spatial
+from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.grid_subdivision import ITKGridDivision
 import nornir_imageregistration.transforms
-from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, IGridTransform, \
-    ITargetSpaceControlPointEdit, ITransformRelativeScaling, ITransformScaling, ITransformTargetRotation, \
+from nornir_imageregistration.grid_subdivision import ITKGridDivision
+from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformScaling, \
+    ITransformRelativeScaling, ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, \
     ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms.transform_type import TransformType

@@ -9,16 +9,16 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 import scipy
-from scipy.interpolate import LinearNDInterpolator
 import scipy.spatial
+from scipy.interpolate import LinearNDInterpolator
 
 import nornir_imageregistration
 import nornir_pools
 from . import TransformType
 from .addition import AddTransforms
-from .base import IControlPointAddRemove, IControlPointEdit, ITransformRelativeScaling, ITransformScaling, \
-    ITransformSourceRotation, ITransformTargetRotation, ITransformTranslation, ITriangulatedSourceSpace, \
-    ITriangulatedTargetSpace
+from .base import ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
+    IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
+    ITriangulatedSourceSpace, IControlPointAddRemove
 from .controlpointbase import ControlPointBase
 
 
@@ -27,7 +27,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
                     ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
                     IControlPointAddRemove, ControlPointBase):
     '''
-    Triangulation transform has an nx4 array of points, with rows organized as
+    Triangulation transform has a nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
     '''
 
@@ -284,7 +284,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
-           Clear out our data structures so we do not use bad data'''
+           Clear out our data structures, so we do not use stale data'''
         super(Triangulation, self).ClearDataStructures()
         self._fixedtri = None
         self._warpedtri = None
@@ -296,13 +296,13 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
     def NearestTargetPoint(self, points: NDArray[float]):
         return self.FixedKDTree.query(points)
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[float] | tuple[float, float]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]):
+    def NearestSourcePoint(self, points: NDArray[float] | tuple[float, float]):
         return self.WarpedKDTree.query(points)
 
     def NearestWarpedPoint(self, points: NDArray[float]):

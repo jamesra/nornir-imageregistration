@@ -9,4 +9,4 @@ class Shared_Mem_Metadata(NamedTuple):
     shape: tuple
     dtype: DTypeLike
     readonly: bool
-    shared_memory: SharedMemory
+    shared_memory: SharedMemory | None

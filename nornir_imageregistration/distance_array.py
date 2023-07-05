@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 
 
@@ -34,18 +32,18 @@ class DistanceSquaredArray(np.ndarray):
         return obj
 
     def __getitem__(self, index):
-        #print(self._distances)
-        #print(f'{index}')
+        # print(self._distances)
+        # print(f'{index}')
         ndims = len(self.shape)
         output = []
         for i, slice in enumerate(index):
             a = self._distances[i][slice]
-            #b = np.broadcast_to(a, )
+            # b = np.broadcast_to(a, )
             if isinstance(a, np.ndarray):
                 dim_reshape = [1] * ndims
                 dim_reshape[i] = len(a)
                 reshaped_a = a.reshape(dim_reshape)
-                #print(f'i: {i} -> {a} -> res: {dim_reshape} -> {reshaped_a}')
+                # print(f'i: {i} -> {a} -> res: {dim_reshape} -> {reshaped_a}')
                 output.append(reshaped_a)
             else:
                 output.append(a)
@@ -53,6 +51,7 @@ class DistanceSquaredArray(np.ndarray):
         o = np.broadcast_arrays(*output)
         sum = np.sum(o, axis=0)
         return sum
+
 
 class DistanceArray(DistanceSquaredArray):
     def __new__(cls, *args, **kwargs):
@@ -67,13 +66,12 @@ class DistanceArray(DistanceSquaredArray):
             return np.sqrt(result)
 
 
-
 if __name__ == '__main__':
-    da = DistanceSquaredArray((4,3))
+    da = DistanceSquaredArray((4, 3))
     print(f'distance: {da}')
-    print(f'distance: {da[1:3,0:3]}')
-    print(f'distance: {da[1,0:3]}')
-    print(f'distance: {da[:,0:3]}')
+    print(f'distance: {da[1:3, 0:3]}')
+    print(f'distance: {da[1, 0:3]}')
+    print(f'distance: {da[:, 0:3]}')
 
     da = DistanceArray((8, 7))
     print(f'distance: {da}')

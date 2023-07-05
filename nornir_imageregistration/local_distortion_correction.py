@@ -9,12 +9,12 @@ import os
 from typing import Iterable, Sequence
 
 import numpy as np
-from numpy.typing import NDArray
 import scipy.spatial
+from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.triangulation import Triangulation
 import nornir_pools
+from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
 
 # import nornir_imageregistration.views.grid_data

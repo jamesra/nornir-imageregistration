@@ -95,7 +95,7 @@ class AlignmentRecord(object):
     def __str__(self):
         return f'Offset: {self.__repr__()}'
 
-    def __init__(self, peak: NDArray[float], weight: float, angle: float = 0.0, flipped_ud: bool = False,
+    def __init__(self, peak: NDArray[float] | tuple[float, float], weight: float, angle: float = 0.0, flipped_ud: bool = False,
                  scale: float = 1.0):
         '''
         :param float scale: Scales source space by this factor to map into target space

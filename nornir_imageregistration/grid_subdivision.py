@@ -94,6 +94,11 @@ class GridDivisionBase(IGrid):
     def num_points(self) -> int:
         return self._coords.shape[0]
 
+    @property
+    def axis_points(self):
+        """The points along the axis, in source space, where the grid lines intersect the axis"""
+        return self._axis_points
+
     def PopulateTargetPoints(self, transform: ITransform):
         if transform is not None:
             self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(float, copy=False)
@@ -238,7 +243,7 @@ class ITKGridDivision(GridDivisionBase):
 
         # Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
         self._grid_spacing = source_shape / (
-                self._grid_dims - 1)  # - 1 on grid_dims because we want the points at the edges of the image
+                    self._grid_dims - 1)  # - 1 on grid_dims because we want the points at the edges of the image
 
         self._axis_points = [range(n) * self._grid_spacing[i] for i, n in enumerate(self._grid_dims)]
 

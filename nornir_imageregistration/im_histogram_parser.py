@@ -9,7 +9,7 @@ Converts the output from ImageMagick -histogram:info:- flag to a histogram
 import nornir_shared.histogram
 
 
-def MinMaxValues(lines):
+def MinMaxValues(lines: list[str]):
     '''Given output from the histogram command, return the min/max values'''
     minVal = None
     maxVal = None
@@ -30,7 +30,7 @@ def MinMaxValues(lines):
     return minVal, maxVal
 
 
-def ParseHistogramLine(line):
+def ParseHistogramLine(line: str):
     line = line.strip()
 
     if len(line) == 0:

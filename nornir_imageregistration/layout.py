@@ -1,8 +1,8 @@
 import collections
 import copy
-from operator import itemgetter
 import os
 import warnings
+from operator import itemgetter
 
 import numpy as np
 import scipy

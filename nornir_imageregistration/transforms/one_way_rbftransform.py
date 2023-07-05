@@ -13,8 +13,8 @@ import scipy.linalg
 import scipy.spatial
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.transform_type import TransformType
 import nornir_pools
+from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation
 
 

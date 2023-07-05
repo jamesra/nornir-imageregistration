@@ -47,8 +47,6 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-checkflip', '-flip',
                         action='store_true',
                         required=False,
-                        # type=bool,
-                        # default=False,
                         help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
                         dest='testflip'
                         )

@@ -11,8 +11,8 @@ from typing import Sequence
 
 import numpy as np
 
-from nornir_imageregistration.spatial import *
 import nornir_imageregistration.transforms
+from nornir_imageregistration.spatial import *
 from nornir_imageregistration.transforms.base import *
 from . import float_to_shortest_string
 
@@ -44,7 +44,7 @@ def _GetMappedBoundsExtents(transform, bounds=None):
     return bottom, left, top, right
 
 
-def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: int, bounds=None) -> str:
+def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: int) -> str:
     """
     Write an ITK GridTransform_double_2_2 string.
     :param Transform:
@@ -502,7 +502,7 @@ def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDA
     return transform
 
 
-def GetTransformedRigidCornerPoints(size: tuple[float, float], rangle: float, offset: tuple[float, float],
+def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[float], rangle: float, offset: tuple[float, float] | NDArray[float],
                                     flip_ud: bool = False,
                                     scale: float = 1.0) -> NDArray[float]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.

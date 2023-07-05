@@ -9,11 +9,10 @@ from __future__ import annotations
 import os
 from typing import Sequence
 
-from PIL import Image
-import cupy as cp
 import numpy
 import numpy as np
-from numpy.typing import DTypeLike, NDArray
+from PIL import Image
+from numpy.typing import NDArray, DTypeLike
 from pylab import ceil, mod
 
 import nornir_imageregistration

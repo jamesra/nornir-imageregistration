@@ -10,9 +10,9 @@ import os
 import numpy as np
 
 import nornir_imageregistration
-from nornir_imageregistration.files.mosaicfile import MosaicFile
 import nornir_imageregistration.transforms.factory as tfactory
 import nornir_imageregistration.transforms.utils as tutils
+from nornir_imageregistration.files.mosaicfile import MosaicFile
 
 
 class Mosaic(object):

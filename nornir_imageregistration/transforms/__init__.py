@@ -1,4 +1,4 @@
-__all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid', "registrationtree", "utils",
+__all__ = ['base', 'triangulation', 'Triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid', "registrationtree", "utils",
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
            'ITransformScaling', 'ITransformRelativeScaling', 'IControlPoints', 'ITransformTargetRotation',
@@ -6,7 +6,8 @@ __all__ = ['base', 'triangulation', "meshwithrbffallback", "factory", 'metrics',
            'gridwithrbffallback', 'gridtransform', 'IGridTransform', 'float_to_shortest_string', 'distance',
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
            'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
-           'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix', 'ConvertRigidTransformToCenteredSimilarityTransform']
+           'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix', 'ConvertRigidTransformToCenteredSimilarityTransform',
+           'OneWayRBFWithLinearCorrection']
 
 import numpy as np
 from numpy.typing import NDArray

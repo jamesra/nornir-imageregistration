@@ -11,7 +11,8 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
     @classmethod
     def create_tiny_image(cls, shape):
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, numpy.int32)
-        image = numpy.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
+        image = numpy.zeros(shape,
+                            dtype=numpy.float32)  # Needs to be float32 for numpy functions used in the test to support it
         for x in range(0, shape[1]):
             for y in range(0, shape[0]):
                 color_index = (((x % 4) + (y % 4)) % 4) / 4
@@ -55,7 +56,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (read_coords, target_coords) = assemble.write_to_target_roi_coords(transform, offset, targetShape)
 
-        self.show_test_image(transform, sourceShape, targetShape * numpy.array(2),
+        self.show_test_image(transform, sourceShape, targetShape * numpy.array((2)),
                              f"Translate by x:{offset[1]} y:{offset[0]}")
 
         self.assertAlmostEqual(min(target_coords[:, spatial.iPoint.Y]), 0 + offset[spatial.iPoint.Y], delta=0.01)

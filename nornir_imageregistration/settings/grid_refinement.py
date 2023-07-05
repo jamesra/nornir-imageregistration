@@ -155,14 +155,10 @@ class GridRefinement(object):
         self.source_image_stats = source_image_stats
 
         if not single_thread_processing:
-            self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToReadOnlySharedArray(
-                self.source_image)
-            self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToReadOnlySharedArray(
-                self.target_image)
-            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(
-                self.source_mask)
-            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToReadOnlySharedArray(
-                self.target_mask)
+            self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToSharedArray(self.source_image)
+            self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToSharedArray(self.target_image)
+            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)
+            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToSharedArray(self.target_mask)
         else:
             self.source_image_meta = self.source_image
             self.target_image_meta = self.target_image

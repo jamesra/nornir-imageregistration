@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import IControlPoints, ITransform
+from nornir_imageregistration.transforms.base import ITransform, IControlPoints
 from nornir_shared import prettyoutput
 
 
@@ -221,7 +221,6 @@ def FixedBoundingBox(transforms, images=None):
             mbb[i, :] = t.FixedBoundingBox.ToArray()
         elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
             # Figure out if images is an iterable or just a single size for all tiles
-            size = None
             if is_images_param_single_size:
                 size = images
             else:
@@ -286,7 +285,6 @@ def TranslateToZeroOrigin(transforms):
     :return: The offset the mosaic was translated by
     '''
 
-    origin = None
     try:
         origin = FixedOriginOffset(transforms)
     except ValueError:

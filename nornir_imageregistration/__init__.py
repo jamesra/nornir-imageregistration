@@ -51,9 +51,13 @@ import collections.abc
 import matplotlib.pyplot as plt
 
 plt.ioff()
+ 
+from nornir_shared.mathhelper import RoundingPrecision
 
+import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
 
+import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
 

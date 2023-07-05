@@ -11,10 +11,11 @@ import matplotlib.tri as mtri
 import numpy
 import scipy.interpolate
 
-import nornir_imageregistration.files
-from nornir_imageregistration.transforms import *
+
 import nornir_shared.histogram
 import nornir_shared.plot
+import nornir_imageregistration.files
+from nornir_imageregistration.transforms import *
 import test.setup_imagetest
 
 

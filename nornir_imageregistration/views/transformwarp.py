@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 import numpy
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms import ITriangulatedTargetSpace, factory
 import nornir_shared.histogram
 import nornir_shared.plot
+from nornir_imageregistration.transforms import factory, ITriangulatedTargetSpace
 
 
 class TransformWarpView:

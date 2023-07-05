@@ -14,7 +14,6 @@ the appropriate options to ``use_setuptools()``.
 This file can also be run as a script to install or upgrade setuptools.
 """
 import contextlib
-from distutils import log
 import optparse
 import os
 import platform
@@ -24,6 +23,7 @@ import sys
 import tempfile
 import textwrap
 import zipfile
+from distutils import log
 
 try:
     from site import USER_SITE

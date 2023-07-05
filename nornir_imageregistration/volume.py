@@ -72,7 +72,8 @@ class Volume(object):
         '''Maps array of [X Y Z] points on sections to volume space'''
         self.__ApplyTransformFor3DPoints(points, transformFunc=self.VolumeToSection2D)
 
-    def __ApplyTransformFor3DPoints(self, points, transformFunc):
+    @staticmethod
+    def __ApplyTransformFor3DPoints(points, transformFunc):
         '''Maps array of [X Y Z] points on sections to volume space'''
         outputPoints = points.copy()
 

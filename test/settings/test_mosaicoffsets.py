@@ -4,6 +4,8 @@ import unittest
 import nornir_imageregistration
 from test.setup_imagetest import TestBase
 
+import nornir_imageregistration
+
 
 class TestMosaicOffsetSettings(TestBase):
 

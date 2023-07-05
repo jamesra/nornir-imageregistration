@@ -10,8 +10,10 @@ import nornir_imageregistration
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.transforms.controlpointbase import ControlPointBase
-from .base import IGridTransform, ITargetSpaceControlPointEdit, ITransformRelativeScaling, ITransformScaling, \
-    ITransformTargetRotation, ITransformTranslation, ITriangulatedTargetSpace, TransformType
+from .base import ITransformScaling, ITransformRelativeScaling, \
+    ITransformTranslation, \
+    TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, \
+    ITriangulatedTargetSpace
 
 
 class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
@@ -218,8 +220,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = RegularGridInterpolator(self._grid.axis_points,
                                                                 np.reshape(self.TargetPoints, (
-                                                                    self._grid.grid_dims[0], self._grid.grid_dims[1],
-                                                                    2)),
+                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
                                                                 bounds_error=False)
 
         return self._ForwardInterpolator

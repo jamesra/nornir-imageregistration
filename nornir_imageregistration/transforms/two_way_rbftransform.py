@@ -3,8 +3,9 @@ from typing import Callable
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import IControlPointEdit, IControlPoints, ITransform, \
-    ITransformRelativeScaling, ITransformScaling, ITransformSourceRotation, ITransformTargetRotation
+from nornir_imageregistration.transforms.base import ITransform, IControlPoints, \
+    ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation, \
+    ITransformSourceRotation, IControlPointEdit
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection
 from nornir_imageregistration.transforms.transform_type import TransformType

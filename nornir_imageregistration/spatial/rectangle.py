@@ -7,13 +7,13 @@ Points are represented as (Y,X)
 
 from __future__ import annotations
 
-from typing import Generator, Iterable, Sequence
+from typing import Iterable, Sequence, Generator
 
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration.spatial
-from nornir_imageregistration.spatial import iArea, iPoint, iRect
+from nornir_imageregistration.spatial import iPoint, iRect, iArea
 from nornir_imageregistration.spatial.typing import PointLike, RectLike
 
 
@@ -27,7 +27,7 @@ def IsValidBoundingBox(bounds) -> bool:
     return bounds[iRect.MinX] < bounds[iRect.MaxX] and bounds[iRect.MinY] < bounds[iRect.MaxY]
 
 
-def IsValidRectangleInputArray(bounds) -> bool:
+def IsValidRectangleInputArray(bounds: NDArray):
     if bounds.ndim == 1:
         return bounds.size == 4
     elif bounds.ndim > 1:

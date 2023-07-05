@@ -8,8 +8,8 @@ import numpy
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransform, \
-    ITransformRelativeScaling, ITransformScaling
+from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransform, \
+    ITransformRelativeScaling
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms.transform_type import TransformType
 from . import utils

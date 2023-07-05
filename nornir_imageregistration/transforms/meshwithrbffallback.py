@@ -7,10 +7,10 @@ Created on Oct 18, 2012
 import numpy
 
 import nornir_imageregistration
+import nornir_pools
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection
 from nornir_imageregistration.transforms.transform_type import TransformType
-import nornir_pools
-from . import NumberOfControlPointsToTriggerMultiprocessing, utils
+from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 from .triangulation import Triangulation
 
 

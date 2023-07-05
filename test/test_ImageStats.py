@@ -8,10 +8,10 @@ import unittest
 
 from PIL import Image
 
-from nornir_imageregistration import im_histogram_parser, image_stats
-import nornir_pools as pools
 import nornir_shared.images
 import nornir_shared.plot as plot
+import nornir_pools as pools
+from nornir_imageregistration import im_histogram_parser, image_stats
 import setup_imagetest
 
 

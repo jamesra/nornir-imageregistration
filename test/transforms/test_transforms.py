@@ -207,8 +207,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
-
-        global MirrorTransformPoints
+ 
         T = Triangulation(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
@@ -343,8 +342,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
-
-        global MirrorTransformPoints
+ 
         T = nornir_imageregistration.transforms.MeshWithRBFFallback(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
@@ -463,8 +461,9 @@ class TestTransforms(unittest.TestCase):
                                                                               source_rotation_center=source_rotation_center,
                                                                               angle=0,
                                                                               scalar=1,
-                                                                              MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea(
-                                                                                  (0, 0), (10, 10)))
+                                                                              #MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+                                                                                  #(0, 0), (10, 10))
+                                                                              )
 
         point = np.array((y, x), dtype=np.float32)
 

@@ -9,11 +9,12 @@ import logging
 import os
 import sys
 
-import nornir_imageregistration
-from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
-import nornir_imageregistration.local_distortion_correction
-from nornir_shared.argparse_helpers import IntegerList, IntegerPair
+
 import nornir_shared.misc
+from nornir_shared.argparse_helpers import IntegerPair, IntegerList
+import nornir_imageregistration
+import nornir_imageregistration.local_distortion_correction
+from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 
 
 def __CreateArgParser(ExecArgs=None):

@@ -1,9 +1,9 @@
 import os
 import sys
 
-import nornir_imageregistration
-from nornir_shared import checksum, prettyoutput
 import nornir_shared.images as images
+from nornir_shared import checksum, prettyoutput
+import nornir_imageregistration
 
 
 class MosaicFile(object):
