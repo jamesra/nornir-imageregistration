@@ -296,6 +296,44 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.CheckStosObj(savedstosObj, '502-503_brute_WithMask_scalemismatch.stos', FixedImageMaskPath,
                           WarpedImageMaskPath)
 
+    def testStosBruteScaleMismatchWithMask_GPU(self):
+        ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
+        Downsample = '032'
+        Filter = 'Leveled'
+        TEM1Resolution = 2.176 #nm/pixel, section 503, Fixed
+        TEM2Resolution = 2.143 #nm/pixel, section 502, Warped
+
+        # Approximate correct answer
+        # X: -165
+        # Y: +90
+        # Angle: 176
+
+        #We are registering 502 onto 503, so TEM2 is warped and TEM1 is fixed
+
+        WarpedImagePath = os.path.join(ImageRootPath,"502",Filter,"Images",str(Downsample),"0502_TEM_{0}.png".format(Filter))
+        FixedImagePath = os.path.join(ImageRootPath,"503",Filter,"Images",str(Downsample),"0503_TEM_{0}.png".format(Filter))
+
+        WarpedImageMaskPath = os.path.join(ImageRootPath,"502","Mask","Images",str(Downsample),"0502_TEM_Mask.png")
+        FixedImageMaskPath = os.path.join(ImageRootPath,"503","Mask","Images",str(Downsample),"0503_TEM_Mask.png")
+
+        WarpedImageScalar = TEM2Resolution / TEM1Resolution
+        #WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution
+
+        AlignmentRecord = self.RunBasicBruteAlignmentWithMask(FixedImagePath,
+                                                              WarpedImagePath,
+                                                              FixedImageMaskPath,
+                                                              WarpedImageMaskPath,
+                                                              WarpedImageScaleFactors=WarpedImageScalar,
+                                                              FlipUD=False,
+                                                              AngleSearchRange=range(160, 200, 1),
+                                                              use_cp=True)
+
+        self.Logger.info("Best alignment: " + str(AlignmentRecord))
+
+        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
+        self.CheckStosObj(savedstosObj, '502-503_brute_WithMask_scalemismatch_GPU.stos', FixedImageMaskPath,
+                          WarpedImageMaskPath)
+
     def testStosBruteExecuteWithMask(self):
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
