@@ -178,31 +178,40 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
     def testStosBruteWithMask_MultiThread(self):
-        self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
+        AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
                                             self.FixedImageMaskPath, self.WarpedImageMaskPath,
                                             SingleThread=False, FlipUD=False)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
+        savedstosObj = AlignmentRecord.ToStos(self.FixedImagePath, self.WarpedImagePath,
+                                              self.FixedImageMaskPath, self.WarpedImageMaskPath,
+                                              PixelSpacing=1)
+        self.CheckStosObj(savedstosObj,'17-18_brute_WithMask.stos', self.FixedImageMaskPath, self.WarpedImageMaskPath)
 
     def testStosBruteWithMask_GPU(self):
-        self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
+        AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
                                             self.FixedImageMaskPath, self.WarpedImageMaskPath,
                                             SingleThread=True, FlipUD=False, use_cp=True)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
+        savedstosObj = AlignmentRecord.ToStos(self.FixedImagePath, self.WarpedImagePath,
+                                              self.FixedImageMaskPath, self.WarpedImageMaskPath,
+                                              PixelSpacing=1)
+        self.CheckStosObj(savedstosObj, '17-18_brute_WithMask_GPU.stos', self.FixedImageMaskPath, self.WarpedImageMaskPath)
 
     def RunBasicBruteAlignmentWithMask(self,
                                        FixedImagePath: str,
                                        WarpedImagePath: str,
                                        FixedImageMaskPath: str,
                                        WarpedImageMaskPath: str,
+                                       AngleSearchRange: list[float] | None = None,
+                                       WarpedImageScaleFactors=None,
                                        FlipUD: bool=False,
                                        SingleThread: bool=False,
                                        Cluster: bool=False,
-                                       use_cp: bool=False):
+                                       use_cp: bool=False) -> nornir_imageregistration.AlignmentRecord:
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
-
-        controlMaskName = os.path.basename(FixedImageMaskPath)
-        warpedMaskName = os.path.basename(WarpedImageMaskPath)
 
         timer = TaskTimer()
         timer.Start(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
@@ -211,6 +220,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                                                             WarpedImagePath,
                                                             FixedImageMaskPath,
                                                             WarpedImageMaskPath,
+                                                            AngleSearchRange=AngleSearchRange,
+                                                            WarpedImageScaleFactors=WarpedImageScaleFactors,
                                                             SingleThread=SingleThread,
                                                             TestFlip=FlipUD,
                                                             Cluster=Cluster,
@@ -218,23 +229,34 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         timer.End(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
-        CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22)
 
-        savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
-        self.assertIsNotNone(savedstosObj)
+        return AlignmentRecord
 
-        stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_WithMask.stos')
+    def CheckStosObj(self,
+                     stosObj: nornir_imageregistration.StosFile,
+                     stosfilename: str,
+                     FixedImageMaskPath: str,
+                     WarpedImageMaskPath: str):
+
+        self.assertIsNotNone(stosObj)
+
+        stosfilepath = os.path.join(self.VolumeDir, stosfilename)
         if os.path.isfile(stosfilepath):
             os.remove(stosfilepath)
-        savedstosObj.Save(stosfilepath)
+        stosObj.Save(stosfilepath)
 
         loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
         self.assertIsNotNone(loadedStosObj)
 
         self.assertTrue(loadedStosObj.HasMasks, ".stos file is expected to have masks")
 
-        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
-        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
+        controlMaskName = os.path.basename(FixedImageMaskPath)
+        warpedMaskName = os.path.basename(WarpedImageMaskPath)
+
+        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
+        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName,
+                         "Mask in .stos does not match mask used in alignment\n")
 
     def testStosBruteScaleMismatchWithMask(self):
         ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
@@ -251,45 +273,28 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         #We are registering 502 onto 503, so TEM2 is warped and TEM1 is fixed
 
         WarpedImagePath = os.path.join(ImageRootPath,"502",Filter,"Images",str(Downsample),"0502_TEM_{0}.png".format(Filter))
-        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input: " + WarpedImagePath)
         FixedImagePath = os.path.join(ImageRootPath,"503",Filter,"Images",str(Downsample),"0503_TEM_{0}.png".format(Filter))
-        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input: " + FixedImagePath)
-
-        controlMaskName = "0503_TEM_Mask.png"
-        warpedMaskName = "0502_TEM_Mask.png"
 
         WarpedImageMaskPath = os.path.join(ImageRootPath,"502","Mask","Images",str(Downsample),"0502_TEM_Mask.png")
-        self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input: " + WarpedImageMaskPath)
         FixedImageMaskPath = os.path.join(ImageRootPath,"503","Mask","Images",str(Downsample),"0503_TEM_Mask.png")
-        self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input: " + FixedImageMaskPath)
 
         WarpedImageScalar = TEM2Resolution / TEM1Resolution
         #WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                               WarpedImagePath,
-                               FixedImageMaskPath,
-                               WarpedImageMaskPath,
-                               WarpedImageScaleFactors = WarpedImageScalar,
-                               TestFlip=False,
-                               AngleSearchRange=range(160,200,1))
+        AlignmentRecord = self.RunBasicBruteAlignmentWithMask(FixedImagePath,
+                                                              WarpedImagePath,
+                                                              FixedImageMaskPath,
+                                                              WarpedImageMaskPath,
+                                                              WarpedImageScaleFactors=WarpedImageScalar,
+                                                              FlipUD=False,
+                                                              AngleSearchRange=range(160, 200, 1),
+                                                              use_cp=False)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        #CheckAlignmentRecord(self, AlignmentRecord, angle=-132.0, X=-4, Y=22)
 
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath, PixelSpacing=1)
-        self.assertIsNotNone(savedstosObj)
-
-        stosfilepath = os.path.join(self.VolumeDir, '502-503_brute_WithMask_scalemismatch.stos')
-        savedstosObj.Save(stosfilepath)
-
-        loadedStosObj = nornir_imageregistration.files.stosfile.StosFile.Load(stosfilepath)
-        self.assertIsNotNone(loadedStosObj)
-
-        self.assertTrue(loadedStosObj.HasMasks, ".stos file is expected to have masks")
-
-        self.assertEqual(loadedStosObj.ControlMaskName, controlMaskName, "Mask in .stos does not match mask used in alignment\n")
-        self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName, "Mask in .stos does not match mask used in alignment\n")
+        self.CheckStosObj(savedstosObj, '502-503_brute_WithMask_scalemismatch.stos', FixedImageMaskPath,
+                          WarpedImageMaskPath)
 
     def testStosBruteExecuteWithMask(self):
         self.assertTrue(os.path.exists(self.WarpedImagePath), "Missing test input")
