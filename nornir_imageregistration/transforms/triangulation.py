@@ -15,7 +15,6 @@ from scipy.interpolate import LinearNDInterpolator
 import nornir_imageregistration
 import nornir_pools
 from . import TransformType
-from .addition import AddTransforms
 from .base import ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
     IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
     ITriangulatedSourceSpace, IControlPointAddRemove
@@ -95,7 +94,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
-        return AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
+        return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
 
     def Transform(self, points, **kwargs):
         '''Map points from the warped space to fixed space'''

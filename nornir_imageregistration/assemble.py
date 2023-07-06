@@ -13,10 +13,10 @@ import numpy as np
 from numpy.typing import NDArray
 import scipy
 
+import nornir_pools
 import nornir_imageregistration
 from nornir_imageregistration.transforms import ITransform, factory, triangulation
 from nornir_imageregistration.transforms.utils import InvalidIndicies
-import nornir_pools
 
 
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[float]:
@@ -321,31 +321,9 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     order = 1 if xp.any(xp.isnan(
         subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
-    # Update Clement - manual spline filter for CuPy
-    # subroi_warpedImage_filtered = xp_scipy.ndimage.spline_filter(subroi_warpedImage,
-    #                                                              order=3,
-    #                                                              output=np.float32,
-    #                                                              mode='reflect')
-    # outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage_filtered,
-    #                                                 filtered_source_coords.transpose(),
-    #                                                 mode='constant',
-    #                                                 order=order,
-    #                                                 cval=cval,
-    #                                                 prefilter=False).astype(original_dtype, copy=False)
-    # Warning Clement - spline filter in CuPy generates nan values
-    if use_cp:
-        outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
-                                                        filtered_source_coords.transpose(),
-                                                        mode='constant',
-                                                        order=order,
-                                                        cval=cval,
-                                                        prefilter=False).astype(original_dtype, copy=False)
-    else:
-        outputValues = xp_scipy.ndimage.map_coordinates(subroi_warpedImage,
-                                                        filtered_source_coords.transpose(),
-                                                        mode='constant',
-                                                        order=order,
-                                                        cval=cval).astype(original_dtype, copy=False)
+    outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
+                                                 mode='constant', order=order, cval=cval, prefilter=True).astype(original_dtype,
+                                                                                                 copy=False)
 
     del filtered_source_coords
     # outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
@@ -353,7 +331,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # outputImage = np.full(output_area, cval, dtype=original_dtype) #Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
     output_shared_mem_meta = None
     if return_shared_memory:
-        output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area,
+        output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area if not use_cp else output_area.get(),
                                                                                                   dtype=original_dtype)
         outputImage.fill(cval)
     else:
@@ -658,8 +636,7 @@ def TransformImage(transform: ITransform,
                                         output_area=fixedImageShape, extrapolate=not CropUndefined, use_cp=use_cp)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
-        sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(
-            warpedImage)
+        sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
         
         try:

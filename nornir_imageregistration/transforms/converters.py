@@ -119,7 +119,7 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
 
         # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then
         # performs the final translation into target space.
-        adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
+        adjusted_translation = np.mean(target_points - source_points, axis=0)
         rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
         if rotate_angle <= -tau:
             rotate_angle += tau
@@ -127,13 +127,13 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
             rotate_angle -= tau
 
         return RigidComponents(source_rotation_center=source_rotation_center, angle=rotate_angle,
-                               translation=adjusted_translation, scale=scale, reflected=reflected)
+                               translation=translation, scale=scale, reflected=reflected)
 
     else:
-        adjusted_translation = np.mean(target_points, axis=0) - np.mean(source_points, axis=0)
+        adjusted_translation = np.mean(target_points - source_points, axis=0)
         scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points)
         return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=0,
-                               translation=adjusted_translation, scale=scale, reflected=False)
+                               translation=translation, scale=scale, reflected=False)
 
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,

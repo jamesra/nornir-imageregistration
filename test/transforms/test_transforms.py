@@ -268,8 +268,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
-
-        global MirrorTransformPoints
+ 
         T = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(MirrorTransformPoints[:, 2:4],
                                                                               MirrorTransformPoints[:, 0:2])
         self.assertEqual(len(T.FixedTriangles), 2)
@@ -477,7 +476,7 @@ class TestTransforms(unittest.TestCase):
 
     def test_bounds(self):
         global IdentityTransformPoints
-        IdentityTransform = triangulation.Triangulation(IdentityTransformPoints)
+        IdentityTransform = Triangulation(IdentityTransformPoints)
 
 
 #        print "Fixed Verts"

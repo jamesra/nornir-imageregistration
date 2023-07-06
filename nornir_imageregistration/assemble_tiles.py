@@ -562,8 +562,7 @@ def __AddTransformedTileTaskToComposite(task,
             prettyoutput.LogErr(transformedImageData.errormsg)
             return fullImage, fullImageZBuffer
 
-    CompositeOffset = (
-                              transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
+    CompositeOffset = (transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
     CompositeOffset = CompositeOffset.astype(np.int32)
 
     try:
@@ -727,6 +726,9 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
                                                                           cval=[0,
+                                                                          		# I initially used max float value, but map_coordinates calls spline_filter, which 
+                                                                                # somehow interacts with the max value to produce an invalid result for pixels 
+                                                                                # outside the image boundary.
                                                                                 np.sum(distanceImage.shape) * 32.0],
                                                                           return_shared_memory=False,
                                                                           use_cp=use_cp)  # not SingleThreadedInvoke)

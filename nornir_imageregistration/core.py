@@ -665,7 +665,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
         use_cp = height * width > 4092
 
     xp = cp if use_cp else np
-    image = (xp.random.standard_normal((int(height), int(width))).astype(dtype, copy=False) * standardDev) + mean
+    image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
     xp.clip(image, a_min=min_val, a_max=max_val, out=image)
 
     if use_cp and return_numpy:
@@ -681,7 +681,7 @@ def CPGenRandomData(height: int, width: int, mean: float, standardDev: float, mi
     use_cp = height * width > 4092
     xp = cp if use_cp else np
 
-    image = (xp.random.standard_normal((int(height), int(width))).astype(np.float32, copy=False) * standardDev) + mean
+    image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
     xp.clip(image, a_min=min_val, a_max=max_val, out=image)
 
     return image
@@ -1584,22 +1584,30 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     scaled_offset, Weight = FindPeak(image, OverlapMask, Cutoff=new_cutoff)
         #     return scaled_offset, Weight
 
-        if use_cupy:
-            OtherPeaks = LabelSums[LabelSums != PeakStrength]
-        else:
-            OtherPeaks = np.delete(LabelSums, PeakValueIndex)
+        mean_pixel = xp.mean(image)
+        peak_pixel = sp.ndimage.maximum(ThresholdImage, LabelImage, int(PeakValueIndex+1))
+        signal_to_noise = peak_pixel / mean_pixel
 
-        FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
+        ########################################################################
+        # This was my original implementation to understand signal strength. 
+        # Art Wetzel convinced me to use signal to noise by dividing the
+        # peak pixel intensity by the median pixel intensity
+         
+        # if use_cupy:
+        #    OtherPeaks = LabelSums[LabelSums != PeakStrength]
+        # else:
+        #     OtherPeaks = np.delete(LabelSums, PeakValueIndex)
+
+        # FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         # FalsePeakStrength = OtherPeaks.max()
 
-        if FalsePeakStrength == 0:
-            Weight = PeakStrength
-        else:
-            Weight = PeakStrength / FalsePeakStrength
+        # if FalsePeakStrength == 0:
+        #     Weight = PeakStrength
+        # else:
+        #     Weight = PeakStrength / FalsePeakStrength
 
-        # if PeakArea > 0:
-        #    Weight /= PeakArea
-
+        ########################################################################
+        
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
 
         # center_of_mass returns results as (y,x)
@@ -1616,7 +1624,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         del ThresholdImage
         del LabelSums
 
-        return scaled_offset, Weight
+        return scaled_offset, signal_to_noise
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):

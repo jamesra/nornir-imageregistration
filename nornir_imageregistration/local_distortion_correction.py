@@ -469,7 +469,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
                                                                transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
                                                                finalize_cutoff=finalize_percentile_this_pass / 100.0,
-                                                               line_pos_list=[finalize_cutoff_this_pass])
+                                                               line_pos_list=[finalize_cutoff_this_pass],
+                                                                       title=f"Histogram of Weights, pass #{i}")
 
             vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.png')
             nornir_imageregistration.views.PlotPeakList(non_final_alignment_points, list(finalized_points.values()),

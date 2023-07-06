@@ -16,13 +16,14 @@ import nornir_shared.plot
 
 def PlotWeightHistogram(alignment_records: list[nornir_imageregistration.EnhancedAlignmentRecord],
                         filename: str, transform_cutoff: float, finalize_cutoff: float,
-                        line_pos_list: list[float] | None):
+                        line_pos_list: list[float] | None, title:str | None = None):
     '''
     Plots the weights on the alignment records as a histogram
     :param list alignment_records: A list of EnhancedAlignmentRecords to render, uses a square to represent alignments in progress
     :param str filename: Filename to save plot as
     :param float cutoff: Cutoff value, a vertical line is drawn on the plot at this value
     '''
+    title = "Histogram of Weights" if title is None else title
 
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
     h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights),
