@@ -8,7 +8,7 @@ import typing
 import numpy as np
 
 import nornir_imageregistration
-
+import nornir_shared.tasktimer
 
 def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
                      image_to_source_space_scale: float) -> MosaicTileset:
@@ -331,6 +331,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         working_image_origin = mosaic_fixed_bounding_box.BottomLeft
         if working_image_origin[0] != 0 or working_image_origin[1] != 0:
             raise ValueError(f"Expected working_image_origin of (0,0) for assemble {working_image_origin}")
+        
+        task_timer = nornir_shared.tasktimer.TaskTimer()
 
         iColumn = 0
         while iColumn < grid_dims[1]:
@@ -356,11 +358,12 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
             del _mask
 
+            task_timer.Start(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1}')
             (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
                                                                        tile_size=tile_dims,
                                                                        grid_shape=working_image_grid_dims,
                                                                        coord_offset=(0, iColumn)))
-
+            task_timer.End(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1}')                                                                       
             del working_image
 
             iColumn += working_image_grid_dims[1]

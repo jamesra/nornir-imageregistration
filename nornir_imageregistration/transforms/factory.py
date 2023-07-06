@@ -372,9 +372,9 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
                                                          angle=angle)
     else:
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
-                                                                                 source_center=source_center,
+                                                                                 source_rotation_center=source_center,
                                                                                  angle=angle,
-                                                                                 scale=scale)
+                                                                                 scalar=scale)
 
 
 def __CorrectOffsetForMismatchedImageSizes(

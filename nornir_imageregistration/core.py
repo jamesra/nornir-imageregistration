@@ -786,15 +786,15 @@ def uint16_img_from_float_array(image):
     return image.astype(np.uint16)
 
 
-def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
+
+def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwargs):
     """Saves the image as greyscale with no contrast-stretching
     :param str ImageFullPath: The filename to save
     :param ndarray image: The image data to save
     :param int bpp: The bit depth to save, if the image data bpp is higher than this value it will be reduced.  Otherwise only the bpp required to preserve the image data will be used. (8-bit data will not be upsampled to 16-bit)
     """
     dirname = os.path.dirname(ImageFullPath)
-    if dirname is not None and len(dirname) > 0:
-        os.makedirs(dirname, exist_ok=True)
+    may_need_to_create_dir = dirname is not None and len(dirname) > 0
 
     if bpp is None:
         bpp = nornir_imageregistration.ImageBpp(image)
@@ -811,9 +811,24 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
 
     (root, ext) = os.path.splitext(ImageFullPath)
     if ext == '.jp2':
-        SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
+        try:
+            SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
+        except FileNotFoundError as e:
+            if may_need_to_create_dir:
+                os.makedirs(dirname, exist_ok=True)
+                SaveImage_JPeg2000(ImageFullPath, image, **kwargs)
+            else:
+                raise e
+
     elif ext == '.npy':
-        np.save(ImageFullPath, image)
+        try:
+            np.save(ImageFullPath, image)
+        except FileNotFoundError as e:
+            if may_need_to_create_dir:
+                os.makedirs(dirname, exist_ok=True)
+                np.save(ImageFullPath, image)
+            else:
+                raise e
     else:
         if np.issubdtype(image.dtype, bool) or bpp == 1:
             # Covers for pillow bug with bit images
@@ -840,7 +855,14 @@ def SaveImage(ImageFullPath, image, bpp=None, **kwargs):
             else:
                 im = Image.fromarray(image, mode=f"I;{bpp}")
 
-        im.save(ImageFullPath, **kwargs)
+        try:
+            im.save(ImageFullPath, **kwargs)
+        except FileNotFoundError as e:
+            if may_need_to_create_dir:
+                os.makedirs(dirname, exist_ok=True)
+                im.save(ImageFullPath, **kwargs)
+            else:
+                raise e
 
     return
 
