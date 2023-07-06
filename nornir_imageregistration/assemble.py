@@ -661,6 +661,8 @@ def TransformImage(transform: ITransform,
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(
             warpedImage)
         mpool = nornir_pools.GetGlobalMultithreadingPool()
+        
+        try:
 
             for iY in range(0, height, int(tilesize[0])):
 

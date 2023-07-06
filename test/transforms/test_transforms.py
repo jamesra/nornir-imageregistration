@@ -11,8 +11,10 @@ import numpy as np
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import *
 from nornir_imageregistration.transforms import MeshWithRBFFallback, OneWayRBFWithLinearCorrection, Triangulation
-from test.transforms import CompressedTransformPoints, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
-    TransformCheck, TranslateRotateScaleTransformPoints, TranslateRotateTransformPoints, TranslateTransformPoints
+from test.transforms import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+    IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
+    __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
+    CompressedTransformPoints
 
 
 class TestTransforms(unittest.TestCase):

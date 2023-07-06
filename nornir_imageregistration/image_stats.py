@@ -11,15 +11,16 @@ from typing import Sequence
 
 import numpy
 import numpy as np
+import cupy as cp
 from PIL import Image
 from numpy.typing import NDArray, DTypeLike
 from pylab import ceil, mod
 
-import nornir_imageregistration
-import nornir_pools
 import nornir_shared.histogram
 import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
+import nornir_pools
+import nornir_imageregistration
 
 
 class ImageStats:
