@@ -149,9 +149,9 @@ class ImageStats:
         elif isinstance(shape, np.ndarray) or isinstance(shape, cp.ndarray):
             shape_shape = shape.shape
             one_d_result = len(shape_shape) == 0
-            height = int(shape) if one_d_result else shape_shape[0]
+            height = int(shape) if one_d_result else shape[0]
             width = shape[1] if not one_d_result else 1
-            size = int(shape) if one_d_result else shape_shape
+            size = int(shape) if one_d_result else shape
         else:
             one_d_result = len(shape) == 1
             height = shape[0] if not one_d_result else int(shape)
