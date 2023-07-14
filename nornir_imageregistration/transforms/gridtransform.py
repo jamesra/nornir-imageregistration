@@ -56,7 +56,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         try:
             control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
         except:
-            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
 
         super(GridTransform, self).__init__(control_points)

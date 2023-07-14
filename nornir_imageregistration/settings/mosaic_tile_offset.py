@@ -108,7 +108,7 @@ def LoadMosaicOffsets(path: str):
     return offsets
 
 
-def SaveMosaicOffsets(offsets: list[TileOffset], path: str):
+def SaveMosaicOffsets(offsets: list[TileOffset] | None, path: str):
     if offsets is None:
         offsets = []
 
