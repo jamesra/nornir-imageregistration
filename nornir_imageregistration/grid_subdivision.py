@@ -69,6 +69,8 @@ class GridDivisionBase(IGrid):
 
     @TargetPoints.setter
     def TargetPoints(self, value: NDArray[float]):
+        if value.shape[0] != self.grid_dims.prod():
+            raise ValueError(f"Number of points must match grid dimensions, got {value.shape[0]} expected {self.grid_dims.prod()}")
         self._TargetPoints = value
 
     @property
