@@ -897,10 +897,13 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                             # Converting to float with the same number of bytes as the integer type can produce infinite output.
                             # To handle this, increase precision of image during conversion. 
                             temp_dtype = np.dtype(f'f{image.dtype.itemsize * 2}')
-                            image = image.astype(temp_dtype)
-                            image /= image.max()
+                            image = image.astype(temp_dtype) 
                         else:
-                            image = image.astype(dtype) / image.max()
+                            image = image.astype(dtype)
+                            
+                        max_val = image.max()
+                        if max_val != 0:
+                            image /= max_val
 
                     image = image.astype(dtype, copy=False)
                 #                 else:
