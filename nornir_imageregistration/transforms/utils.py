@@ -7,6 +7,7 @@ Created on Apr 4, 2013
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints
 import numpy as np
+import cupy as cp
 from numpy.typing import NDArray
 from nornir_shared import prettyoutput
 from collections.abc import Iterable
@@ -32,6 +33,27 @@ def InvalidIndicies(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int
     return points, invalidIndicies
 
 
+def InvalidIndicies_GPU(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int]]:
+    '''Removes rows with a NAN value.
+     :return: A flat array with NaN containing rows removed and set of row indicies that were removed
+    '''
+
+    if points is None:
+        raise ValueError("points must not be None")
+
+    points = cp.asarray(points) if not isinstance(points,cp.ndarray) else points
+
+    numPoints = points.shape[0]
+    nan1D = cp.isnan(points).any(axis=1)
+    invalidIndicies = cp.flatnonzero(nan1D)
+    validIndicies = cp.flatnonzero(~nan1D)
+    points = points[validIndicies, :]
+
+    assert (points.shape[0] + invalidIndicies.shape[0] == numPoints)
+
+    return points, invalidIndicies, validIndicies
+
+
 def RotationMatrix(rangle: float) -> NDArray[float]:
     '''
     :param float rangle: Angle in radians
@@ -52,7 +74,20 @@ def RotationMatrix(rangle: float) -> NDArray[float]:
     #result = interchange @ rot_mat
     #
     #return result
-    
+
+
+def RotationMatrix_GPU(rangle: float) -> NDArray[float]:
+    '''
+    :param float rangle: Angle in radians
+    '''
+    if rangle is None:
+        raise ValueError("Angle must not be none")
+
+    rot_mat = cp.array([[np.cos(rangle), np.sin(rangle), 0],
+                        [-np.sin(rangle), np.cos(rangle), 0],
+                        [0, 0, 1]])
+
+    return rot_mat
 
 
 def IdentityMatrix() -> NDArray[float]:
@@ -93,6 +128,13 @@ def FlipMatrixY() -> NDArray[float]:
     Flip the Y axis
     '''
     return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+def FlipMatrixY_GPU() -> NDArray[float]:
+    '''
+    Flip the Y axis
+    '''
+    return cp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
 
 def FlipMatrixX() -> NDArray[float]:
     '''
