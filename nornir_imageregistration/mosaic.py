@@ -26,7 +26,7 @@ class Mosaic(object):
     '''
 
     @classmethod
-    def LoadFromMosaicFile(cls, mosaicfile):
+    def LoadFromMosaicFile(cls, mosaicfile, use_cp: bool=False):
         '''Return a dictionary mapping tiles to transform objects'''
         
         ImageToTransform = {}
@@ -44,7 +44,7 @@ class Mosaic(object):
         else:
             raise ValueError("Expected valid mosaic file path or object")
 
-        Mosaic._ConvertTransformStringsToTransforms(ImageToTransform)
+        Mosaic._ConvertTransformStringsToTransforms(ImageToTransform, use_cp=use_cp)
 
         # keys = list(mosaicfile.ImageToTransformString.keys())
         # keys.sort()
@@ -101,12 +101,12 @@ class Mosaic(object):
         self.ImageScale = 1 #All .mosaic file transforms are stored on disk at full resolution
 
     @classmethod
-    def _ConvertTransformStringsToTransforms(cls, image_to_transform):
+    def _ConvertTransformStringsToTransforms(cls, image_to_transform, use_cp: bool=False):
         '''If the dictionary contains transforms in string format convert them to transform objects in place'''
 
         for (image, transform) in image_to_transform.items():
             if isinstance(transform, str):
-                transform_object = tfactory.LoadTransform(transform)
+                transform_object = tfactory.LoadTransform(transform, use_cp=use_cp)
                 image_to_transform[image] = transform_object
 
         return
