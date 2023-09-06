@@ -107,7 +107,7 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath) 
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath, use_cp=Args.use_cp)
     mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic=mosaic,
                                                                              image_folder=Args.tilepath,
                                                                              image_to_source_space_scale=1.0 / Args.scalar)
