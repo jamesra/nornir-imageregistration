@@ -534,7 +534,7 @@ def SourceImageToTargetSpace(transform: ITransform,
         return result
 
 
-def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform):
+def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform, use_cp: bool=False):
     """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
     :return: A transform
@@ -545,10 +545,10 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
         if not os.path.exists(transformData):
             raise ValueError("transformData is not a valid path to a .stos file %s" % transformData)
         stos = nornir_imageregistration.StosFile.Load(transformData)
-        stostransform = factory.LoadTransform(stos.Transform)
+        stostransform = factory.LoadTransform(stos.Transform, use_cp=use_cp)
     elif isinstance(transformData, nornir_imageregistration.StosFile):
         stos = transformData.Transform
-        stostransform = factory.LoadTransform(stos.Transform)
+        stostransform = factory.LoadTransform(stos.Transform, use_cp=use_cp)
     elif isinstance(transformData, ITransform):
         stostransform = transformData
 
@@ -568,7 +568,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     """
 
     stos = None
-    stostransform = ParameterToStosTransform(transformData)
+    stostransform = ParameterToStosTransform(transformData, use_cp=use_cp)
 
     if fixedImage is None:
         if stos is None:
@@ -591,7 +591,7 @@ def TransformStos(transformData, OutputFilename: str | None=None, fixedImage=Non
     
     stostransform.Scale(scalar)
 
-    warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined, use_cp=use_cp)
+    # warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined, use_cp=use_cp)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
