@@ -46,7 +46,8 @@ import nornir_imageregistration.transforms.triangulation as triangulation
 from nornir_imageregistration.transforms.triangulation import Triangulation
 
 import nornir_imageregistration.transforms.rigid as rigid
-from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
+from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform, \
+    Rigid_GPU, RigidNoRotation_GPU, CenteredSimilarity2DTransform_GPU
 
 import nornir_imageregistration.transforms.metrics as metrics
 
@@ -72,7 +73,7 @@ import nornir_imageregistration.transforms.discretewithcontinuousfallback as dis
 from nornir_imageregistration.transforms.discretewithcontinuousfallback import DiscreteWithContinuousFallback
 
 import nornir_imageregistration.transforms.matrixtransform as matrixtransform
-from nornir_imageregistration.transforms.matrixtransform import AffineMatrixTransform
+from nornir_imageregistration.transforms.matrixtransform import AffineMatrixTransform, AffineMatrixTransform_GPU
 
 import nornir_imageregistration.transforms.converters as converters
 from nornir_imageregistration.transforms.converters import ConvertTransform, ConvertTransformToGridTransform, \
