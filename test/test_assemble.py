@@ -6,6 +6,7 @@ Created on Apr 3, 2013
 import os
 import unittest
 import numpy as np
+import cupy as cp
 import scipy
 
 import nornir_imageregistration
@@ -15,6 +16,7 @@ import nornir_imageregistration.assemble as assemble
 
 import setup_imagetest
 
+init_context = cp.zeros((64,64))
 
 def ShowComparison(*args, **kwargs):
     return nornir_imageregistration.ShowGrayscale(*args, **kwargs)
