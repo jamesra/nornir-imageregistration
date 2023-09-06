@@ -186,7 +186,7 @@ def LoadTransform(Transform, pixelSpacing=None, use_cp: bool=False):
     elif transformType == "CenteredSimilarity2DTransform_double_2_2":
         return ParseCenteredSimilarity2DTransform(parts, pixelSpacing, use_cp=use_cp)
     elif transformType == "FixedCenterOfRotationAffineTransform_double_2_2":
-        return ParseFixedCenterOfRotationAffineTransform(parts, pixelSpacing)
+        return ParseFixedCenterOfRotationAffineTransform(parts, pixelSpacing, use_cp=use_cp)
 
     raise ValueError(f"LoadTransform was passed an unknown transform type: {transformType}")
 
@@ -302,7 +302,7 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None, use_cp: bool=Fals
     return T
 
 
-def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float = None):
+def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float = None, use_cp: bool=False):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
@@ -318,11 +318,18 @@ def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: fl
     post_transform_translation_x = vp[4]
     post_transform_translation_y = vp[5]
 
-    matrix = np.array(((vp[1], vp[0]), (vp[3], vp[2])))
-    post_transform_translation = np.array((post_transform_translation_y, post_transform_translation_x))
+    xp = cp if use_cp else np
+    matrix = xp.array(((vp[1], vp[0]), (vp[3], vp[2])))
+    post_transform_translation = xp.array((post_transform_translation_y, post_transform_translation_x))
 
-    return nornir_imageregistration.transforms.AffineMatrixTransform(matrix=matrix,
-                                                                     pre_transform_translation=np.array(
+    if use_cp:
+        return nornir_imageregistration.transforms.AffineMatrixTransform_GPU(matrix=matrix,
+                                                                         pre_transform_translation=xp.array(
+                                                                             (-src_image_center_y, -src_image_center_x)),
+                                                                         post_transform_translation=post_transform_translation)
+    else:
+        return nornir_imageregistration.transforms.AffineMatrixTransform(matrix=matrix,
+                                                                     pre_transform_translation=xp.array(
                                                                          (-src_image_center_y, -src_image_center_x)),
                                                                      post_transform_translation=post_transform_translation)
 
