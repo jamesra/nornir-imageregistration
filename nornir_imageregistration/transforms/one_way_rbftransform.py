@@ -230,28 +230,29 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         for iRow in range(3, NumPts + 3):
             iPointA = iRow - 3
 
-            p = points[list(range((iPointA + 1), NumPts))]
-            dList = scipy.spatial.distance.cdist([points[iPointA]], p)
+            if (iPointA + 1) < NumPts:
+                p = points[list(range((iPointA + 1), NumPts))]
+                dList = scipy.spatial.distance.cdist([points[iPointA]], p)
 
-            dList = dList.ravel()
-            if dList.shape[0] >= 1:
-                if np.min(dList) <= 0:
-                    raise ValueError("Cannot have duplicate points in transform")
+                dList = dList.ravel()
+                if dList.shape[0] >= 1:
+                    if np.min(dList) <= 0:
+                        raise ValueError("Cannot have duplicate points in transform")
 
-            valueList = BasisFunction(dList)
-            # valueList = np.power(dList, 2)
-            # valueList = np.multiply(valueList, np.log(dList))
-            # valueList = valueList.ravel()
+                valueList = BasisFunction(dList)
+                # valueList = np.power(dList, 2)
+                # valueList = np.multiply(valueList, np.log(dList))
+                # valueList = valueList.ravel()
 
-            BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
-            BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
+                BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
+                BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
 
-            #            for iCol in range(iPointA+1, NumPts):
-            #                iPointB = iCol
-            #                dist = scipy.spatial.distance.euclidean(points[iPointA], points[iPointB])
-            #                value = BasisFunction(dist)
-            #                BetaMatrix[iRow, iCol] = value
-            #                BetaMatrix[iCol + 3, iRow - 3] = value
+                #            for iCol in range(iPointA+1, NumPts):
+                #                iPointB = iCol
+                #                dist = scipy.spatial.distance.euclidean(points[iPointA], points[iPointB])
+                #                value = BasisFunction(dist)
+                #                BetaMatrix[iRow, iCol] = value
+                #                BetaMatrix[iCol + 3, iRow - 3] = value
 
             BetaMatrix[iRow, NumPts] = points[iPointA][1]
             BetaMatrix[iRow, NumPts + 1] = points[iPointA][0]
