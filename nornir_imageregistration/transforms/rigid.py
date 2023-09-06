@@ -464,9 +464,9 @@ class RigidNoRotation_GPU(base.ITransform, base.ITransformScaling, base.ITransfo
         return f"Offset: {self.target_offset[0]:03g}y,{self.target_offset[1]:03g}x"
 
     @staticmethod
-    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | int | None = None, use_cp: bool = False):
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | int | None = None):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing,
-                                                                                 use_cp=use_cp)
+                                                                                 use_cp=True)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -546,8 +546,8 @@ class Rigid_GPU(base.ITransformSourceRotation, RigidNoRotation_GPU):
         return self._angle
 
     @staticmethod
-    def Load(TransformString, use_cp: bool = False):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=use_cp)
+    def Load(TransformString):
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=True)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -678,8 +678,8 @@ class CenteredSimilarity2DTransform_GPU(Rigid_GPU, base.ITransformRelativeScalin
         self._scalar = 1.0 if scalar is None else scalar
 
     @staticmethod
-    def Load(TransformString, use_cp: bool = False):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=use_cp)
+    def Load(TransformString):
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=True)
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
