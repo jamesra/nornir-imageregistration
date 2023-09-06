@@ -101,8 +101,7 @@ def write_to_source_roi_coords(transform: ITransform,
 def write_to_target_roi_coords(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
                                area: tuple[float, float] | NDArray,
-                               extrapolate: bool=False,
-                               use_cp: bool=False) -> tuple[NDArray, NDArray]:
+                               extrapolate: bool=False) -> tuple[NDArray, NDArray]:
     """
     This function is used to generate coordinates to transform image data in source space forward into target space.
 
@@ -134,8 +133,7 @@ e coordinates.
 def write_to_target_roi_coords_GPU(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
                                area: tuple[float, float] | NDArray,
-                               extrapolate: bool=False,
-                               use_cp: bool=False):
+                               extrapolate: bool=False):
     """
     This function is used to generate coordinates to transform image data in source space forward into target space.
 
@@ -149,7 +147,6 @@ def write_to_target_roi_coords_GPU(transform: ITransform,
     :param botleft: The (Y,X) coordinates of the bottom left corner in target space
     :param area: The (Height, Width) of the region of interest
 e coordinates.
-    :param use_cp: Use CuPy library for GPU processing
     :return: (read_space_coords, write_space_coords)
     """
 
@@ -577,9 +574,9 @@ def SourceImageToTargetSpace(transform: ITransform,
 
     if use_cp:
         (roi_read_coords, roi_write_coords) = write_to_target_roi_coords_GPU(transform, output_botleft, output_area,
-                                                                         extrapolate=extrapolate, use_cp=use_cp)
+                                                                         extrapolate=extrapolate)
     else:
-        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate, use_cp=use_cp)
+        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate)
     # (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
     #                                                                  extrapolate=extrapolate, use_cp=use_cp)
 
