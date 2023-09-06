@@ -193,7 +193,7 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         fixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
         warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
-        transform = alignment_record.ToTransform(fixedImage.shape, warpedImage.shape)
+        transform = alignment_record.ToTransform(fixedImage.shape, warpedImage.shape, use_cp=use_cp)
         transformedImage = assemble.SourceImageToTargetSpace(transform,
                                                              warpedImage,
                                                              output_botleft = output_botleft,
