@@ -149,6 +149,7 @@ def write_to_target_roi_coords_GPU(transform: ITransform,
     :param botleft: The (Y,X) coordinates of the bottom left corner in target space
     :param area: The (Height, Width) of the region of interest
 e coordinates.
+    :param use_cp: Use CuPy library for GPU processing
     :return: (read_space_coords, write_space_coords)
     """
 
@@ -287,6 +288,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :Param output_area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
     :param use_shared_memory: If true, create and write output to a shared memory array
+    :param use_cp: Use CuPy library for GPU processing
     """
 
     xp = cp if use_cp else np
@@ -530,6 +532,7 @@ def SourceImageToTargetSpace(transform: ITransform,
     :param output_botleft: Origin of region to map data into, in target space coordinates
     :param output_area: Area of region to map data into, in target space coordinates
     :param cval: Value to place in unmappable regions, defaults to zero.
+    :param bool use_cp: Use CuPy library for GPU processing
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :Param FixedImageArea: Size of fixed space region to map pixels into
     :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
@@ -605,6 +608,7 @@ def SourceImageToTargetSpace(transform: ITransform,
 def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform, use_cp: bool=False):
     """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
+    :param use_cp: Use CuPy library for GPU processing
     :return: A transform
     """
     stostransform = None
