@@ -19,7 +19,7 @@ import nornir_pools
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import factory, triangulation, ITransform
-from nornir_imageregistration.transforms.utils import InvalidIndicies
+from nornir_imageregistration.transforms.utils import InvalidIndicies, InvalidIndicies_GPU
 
 
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[float]:
@@ -44,6 +44,27 @@ def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, floa
 
     return coordArray
 
+def GetROICoords_GPU(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray):
+    x_range = cp.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
+    y_range = cp.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
+
+    # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
+    if len(x_range) > area[1]:
+        x_range = x_range[:int(area[1])]
+
+    if len(y_range) > area[0]:
+        y_range = y_range[:int(area[0])]
+
+    i_y, i_x = cp.meshgrid(y_range, x_range, sparse=False, indexing='ij')
+
+    coordArray = cp.vstack((i_y.ravel(), i_x.ravel())).transpose()
+
+    del i_y
+    del i_x
+    del x_range
+    del y_range
+
+    return coordArray
 
 def write_to_source_roi_coords(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
@@ -107,6 +128,39 @@ e coordinates.
 
     valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
     # valid_write_space_coords = valid_write_space_coords  # - botleft
+
+    return valid_read_space_coords, valid_write_space_coords
+
+def write_to_target_roi_coords_GPU(transform: ITransform,
+                               botleft: tuple[float, float] | NDArray,
+                               area: tuple[float, float] | NDArray,
+                               extrapolate: bool=False,
+                               use_cp: bool=False):
+    """
+    This function is used to generate coordinates to transform image data in source space forward into target space.
+
+    Given a transform and a region in target space, create uniform integer coordinates over the region of interest in source
+    space for each pixel.  Then run a inverse transform to map target coordinates back in source space.  The source
+    space coordinates will be used later to interpolate pixel values for each integer pixel valued destination target
+    coordinates.
+
+    :param extrapolate:
+    :param transform transform: The transform used to map points between fixed and mapped space
+    :param botleft: The (Y,X) coordinates of the bottom left corner in target space
+    :param area: The (Height, Width) of the region of interest
+e coordinates.
+    :return: (read_space_coords, write_space_coords)
+    """
+
+    write_space_coords = GetROICoords_GPU(botleft, area)
+
+    read_space_coords = transform.InverseTransform(write_space_coords, return_cp = True, extrapolate=extrapolate).astype(np.float32, copy=False)
+    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndicies_GPU(read_space_coords)
+
+    del read_space_coords
+
+    # write_space_coords = cp.asarray(write_space_coords) if not isinstance(write_space_coords, cp.ndarray) else write_space_coords
+    valid_write_space_coords = write_space_coords[valid_coords_mask,:]
 
     return valid_read_space_coords, valid_write_space_coords
 
@@ -515,7 +569,21 @@ def SourceImageToTargetSpace(transform: ITransform,
     # This sometimes appears backwards, but what we are doing is defining the region in target space we want to obtain
     # values for, then determining the Source space coordinates for each pixel in the target image.  Then we map values
     # to each pixel using the source space coordinates
-    (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate, use_cp=use_cp)
+
+    # timer.Start('write_to_target_roi_coords')
+
+    if use_cp:
+        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords_GPU(transform, output_botleft, output_area,
+                                                                         extrapolate=extrapolate, use_cp=use_cp)
+    else:
+        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area, extrapolate=extrapolate, use_cp=use_cp)
+    # (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
+    #                                                                  extrapolate=extrapolate, use_cp=use_cp)
+
+    # timer.End('write_to_target_roi_coords', True)
+
+    # roi_read_coords = cp.asarray(roi_read_coords) if use_cp and not isinstance(roi_read_coords, cp.ndarray) else roi_read_coords
+    # roi_write_coords = cp.asarray(roi_write_coords) if use_cp and not isinstance(roi_write_coords, cp.ndarray) else roi_write_coords
 
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
