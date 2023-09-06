@@ -268,7 +268,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
     def CreateAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str, use_cp: bool=False):
 
         for m in mosaicFiles:
-            self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaicTypeDS4', parallel=False, use_cp=use_cp)
+            self.AssembleMosaic(m, tilesDir, 'CreateAssembleEachMosaic', parallel=False, use_cp=use_cp)
             # self. AssembleMosaic(m, 'CreateAssembleEachMosaicType', parallel=False)
 
         print("All done")
@@ -277,7 +277,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
     def ParallelAssembleEachMosaic(self, mosaicFiles: list[AnyStr], tilesDir: str):
 
         for m in mosaicFiles:
-            self.AssembleMosaic(m, tilesDir , 'ParallelAssembleEachMosaicTypeDS4', parallel=True)
+            self.AssembleMosaic(m, tilesDir , 'ParallelAssembleEachMosaic', parallel=True)
             # self. AssembleMosaic(m, 'ParallelAssembleEachMosaicType', parallel=True)
 
         print("All done")
