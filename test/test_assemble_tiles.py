@@ -22,9 +22,11 @@ from nornir_imageregistration.mosaic  import Mosaic
 
 from nornir_shared.tasktimer import TaskTimer
 import numpy as np
+import cupy as cp
 
 import setup_imagetest 
 
+init_context = cp.zeros((64,64))
 
 # from pylab import *
 class TestMosaicAssemble(setup_imagetest.TransformTestBase):
