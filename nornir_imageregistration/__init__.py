@@ -133,6 +133,26 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
 
     return points
 
+def EnsurePointsAre1DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if not isinstance(points, cp.ndarray):
+        if not isinstance(points, collections.abc.Iterable):
+            raise ValueError("points must be Iterable")
+
+        if dtype is None:
+            if isinstance(points[0], int):
+                dtype = np.int32
+            else:
+                dtype = np.float32
+
+        points = cp.asarray(points, dtype=dtype)
+    elif dtype is not None:
+        points = points.astype(dtype, copy=False)
+
+    if points.ndim > 1:
+        points = cp.ravel(points)
+
+    return points
+
 
 def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
@@ -155,6 +175,27 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
     return points
 
 
+def EnsurePointsAre2DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if not isinstance(points, cp.ndarray):
+        if not isinstance(points, collections.abc.Iterable):
+            raise ValueError("points must be Iterable")
+
+        if dtype is None:
+            if isinstance(points[0], int):
+                dtype = np.int32
+            else:
+                dtype = np.float32
+
+        points = cp.asarray(points, dtype=dtype)
+    elif dtype is not None:
+        points = points.astype(dtype, copy=False)
+
+    if points.ndim == 1:
+        points = cp.resize(points, (1, 2))
+
+    return points
+
+
 def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
@@ -172,6 +213,29 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
 
     if points.ndim == 1:
         points = np.resize(points, (1, 4))
+
+    if points.shape[1] != 4:
+        raise ValueError("There are not 4 columns in the corrected array")
+
+    return points
+
+def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if not isinstance(points, cp.ndarray):
+        if not isinstance(points, collections.abc.Iterable):
+            raise ValueError("points must be Iterable")
+
+        if dtype is None:
+            if isinstance(points[0], int):
+                dtype = np.int32
+            else:
+                dtype = np.float32
+
+        points = cp.asarray(points, dtype=dtype)
+    elif dtype is not None:
+        points = points.astype(dtype, copy=False)
+
+    if points.ndim == 1:
+        points = cp.resize(points, (1, 4))
 
     if points.shape[1] != 4:
         raise ValueError("There are not 4 columns in the corrected array")
