@@ -55,7 +55,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
         SaveFiles = not outputMosaicPath is None
 
-        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=use_cp)
         mosaicBaseName = os.path.basename(mosaicFilePath)
         (mosaicBaseName, ext) = os.path.splitext(mosaicBaseName)
  
@@ -170,7 +170,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample, SingleThread: bool=False, use_cp: bool=False):
-        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=use_cp)
         mosaicBaseName = os.path.basename(mosaicFilePath)
 
         mosaicDir = os.path.dirname(mosaicFilePath)
@@ -364,7 +364,7 @@ class IDOCTests(TestMosaicAssemble):
 
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
-         
+
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
@@ -386,7 +386,7 @@ class IDOCTests(TestMosaicAssemble):
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
 
-        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0], use_cp=True)
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
                                                                                  float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
@@ -429,7 +429,7 @@ class IDOCTests(TestMosaicAssemble):
 
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
-         
+
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
@@ -445,7 +445,7 @@ class IDOCTests(TestMosaicAssemble):
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
 
-        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0], use_cp=True)
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
                                                                                  float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
@@ -460,11 +460,11 @@ class IDOCTests(TestMosaicAssemble):
 
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
-         
+
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
-         
+
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleOptimizedTileIDoc_DS1_MultiThread(self):
@@ -505,7 +505,7 @@ class IDOCTests(TestMosaicAssemble):
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath)
 
-        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0], use_cp=True)
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir,
                                                                                  float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
