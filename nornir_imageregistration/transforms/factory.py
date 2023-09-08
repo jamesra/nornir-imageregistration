@@ -176,7 +176,7 @@ def LoadTransform(Transform, pixelSpacing=None, use_cp: bool=False):
     transformType = parts[0]
 
     if transformType == "GridTransform_double_2_2":
-        return ParseGridTransform(parts, pixelSpacing)
+        return ParseGridTransform(parts, pixelSpacing, use_cp=use_cp)
     elif transformType == "MeshTransform_double_2_2":
         return ParseMeshTransform(parts, pixelSpacing)
     elif transformType == "LegendrePolynomialTransform_double_2_2_1":
@@ -191,7 +191,7 @@ def LoadTransform(Transform, pixelSpacing=None, use_cp: bool=False):
     raise ValueError(f"LoadTransform was passed an unknown transform type: {transformType}")
 
 
-def ParseGridTransform(parts, pixelSpacing=None):
+def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool=False):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
@@ -224,7 +224,10 @@ def ParseGridTransform(parts, pixelSpacing=None):
 
     #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
     #continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
-    T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
+    if use_cp:
+        T = nornir_imageregistration.transforms.GridWithRBFFallback_GPUComponent(grid)
+    else:
+        T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
 
     #T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     #T.gridWidth = gridWidth
