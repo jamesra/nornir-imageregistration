@@ -112,7 +112,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         4) Check the output of all match
         """
 
-        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=use_cp)
         self.assertIsNotNone(mosaicObj, "Mosaic not loaded")
         
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, downsample)
