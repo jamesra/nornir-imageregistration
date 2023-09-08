@@ -313,6 +313,34 @@ class PMGTests(TestMosaicAssemble):
 
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
+    def test_AssemblePMG_OneMosaic(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath()
+
+        MosaicFile1 = mosaicFiles[0]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False, use_cp=False)
+
+    def test_AssemblePMG_OneMosaic_GPU(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        print("mosaicFiles",mosaicFiles)
+        tilesDir = self.GetTileFullPath()
+
+        MosaicFile1 = mosaicFiles[0]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False, use_cp=True)
+
+    def test_AssemblePMG_OneMosaic_Parallel(self):
+        testName = "PMG1"
+
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath()
+
+        MosaicFile1 = mosaicFiles[0]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=True, use_cp=False)
+
 
 class IDOCTests(TestMosaicAssemble):
 
@@ -356,6 +384,27 @@ class IDOCTests(TestMosaicAssemble):
         tilesDir = self.GetTileFullPath(downsamplePath='004')
 
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
+
+    def test_AssembleIDOC_OneMosaic_DS1(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='001')
+
+        MosaicFile1 = mosaicFiles[1]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False, use_cp=False)
+
+    def test_AssembleIDOC_OneMosaic_DS1_GPU(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='001')
+
+        MosaicFile1 = mosaicFiles[1]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False, use_cp=True)
+
+    def test_AssembleIDOC_OneMosaic_DS1_Parallel(self):
+        mosaicFiles = self.GetMosaicFiles()
+        tilesDir = self.GetTileFullPath(downsamplePath='001')
+
+        MosaicFile1 = mosaicFiles[1]
+        self.AssembleMosaic(MosaicFile1, tilesDir, 'ParallelAssembleOneMosaicType', parallel=True, use_cp=False)
 
     def test_AssembleOptimizedTilesIDoc(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
