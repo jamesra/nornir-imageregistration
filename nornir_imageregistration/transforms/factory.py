@@ -178,7 +178,7 @@ def LoadTransform(Transform, pixelSpacing=None, use_cp: bool=False):
     if transformType == "GridTransform_double_2_2":
         return ParseGridTransform(parts, pixelSpacing, use_cp=use_cp)
     elif transformType == "MeshTransform_double_2_2":
-        return ParseMeshTransform(parts, pixelSpacing)
+        return ParseMeshTransform(parts, pixelSpacing, use_cp=use_cp)
     elif transformType == "LegendrePolynomialTransform_double_2_2_1":
         return ParseLegendrePolynomialTransform(parts, pixelSpacing, use_cp=use_cp)
     elif transformType == "Rigid2DTransform_double_2_2":
@@ -235,7 +235,7 @@ def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool=False):
     return T
 
 
-def ParseMeshTransform(parts, pixelSpacing=None):
+def ParseMeshTransform(parts, pixelSpacing=None, use_cp: bool=False):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
@@ -256,7 +256,10 @@ def ParseMeshTransform(parts, pixelSpacing=None):
 
         PointPairs.append((ControlY, ControlX, mappedY, mappedX))
 
-    T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
+    if use_cp:
+        T = nornir_imageregistration.transforms.MeshWithRBFFallback_GPUComponent(PointPairs)
+    else:
+        T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     return T
 
 
