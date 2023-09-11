@@ -103,8 +103,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             return (mosaicImage, mask)
 
 
-
-    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath:str, tilesDir:str, downsample:float, use_cp: bool=False):
+    def CompareMosaicAsssembleAndTransformTile(self, mosaicFilePath:str, tilesDir:str, downsample:float):
         """
         1) Assemble the entire mosaic
         2) Assemble subregion of the mosaic
@@ -112,7 +111,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         4) Check the output of all match
         """
 
-        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=use_cp)
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=False)
         self.assertIsNotNone(mosaicObj, "Mosaic not loaded")
         
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, downsample)
@@ -131,14 +130,14 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         imageKey = intersecting_tile.ImagePath
         transform = intersecting_tile.Transform
   
-        (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False, use_cp = use_cp, target_space_scale=1.0/downsample)
+        (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False, use_cp = False, target_space_scale=1.0/downsample)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
-        (clustertileImage, clustertileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=True, target_space_scale=1.0/downsample)
+        (clustertileImage, clustertileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=True, use_cp=False, target_space_scale=1.0/downsample)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         cluster_delta = np.abs(clustertileImage - tileImage)
-        cluster_delta_sum = np.sum(cluster_delta.flat) 
+        cluster_delta_sum = np.sum(cluster_delta.flat)
         if cluster_delta_sum >= 0.65:
             nornir_imageregistration.ShowGrayscale([cluster_delta, cluster_delta > 0],
                         title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.", PassFail=False)
@@ -167,6 +166,86 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
         # self.assertTrue(cluster_delta_sum < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
         # self.assertTrue(np.array_equal(clustertileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
+
+
+    def CompareMosaicAsssembleAndTransformTile_GPU(self, mosaicFilePath: str, tilesDir: str, downsample: float):
+        """
+        1) Assemble the entire mosaic
+        2) Assemble subregion of the mosaic
+        3) Assemble subregion directly using _TransformTile
+        4) Check the output of all match
+        """
+
+        mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=True)
+        self.assertIsNotNone(mosaicObj, "Mosaic not loaded")
+
+        mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, downsample)
+        mosaicTileset.TranslateToZeroOrigin()
+
+        mosaicObj.TranslateToZeroOrigin()
+
+        (MinY, MinX, MaxY, MaxZ) = mosaicTileset.TargetBoundingBox
+        print("Unscaled fixed region %s" % str(mosaicTileset.TargetBoundingBox))
+
+        ScaledFixedRegion = np.array([MinY + 512, MinX + 1024, MinY + 1024, MinX + 2048])
+        FixedRegion = nornir_imageregistration.Rectangle(ScaledFixedRegion * downsample)
+
+        ### Find a tile that intersects our region of interest.
+        intersecting_tile = mosaicTileset.TargetSpaceIntersections(FixedRegion)[0]
+        imageKey = intersecting_tile.ImagePath
+        transform = intersecting_tile.Transform
+
+        (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False, use_cp=True,
+                                                            target_space_scale=1.0 / downsample)
+        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
+
+        # Need to create specific mosaicObj_CPU and mosaicTileset_CPU variables due to specific CPU transform
+        mosaicObj_CPU = Mosaic.LoadFromMosaicFile(mosaicFilePath, use_cp=False)
+        self.assertIsNotNone(mosaicObj_CPU, "Mosaic not loaded")
+        mosaicTileset_CPU = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj_CPU, tilesDir, downsample)
+        mosaicTileset_CPU.TranslateToZeroOrigin()
+        mosaicObj_CPU.TranslateToZeroOrigin()
+
+        (CPUtileImage, CPUtileMask) = mosaicTileset_CPU.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
+                                                                          use_cp=False,
+                                                                          target_space_scale=1.0 / downsample)
+        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
+
+        CPU_delta = np.abs(CPUtileImage - tileImage)
+        CPU_delta_sum = np.sum(CPU_delta.flat)
+        if CPU_delta_sum >= 0.65:
+            nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
+                                                   title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
+                                                   PassFail=False)
+
+        # 10-13-2022: This test passes if the CPU composites the tiles in the same order as the single-threaded assembly.
+
+        test_tile = nornir_imageregistration.Tile(transform, os.path.join(tilesDir, imageKey),
+                                                  image_to_source_space_scale=downsample, ID=0)
+        result = at.TransformTile(test_tile, distanceImage=None, target_space_scale=None, TargetRegion=FixedRegion)
+        self.assertEqual(result.image.shape,
+                         (ScaledFixedRegion[2] - ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1]))
+
+        # nornir_imageregistration.ShowGrayscale([tileImage, result.image])
+        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False)
+        self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
+        self.assertIsNotNone(wholemask, "Assemble did not produce a mask")
+
+        croppedWholeImage = nornir_imageregistration.CropImage(wholeimage,
+                                                               int(ScaledFixedRegion[1]),
+                                                               int(ScaledFixedRegion[0]),
+                                                               int(ScaledFixedRegion[3] - ScaledFixedRegion[1]),
+                                                               int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
+
+        self.assertTrue(nornir_imageregistration.ShowGrayscale(
+            [(result.image, CPU_delta), (tileImage, CPUtileImage), (croppedWholeImage, wholeimage)],
+            title="image: %s\n%s" % (imageKey, str(transform.FixedBoundingBox)),
+            image_titles=(
+            ("Transform Tile", "CPU vs GPU Delta"), ("GPU Assemble Image", "CPU Assemble"),
+            ("Cropped Mosaic", "Assemble Mosaic")), PassFail=True))
+
+        # self.assertTrue(CPU_delta_sum < 0.65, "Tiles generated with CPU should be identical to GPU implementation")
+        # self.assertTrue(np.array_equal(CPUtileMask, tileMask), "Tiles generated with CPU should be identical to GPU implementation")
 
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample, SingleThread: bool=False, use_cp: bool=False):
@@ -482,8 +561,8 @@ class IDOCTests(TestMosaicAssemble):
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFiles[0])
         mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj, tilesDir, float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
-        
-        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))  
+
+        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0],tilesDir, float(downsamplePath))
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleAndTransformTileIDoc_GPU(self):
@@ -499,7 +578,7 @@ class IDOCTests(TestMosaicAssemble):
                                                                                  float(downsamplePath))
         mosaicTileset.TranslateToZeroOrigin()
 
-        self.CompareMosaicAsssembleAndTransformTile(mosaicFiles[0], tilesDir, float(downsamplePath), use_cp=True)
+        self.CompareMosaicAsssembleAndTransformTile_GPU(mosaicFiles[0], tilesDir, float(downsamplePath))
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True, use_cp=True)
 
     def test_AssembleOptimizedTileIDoc(self):
