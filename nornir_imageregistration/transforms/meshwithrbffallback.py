@@ -208,20 +208,23 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
     def InitializeDataStructures(self):
 
-        if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
-            Pool = nornir_pools.GetGlobalThreadPool()
-        else:
-            Pool = nornir_pools.GetGlobalMultithreadingPool()
+        self._ForwardRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.SourcePoints, self.TargetPoints)
+        self._ReverseRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.TargetPoints, self.SourcePoints)
 
-        ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.SourcePoints,
-                                    self.TargetPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.TargetPoints,
-                                    self.SourcePoints)
-
-        super(MeshWithRBFFallback_GPUComponent, self).InitializeDataStructures()
-
-        self._ForwardRBFInstance = ForwardTask.wait_return()
-        self._ReverseRBFInstance = ReverseTask.wait_return()
+        # if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
+        #     Pool = nornir_pools.GetGlobalThreadPool()
+        # else:
+        #     Pool = nornir_pools.GetGlobalMultithreadingPool()
+        #
+        # ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.SourcePoints,
+        #                             self.TargetPoints)
+        # ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.TargetPoints,
+        #                             self.SourcePoints)
+        #
+        # super(MeshWithRBFFallback_GPUComponent, self).InitializeDataStructures()
+        #
+        # self._ForwardRBFInstance = ForwardTask.wait_return()
+        # self._ReverseRBFInstance = ReverseTask.wait_return()
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
