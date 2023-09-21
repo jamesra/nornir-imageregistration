@@ -20,6 +20,8 @@ import scipy
 from scipy.interpolate import LinearNDInterpolator
 import scipy.spatial
 
+import cupy as cp
+
 from .addition import AddTransforms
 from .controlpointbase import ControlPointBase
 
