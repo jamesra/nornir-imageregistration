@@ -317,8 +317,8 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
             max_val = 1.0
 
         max_minus_min = max_val - min_val
-        image = image - min_val
-        image = image / max_minus_min
+        image -= min_val
+        image /= max_minus_min
 
         NeedsClip = True
 
@@ -336,7 +336,7 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
         image = 1.0 - image
 
     if nornir_imageregistration.IsIntArray(original_dtype) is True:
-        image = image * max_possible_int_val
+        image *= max_possible_int_val
 
     image = image.astype(original_dtype, copy=False)
 
