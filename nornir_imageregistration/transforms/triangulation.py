@@ -822,7 +822,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @classmethod
     def load(cls, variableParams, fixedParams):
 
-        points = np.array.fromiter(variableParams)
+        points = cp.array.fromiter(variableParams)
         points.reshape(variableParams / 2, 2)
 
         self._FixedKDTree = None
