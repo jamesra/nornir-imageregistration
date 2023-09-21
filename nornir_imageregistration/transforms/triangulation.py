@@ -558,7 +558,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             return
 
         self._points = np.append(self.points, new_points, 0)
-        # self._points = Triangulation.RemoveDuplicates(self._points)
+        # self._points = Triangulation_GPUComponent.RemoveDuplicates(self._points)
 
         # We won't see a change in the number of points if the new point was a duplicate
         if self.NumControlPoints != numPts:
@@ -576,7 +576,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
         self._points[index, :] = pointpair
-        self._points = Triangulation.RemoveDuplicateControlPoints(self.points)
+        self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
@@ -584,7 +584,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def UpdateFixedPoints(self, index: int, points: NDArray[float]):
         self._points[index, 0:2] = points
-        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
         distance, index = self.NearestFixedPoint(points)
@@ -600,7 +600,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def UpdateWarpedPoints(self, index: int | NDArray[int] | NDArray[float], points: NDArray[float]) -> int | NDArray[
         int]:
         self._points[index, 2:4] = points
-        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 
         distance, index = self.NearestWarpedPoint(points)
@@ -618,7 +618,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             return  # Cannot have fewer than three points
 
         self._points = np.delete(self._points, index, 0)
-        # self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        # self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
     def InitializeDataStructures(self):
