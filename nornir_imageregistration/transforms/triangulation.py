@@ -827,14 +827,4 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         self._FixedKDTree = None
 
-    def ToITKString(self) -> str:
-        return nornir_imageregistration.transforms.factory._MeshTransformToIRToolsString(self, self.MappedBoundingBox)
 
-    def Load(self, TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
-
-    @classmethod
-    def load(cls, variableParams, fixedParams):
-
-        points = np.array.fromiter(variableParams)
-        points.reshape(variableParams / 2, 2)
