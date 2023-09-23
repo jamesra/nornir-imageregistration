@@ -280,8 +280,10 @@ def ResizeImage(image, scalar):
     return result
 
 
-def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False, Bpp: int | None = None,
-                        Invert: bool = False, MinMax=None, Gamma: float | None = None):
+def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False,
+                        Bpp: int | None = None, Invert: bool = False,
+                        MinMax: [float, float] | None = None,
+                        Gamma: float | None = None):
     """Converts a single image according to the passed parameters using Numpy"""
 
     image = ImageParamToImageArray(input_image_param)
@@ -365,8 +367,11 @@ def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: boo
     return
 
 
-def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False,
-                        bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
+def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
+                        OutputBpp: int | None = None, Invert:bool = False,
+                        bDeleteOriginal: bool =False, RightLeftShift: int | None = None,
+                        AndValue: int | None = None, MinMax: [float, float] | None = None,
+                        Gamma: float | None = None):
     """
     The key and value in the dictionary have the full path of an image to convert.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
