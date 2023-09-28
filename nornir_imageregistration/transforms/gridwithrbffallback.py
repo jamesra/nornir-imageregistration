@@ -1105,6 +1105,182 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
                                                                               use_cp=True)
 
+class GridWithRBFInterpolator_CPU(Landmark_CPU):
+    """
+    classdocs
+    """
+
+    @property
+    def type(self) -> TransformType:
+        return TransformType.GRID
+
+    @property
+    def grid(self) -> ITKGridDivision:
+        return self._grid
+
+    @property
+    def grid_dims(self) -> tuple[int, int]:
+        return self._grid._grid_dims
+
+    def ToITKString(self) -> str:
+        numPoints = self.SourcePoints.shape[0]
+        (bottom, left, top, right) = self.MappedBoundingBox.ToTuple()
+        image_width = (
+                right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
+        image_height = (top - bottom)
+
+        YDim = int(self._grid._grid_dims[0]) - 1  # For whatever reason ITK subtracts one from the dimensions
+        XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
+
+        output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
+        template = " %(cx)s %(cy)s"
+        NumAdded = int(0)
+        for CY, CX, MY, MX in self.points:
+            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
+            output.append(pstr)
+            NumAdded = NumAdded + 1
+
+        # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
+        # then 1024 should be written to the file.
+        output.append(f" fp 7 0 {YDim:d} {XDim:d} {left:g} {bottom:g} {image_width:g} {image_height:g}")
+        transform_string = ''.join(output)
+
+        return transform_string
+
+    def __getstate__(self):
+
+        odict = super(GridWithRBFInterpolator_CPU, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_discrete_transform'] = self._discrete_transform
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(GridWithRBFInterpolator_CPU, self).__setstate__(dictionary)
+
+    @property
+    def discrete_transform(self):
+        if self._discrete_transform is None:
+            self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
+                                                                  numpy.reshape(self.TargetPoints, (
+                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                      2)),
+                                                                  bounds_error=False)
+
+        return self._discrete_transform
+
+    @property
+    def ReverseRBFInstance(self):
+        if self._ReverseRBFInstance is None:
+            self._ReverseRBFInstance = super(GridWithRBFInterpolator_CPU, self).InverseInterpolator()
+
+        return self._ReverseRBFInstance
+
+    @property
+    def ForwardRBFInstance(self):
+        if self._ForwardRBFInstance is None:
+            self._ForwardRBFInstance = super(GridWithRBFInterpolator_CPU, self).ForwardInterpolator()
+
+        return self._ForwardRBFInstance
+
+    def InitializeDataStructures(self):
+
+        super(GridWithRBFInterpolator_CPU, self).InitializeDataStructures()
+        # self._ForwardRBFInstance = cuRBFInterpolator(self.SourcePoints, self.TargetPoints)
+        # self._ReverseRBFInstance = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+
+        # self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
+
+    def ClearDataStructures(self):
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
+
+        super(GridWithRBFInterpolator_CPU, self).ClearDataStructures()
+
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+        self._discrete_transform = None
+
+    def OnFixedPointChanged(self):
+        super(GridWithRBFInterpolator_CPU, self).OnFixedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def OnWarpedPointChanged(self):
+        super(GridWithRBFInterpolator_CPU, self).OnWarpedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def Transform(self, points, **kwargs):
+        """
+        Transform from warped space to fixed space
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+        """
+        print("GridWithRBFInterpolator_CPU -> TRANSFORM()")
+        points = nornir_imageregistration.EnsurePointsAre2DNumpArray(points)
+
+        if points.shape[0] == 0:
+            return numpy.empty((0, 2), dtype=points.dtype)
+
+        TransformedPoints = self._discrete_transform.Transform(points)
+        extrapolate = kwargs.get('extrapolate', True)
+        if not extrapolate:
+            return TransformedPoints
+
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
+
+        if len(InvalidIndicies) == 0:
+            return TransformedPoints
+        else:
+            if len(points) > 1:
+                # print InvalidIndicies;
+                BadPoints = points[InvalidIndicies]
+            else:
+                BadPoints = points
+
+        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
+            BadPoints = np.asarray(BadPoints, dtype=numpy.float32)
+
+        FixedPoints = super(GridWithRBFInterpolator_CPU, self).Transform(BadPoints)
+
+        TransformedPoints[InvalidIndicies] = FixedPoints
+        return TransformedPoints
+
+    def InverseTransform(self, points, **kwargs):
+        """
+        Transform from fixed space to warped space
+        :param points:
+        """
+        print("GridWithRBFInterpolator_CPU -> INVERSETRANSFORM()")
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+
+        iTransformedPoints = super(GridWithRBFInterpolator_CPU, self).InverseTransform(points)
+        return iTransformedPoints
+
+    def __init__(self, grid: ITKGridDivision):
+        """
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]
+        """
+        self._grid = grid
+        try:
+            control_points = numpy.hstack((grid.TargetPoints, grid.SourcePoints))
+        except:
+            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            raise
+
+        super(GridWithRBFInterpolator_CPU, self).__init__(control_points)
+        self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
+                                                                numpy.reshape(self._grid.TargetPoints, (
+                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                bounds_error=False)
+        self._ReverseRBFInstance = None
+        self._ForwardRBFInstance = None
+
+    @staticmethod
+    def Load(TransformString: str, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
+                                                                              use_cp=False)
+
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],
                   [0, 10, 0, -10],
