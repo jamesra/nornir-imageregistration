@@ -55,6 +55,9 @@ def BoundingPrimitiveFromPoints(
         points: NDArray) ->  Rectangle |  BoundingBox:
     '''Return either a rectangle or bounding box for a set of points'''
 
+    if not isinstance(points, numpy.ndarray):
+        points = points.get()
+
     bounds = BoundsArrayFromPoints(points)
     if bounds.shape[0] == 4:
         return Rectangle.CreateFromBounds(bounds)
