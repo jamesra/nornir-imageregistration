@@ -225,7 +225,12 @@ def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool=False):
     #discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
     #continuous_transform = nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection(grid.SourcePoints, grid.TargetPoints)
     if use_cp:
+        # Grid with RBF Fallback, using GPU component
         T = nornir_imageregistration.transforms.GridWithRBFFallback_GPUComponent(grid)
+        # Option 1- Direct RBF interpolation on grid (full GPU usage)
+        # T = nornir_imageregistration.transforms.GridWithRBFInterpolator_Direct_GPU(grid)
+        # Option 2 - RegularGridInterpolator with cupy RBFInterpolator (full GPU usage)
+        # T = nornir_imageregistration.transforms.GridWithRBFInterpolator_GPU(grid)
     else:
         T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
 
