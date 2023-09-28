@@ -272,6 +272,8 @@ def ParseMeshTransform(parts, pixelSpacing=None, use_cp: bool=False):
         # T = nornir_imageregistration.transforms.MeshWithRBFInterpolator_GPU(PointPairs)
     else:
         T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
+        # Option - direct RBF interpolation on mesh (via CPU)
+        # T = nornir_imageregistration.transforms.MeshWithRBFInterpolator_CPU(PointPairs)
     return T
 
 
