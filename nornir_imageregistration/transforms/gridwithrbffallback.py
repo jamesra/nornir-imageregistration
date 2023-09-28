@@ -24,6 +24,10 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 from nornir_imageregistration.transforms.base import IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransform,\
     ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
+from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
+
+from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+from scipy.interpolate import RegularGridInterpolator as RegularGridInterpolator
 
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation,
                           ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace, DefaultTransformChangeEvents):
@@ -636,6 +640,146 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         self.OnTransformChanged()
         return result
 
+class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
+    """
+    classdocs
+    """
+
+    @property
+    def type(self) -> TransformType:
+        return TransformType.GRID
+
+    @property
+    def grid(self) -> ITKGridDivision:
+        return self._grid
+
+    @property
+    def grid_dims(self) -> tuple[int, int]:
+        return self._grid._grid_dims
+
+    def ToITKString(self) -> str:
+        numPoints = self.SourcePoints.shape[0]
+        (bottom, left, top, right) = self.MappedBoundingBox.ToTuple()
+        image_width = (
+                right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
+        image_height = (top - bottom)
+
+        YDim = int(self._grid._grid_dims[0]) - 1  # For whatever reason ITK subtracts one from the dimensions
+        XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
+
+        output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
+        template = " %(cx)s %(cy)s"
+        NumAdded = int(0)
+        for CY, CX, MY, MX in self.points:
+            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
+            output.append(pstr)
+            NumAdded = NumAdded + 1
+
+        # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
+        # then 1024 should be written to the file.
+        output.append(f" fp 7 0 {YDim:d} {XDim:d} {left:g} {bottom:g} {image_width:g} {image_height:g}")
+        transform_string = ''.join(output)
+
+        return transform_string
+
+    def __getstate__(self):
+
+        odict = super(GridWithRBFInterpolator_Direct_GPU, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(GridWithRBFInterpolator_Direct_GPU, self).__setstate__(dictionary)
+
+    @property
+    def ReverseRBFInstance(self):
+        if self._ReverseRBFInstance is None:
+            self._ReverseRBFInstance = super(GridWithRBFInterpolator_Direct_GPU, self).InverseInterpolator()
+
+        return self._ReverseRBFInstance
+
+    @property
+    def ForwardRBFInstance(self):
+        if self._ForwardRBFInstance is None:
+            self._ForwardRBFInstance = super(GridWithRBFInterpolator_Direct_GPU, self).ForwardInterpolator()
+
+        return self._ForwardRBFInstance
+
+    # def InitializeDataStructures(self):
+    #
+    #     self._ForwardRBFInstance = cuRBFInterpolator(self.SourcePoints, self.TargetPoints)
+    #     self._ReverseRBFInstance = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+    #
+    #
+    # def ClearDataStructures(self):
+    #     """Something about the transform has changed, for example the points.
+    #        Clear out our data structures so we do not use bad data"""
+    #
+    #     super(GridWithRBFInterpolator_Direct_GPU, self).ClearDataStructures()
+    #
+    #     self._ForwardRBFInstance = None
+    #     self._ReverseRBFInstance = None
+
+    def OnFixedPointChanged(self):
+        super(GridWithRBFInterpolator_Direct_GPU, self).OnFixedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def OnWarpedPointChanged(self):
+        super(GridWithRBFInterpolator_Direct_GPU, self).OnWarpedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def Transform(self, points, return_cp: bool = False, **kwargs):
+        """
+        Transform from warped space to fixed space
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+        """
+        print("GridWithRBFInterpolator_Direct_GPU -> TRANSFORM()")
+        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+
+        TransformedPoints = super(GridWithRBFInterpolator_Direct_GPU, self).Transform(points)
+        if return_cp:
+            return TransformedPoints
+        else:
+            return TransformedPoints.get()
+
+    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+        """
+        Transform from fixed space to warped space
+        :param points:
+        """
+        print("GridWithRBFInterpolator_Direct_GPU -> INVERSETRANSFORM()")
+
+        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+
+        iTransformedPoints = super(GridWithRBFInterpolator_Direct_GPU, self).InverseTransform(points)
+        if return_cp:
+            return iTransformedPoints
+        else:
+            return iTransformedPoints.get()
+
+    def __init__(self, grid: ITKGridDivision):
+        """
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]
+        """
+        self._grid = grid
+        try:
+            control_points = cp.hstack((grid.TargetPoints, grid.SourcePoints))
+        except:
+            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            raise
+
+        super(GridWithRBFInterpolator_Direct_GPU, self).__init__(control_points)
+
+        self._ReverseRBFInstance = None
+        self._ForwardRBFInstance = None
+
+    @staticmethod
+    def Load(TransformString: str, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
+                                                                              use_cp=True)
 
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],
