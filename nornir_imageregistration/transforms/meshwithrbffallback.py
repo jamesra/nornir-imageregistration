@@ -7,12 +7,17 @@ Created on Oct 18, 2012
 import nornir_imageregistration 
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, OneWayRBFWithLinearCorrection_GPUComponent
 from nornir_imageregistration.transforms.transform_type import TransformType
+from nornir_imageregistration.transforms import base
+
 import numpy
+from numpy.typing import NDArray
 import cupy as cp
+from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 
 import nornir_pools 
 # from .triangulation import Triangulation
 from nornir_imageregistration.transforms.triangulation import Triangulation, Triangulation_GPUComponent
+from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
 
 from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 # Added by Clem for direct execution (main function)
@@ -348,6 +353,103 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]
         """
         super(MeshWithRBFFallback_GPUComponent, self).__init__(pointpairs)
+
+        self._ReverseRBFInstance = None
+        self._ForwardRBFInstance = None
+
+    @staticmethod
+    def Load(TransformString, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
+                                                                              use_cp=True)
+
+
+class MeshWithRBFInterpolator_GPU(Landmark_GPU):
+    """
+    classdocs
+    """
+
+    @property
+    def type(self) -> TransformType:
+        return TransformType.MESH
+
+    def __getstate__(self):
+
+        odict = super(MeshWithRBFInterpolator_GPU, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(MeshWithRBFInterpolator_GPU, self).__setstate__(dictionary)
+
+    @property
+    def ReverseRBFInstance(self):
+        if self._ReverseRBFInstance is None:
+            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_GPU, self).InverseInterpolator()
+
+        return self._ReverseRBFInstance
+
+    @property
+    def ForwardRBFInstance(self):
+        if self._ForwardRBFInstance is None:
+            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_GPU, self).ForwardInterpolator()
+
+        return self._ForwardRBFInstance
+
+    # def InitializeDataStructures(self):
+    #
+    #     self._ForwardRBFInstance = cuRBFInterpolator(self.SourcePoints, self.TargetPoints)
+    #     self._ReverseRBFInstance = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+    #
+    #
+    # def ClearDataStructures(self):
+    #     """Something about the transform has changed, for example the points.
+    #        Clear out our data structures so we do not use bad data"""
+    #
+    #     super(MeshWithRBFInterpolator_GPU, self).ClearDataStructures()
+    #
+    #     self._ForwardRBFInstance = None
+    #     self._ReverseRBFInstance = None
+
+    def OnFixedPointChanged(self):
+        super(MeshWithRBFInterpolator_GPU, self).OnFixedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def OnWarpedPointChanged(self):
+        super(MeshWithRBFInterpolator_GPU, self).OnWarpedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def Transform(self, points, return_cp: bool = False, **kwargs):
+        """
+        Transform from warped space to fixed space
+        :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+        """
+
+        TransformedPoints = super(MeshWithRBFInterpolator_GPU, self).Transform(points)
+        if return_cp:
+            return TransformedPoints
+        else:
+            return TransformedPoints.get()
+
+    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+        """
+        Transform from fixed space to warped space
+        :param points:
+        """
+
+        iTransformedPoints = super(MeshWithRBFInterpolator_GPU, self).InverseTransform(points)
+        if return_cp:
+            return iTransformedPoints
+        else:
+            return iTransformedPoints.get()
+
+    def __init__(self, pointpairs):
+        """
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]
+        """
+        super(MeshWithRBFInterpolator_GPU, self).__init__(pointpairs)
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
