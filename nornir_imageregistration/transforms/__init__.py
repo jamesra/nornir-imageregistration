@@ -40,7 +40,7 @@ import nornir_imageregistration.transforms.defaulttransformchangeevents as defau
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 import nornir_imageregistration.transforms.controlpointbase as controlpointbase
-from nornir_imageregistration.transforms.controlpointbase import ControlPointBase
+from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
 
 import nornir_imageregistration.transforms.triangulation as triangulation
 from nornir_imageregistration.transforms.triangulation import Triangulation, Triangulation_GPUComponent
