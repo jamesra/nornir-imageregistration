@@ -232,7 +232,12 @@ def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool=False):
         # Option 2 - RegularGridInterpolator with cupy RBFInterpolator (full GPU usage)
         # T = nornir_imageregistration.transforms.GridWithRBFInterpolator_GPU(grid)
     else:
+        # Grid with RBF fallback
         T = nornir_imageregistration.transforms.GridWithRBFFallback(grid)
+        # Option 1 - Direct RBF interpolation on grid (experiments on CPU)
+        # T = nornir_imageregistration.transforms.GridWithRBFInterpolator_Direct_CPU(grid)
+        # Option 2 - RegularGridInterpolator with scipy RBFInterpolator (CPU only)
+        # T = nornir_imageregistration.transforms.GridWithRBFInterpolator_CPU(grid)
 
     #T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
     #T.gridWidth = gridWidth
