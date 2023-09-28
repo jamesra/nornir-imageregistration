@@ -72,7 +72,7 @@ from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFF
 
 import nornir_imageregistration.transforms.gridwithrbffallback as gridwithrbffallback
 from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback, GridWithRBFFallback_GPUComponent, \
-    GridWithRBFInterpolator_Direct_GPU
+    GridWithRBFInterpolator_Direct_GPU, GridWithRBFInterpolator_Direct_CPU
 
 import nornir_imageregistration.transforms.discretewithcontinuousfallback as discretewithcontinuousfallback
 from nornir_imageregistration.transforms.discretewithcontinuousfallback import DiscreteWithContinuousFallback
