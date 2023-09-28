@@ -459,6 +459,108 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
                                                                               use_cp=True)
 
+class MeshWithRBFInterpolator_CPU(Landmark_CPU):
+    """
+    classdocs
+    """
+
+    @property
+    def type(self) -> TransformType:
+        return TransformType.MESH
+
+    def __getstate__(self):
+
+        odict = super(MeshWithRBFInterpolator_CPU, self).__getstate__()
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        return odict
+
+    def __setstate__(self, dictionary):
+        super(MeshWithRBFInterpolator_CPU, self).__setstate__(dictionary)
+
+    @property
+    def ReverseRBFInstance(self):
+        if self._ReverseRBFInstance is None:
+            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_CPU, self).InverseInterpolator()
+
+        return self._ReverseRBFInstance
+
+    @property
+    def ForwardRBFInstance(self):
+        if self._ForwardRBFInstance is None:
+            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_CPU, self).ForwardInterpolator()
+
+        return self._ForwardRBFInstance
+
+    # def InitializeDataStructures(self):
+    #
+    #     self._ForwardRBFInstance = cuRBFInterpolator(self.SourcePoints, self.TargetPoints)
+    #     self._ReverseRBFInstance = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+    #
+    #
+    # def ClearDataStructures(self):
+    #     """Something about the transform has changed, for example the points.
+    #        Clear out our data structures so we do not use bad data"""
+    #
+    #     super(MeshWithRBFInterpolator_CPU, self).ClearDataStructures()
+    #
+    #     self._ForwardRBFInstance = None
+    #     self._ReverseRBFInstance = None
+
+    def OnFixedPointChanged(self):
+        super(MeshWithRBFInterpolator_CPU, self).OnFixedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    def OnWarpedPointChanged(self):
+        super(MeshWithRBFInterpolator_CPU, self).OnWarpedPointChanged()
+        self._ForwardRBFInstance = None
+        self._ReverseRBFInstance = None
+
+    # def Transform(self, points, **kwargs):
+    #     """
+    #     Transform from warped space to fixed space
+    #     :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
+    #     """
+    #
+    #     super(MeshWithRBFInterpolator_CPU, self).Transform()
+    #
+    #     points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+    #
+    #     if points.shape[0] == 0:
+    #         return []
+    #
+    #     TransformedPoints = self.ForwardRBFInstance.Transform(points)
+    #     return TransformedPoints
+    #
+    #
+    # def InverseTransform(self, points, **kwargs):
+    #     """
+    #     Transform from fixed space to warped space
+    #     :param points:
+    #     """
+    #
+    #     points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+    #
+    #     if points.shape[0] == 0:
+    #         return []
+    #
+    #     iTransformedPoints = self.ReverseRBFInstance.Transform(points)
+    #     return iTransformedPoints
+
+    def __init__(self, pointpairs):
+        """
+        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]
+        """
+        super(MeshWithRBFInterpolator_CPU, self).__init__(pointpairs)
+
+        self._ReverseRBFInstance = None
+        self._ForwardRBFInstance = None
+
+    @staticmethod
+    def Load(TransformString, pixelSpacing=None):
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
+                                                                              use_cp=False)
 
 if __name__ == '__main__':
     print("Test OneWayRBFWithLinearCorrection")

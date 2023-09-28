@@ -68,7 +68,7 @@ from nornir_imageregistration.transforms.gridtransform import GridTransform, Gri
 
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback, MeshWithRBFFallback_GPUComponent, \
-    MeshWithRBFInterpolator_GPU
+    MeshWithRBFInterpolator_GPU, MeshWithRBFInterpolator_CPU
 
 import nornir_imageregistration.transforms.gridwithrbffallback as gridwithrbffallback
 from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback, GridWithRBFFallback_GPUComponent
