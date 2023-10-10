@@ -5,8 +5,10 @@ Created on Oct 18, 2012
 """
 import abc
 from abc import ABC, abstractmethod
+
 from numpy.typing import *
 import scipy.spatial
+
 import nornir_imageregistration
 from nornir_imageregistration.transforms.transform_type import TransformType
 
@@ -63,6 +65,7 @@ class ITransformTranslation(ABC):
         """Translate all warped points by the specified amount"""
         raise NotImplementedError()
 
+
 class ITransformSourceRotation(ABC):
     @abstractmethod
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
@@ -70,12 +73,14 @@ class ITransformSourceRotation(ABC):
         If rotation center is not specified the transform chooses"""
         raise NotImplementedError()
 
+
 class ITransformTargetRotation(ABC):
     @abstractmethod
     def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
         """Rotate all fixed points by the specified amount
         If rotation center is not specified the transform chooses"""
         raise NotImplementedError()
+
 
 class ITransformScaling(ABC):
     '''Supports scaling target and source space together (changing image downsample level for example)'''
@@ -85,8 +90,10 @@ class ITransformScaling(ABC):
         """Scale both spaces by the specified amount"""
         raise NotImplementedError()
 
+
 class ITransformRelativeScaling(ABC):
     '''Supports scaling of target space or source space independently of each other'''
+
     @abstractmethod
     def ScaleFixed(self, scalar: float) -> None:
         """Scale all fixed points by the specified amount"""
@@ -96,6 +103,7 @@ class ITransformRelativeScaling(ABC):
     def ScaleWarped(self, scalar: float) -> None:
         """Scale all warped points by the specified amount"""
         raise NotImplementedError()
+
 
 class IDiscreteTransform(ITransform, ABC):
     @property
@@ -110,11 +118,13 @@ class IDiscreteTransform(ITransform, ABC):
         """Bounding box of fixed space points"""
         raise NotImplementedError()
 
+
 class IGridTransform(ITransform, ABC):
     @property
     @abc.abstractmethod
     def grid(self) -> nornir_imageregistration.IGrid:
         raise NotImplementedError()
+
 
 class IControlPoints(ABC):
     @property
@@ -172,19 +182,23 @@ class IControlPoints(ABC):
     @abc.abstractmethod
     def NumControlPoints(self) -> int:
         raise NotImplementedError()
-    
+
+
 class ITriangulatedTargetSpace(ABC):
     @abc.abstractmethod
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
+
 
 class ITriangulatedSourceSpace(ABC):
     @abc.abstractmethod
     def source_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
 
+
 class IControlPointAddRemove(ABC):
     """Interface for control point based transforms that can add/remove control points"""
+
     @abc.abstractmethod
     def AddPoint(self, pointpair: NDArray[float]) -> int:
         raise NotImplementedError()
@@ -197,23 +211,28 @@ class IControlPointAddRemove(ABC):
     def RemovePoint(self, index: int | NDArray[int]):
         raise NotImplementedError()
 
+
 class ITargetSpaceControlPointEdit(ABC):
     """Transforms where the source space side of control points can be moved.
        Originally added for grid transforms where source points are unmovable"""
+
     @abc.abstractmethod
     def UpdateTargetPointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
         """:return: The new index of the points"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], new_points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], new_points: NDArray[float]) -> int | NDArray[
+        int]:
         """Move the points closest to old_points to positions at new_points
         :return: The new index of the points
         """
         raise NotImplementedError()
 
+
 class ISourceSpaceControlPointEdit(ABC):
     """Transforms where the source space side of control points can be moved"""
+
     @abc.abstractmethod
     def UpdateSourcePointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
         """:return: The new index of the points"""
@@ -227,8 +246,10 @@ class ISourceSpaceControlPointEdit(ABC):
         """
         raise NotImplementedError()
 
+
 class IControlPointEdit(ITargetSpaceControlPointEdit, ISourceSpaceControlPointEdit, ABC):
     """Control point transforms where source and target control points can be edited"""
+
     @abc.abstractmethod
     def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
         raise NotImplementedError()

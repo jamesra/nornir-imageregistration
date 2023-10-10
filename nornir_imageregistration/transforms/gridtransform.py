@@ -1,26 +1,22 @@
-import copy
 import logging
-import operator
 
 import numpy as np
 import cupy as cp
 from numpy.typing import NDArray
 import scipy
+from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
 import scipy.spatial
-from scipy.interpolate import griddata, LinearNDInterpolator, CloughTocher2DInterpolator, RegularGridInterpolator
 from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
 from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 
-import nornir_pools
 import nornir_imageregistration
-from . import utils
-from .base import IDiscreteTransform, ITransformChangeEvents, ITransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
-    IControlPoints, TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace
-from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
-
-from nornir_imageregistration.transforms.utils import InvalidIndicies 
+from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
+from .base import ITransformScaling, ITransformRelativeScaling, \
+    ITransformTranslation, \
+    TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, \
+    ITriangulatedTargetSpace
 
 
 class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
@@ -62,9 +58,9 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._grid = grid
         try:
             control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
-        except: 
-            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
-            raise 
+        except:
+            print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
+            raise
 
         super(GridTransform, self).__init__(control_points)
 
@@ -82,8 +78,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
                 right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
         image_height = (top - bottom)
 
-        YDim = int(self.grid.grid_dims[0]) - 1 #For whatever reason ITK subtracts one from the dimensions
-        XDim = int(self.grid.grid_dims[1]) - 1 #For whatever reason ITK subtracts one from the dimensions
+        YDim = int(self.grid.grid_dims[0]) - 1  # For whatever reason ITK subtracts one from the dimensions
+        XDim = int(self.grid.grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
         template = " %(cx)s %(cy)s"
@@ -91,7 +87,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         for CY, CX, MY, MX in self.points:
             pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
             output.append(pstr)
-            NumAdded = NumAdded + 1
+            NumAdded += 1
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -123,9 +119,9 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
             self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
-    
+
     @property
-    def target_space_trianglulation(self)->scipy.spatial.Delaunay:
+    def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self.fixedtri
 
     def NearestFixedPoint(self, points: NDArray[float]):
@@ -154,7 +150,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self._points = self._points * scalar
+        self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):
@@ -226,9 +222,10 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = RegularGridInterpolator(self._grid.axis_points,
-                                                                np.reshape(self.TargetPoints, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                np.reshape(self.TargetPoints, (
+                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
                                                                 bounds_error=False)
-            
+
         return self._ForwardInterpolator
 
     @property
@@ -256,7 +253,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         try:
             transPoints = self.InverseInterpolator(points)
-        except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
+        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
@@ -359,7 +356,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         try:
             control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
         except:
-            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
 
         super(GridTransform_GPUComponent, self).__init__(control_points)
@@ -387,7 +384,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         for CY, CX, MY, MX in self.points:
             pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
             output.append(pstr)
-            NumAdded = NumAdded + 1
+            NumAdded += 1
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -450,7 +447,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self._points = self._points * scalar
+        self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):
@@ -659,7 +656,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         try:
             control_points = cp.hstack((grid.TargetPoints, grid.SourcePoints))
         except:
-            print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
+            print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
 
         super(GridTransform_GPU, self).__init__(control_points)
@@ -684,7 +681,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         for CY, CX, MY, MX in self.points:
             pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
             output.append(pstr)
-            NumAdded = NumAdded + 1
+            NumAdded += 1
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -707,7 +704,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
     def Scale(self, scalar):
         '''Scale both warped and control space by scalar'''
-        self._points = self._points * scalar
+        self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):

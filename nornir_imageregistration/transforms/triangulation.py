@@ -7,30 +7,27 @@ Created on Oct 18, 2012
 import logging
 
 import numpy as np
-from numpy.typing import NDArray
-
-import nornir_pools
-import nornir_imageregistration 
-from . import utils, TransformType
-from .base import IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
- IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
-    ITriangulatedSourceSpace, IControlPointAddRemove
-
-import scipy
-from scipy.interpolate import LinearNDInterpolator
-import scipy.spatial
-
 import cupy as cp
+from numpy.typing import NDArray
+import scipy
+import scipy.spatial
+from scipy.interpolate import LinearNDInterpolator
 
-from .addition import AddTransforms
+import nornir_imageregistration
+import nornir_pools
+from . import TransformType
+from .base import ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
+    IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
+    ITriangulatedSourceSpace, IControlPointAddRemove
 from .controlpointbase import ControlPointBase
 
 
-class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit, ITransformSourceRotation,
+class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
+                    ITransformSourceRotation,
                     ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
                     IControlPointAddRemove, ControlPointBase):
     '''
-    Triangulation transform has an nx4 array of points, with rows organized as
+    Triangulation transform has a nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
     '''
 
@@ -61,9 +58,9 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
             self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
 
         return self._fixedtri
-    
+
     @property
-    def target_space_trianglulation(self)->scipy.spatial.Delaunay:
+    def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self.fixedtri
 
     @property
@@ -83,7 +80,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            #self._ForwardInterpolator = CloughTocher2DInterpolator(self.warpedtri, self.TargetPoints)
+            # self._ForwardInterpolator = CloughTocher2DInterpolator(self.warpedtri, self.TargetPoints)
             self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
 
         return self._ForwardInterpolator
@@ -91,14 +88,14 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            #self._InverseInterpolator = CloughTocher2DInterpolator(self.fixedtri, self.SourcePoints)
+            # self._InverseInterpolator = CloughTocher2DInterpolator(self.fixedtri, self.SourcePoints)
             self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
 
         return self._InverseInterpolator
 
     def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
-        '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space''' 
-        return AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
+        '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
+        return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
 
     def Transform(self, points, **kwargs):
         '''Map points from the warped space to fixed space'''
@@ -108,14 +105,14 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
-        try: 
+        try:
             transPoints = self.ForwardInterpolator(points).astype(np.float32, copy=False)
-        except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
+        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             self._ForwardInterpolator = None
 
-            #This was added for the case where all points in the triangulation are colinear.
+            # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
             transPoints[:] = np.NaN
 
@@ -131,7 +128,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         try:
             transPoints = self.InverseInterpolator(points).astype(np.float32, copy=False)
-        except Exception as e: # This is usually a scipy.spatial._qhull.QhullError:
+        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
             transPoints = None
@@ -194,7 +191,8 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         Distance, index = self.NearestTargetPoint(old_points)
         return self.UpdateTargetPointsByIndex(index, points)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[int] | NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateWarpedPoints(self, index: int | NDArray[int] | NDArray[float], points: NDArray[float]) -> int | NDArray[
+        int]:
         self._points[index, 2:4] = points
         self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
@@ -214,7 +212,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
             return  # Cannot have fewer than three points
 
         self._points = np.delete(self._points, index, 0)
-        #self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        # self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
     def InitializeDataStructures(self):
@@ -250,22 +248,22 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self.OnTransformChanged()
         return
 
-# 
-#         if(self._fixedtri is None or 
-#            self._warpedtri is None):
-#             self.OnTransformChanged()
-#             return
-# 
-#         self._WarpedKDTree = None
-#         self._FixedKDTree = None
-#         self._FixedBoundingBox = None
-#         self._MappedBoundingBox = None
-#         self._ForwardInterpolator = None
-#         self._InverseInterpolator = None
-# 
-#         self._fixedtri.add_points(new_points[:,0:2])
-#         self._warpedtri.add_points(new_points[:,2:4])
-#         super(Triangulation, self).OnTransformChanged()
+    #
+    #         if(self._fixedtri is None or
+    #            self._warpedtri is None):
+    #             self.OnTransformChanged()
+    #             return
+    #
+    #         self._WarpedKDTree = None
+    #         self._FixedKDTree = None
+    #         self._FixedBoundingBox = None
+    #         self._MappedBoundingBox = None
+    #         self._ForwardInterpolator = None
+    #         self._InverseInterpolator = None
+    #
+    #         self._fixedtri.add_points(new_points[:,0:2])
+    #         self._warpedtri.add_points(new_points[:,2:4])
+    #         super(Triangulation, self).OnTransformChanged()
 
     def OnFixedPointChanged(self):
         super(Triangulation, self).OnFixedPointChanged()
@@ -286,7 +284,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def ClearDataStructures(self):
         '''Something about the transform has changed, for example the points. 
-           Clear out our data structures so we do not use bad data'''
+           Clear out our data structures, so we do not use stale data'''
         super(Triangulation, self).ClearDataStructures()
         self._fixedtri = None
         self._warpedtri = None
@@ -298,13 +296,13 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
     def NearestTargetPoint(self, points: NDArray[float]):
         return self.FixedKDTree.query(points)
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[float] | tuple[float, float]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]):
+    def NearestSourcePoint(self, points: NDArray[float] | tuple[float, float]):
         return self.WarpedKDTree.query(points)
 
     def NearestWarpedPoint(self, points: NDArray[float]):
@@ -339,23 +337,23 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         '''
         if flip_center is None:
             flip_center = self.MappedBoundingBox.Center
-        
+
         temp = self.points[:, 2:4] - flip_center
-        temp[:,1] = -temp[:,1] 
+        temp[:, 1] = -temp[:, 1]
         temp = temp + flip_center[1]
-        self.points[:,2:4] = temp
+        self.points[:, 2:4] = temp
         self.OnTransformChanged()
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
-        self._points = self._points * scalar
+        self._points *= scalar
         self.OnTransformChanged()
-        
+
     def ScaleWarped(self, scalar: float):
         '''Scale source space control points by scalar'''
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
-        
+
     def ScaleFixed(self, scalar: float):
         '''Scale target space control points by scalar'''
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
@@ -383,7 +381,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
-    
+
     def GetWarpedCentroids(self, triangles=None):
         '''Centroids of warped triangles'''
         if triangles is None:
@@ -403,7 +401,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         if self._points.shape[0] < 3:
             raise ValueError("Triangulation transform must have at least three points to function")
-        
+
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
         self._fixedtri = None
@@ -827,6 +825,5 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         points = cp.array.fromiter(variableParams)
         points.reshape(variableParams / 2, 2)
 
-        self._FixedKDTree = None
 
 

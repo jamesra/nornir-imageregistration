@@ -5,30 +5,32 @@ Created on Oct 29, 2018
 '''
 
 import os
+
 import nornir_imageregistration
+
 
 class StosOverrideArgs(object):
     '''
     This is a helper class that scripts can use to replace parameters of a .stos file
     with parameters from the command line.  It produces a new .stos file
     '''
-    
-    @classmethod 
+
+    @classmethod
     def ExtendParser(cls, parser, RequireInputImages):
         '''
         Adds the common command line parameters to the parser
         :param RequireInputImages:
         :param argparse.ArgumentParser parser: The command-line argument parser to extend
         '''
-        
+
         parser.add_argument('-scale', '-s',
-                        action='store',
-                        required=False,
-                        type=float,
-                        default=1.0,
-                        help='The input images are a different size than the desired transform, scale the transform by the specified factor',
-                        dest='scalar'
-                        )
+                            action='store',
+                            required=False,
+                            type=float,
+                            default=1.0,
+                            help='The input images are a different size than the desired transform, scale the transform by the specified factor',
+                            dest='scalar'
+                            )
 
         parser.add_argument('-fixedimage', '-f',
                             action='store',
@@ -38,7 +40,7 @@ class StosOverrideArgs(object):
                             help='Fixed image, overrides .stos file fixed image',
                             dest='fixedimagepath'
                             )
-    
+
         parser.add_argument('-warpedimage', '-w',
                             action='store',
                             required=RequireInputImages,
@@ -47,7 +49,7 @@ class StosOverrideArgs(object):
                             help='warped image, overrides .stos file warped image',
                             dest='warpedimagepath'
                             )
-    
+
         parser.add_argument('-fixedmask', '-fm',
                             action='store',
                             required=False,
@@ -56,7 +58,7 @@ class StosOverrideArgs(object):
                             help='Fixed mask, overrides .stos file fixed mask',
                             dest='fixedmaskpath'
                             )
-    
+
         parser.add_argument('-warpedmask', '-wm',
                             action='store',
                             required=False,
@@ -82,7 +84,6 @@ class StosOverrideArgs(object):
     def WarpedMask(self):
         return self.stos.MappedMaskFullPath
 
-
     def __init__(self, Args):
         self.stosPath = Args.inputpath
         self.stosOutput = Args.outputpath
@@ -94,20 +95,19 @@ class StosOverrideArgs(object):
 
         self.stos = self.MergeStosAndArgs(Args)
 
-
     def MergeStosAndArgs(self, Args):
 
         stos = nornir_imageregistration.files.StosFile()
-        
+
         if not Args.inputpath is None:
             if os.path.exists(Args.inputpath):
                 stos = nornir_imageregistration.files.StosFile.Load(Args.inputpath)
 
                 if Args.scalar != 1.0:
                     stos.scale(Args.scalar)
-            
+
             stosDir = os.path.dirname(Args.inputpath)
-            stos.TryConvertRelativePathsToAbsolutePaths(stosDir)                
+            stos.TryConvertRelativePathsToAbsolutePaths(stosDir)
 
         if not Args.fixedimagepath is None:
             stos.ControlImageFullPath = self.fixedImage

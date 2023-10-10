@@ -1,17 +1,17 @@
 from __future__ import annotations
+
+import copy
+import logging
+import os
 import typing
 
 import numpy as np
-import os
-import logging
-import copy
 
 import nornir_imageregistration
+import nornir_shared.tasktimer
 
-import nornir_pools
-
-
-def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str, image_to_source_space_scale: float) -> MosaicTileset:
+def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
+                     image_to_source_space_scale: float) -> MosaicTileset:
     """
     :param mosaic: The mosaic we are pulling transforms and image filenames from
     :param image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
@@ -98,6 +98,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     """
 
     def __init__(self, image_to_source_space_scale: float):
+        super().__init__()
         if image_to_source_space_scale is None:
             raise ValueError("image_to_source_space_scale is None")
 
@@ -197,7 +198,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param float expected_scale: The scale factor applied to the mosaic before dividing it into tiles, default is 1
         """
         tile_dims = np.asarray(tile_dims, dtype=np.int64)
-        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64, copy=False)
+        scaled_fixed_bounding_box_shape = np.ceil(self.TargetBoundingBox.shape / (1 / expected_scale)).astype(np.int64,
+                                                                                                              copy=False)
         return nornir_imageregistration.TileGridShape(scaled_fixed_bounding_box_shape, tile_size=tile_dims)
 
     def TranslateToZeroOrigin(self):
@@ -255,7 +257,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # transformList = [self[path] for path in tilesPathList]
 
         if usecluster and len(tilesPathList) > 1:
-            #cpool = nornir_pools.GetGlobalMultithreadingPool()
+            # cpool = nornir_pools.GetGlobalMultithreadingPool()
             return nornir_imageregistration.assemble_tiles.TilesToImageParallel(self,
                                                                                 pool=None,
                                                                                 TargetRegion=FixedRegion,
@@ -268,7 +270,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                                                                         TargetRegion=FixedRegion,
                                                                         target_space_scale=target_space_scale)
 
-    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True, use_cp=False, target_space_scale=None,
+    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True, use_cp=False,
+                               target_space_scale=None,
                                source_space_scale=None):
         """
         Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
@@ -328,6 +331,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         working_image_origin = mosaic_fixed_bounding_box.BottomLeft
         if working_image_origin[0] != 0 or working_image_origin[1] != 0:
             raise ValueError(f"Expected working_image_origin of (0,0) for assemble {working_image_origin}")
+        
+        task_timer = nornir_shared.tasktimer.TaskTimer()
 
         iColumn = 0
         while iColumn < grid_dims[1]:
@@ -353,11 +358,12 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
             del _mask
 
+            task_timer.Start(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
             (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
                                                                        tile_size=tile_dims,
                                                                        grid_shape=working_image_grid_dims,
                                                                        coord_offset=(0, iColumn)))
-
+            task_timer.End(f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')                                                                       
             del working_image
 
             iColumn += working_image_grid_dims[1]
@@ -384,7 +390,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     def ToMosaic(self):
         '''Return a mosaic object for this mosaic set'''
         output = {}
-        for (id, tile) in self.items():
+        for (ID, tile) in self.items():
             output[os.path.basename(tile.ImagePath)] = copy.deepcopy(tile.Transform)
 
         return nornir_imageregistration.Mosaic(output)

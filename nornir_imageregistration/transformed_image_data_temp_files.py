@@ -5,24 +5,25 @@ Created on Jul 18, 2019
 
 A helper class to marshal large images using the file system instead of in-memory.
 '''
+import atexit
+import logging
 import os
-from typing import Tuple
+import shutil
 import tempfile
+from typing import Tuple
+
 import numpy as np
 from numpy.typing import NDArray
+
 import nornir_pools
-import logging
-import shutil
-import atexit
-import nornir_imageregistration
-from nornir_imageregistration.transformed_image_data import ITransformedImageData 
+from nornir_imageregistration.transformed_image_data import ITransformedImageData
+
 
 # When porting to Python 3.10 there was a regression where
 # concurrent.futures.ThreadPoolExecutor system could not function in atext calls
 # So I reverted to shutil until it is fixed
 # atexit.register(nornir_shared.files.rmtree, _sharedTempRoot)
-#atexit.register(shutil.rmtree, _sharedTempRoot, ignore_errors=True)
-
+# atexit.register(shutil.rmtree, _sharedTempRoot, ignore_errors=True)
 
 
 class TransformedImageDataViaTempFile(ITransformedImageData):
@@ -32,17 +33,21 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     _centerDistanceImage: NDArray[float]
     _source_space_scale: float
     _target_space_scale: float
-    #_transform: nornir_imageregistration.ITransform
+    # _transform: nornir_imageregistration.ITransform
     _errmsg: str
 
-    _temp_folder_created = False    
+    _temp_folder_created = False
     sharedTempRoot = None
 
     '''
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
     '''
 
-    memmap_threshold = 64 * 64
+    tempfile_threshold = 64 * 64
+
+    @property
+    def errormsg(self) -> str | None:
+        return None
 
     #
     #     def __getstate__(self):
@@ -66,7 +71,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     #
 
     @property
-    def image(self):
+    def image(self) -> NDArray:
         if self._image is None:
             if self._image_path is None:
                 return None
@@ -77,7 +82,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return self._image
 
     @property
-    def centerDistanceImage(self):
+    def centerDistanceImage(self) -> NDArray:
         if self._centerDistanceImage is None:
             if self._centerDistanceImage_path is None:
                 return None
@@ -88,11 +93,11 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return self._centerDistanceImage
 
     @property
-    def source_space_scale(self):
+    def source_space_scale(self) -> float:
         return self._source_space_scale
 
     @property
-    def target_space_scale(self):
+    def target_space_scale(self) -> float:
         return self._target_space_scale
 
     @property
@@ -105,13 +110,9 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         """
         return self._rendered_target_space_origin
 
-    #@property
-    #def transform(self):
+    # @property
+    # def transform(self):
     #    return self._transform
-
-    @property
-    def errormsg(self):
-        return self._errmsg
 
     @classmethod
     def Create(cls, image: NDArray, centerDistanceImage: NDArray,
@@ -146,7 +147,8 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         if image is None:
             raise ValueError("image cannot be None")
 
-        with tempfile.NamedTemporaryFile(suffix=name + '.npy', dir=TransformedImageDataViaTempFile._sharedTempRoot, delete=False) as tfile:
+        with tempfile.NamedTemporaryFile(suffix=name + '.npy', dir=TransformedImageDataViaTempFile._sharedTempRoot,
+                                         delete=False) as tfile:
             np.save(tfile, image)
             return tfile.name
 
@@ -158,31 +160,31 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         returned to the caller.
         :return:
         '''
-        if np.prod(self._image.shape) > TransformedImageDataViaTempFile.memmap_threshold:
+        if np.prod(self._image.shape) > TransformedImageDataViaTempFile.tempfile_threshold:
             _image_path_task = None
             _centerDistanceImage_path_task = None
-            
-            #Create the temporary directory if it doesn't exist
+
+            # Create the temporary directory if it doesn't exist
             if not TransformedImageDataViaTempFile._temp_folder_created:
                 temp_dir = os.environ['NORNIR_TEMP_DIR'] if 'NORNIR_TEMP_DIR' in os.environ else tempfile.gettempdir()
-                TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
+                TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(
+                    prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
                 TransformedImageDataViaTempFile._temp_folder_created = True
                 atexit.register(shutil.rmtree, TransformedImageDataViaTempFile._sharedTempRoot, ignore_errors=True)
 
-
-            #TODO: Replace with a task group once we are on Python 3.11
+            # TODO: Replace with a task group once we are on Python 3.11
             pool = nornir_pools.GetGlobalThreadPool()
 
             _image_path_task = pool.add_task("Image", self.SaveArrayToTemporaryFile, "Image", self._image)
             self._image = None
 
-            _centerDistanceImage_path_task = pool.add_task("Distance", 
-                self.SaveArrayToTemporaryFile, "Distance", self._centerDistanceImage)
+            _centerDistanceImage_path_task = pool.add_task("Distance",
+                                                           self.SaveArrayToTemporaryFile, "Distance",
+                                                           self._centerDistanceImage)
             self._centerDistanceImage = None
 
             self._image_path = _image_path_task.wait_return()
             self._centerDistanceImage_path = _centerDistanceImage_path_task.wait_return()
-             
 
         return
 
@@ -194,11 +196,12 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         self._target_space_scale = None
         self._transform = None
 
-        #It is hard to delete these temporary files because it is ambiguous on when
-        #numpy releases the underlying file
+        # It is hard to delete these temporary files because it is ambiguous on when
+        # numpy releases the underlying file
         if self._centerDistanceImage_path is not None or self._image_path is not None:
             pool = nornir_pools.GetGlobalThreadPool()
-            pool.add_task(self._image_path, TransformedImageDataViaTempFile._RemoveTempFiles, self._centerDistanceImage_path,
+            pool.add_task(self._image_path, TransformedImageDataViaTempFile._RemoveTempFiles,
+                          self._centerDistanceImage_path,
                           self._image_path)
 
     @staticmethod
@@ -211,7 +214,6 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         except IOError as E:
             logging.warning("Could not delete temporary file {0}".format(_centerDistanceImage_path))
             pass
-        
 
         try:
             if _image_path is not None:
@@ -221,7 +223,6 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         except IOError as E:
             logging.warning("Could not delete temporary file {0}".format(_image_path))
             pass
-        
 
     def __init__(self, errorMsg=None):
         self._image = None

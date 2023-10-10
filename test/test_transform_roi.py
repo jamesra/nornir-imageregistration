@@ -2,8 +2,8 @@ import numpy
 import scipy
 
 import nornir_imageregistration
-import setup_imagetest 
 from nornir_imageregistration import AlignmentRecord, assemble as assemble, spatial as spatial
+import setup_imagetest
 
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
@@ -11,14 +11,15 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
     @classmethod
     def create_tiny_image(cls, shape):
         shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, numpy.int32)
-        image = numpy.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
+        image = numpy.zeros(shape,
+                            dtype=numpy.float32)  # Needs to be float32 for numpy functions used in the test to support it
         for x in range(0, shape[1]):
             for y in range(0, shape[0]):
                 color_index = (((x % 4) + (y % 4)) % 4) / 4
                 image[y, x] = (color_index * 0.8) + 0.2
-        
-        #Make origin bright white
-        image[0,0] = 1.0
+
+        # Make origin bright white
+        image[0, 0] = 1.0
 
         return image
 
@@ -107,13 +108,14 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
-        self.show_test_image(transform, sourceShape, targetShape, "Rotate 90 degrees.  An increase in angle should rotate counter-clockwise (RHS)")
+        self.show_test_image(transform, sourceShape, targetShape,
+                             "Rotate 90 degrees.  An increase in angle should rotate counter-clockwise (RHS)")
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), targetShape[0] - 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), targetShape[1] - 1, delta=0.01)
-        
+
     def test_Rotate90_square(self):
 
         sourceShape = (5, 5)
@@ -124,7 +126,8 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
-        self.show_test_image(transform, sourceShape, targetShape, "Rotate 90 degrees.  An increase in angle should rotate counter-clockwise (RHS)")
+        self.show_test_image(transform, sourceShape, targetShape,
+                             "Rotate 90 degrees.  An increase in angle should rotate counter-clockwise (RHS)")
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), targetShape[0] - 1, delta=0.01)
@@ -155,7 +158,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_Rotate90_expandedCanvas_odd(self):
         sourceShape = numpy.array((3, 6))
-        sourceCenter = (sourceShape) / 2.0
+        sourceCenter = sourceShape / 2.0
         targetShapeOdd = numpy.array((7,
                                       9))  # Weirdly I've had cases where the test passes or fails based on whether target shape is an even or odd number
         targetCenter = (targetShapeOdd / 2.0)  # Subtract 0.5 so we rotate at the center of the image
@@ -179,10 +182,12 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         image = TestTransformROI.create_tiny_image(image_shape)
         transformedImage = assemble.SourceImageToTargetSpace(transform, image, output_area=target_space_shape)
         if transform.angle != 0:
-            scipyImage = scipy.ndimage.rotate(image, -(transform.angle / (2 * numpy.pi)) * 360) 
+            scipyImage = scipy.ndimage.rotate(image.astype(numpy.float32), -(transform.angle / (2 * numpy.pi)) * 360)
 
             self.assertTrue(nornir_imageregistration.ShowGrayscale((image, transformedImage, scipyImage), title=title,
-                                                               image_titles=('input', 'output', 'scipy.ndimage.rotate'), PassFail=True))
+                                                                   image_titles=(
+                                                                       'input', 'output', 'scipy.ndimage.rotate'),
+                                                                   PassFail=True))
         else:
             self.assertTrue(nornir_imageregistration.ShowGrayscale((image, transformedImage), title=title,
-                                                               image_titles=('input', 'output'), PassFail=True))
+                                                                   image_titles=('input', 'output'), PassFail=True))

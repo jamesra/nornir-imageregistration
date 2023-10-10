@@ -1,7 +1,8 @@
 import hypothesis
-import hypothesis.strategies
 import hypothesis.extra.numpy
+import hypothesis.strategies
 import numpy as np
+
 from nornir_imageregistration.spatial import Rectangle
 
 

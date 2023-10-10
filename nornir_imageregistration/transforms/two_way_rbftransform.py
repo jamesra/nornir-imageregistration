@@ -1,25 +1,28 @@
 from typing import Callable
-import numpy
+
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import ITransform, IDiscreteTransform, IControlPoints,  \
-    ITransformChangeEvents,\
-    ITransformTranslation, ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation, \
+from nornir_imageregistration.transforms.base import ITransform, IControlPoints, \
+    ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation, \
     ITransformSourceRotation, IControlPointEdit
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
-from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, OneWayRBFWithLinearCorrection_GPUComponent
+from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
+    OneWayRBFWithLinearCorrection_GPUComponent
 from nornir_imageregistration.transforms.transform_type import TransformType
 
 
-
-class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation,
+class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
+                                    ITransformTargetRotation,
                                     ITransformSourceRotation, IControlPointEdit, DefaultTransformChangeEvents):
-    def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float], BasisFunction: Callable[[float], float] | None = None):
+    def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float],
+                 BasisFunction: Callable[[float], float] | None = None):
         super(TwoWayRBFWithLinearCorrection, self).__init__()
-        self._forward_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints, BasisFunction=BasisFunction)
-        self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=FixedPoints, FixedPoints=WarpedPoints, BasisFunction=BasisFunction)
-        
+        self._forward_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints,
+                                                          BasisFunction=BasisFunction)
+        self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=FixedPoints, FixedPoints=WarpedPoints,
+                                                          BasisFunction=BasisFunction)
+
     def __getstate__(self):
         odict = super(TwoWayRBFWithLinearCorrection, self).__getstate__()
         odict['_forward_rbf'] = self._forward_rbf
@@ -27,7 +30,7 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         return odict
 
     def __setstate__(self, dictionary):
-        super(TwoWayRBFWithLinearCorrection, self).__setstate__(dictionary) 
+        super(TwoWayRBFWithLinearCorrection, self).__setstate__(dictionary)
         self._forward_rbf = dictionary['_forward_rbf']
         self._inverse_rbf = dictionary['_inverse_rbf']
 
@@ -201,16 +204,20 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._forward_rbf.InitializeDataStructures()
         self._inverse_rbf.InitializeDataStructures()
 
-class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
-                                    ITransformTargetRotation,
-                                    ITransformSourceRotation, IControlPointEdit, DefaultTransformChangeEvents):
+
+class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITransformScaling,
+                                                 ITransformRelativeScaling, ITransformTargetRotation,
+                                                 ITransformSourceRotation, IControlPointEdit,
+                                                 DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float],
                  BasisFunction: Callable[[float], float] | None = None):
         super(TwoWayRBFWithLinearCorrection_GPUComponent, self).__init__()
-        self._forward_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints,
-                                                          BasisFunction=BasisFunction)
-        self._inverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=FixedPoints, FixedPoints=WarpedPoints,
-                                                          BasisFunction=BasisFunction)
+        self._forward_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=WarpedPoints,
+                                                                       FixedPoints=FixedPoints,
+                                                                       BasisFunction=BasisFunction)
+        self._inverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=FixedPoints,
+                                                                       FixedPoints=WarpedPoints,
+                                                                       BasisFunction=BasisFunction)
 
     def __getstate__(self):
         odict = super(TwoWayRBFWithLinearCorrection_GPUComponent, self).__getstate__()
@@ -225,8 +232,8 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
 
     def _reset_inverse_transform(self):
         self._inverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=self._forward_rbf.SourcePoints,
-                                                          FixedPoints=self._forward_rbf.TargetPoints,
-                                                          BasisFunction=self._forward_rbf.BasisFunction)
+                                                                       FixedPoints=self._forward_rbf.TargetPoints,
+                                                                       BasisFunction=self._forward_rbf.BasisFunction)
 
     def Transform(self, point: NDArray[float], **kwargs) -> NDArray:
         return self._forward_rbf.Transform(point, **kwargs)

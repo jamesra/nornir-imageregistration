@@ -1,24 +1,9 @@
-import glob
-import os
-import unittest
-
-from nornir_imageregistration.files.mosaicfile import MosaicFile
-from nornir_imageregistration.mosaic  import Mosaic
-from scipy import stats 
-
 import nornir_imageregistration
 import nornir_imageregistration.assemble_tiles as at
-import nornir_imageregistration.core as core
-import nornir_imageregistration.tileset as tiles
-import nornir_imageregistration.transforms.factory as tfactory
-from nornir_shared.tasktimer import TaskTimer
-import numpy as np
-
+from nornir_imageregistration.mosaic import Mosaic
 import test_assemble_tiles
-from nornir_imageregistration.mosaic_tileset import MosaicTileset
-import mosaic_tileset
 
-  
+
 class BasicTests(test_assemble_tiles.TestMosaicAssemble):
 
     @property
@@ -26,7 +11,6 @@ class BasicTests(test_assemble_tiles.TestMosaicAssemble):
         return "PMG1"
 
     def test_CreateDistanceBuffer(self):
-
         firstShape = (10, 10)
         dMatrix = at.CreateDistanceImage(firstShape)
         self.assertAlmostEqual(dMatrix[0, 0], 7.07, 2, "Distance matrix incorrect")
@@ -47,25 +31,23 @@ class BasicTests(test_assemble_tiles.TestMosaicAssemble):
         self.assertAlmostEqual(dMatrix[0, 10], 7.43, 2, "Distance matrix incorrect")
         self.assertAlmostEqual(dMatrix[0, 5], 5, 2, "Distance matrix incorrect")
         self.assertAlmostEqual(dMatrix[4, 0], 5.53, 2, "Distance matrix incorrect")
-        
-    def test_CreateDistanceBuffer2(self):
 
-#         zeroEvenShape = (2, 2)
-#         dMatrix = at.CreateDistanceImage2(zeroEvenShape)
-# 
-#         zeroOddShape = (3, 3)
-#         dMatrix = at.CreateDistanceImage2(zeroOddShape)
+    def test_CreateDistanceBuffer2(self):
+        #         zeroEvenShape = (2, 2)
+        #         dMatrix = at.CreateDistanceImage2(zeroEvenShape)
+        #
+        #         zeroOddShape = (3, 3)
+        #         dMatrix = at.CreateDistanceImage2(zeroOddShape)
 
         zeroOddShape = (5, 5)
         dMatrix = at.CreateDistanceImage2(zeroOddShape)
-        
-        
+
         firstShape = (10, 10)
         dMatrixReference = at.CreateDistanceImage(firstShape)
         dMatrix = at.CreateDistanceImage2(firstShape)
         self.assertAlmostEqual(dMatrix[0, 0], 7.78, 2, "Distance matrix incorrect")
         self.assertAlmostEqual(dMatrix[9, 9], 7.78, 2, "Distance matrix incorrect")
-        
+
         secondShape = (11, 11)
         dMatrix = at.CreateDistanceImage2(secondShape)
 
@@ -82,14 +64,14 @@ class BasicTests(test_assemble_tiles.TestMosaicAssemble):
         self.assertAlmostEqual(dMatrix[0, 5], 5.5, 2, "Distance matrix incorrect")
         self.assertAlmostEqual(dMatrix[4, 0], 5.0249, 2, "Distance matrix incorrect")
 
-
     def test_MosaicBoundsEachMosaicType(self):
-
         downsamplePath = '004'
         tilesDir = self.GetTileFullPath(downsamplePath)
-        for m in self.GetMosaicFiles(): 
+        for m in self.GetMosaicFiles():
             mosaic = Mosaic.LoadFromMosaicFile(m)
-            mosaic_tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic, image_folder=tilesDir, image_to_source_space_scale=int(downsamplePath))
+            mosaic_tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic, image_folder=tilesDir,
+                                                                                      image_to_source_space_scale=int(
+                                                                                          downsamplePath))
 
             self.assertIsNotNone(mosaic_tileset.SourceBoundingBox, "No bounding box returned for mosiac")
 

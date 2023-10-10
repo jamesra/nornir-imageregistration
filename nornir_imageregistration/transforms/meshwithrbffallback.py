@@ -4,25 +4,20 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import nornir_imageregistration 
-from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, OneWayRBFWithLinearCorrection_GPUComponent
-from nornir_imageregistration.transforms.transform_type import TransformType
-from nornir_imageregistration.transforms import base
-
 import numpy
-from numpy.typing import NDArray
 import cupy as cp
 from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 
-import nornir_pools 
-# from .triangulation import Triangulation
-from nornir_imageregistration.transforms.triangulation import Triangulation, Triangulation_GPUComponent
+import nornir_imageregistration
+import nornir_pools
+from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
+    OneWayRBFWithLinearCorrection_GPUComponent
+from nornir_imageregistration.transforms.transform_type import TransformType
+from . import utils, NumberOfControlPointsToTriggerMultiprocessing
+from .triangulation import Triangulation, Triangulation_GPUComponent
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
 
 from . import utils, NumberOfControlPointsToTriggerMultiprocessing
-# Added by Clem for direct execution (main function)
-# import utils
-# NumberOfControlPointsToTriggerMultiprocessing = 20
 
 
 class MeshWithRBFFallback(Triangulation):
@@ -33,9 +28,9 @@ class MeshWithRBFFallback(Triangulation):
     @property
     def type(self) -> TransformType:
         return TransformType.MESH
-    
+
     def __getstate__(self):
-        
+
         odict = super(MeshWithRBFFallback, self).__getstate__()
         odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
         odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
@@ -65,14 +60,15 @@ class MeshWithRBFFallback(Triangulation):
         else:
             Pool = nornir_pools.GetGlobalMultithreadingPool()
 
-        ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection, self.SourcePoints, self.TargetPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection, self.TargetPoints, self.SourcePoints)
+        ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection, self.SourcePoints,
+                                    self.TargetPoints)
+        ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection, self.TargetPoints,
+                                    self.SourcePoints)
 
         super(MeshWithRBFFallback, self).InitializeDataStructures()
 
         self._ForwardRBFInstance = ForwardTask.wait_return()
         self._ReverseRBFInstance = ReverseTask.wait_return()
-
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -87,7 +83,6 @@ class MeshWithRBFFallback(Triangulation):
         super(MeshWithRBFFallback, self).OnFixedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
-
 
     def OnWarpedPointChanged(self):
         super(MeshWithRBFFallback, self).OnWarpedPointChanged()
@@ -112,7 +107,7 @@ class MeshWithRBFFallback(Triangulation):
 
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
-        if(len(InvalidIndicies) == 0):
+        if len(InvalidIndicies) == 0:
             return TransformedPoints
         else:
             if len(points) > 1:
@@ -124,7 +119,7 @@ class MeshWithRBFFallback(Triangulation):
         BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-            
+
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
@@ -148,7 +143,7 @@ class MeshWithRBFFallback(Triangulation):
 
         (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
-        if(len(InvalidIndicies) == 0):
+        if len(InvalidIndicies) == 0:
             return TransformedPoints
         else:
             if points.ndim > 1:
@@ -172,7 +167,7 @@ class MeshWithRBFFallback(Triangulation):
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
-        
+
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
@@ -274,7 +269,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
                                                                             cp.ndarray) else TransformedPoints
         (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
 
-        if (len(InvalidIndicies) == 0):
+        if len(InvalidIndicies) == 0:
             if return_cp:
                 return TransformedPoints
             else:
@@ -324,7 +319,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
                                                                             cp.ndarray) else TransformedPoints
         (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
 
-        if (len(InvalidIndicies) == 0):
+        if len(InvalidIndicies) == 0:
             if return_cp:
                 return TransformedPoints
             else:
@@ -565,9 +560,9 @@ class MeshWithRBFInterpolator_CPU(Landmark_CPU):
 if __name__ == '__main__':
     print("Test OneWayRBFWithLinearCorrection")
     p = numpy.array([[0, 0, 0, 0],
-                  [0, 10, 0, -10],
-                  [10, 0, -10, 0],
-                  [10, 10, -10, -10]])
+                     [0, 10, 0, -10],
+                     [10, 0, -10, 0],
+                     [10, 10, -10, -10]])
 
     (Fixed, Moving) = numpy.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)

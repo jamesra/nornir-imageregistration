@@ -1,9 +1,9 @@
 import os
 import sys
 
-import nornir_imageregistration 
-from nornir_shared import checksum, prettyoutput
 import nornir_shared.images as images
+from nornir_shared import checksum, prettyoutput
+import nornir_imageregistration
 
 
 class MosaicFile(object):
@@ -15,7 +15,7 @@ class MosaicFile(object):
         mosaicObj = MosaicFile.Load(path)
         if mosaicObj is None:
             return None
-        
+
         return mosaicObj.Checksum
 
     @property
@@ -61,8 +61,8 @@ class MosaicFile(object):
                 del self.ImageToTransformString[InvalidImage]
                 FoundInvalid = True
 
-               # prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
-               # del self.ImageToTransformString[InvalidImage]
+            # prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
+            # del self.ImageToTransformString[InvalidImage]
 
         return FoundInvalid
 
@@ -72,7 +72,7 @@ class MosaicFile(object):
            <SECTION>_<CHANNEL>_<MosaicSource>_<DOWNSAMPLE>.mosaic
            [SectionNumber, Channel, MosaicSource, Downsample]'''
 
-        if os.path.exists(filename) == False:
+        if not os.path.exists(filename):
             prettyoutput.LogErr("mosaic file not found: " + filename)
             return
 
@@ -113,7 +113,7 @@ class MosaicFile(object):
 
     @classmethod
     def Load(cls, filename):
-        
+
         lines = []
         try:
             with open(filename, 'r') as fMosaic:
@@ -134,7 +134,7 @@ class MosaicFile(object):
                 line = lines[iLine]
                 line = line.strip()
                 [text, value] = line.split(':', 1)
-    
+
                 if text.startswith('number_of_images'):
                     value.strip()
                     obj.FileReportedNumberOfImages = int(value)
@@ -156,12 +156,12 @@ class MosaicFile(object):
                         filename = os.path.basename(lines[iLine + 1].strip())
                         transform = lines[iLine + 2].strip()
                         obj.ImageToTransformString[filename] = transform
-                        iLine = iLine + 2
-    
-                iLine = iLine + 1
+                        iLine += 2
+
+                iLine += 1
         except:
             prettyoutput.LogErr(f"Error in {filename} on or above line #{iLine}\n{lines[iLine]}\n")
-            raise 
+            raise
 
         return obj
 
@@ -180,7 +180,7 @@ class MosaicFile(object):
             ImageSize = [(4080, 4080)] * len(Entries)
         elif not isinstance(ImageSize, list):
             assert (len(ImageSize) == 2), "Expect tuple or list indicating image size"
-            ImageSize = ImageSize * len(Entries)
+            ImageSize *= len(Entries)
         else:
             # A list of two entries for the size
             if len(ImageSize) == 2 and not isinstance(ImageSize[0], list):
@@ -223,7 +223,7 @@ class MosaicFile(object):
             OutFile.write('pixel_spacing: ' + str(Downsample) + '\n')
             OutFile.write('use_std_mask: 0\n')
 
-        #    prettyoutput.Log( "Keys: " + str(Entries.keys())
+            #    prettyoutput.Log( "Keys: " + str(Entries.keys())
             keys = list(Entries.keys())
             keys.sort()
 
@@ -234,7 +234,7 @@ class MosaicFile(object):
                 # prettyoutput.Log( str(key) + " : " + str(Coord)
 
                 # Centering is nice, but it seems to break multi mrc sections
-        #            Coord = (Coord[0] - (minX + CenterXOffset), Coord[1] - (minY + CenterYOffset))
+                #            Coord = (Coord[0] - (minX + CenterXOffset), Coord[1] - (minY + CenterYOffset))
                 Coord = (Coord[0], Coord[1])
 
                 X = Coord[0]
@@ -246,12 +246,12 @@ class MosaicFile(object):
 
                 # Remove dirname from key
                 key = os.path.basename(key)
-                
+
                 tile_transform = nornir_imageregistration.transforms.RigidNoRotation((Y, X))
 
                 transform_string = tile_transform.ToITKString()
-            
-                #transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {X} {Y} {tilesize[0] / 2} {tilesize[1] / 2}'
+
+                # transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {X} {Y} {tilesize[0] / 2} {tilesize[1] / 2}'
                 outstr = f'image:\n{key}\n{transform_string}\n'
                 OutFile.write(outstr)
 
@@ -279,7 +279,7 @@ class MosaicFile(object):
                 try:
                     floatVal = float(part)
                 except:
-     #               prettyoutput.Log( "Skip: " + part)
+                    #               prettyoutput.Log( "Skip: " + part)
                     # Can't convert it to a number.  Write the old value and move on
                     # Don't leave a space after the last entry on a line.  This breaks
                     # filenames on the mac because Mac's can have a filename end in a
@@ -305,18 +305,17 @@ class MosaicFile(object):
                     OutputTransformStr = OutputTransformStr + outStr + NeededSpace
 
             self.ImageToTransformString[FileKey] = OutputTransformStr
-            
+
     def HasTransformsNotUnderstoodByIrTools(self):
         outputMosaic = MosaicFile()
         output = outputMosaic.ImageToTransformString
-        
+
         for (image, transformStr) in self.ImageToTransformString.items():
             if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
                 return True
-            
+
         return False
-        
-    
+
     def CreateCorrectedXYMosaicForStupidITKWorkaround(self):
         """For some reason the original SCI ir-refine-grid, and probably other tools,
         appears to reverse the X,Y coordinates compared to the ITK documentation in
@@ -324,33 +323,37 @@ class MosaicFile(object):
         generates a copy of the mosaic file with the X,Y coordinates swapped"""
         outputMosaic = MosaicFile()
         output = outputMosaic.ImageToTransformString
-        
+
         for (image, transformStr) in self.ImageToTransformString.items():
             if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
                 t = nornir_imageregistration.transforms.LoadTransform(transformStr, pixelSpacing=self.pixel_spacing)
                 outTrans = None
                 if isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
-                    outTrans = nornir_imageregistration.transforms.RigidNoRotation((t.target_offset[1], t.target_offset[0]))
+                    outTrans = nornir_imageregistration.transforms.RigidNoRotation(
+                        (t.target_offset[1], t.target_offset[0]))
                 elif isinstance(t, nornir_imageregistration.transforms.Rigid):
-                    outTrans = nornir_imageregistration.transforms.Rigid(target_offset=(t.target_offset[1], t.target_offset[0]),
-                                                                         source_rotation_center=(t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
-                                                                         angle=t.angle)
+                    outTrans = nornir_imageregistration.transforms.Rigid(
+                        target_offset=(t.target_offset[1], t.target_offset[0]),
+                        source_rotation_center=(
+                            t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                        angle=t.angle)
                 elif isinstance(t, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
-                    outTrans = nornir_imageregistration.transforms.Rigid(target_offset=(t.target_offset[1], t.target_offset[0]),
-                                                                         source_rotation_center=(t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
-                                                                         angle=t.angle,
-                                                                         scalar=t.scalar)
+                    outTrans = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                        target_offset=(t.target_offset[1], t.target_offset[0]),
+                        source_rotation_center=(
+                            t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                        angle=t.angle,
+                        scalar=t.scalar)
                 else:
                     raise ValueError(f"Unexpected transform type: {t.__class__}")
-                
-                #output[image] = outTrans.ToITKString()
+
+                # output[image] = outTrans.ToITKString()
                 transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {t.target_offset[1]} {t.target_offset[0]} 1 1'
                 output[image] = transform_string
             else:
-                output[image] = transformStr 
-        
+                output[image] = transformStr
+
         return outputMosaic
-        
 
     def Save(self, filename):
 
@@ -379,4 +382,3 @@ class MosaicFile(object):
 
         OutStr = ''.join(OutStrList)
         return OutStr
-

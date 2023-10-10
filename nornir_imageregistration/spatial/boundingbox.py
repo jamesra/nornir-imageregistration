@@ -5,13 +5,10 @@ points are represented as (Y,X)
 
 '''
 
-from typing import *
-
 import numpy as np
-from numpy.typing import * 
- 
-import nornir_imageregistration.spatial
-from nornir_imageregistration.spatial import iPoint,  iPoint3, Rectangle, iBox, iVolume
+from numpy.typing import *
+
+from nornir_imageregistration.spatial import Rectangle, iBox, iPoint, iPoint3, iVolume
 
 
 class BoundingBox(object):
@@ -34,6 +31,7 @@ class BoundingBox(object):
     @property
     def BottomLeftFront(self) -> NDArray:
         return np.array([self._bounds[iBox.MinZ], self._bounds[iBox.MinY], self._bounds[iBox.MinX]])
+
     @property
     def TopRightBack(self) -> NDArray:
         return np.array([self._bounds[iBox.MaxZ], self._bounds[iBox.MaxY], self._bounds[iBox.MaxX]])
@@ -59,7 +57,7 @@ class BoundingBox(object):
 
     def ToArray(self) -> NDArray:
         return np.array(self._bounds)
-    
+
     def ToTuple(self) -> (float, float, float, float, float, float):
         return (self._bounds[iBox.MinZ],
                 self._bounds[iBox.MinY],
@@ -72,9 +70,9 @@ class BoundingBox(object):
     def RectangleXY(self) -> Rectangle:
         '''Returns a rectangle based on the XY plane of the box'''
         return Rectangle.CreateFromBounds((self._bounds[iBox.MinY],
-                                          self._bounds[iBox.MinX],
-                                          self._bounds[iBox.MaxY],
-                                          self._bounds[iBox.MaxX]))
+                                           self._bounds[iBox.MinX],
+                                           self._bounds[iBox.MaxY],
+                                           self._bounds[iBox.MaxX]))
 
     def __init__(self, bounds):
         '''
@@ -82,7 +80,6 @@ class BoundingBox(object):
         '''
 
         self._bounds = bounds
-
 
     @classmethod
     def CreateFromPoints(cls, points) -> BoundingBox:
@@ -96,7 +93,9 @@ class BoundingBox(object):
         :param tuple point: (Z,Y,X)
         '''
 
-        return BoundingBox(bounds=(point[iPoint3.Z], point[iPoint3.Y], point[iPoint3.X], point[iPoint3.Z] + vol[iVolume.Depth], point[iPoint3.Y] + vol[iVolume.Height], point[iPoint.X] + vol[iVolume.Width]))
+        return BoundingBox(bounds=(
+            point[iPoint3.Z], point[iPoint3.Y], point[iPoint3.X], point[iPoint3.Z] + vol[iVolume.Depth],
+            point[iPoint3.Y] + vol[iVolume.Height], point[iPoint.X] + vol[iVolume.Width]))
 
     @classmethod
     def CreateFromBounds(cls, Bounds) -> BoundingBox:
@@ -129,16 +128,17 @@ class BoundingBox(object):
         A = BoundingBox.PrimitiveToBox(A)
         B = BoundingBox.PrimitiveToBox(B)
 
-        if(A.BoundingBox[iBox.MaxZ] < B.BoundingBox[iBox.MinZ] or
-           A.BoundingBox[iBox.MinZ] > B.BoundingBox[iBox.MaxZ] or
-           A.BoundingBox[iBox.MaxX] < B.BoundingBox[iBox.MinX] or
-           A.BoundingBox[iBox.MinX] > B.BoundingBox[iBox.MaxX] or
-           A.BoundingBox[iBox.MaxY] < B.BoundingBox[iBox.MinY] or
-           A.BoundingBox[iBox.MinY] > B.BoundingBox[iBox.MaxY]):
-
+        if (A.BoundingBox[iBox.MaxZ] < B.BoundingBox[iBox.MinZ] or
+                A.BoundingBox[iBox.MinZ] > B.BoundingBox[iBox.MaxZ] or
+                A.BoundingBox[iBox.MaxX] < B.BoundingBox[iBox.MinX] or
+                A.BoundingBox[iBox.MinX] > B.BoundingBox[iBox.MaxX] or
+                A.BoundingBox[iBox.MaxY] < B.BoundingBox[iBox.MinY] or
+                A.BoundingBox[iBox.MinY] > B.BoundingBox[iBox.MaxY]):
             return False
 
         return True
 
     def __str__(self):
-        return "MinX: %g MinY: %g MinZ: %g MaxX: %g MaxY: %g MaxZ %g" % (self._bounds[iBox.MinX], self._bounds[iBox.MinY], self._bounds[iBox.MinZ], self._bounds[iBox.MaxX], self._bounds[iBox.MaxY], self._bounds[iBox.MaxZ])
+        return "MinX: %g MinY: %g MinZ: %g MaxX: %g MaxY: %g MaxZ %g" % (
+            self._bounds[iBox.MinX], self._bounds[iBox.MinY], self._bounds[iBox.MinZ], self._bounds[iBox.MaxX],
+            self._bounds[iBox.MaxY], self._bounds[iBox.MaxZ])
