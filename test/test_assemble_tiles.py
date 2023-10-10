@@ -210,8 +210,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         mosaicObj_CPU.TranslateToZeroOrigin()
 
         (CPUtileImage, CPUtileMask) = mosaicTileset_CPU.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
-                                                                          use_cp=False,
-                                                                          target_space_scale=1.0 / downsample)
+                                                                      use_cp=False,
+                                                                      target_space_scale=1.0 / downsample)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         CPU_delta = np.abs(CPUtileImage - tileImage)
@@ -225,12 +225,14 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
         test_tile = nornir_imageregistration.Tile(transform, os.path.join(tilesDir, imageKey),
                                                   image_to_source_space_scale=downsample, ID=0)
-        result = at.TransformTile(test_tile, distanceImage=None, target_space_scale=None, TargetRegion=FixedRegion)
+        result = at.TransformTile(test_tile, distanceImage=None, target_space_scale=None, TargetRegion=FixedRegion,
+                                  SingleThreadedInvoke=True, use_cp=True)
         self.assertEqual(result.image.shape,
                          (ScaledFixedRegion[2] - ScaledFixedRegion[0], ScaledFixedRegion[3] - ScaledFixedRegion[1]))
 
         # nornir_imageregistration.ShowGrayscale([tileImage, result.image])
-        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, tilesDir, outputMosaicPath=None, parallel=False)
+        (wholeimage, wholemask) = self.AssembleMosaic(mosaicFilePath, tilesDir, outputMosaicPath=None,
+                                                      parallel=False, use_cp=True)
         self.assertIsNotNone(wholeimage, "Assemble did not produce an image")
         self.assertIsNotNone(wholemask, "Assemble did not produce a mask")
 
