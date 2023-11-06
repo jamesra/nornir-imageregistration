@@ -80,6 +80,9 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         YDim = int(self.grid.grid_dims[0]) - 1  # For whatever reason ITK subtracts one from the dimensions
         XDim = int(self.grid.grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
+        
+        if self.points.shape[0] != self.grid.grid_dims.prod():
+            raise ValueError("Grid transform number of points does not match grid dimensions")
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
         template = " %(cx)s %(cy)s"

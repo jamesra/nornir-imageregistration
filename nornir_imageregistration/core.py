@@ -1601,13 +1601,14 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         # FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         # FalsePeakStrength = OtherPeaks.max()
 
-        # if FalsePeakStrength == 0:
-        #     Weight = PeakStrength
-        # else:
-        #     Weight = PeakStrength / FalsePeakStrength
+        if FalsePeakStrength == 0:
+            Weight = PeakStrength
+        else:
+            Weight = PeakStrength / FalsePeakStrength
 
-        ########################################################################
-        
+        # if PeakArea > 0:
+        #    Weight /= PeakArea
+
         # print(f'{LabelSums.shape} Labels -> {PeakStrength} Peak')
 
         # center_of_mass returns results as (y,x)
@@ -1624,7 +1625,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         del ThresholdImage
         del LabelSums
 
-        return scaled_offset, signal_to_noise
+        return scaled_offset, Weight
 
 
 def CropNonOverlapping(FixedImageSize, MovingImageSize, CorrelationImage, MinOverlap=0.0, MaxOverlap=1.0):
