@@ -420,7 +420,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # fraction = i / (settings.num_iterations - 1)
         # FirstPassFinalizeValue - (cutoff_range * fraction)
 
-        prettyoutput.Log(f'Finalize cutoff this pass: {finalize_cutoff_this_pass}')
+        prettyoutput.Log(f'Finalize cutoff this pass: {finalize_percentile_this_pass * 100}% -> {finalize_cutoff_this_pass}')
 
         new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
                                                                      percentile=finalize_percentile_this_pass,
@@ -442,15 +442,17 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # remove finalized points from alignment_points
         non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
 
-        prettyoutput.Log(
-            f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
-
+        
         # Check previous finalizations to see if we can do better now
         (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
                                                                          finalized_points,
                                                                          settings)
 
         finalized_points = {**finalized_points, **new_finalized_alignments_dict}
+        
+        prettyoutput.Log(
+            f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
+
 
         # (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
         #                                                                         finalized_points,

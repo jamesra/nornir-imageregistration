@@ -289,8 +289,10 @@ def ResizeImage(image, scalar):
     return result
 
 
-def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False, Bpp: int | None = None,
-                        Invert: bool = False, MinMax=None, Gamma: float | None = None):
+def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False,
+                        Bpp: int | None = None, Invert: bool = False,
+                        MinMax: tuple[float, float] | None = None,
+                        Gamma: float | None = None):
     """Converts a single image according to the passed parameters using Numpy"""
 
     image = ImageParamToImageArray(input_image_param)
@@ -374,8 +376,11 @@ def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: boo
     return
 
 
-def ConvertImagesInDict(ImagesToConvertDict, Flip=False, Flop=False, InputBpp=None, OutputBpp=None, Invert=False,
-                        bDeleteOriginal=False, RightLeftShift=None, AndValue=None, MinMax=None, Gamma=None):
+def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
+                        OutputBpp: int | None = None, Invert:bool = False,
+                        bDeleteOriginal: bool =False, RightLeftShift: int | None = None,
+                        AndValue: int | None = None, MinMax: tuple[float, float] | None = None,
+                        Gamma: float | None = None):
     """
     The key and value in the dictionary have the full path of an image to convert.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
@@ -927,10 +932,13 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                             # Converting to float with the same number of bytes as the integer type can produce infinite output.
                             # To handle this, increase precision of image during conversion. 
                             temp_dtype = np.dtype(f'f{image.dtype.itemsize * 2}')
-                            image = image.astype(temp_dtype)
-                            image /= image.max()
+                            image = image.astype(temp_dtype) 
                         else:
-                            image = image.astype(dtype) / image.max()
+                            image = image.astype(dtype)
+                            
+                        max_val = image.max()
+                        if max_val != 0:
+                            image /= max_val
 
                     image = image.astype(dtype, copy=False)
                 #                 else:

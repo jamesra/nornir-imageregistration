@@ -70,17 +70,17 @@ def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
                 source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation,
                 angle=AToB_mapped_Transform.angle+BToC_Unaltered_Transform.angle)
     elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IGridTransform):
-        AToC_source_points = AToB_mapped_Transform.InverseTransform(BToC_Unaltered_Transform.SourcePoints)
-        old_grid = AToB_mapped_Transform.grid
-        new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
+        old_grid = BToC_Unaltered_Transform.grid
+        new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape, #Ideally this shape is the shape of the image the rigid transform is transforming
                                                             cell_size=old_grid.cell_size,
                                                             grid_dims=old_grid.grid_dims)
-        new_grid.SourcePoints = AToC_source_points
-        new_grid.TargetPoints = BToC_Unaltered_Transform.ControlPoints
+        AToB_target_points = AToB_mapped_Transform.Transform(new_grid.SourcePoints)
+        AToC_target_points = BToC_Unaltered_Transform.Transform(AToB_target_points)
+        new_grid.TargetPoints = AToC_target_points
         return nornir_imageregistration.transforms.GridWithRBFFallback(new_grid)
     elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IControlPoints):
         AToC_source_points = AToB_mapped_Transform.InverseTransform(BToC_Unaltered_Transform.SourcePoints)
-        AToC_pointPairs = np.hstack((BToC_Unaltered_Transform.ControlPoints, AToB_mapped_Transform.SourcePoints)) 
+        AToC_pointPairs = np.hstack((BToC_Unaltered_Transform.ControlPoints, AToC_source_points))
         return nornir_imageregistration.transforms.MeshWithRBFFallback(AToC_pointPairs)
     
     raise NotImplementedError()
