@@ -354,8 +354,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
-                                                                              use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
 
 class MeshWithRBFInterpolator_GPU(Landmark_GPU):
@@ -451,8 +450,7 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
-                                                                              use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
 class MeshWithRBFInterpolator_CPU(Landmark_CPU):
     """
@@ -554,8 +552,7 @@ class MeshWithRBFInterpolator_CPU(Landmark_CPU):
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing,
-                                                                              use_cp=False)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
 if __name__ == '__main__':
     print("Test OneWayRBFWithLinearCorrection")

@@ -339,7 +339,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         """
         Creates an instance of the transform from the TransformString
         """
-        return nornir_imageregistration.transforms.factory.LoadTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.LoadTransform(TransformString, pixelSpacing)
 
     def __getstate__(self):
         odict = {'_points': self._points,
@@ -639,7 +639,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         """
         Creates an instance of the transform from the TransformString
         """
-        return nornir_imageregistration.transforms.factory.LoadTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.LoadTransform(TransformString, pixelSpacing)
 
     def __getstate__(self):
         odict = {'_points': self._points,

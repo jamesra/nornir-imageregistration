@@ -27,8 +27,7 @@ def SliceToSliceBruteForce(FixedImageInput,
                            WarpedImageScaleFactors=None,
                            SingleThread: bool = False,
                            Cluster: bool = False,
-                           TestFlip: bool = True,
-                           use_cp: bool = False) -> nornir_imageregistration.AlignmentRecord:
+                           TestFlip: bool = True) -> nornir_imageregistration.AlignmentRecord:
     '''Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
        
@@ -44,6 +43,8 @@ def SliceToSliceBruteForce(FixedImageInput,
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
        '''
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+
     if AngleSearchRange is not None:
         if isinstance(AngleSearchRange, np.ndarray):
             AngleSearchRange = list(AngleSearchRange)
@@ -94,7 +95,7 @@ def SliceToSliceBruteForce(FixedImageInput,
     BestMatch = _find_best_angle(target_image, source_image,
                                  target_stats, source_stats,
                                  AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread,
-                                 use_cluster=Cluster, use_cp=use_cp)
+                                 use_cluster=Cluster)
 
     IsFlipped = False
     if TestFlip:
@@ -104,7 +105,7 @@ def SliceToSliceBruteForce(FixedImageInput,
         BestMatchFlipped = _find_best_angle(target_image, imWarpedFlipped,
                                             target_stats, source_stats,
                                             AngleSearchRange, MinOverlap=MinOverlap,
-                                            SingleThread=SingleThread, use_cluster=Cluster, use_cp=use_cp)
+                                            SingleThread=SingleThread, use_cluster=Cluster)
         BestMatchFlipped.flippedud = True
 
         # Determine if the best match is flipped or not
@@ -126,7 +127,7 @@ def SliceToSliceBruteForce(FixedImageInput,
                                             target_stats, source_stats,
                                             # [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
                                             [(x * 0.1 + BestMatch.angle) for x in range(-19, 20)],
-                                            MinOverlap=MinOverlap, SingleThread=SingleThread, use_cp=use_cp)
+                                            MinOverlap=MinOverlap, SingleThread=SingleThread)
         BestRefinedMatch.flippedud = IsFlipped
     else:
         min_step_size = 0.25
@@ -150,7 +151,7 @@ def SliceToSliceBruteForce(FixedImageInput,
             BestRefinedMatch = _find_best_angle(target_image, imWarped,
                                                 target_stats, source_stats,
                                                 [(x * stepsize) + below for x in range(1, nSteps)],
-                                                MinOverlap=MinOverlap, SingleThread=SingleThread, use_cp=use_cp)
+                                                MinOverlap=MinOverlap, SingleThread=SingleThread)
             BestRefinedMatch.flippedud = IsFlipped
         else:
             BestRefinedMatch = BestMatch
@@ -185,7 +186,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original,
                                                                dtype=nornir_imageregistration.default_image_dtype())
 
-    use_cp = isinstance(imFixed, cp.ndarray)
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
     # Use of cupy or numpy
     xp = cp.get_array_module(imFixed_original)
     # Use of cupyx.scipy.fft or scipy.fft
@@ -213,8 +214,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
             imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(
                 imWarped.dtype, copy=False)  # Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = xp.isnan(imWarped)
-        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype,
-                                                                    use_cp=use_cp, return_numpy=not use_cp)
+        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype, return_numpy=not use_cp)
         OKToDelimWarped = True
 
     RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median,
@@ -320,13 +320,13 @@ def _find_best_angle(imFixed: NDArray[float],
                      AngleList: list[float] | None,
                      MinOverlap: float = 0.75,
                      SingleThread: bool = False,
-                     use_cluster: bool = False,
-                     use_cp: bool = False):
+                     use_cluster: bool = False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
     Debug = False
     pool = None
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
     use_cluster = False

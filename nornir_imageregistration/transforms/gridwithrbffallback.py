@@ -484,7 +484,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
@@ -777,8 +777,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
-                                                                              use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
 class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
     """
@@ -909,8 +908,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
-                                                                              use_cp=False)
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
 class GridWithRBFInterpolator_GPU(Landmark_GPU):
     """
@@ -1101,8 +1099,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
-                                                                              use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
 class GridWithRBFInterpolator_CPU(Landmark_CPU):
     """
@@ -1277,8 +1274,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing,
-                                                                              use_cp=False)
+        return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
 if __name__ == '__main__':
     p = numpy.array([[0, 0, 0, 0],

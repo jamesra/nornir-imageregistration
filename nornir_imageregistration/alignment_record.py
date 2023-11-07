@@ -132,8 +132,7 @@ class AlignmentRecord(object):
                                                                                            self.peak, self.flippedud)
 
     def ToTransform(self, fixedImageSize: NDArray | tuple[int, int],
-                    warpedImageSize: NDArray | tuple[int, int] | None = None,
-                    use_cp: bool=False) -> ITransform:
+                    warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
         '''
         Generates a rigid transform for the alignment record.
         :param (Height, Width) fixedImageSize: Size of translated image in fixed space
@@ -154,7 +153,7 @@ class AlignmentRecord(object):
 
         target_translation = (source_center_of_rotation - target_center) + self.peak
 
-        if use_cp:
+        if GetActiveComputationalLib() == ComputationLib.cupy:
             return nornir_imageregistration.transforms.Rigid_GPU(target_offset=target_translation,
                                                              source_rotation_center=source_center_of_rotation,
                                                              angle=self.rangle,

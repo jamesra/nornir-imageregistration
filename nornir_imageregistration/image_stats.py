@@ -102,7 +102,6 @@ class ImageStats:
         #         except AttributeError:
         #             pass
 
-        use_cp = isinstance(image, cp.ndarray)
         xp = cp.get_array_module(image)
 
         obj = ImageStats()
@@ -131,11 +130,12 @@ class ImageStats:
         #        image.__IrtoolsImageStats__ = obj
         return obj
 
-    def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike, use_cp: bool | None = None, return_numpy: bool = True):
+    def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike, return_numpy: bool = True):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
+
 
         size = None
         height = 1
@@ -156,16 +156,17 @@ class ImageStats:
             one_d_result = len(shape) == 1
             height = shape[0] if not one_d_result else int(shape)
             width = shape[1] if not one_d_result else 1
-            size = int(shape) if one_d_result else shape_shape
+            size = int(shape) if one_d_result else shape.shape
 
-        if use_cp is None:
+        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+        if use_cp:
             use_cp = width * height > 4092
 
         xp = cp if use_cp else numpy
         data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
 
-        if return_numpy and isinstance(data, cp.ndarray):
+        if return_numpy and use_cp:
             return data.get()
 
         return data

@@ -591,8 +591,7 @@ def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
                   target_space_scale: float = None,
                   TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
-                  SingleThreadedInvoke: bool = False,
-                  use_cp: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
+                  SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
     """
        Transform the passed image.  DistanceImage is an existing image recording the distance to the center of the
        image for each pixel.  target_space_scale is used when the image size does not match the image size encoded in the
@@ -729,8 +728,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                                 # somehow interacts with the max value to produce an invalid result for pixels
                                                                                 # outside the image boundary.
                                                                                 np.sum(distanceImage.shape) * 32.0],
-                                                                          return_shared_memory=False,
-                                                                          use_cp=use_cp)  # not SingleThreadedInvoke)
+                                                                          return_shared_memory=False)  # not SingleThreadedInvoke)
 
     source_image_dtype = source_image.dtype
     del source_image

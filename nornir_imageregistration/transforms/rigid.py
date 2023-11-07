@@ -464,8 +464,7 @@ class RigidNoRotation_GPU(base.ITransform, base.ITransformScaling, base.ITransfo
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | int | None = None):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing,
-                                                                                 use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -546,7 +545,7 @@ class Rigid_GPU(base.ITransformSourceRotation, RigidNoRotation_GPU):
 
     @staticmethod
     def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -678,7 +677,7 @@ class CenteredSimilarity2DTransform_GPU(Rigid_GPU, base.ITransformRelativeScalin
 
     @staticmethod
     def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward

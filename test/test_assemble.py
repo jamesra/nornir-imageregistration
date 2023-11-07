@@ -76,10 +76,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 0
         arecord = AlignmentRecord(peak=(50, 100), weight=100, angle=angle)
 
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+
         (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                                                  self.WarpedImagePath,
-                                                                                                 arecord,
-                                                                                                 use_cp=True)
+                                                                                                 arecord)
 
         nornir_imageregistration.SaveImage("C:\\Temp\\17Translate.png", transformedImage, bpp=8)
         # self.assertTrue(ShowComparison([fixedImage, transformedImage],
@@ -113,10 +114,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         angle = 30
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=angle)
 
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+
         (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                                                  self.WarpedImagePath,
-                                                                                                 arecord,
-                                                                                                 use_cp=True)
+                                                                                                 arecord)
 
         nornir_imageregistration.SaveImage("C:\\Temp\\17Rotate.png", transformedImage, bpp=8)
 
@@ -155,12 +157,13 @@ class TestAssemble(setup_imagetest.ImageTestBase):
 
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+
         (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
                                                                                                  self.WarpedImagePath,
                                                                                                  arecord,
                                                                                                  (0, 0),
-                                                                                                 (64, 64),
-                                                                                                 use_cp=True)
+                                                                                                 (64, 64))
 
         # nornir_imageregistration.SaveImage("C:\\Temp\\17.png", transformedImage)
 
@@ -182,10 +185,11 @@ class TestAssemble(setup_imagetest.ImageTestBase):
     def test_SourceImageToTargetSpace_GPU(self):
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
 
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+
         (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.FixedImagePath,
                                                                                                  self.WarpedImagePath,
-                                                                                                 arecord,
-                                                                                                 use_cp=True)
+                                                                                                 arecord)
         nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"),
                                            transformedImage, bpp=8)
 
@@ -193,20 +197,20 @@ class TestAssemble(setup_imagetest.ImageTestBase):
                                               WarpedImagePath: str,
                                               alignment_record: AlignmentRecord,
                                               output_botleft=None,
-                                              output_area=None,
-                                              use_cp: bool = False):
+                                              output_area=None):
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+
+
 
         fixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
         warpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
 
-        transform = alignment_record.ToTransform(fixedImage.shape, warpedImage.shape, use_cp=use_cp)
+        transform = alignment_record.ToTransform(fixedImage.shape, warpedImage.shape)
         transformedImage = assemble.SourceImageToTargetSpace(transform,
                                                              warpedImage,
                                                              output_botleft=output_botleft,
-                                                             output_area=output_area,
-                                                             use_cp=use_cp)
+                                                             output_area=output_area)
         return fixedImage, warpedImage, transformedImage
 
 
@@ -222,11 +226,10 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.FixedImagePath = os.path.join(self.ImportedDataPath, "Fixed.png")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
 
-    def RunStosAssemble(self, stosFullPath, use_cp: bool = False):
+    def RunStosAssemble(self, stosFullPath):
         OutputPath = os.path.join(self.VolumeDir, "test_StosAssemble.png")
 
-        warpedImage = assemble.TransformStos(stosFullPath, OutputPath, self.FixedImagePath, self.WarpedImagePath,
-                                             use_cp=use_cp)
+        warpedImage = assemble.TransformStos(stosFullPath, OutputPath, self.FixedImagePath, self.WarpedImagePath)
         self.assertIsNotNone(warpedImage)
 
         self.assertTrue(os.path.exists(OutputPath), "RegisteredImage does not exist")
@@ -238,19 +241,23 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
 
     def test_GridStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunStosAssemble(stosFullPath)
 
     def test_GridStosAssemble_GPU(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
-        self.RunStosAssemble(stosFullPath, use_cp=True)
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        self.RunStosAssemble(stosFullPath)
 
     def test_MeshStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunStosAssemble(stosFullPath)
 
     def test_MeshStosAssemble_GPU(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
-        self.RunStosAssemble(stosFullPath, use_cp=True)
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        self.RunStosAssemble(stosFullPath)
 
 
 if __name__ == "__main__":

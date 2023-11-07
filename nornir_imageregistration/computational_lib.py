@@ -7,17 +7,20 @@ class ComputationLib(Enum):
     cupy = 1
 
 _has_cupy = False # type: bool
-_active_lib = ComputationLib.numpy # type: ComputationLib
+_active_lib = None
 
 try:
     import cupy as cp
     _has_cupy = True
+    _active_lib = ComputationLib.cupy if _active_lib is None else _active_lib
 except ImportError:
     cp = None
     _has_cupy = False
+    _active_lib = ComputationLib.numpy if _active_lib is None else _active_lib
 except ModuleNotFoundError:
     cp = None
     _has_cupy = False
+    _active_lib = ComputationLib.numpy if _active_lib is None else _active_lib
 
 def HasCupy() -> bool:
     """Return true if cupy is available"""

@@ -182,8 +182,7 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
     @staticmethod
     def Load(TransformString: str, pixelSpacing: float = None):
         return nornir_imageregistration.transforms.factory.ParseFixedCenterOfRotationAffineTransform(TransformString,
-                                                                                                     pixelSpacing,
-                                                                                                     use_cp=True)
+                                                                                                     pixelSpacing)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward

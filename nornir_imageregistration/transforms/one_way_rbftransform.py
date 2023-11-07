@@ -448,7 +448,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing: float | None = None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     def _GetMatrixWeightSums(self, Points: NDArray[float], WarpedPoints: NDArray[float], MaxChunkSize: int = 65536):
         NumCtrlPts = len(WarpedPoints)

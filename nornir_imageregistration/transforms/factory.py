@@ -167,7 +167,7 @@ def SplitTransform(transformstring):
     return transformName, FixedParts, VariableParts
 
 
-def LoadTransform(Transform, pixelSpacing=None, use_cp: bool = False):
+def LoadTransform(Transform, pixelSpacing=None):
     '''Transform is a string from either a stos or mosiac file'''
 
     parts = Transform.split()
@@ -175,24 +175,26 @@ def LoadTransform(Transform, pixelSpacing=None, use_cp: bool = False):
     transformType = parts[0]
 
     if transformType == "GridTransform_double_2_2":
-        return ParseGridTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseGridTransform(parts, pixelSpacing)
     elif transformType == "MeshTransform_double_2_2":
-        return ParseMeshTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseMeshTransform(parts, pixelSpacing)
     elif transformType == "LegendrePolynomialTransform_double_2_2_1":
-        return ParseLegendrePolynomialTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseLegendrePolynomialTransform(parts, pixelSpacing)
     elif transformType == "Rigid2DTransform_double_2_2":
-        return ParseRigid2DTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseRigid2DTransform(parts, pixelSpacing)
     elif transformType == "CenteredSimilarity2DTransform_double_2_2":
-        return ParseCenteredSimilarity2DTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseCenteredSimilarity2DTransform(parts, pixelSpacing)
     elif transformType == "FixedCenterOfRotationAffineTransform_double_2_2":
-        return ParseFixedCenterOfRotationAffineTransform(parts, pixelSpacing, use_cp=use_cp)
+        return ParseFixedCenterOfRotationAffineTransform(parts, pixelSpacing)
 
     raise ValueError(f"LoadTransform was passed an unknown transform type: {transformType}")
 
 
-def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool = False):
+def ParseGridTransform(parts, pixelSpacing=None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -245,9 +247,11 @@ def ParseGridTransform(parts, pixelSpacing=None, use_cp: bool = False):
     return T
 
 
-def ParseMeshTransform(parts, pixelSpacing=None, use_cp: bool = False):
+def ParseMeshTransform(parts, pixelSpacing=None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -277,11 +281,13 @@ def ParseMeshTransform(parts, pixelSpacing=None, use_cp: bool = False):
     return T
 
 
-def ParseLegendrePolynomialTransform(parts, pixelSpacing=None, use_cp: bool = False):
+def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     # Example: LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 10770 -10770 2040 2040
 
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -322,9 +328,11 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None, use_cp: bool = Fa
     return T
 
 
-def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float = None, use_cp: bool = False):
+def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float = None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     # FixedCenterOfRotationAffineTransform_double_2_2 vp 8 0.615661 -0.788011 0.788011 0.615661 -7.60573 -17.8375 5.26637e-67 3.06321e-322 fp 2 122 61
 
@@ -354,10 +362,12 @@ def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: fl
                                                                      post_transform_translation=post_transform_translation)
 
 
-def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = None, use_cp: bool = False):
+def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = None):
     # Example: Rigid2DTransform_double_2_2 vp 3 0 0 0 fp 2 0 0
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -386,10 +396,12 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
                                                              angle=angle)
 
 
-def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None, use_cp: bool = False):
+def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
     # Example: CenteredSimilarity2DTransform_double_2_2 vp 6 0 0 0 0 0 0
     if pixelSpacing is None:
         pixelSpacing = 1.0
+
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 

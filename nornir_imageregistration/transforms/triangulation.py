@@ -817,7 +817,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return nornir_imageregistration.transforms.factory._MeshTransformToIRToolsString(self, self.MappedBoundingBox)
 
     def Load(self, TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     @classmethod
     def load(cls, variableParams, fixedParams):

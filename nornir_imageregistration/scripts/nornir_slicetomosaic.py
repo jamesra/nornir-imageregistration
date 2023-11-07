@@ -119,8 +119,7 @@ def Execute(ExecArgs=None):
                                                     fixedImage=Args.fixedimagepath,
                                                     warpedImage=Args.warpedimagepath,
                                                     scalar=Args.scalar,
-                                                    CropUndefined=False,
-                                                    use_cp=Args.use_cp)
+                                                    CropUndefined=False)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)

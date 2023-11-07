@@ -1270,8 +1270,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       target_controlpoint: NDArray | tuple[float, float],
                       alignmentArea: NDArray | tuple[float, float],
                       anglesToSearch: Iterable[float] | None = None,
-                      min_alignment_overlap: float = 0.5,
-                      use_cp: bool = False) -> nornir_imageregistration.AlignmentRecord | None:
+                      min_alignment_overlap: float = 0.5) -> nornir_imageregistration.AlignmentRecord | None:
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 

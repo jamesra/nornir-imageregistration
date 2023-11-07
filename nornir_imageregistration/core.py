@@ -669,13 +669,14 @@ def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike, read_only:
 
 
 def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float,
-                  use_cp: bool | None = None, return_numpy: bool = True, dtype: DTypeLike | None = None):
+                  return_numpy: bool = True, dtype: DTypeLike | None = None):
     """
     Generate random data of shape with the specified mean and standard deviation
     """
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
     dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
-    if use_cp is None:
-        use_cp = height * width > 4092
+    if use_cp: #Don't send to GPU if the array is too small
+        use_cp = height * width >= 4092
 
     xp = cp if use_cp else np
     image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
@@ -691,7 +692,10 @@ def CPGenRandomData(height: int, width: int, mean: float, standardDev: float, mi
     """
     Generate random data of shape with the specified mean and standard deviation
     """
-    use_cp = height * width > 4092
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    if use_cp:  # Don't send to GPU if the array is too small
+        use_cp = height * width >= 4092
+
     xp = cp if use_cp else np
 
     image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
@@ -1340,7 +1344,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
     OriginalHeight = Height
     OriginalWidth = Width
 
-    use_cp = isinstance(image, cp.ndarray)
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
     xp = cp.get_array_module(image)
 
     if OriginalShape is not None:
@@ -1400,10 +1404,9 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
                                                                                                                  :, :]
 
     if not Width == NewWidth:
-        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal,
-                                   use_cp=use_cp, return_numpy=False)
+        LeftBorder = GenRandomData(NewHeight, PaddedImageXOffset, ImageMedian, ImageStdDev, MinVal, MaxVal,  return_numpy=False)
         RightBorder = GenRandomData(NewHeight, NewWidth - (Width + PaddedImageXOffset), ImageMedian, ImageStdDev,
-                                    MinVal, MaxVal, use_cp=use_cp, return_numpy=False)
+                                    MinVal, MaxVal, return_numpy=False)
 
         PaddedImage[:, 0:PaddedImageXOffset] = LeftBorder
         PaddedImage[:, Width + PaddedImageXOffset:] = RightBorder
@@ -1412,10 +1415,10 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
         del RightBorder
 
     if not Height == NewHeight:
-        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal, use_cp=use_cp,
+        TopBorder = GenRandomData(PaddedImageYOffset, Width, ImageMedian, ImageStdDev, MinVal, MaxVal,
                                   return_numpy=False)
         BottomBorder = GenRandomData(NewHeight - (Height + PaddedImageYOffset), Width, ImageMedian, ImageStdDev, MinVal,
-                                     MaxVal, use_cp=use_cp, return_numpy=False)
+                                     MaxVal, return_numpy=False)
 
         PaddedImage[0:PaddedImageYOffset, PaddedImageXOffset:PaddedImageXOffset + Width] = TopBorder
         PaddedImage[PaddedImageYOffset + Height:, PaddedImageXOffset:PaddedImageXOffset + Width] = BottomBorder

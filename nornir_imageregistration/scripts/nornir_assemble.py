@@ -105,13 +105,18 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath, use_cp=Args.use_cp)
+    if Args.use_cp:
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+    else:
+        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
     
     mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic, Args.tilepath,
                                                                              image_to_source_space_scale = 1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
 
-    (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(usecluster=not Args.use_cp, use_cp=Args.use_cp,
+    (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(usecluster=False,
                                                                 target_space_scale=Args.scalar)
 
     output_dirname = os.path.dirname(Args.outputpath)

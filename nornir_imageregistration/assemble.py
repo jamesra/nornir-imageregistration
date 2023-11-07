@@ -174,7 +174,7 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
     """
 
     xp = cp.get_array_module(coords)
-    use_cp = isinstance(coords, cp.ndarray)
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
     if isinstance(origin, int):
         adjusted_origin = np.array((origin, origin), dtype=np.int32)
@@ -274,8 +274,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                output_origin: NDArray[int] | tuple[int, int] | None,
                                output_area: NDArray[int] | tuple[float, float],
                                cval=0,
-                               return_shared_memory: bool = False,
-                               use_cp: bool = False):
+                               return_shared_memory: bool = False):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -288,6 +287,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :param use_cp: Use CuPy library for GPU processing
     """
 
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
     xp = cp if use_cp else np
     sp = cupyx.scipy if use_cp else scipy
 
@@ -514,17 +514,17 @@ def TargetImageToSourceSpace(transform: ITransform,
 
 
 def WarpedImageToFixedSpace(transform: ITransform, DataToTransform, botleft=None, area=None, cval=None,
-                            extrapolate=False, use_cp: bool = False):
+                            extrapolate=False):
     warnings.warn("WarpedImageToFixedSpace should be replaced with TargetImageToSourceSpace", DeprecationWarning)
     return SourceImageToTargetSpace(transform, DataToTransform, output_botleft=None, output_area=None, cval=None,
-                                    extrapolate=False, use_cp=use_cp)
+                                    extrapolate=False)
 
 
 def SourceImageToTargetSpace(transform: ITransform,
                              DataToTransform,
                              output_botleft: NDArray | tuple[float, float] | None = None,
                              output_area: NDArray | tuple[float, float] | None = None,
-                             cval=None, extrapolate=False, use_cp: bool = False, return_shared_memory: bool = False):
+                             cval=None, extrapolate=False, return_shared_memory: bool = False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :param output_shape: shape of the output image
@@ -532,7 +532,6 @@ def SourceImageToTargetSpace(transform: ITransform,
     :param output_botleft: Origin of region to map data into, in target space coordinates
     :param output_area: Area of region to map data into, in target space coordinates
     :param cval: Value to place in unmappable regions, defaults to zero.
-    :param bool use_cp: Use CuPy library for GPU processing
     :Param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :Param FixedImageArea: Size of fixed space region to map pixels into
     :Param DataToTransform: Images to read pixel values from while creating fixed space images.  A list of images can be passed to map multiple images using the same coordinates.  A list may contain filename strings or numpy.ndarrays
@@ -542,6 +541,7 @@ def SourceImageToTargetSpace(transform: ITransform,
     :param bool extrapolate: If true map points that fall outside the bounding box of the transform
     """
 
+    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)
 
     if output_botleft is None:
@@ -596,7 +596,7 @@ def SourceImageToTargetSpace(transform: ITransform,
         for i, wi in enumerate(ImagesToTransform):
             fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft,
                                             output_area=output_area, cval=cval[i],
-                                            return_shared_memory=return_shared_memory, use_cp=use_cp)
+                                            return_shared_memory=return_shared_memory)
             output_list.append(fi)
             # nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
@@ -604,12 +604,12 @@ def SourceImageToTargetSpace(transform: ITransform,
     else:
         result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform,
                                             output_origin=output_botleft, output_area=output_area, cval=cval,
-                                            return_shared_memory=return_shared_memory, use_cp=use_cp)
+                                            return_shared_memory=return_shared_memory)
         # nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
 
 
-def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform, use_cp: bool = False):
+def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform):
     """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
     :param use_cp: Use CuPy library for GPU processing
@@ -621,10 +621,10 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
         if not os.path.exists(transformData):
             raise ValueError("transformData is not a valid path to a .stos file %s" % transformData)
         stos = nornir_imageregistration.StosFile.Load(transformData)
-        stostransform = factory.LoadTransform(stos.Transform, use_cp=use_cp)
+        stostransform = factory.LoadTransform(stos.Transform)
     elif isinstance(transformData, nornir_imageregistration.StosFile):
         stos = transformData.Transform
-        stostransform = factory.LoadTransform(stos.Transform, use_cp=use_cp)
+        stostransform = factory.LoadTransform(stos.Transform)
     elif isinstance(transformData, ITransform):
         stostransform = transformData
 
@@ -632,7 +632,7 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
 
 
 def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=None, warpedImage=None,
-                  scalar: float = 1.0, CropUndefined: bool = False, use_cp: bool = False):
+                  scalar: float = 1.0, CropUndefined: bool = False):
     """Assembles an image based on the passed transform.
     :param transformData:
     :param OutputFilename:
@@ -640,11 +640,10 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
     :param str warpedImage: Image we will warp into fixed space, either a string or ndarray
     :param float scalar: Amount to scale the transform before passing the image through
     :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
-    :param bool use_cp: Use CuPy library for GPU processing
     """
 
     stos = None
-    stostransform = ParameterToStosTransform(transformData, use_cp=use_cp)
+    stostransform = ParameterToStosTransform(transformData)
 
     if fixedImage is None:
         if stos is None:
@@ -667,7 +666,7 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
 
     stostransform.Scale(scalar)
 
-    # warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined, use_cp=use_cp)
+    # warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)

@@ -232,7 +232,6 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
     def AssembleImage(self, FixedRegion: nornir_imageregistration.Rectangle | None = None,
                       usecluster: bool = False,
-                      use_cp: bool = False,
                       target_space_scale: float | None = None) -> np.typing.NDArray:
         """Create a single image of the mosaic for the requested region.
         :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
@@ -240,7 +239,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param use_cp: use CuPy library for GPU processing
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         """
-
+        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
         usecluster = False if use_cp else usecluster
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
@@ -266,11 +265,10 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         else:
             # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
             return nornir_imageregistration.assemble_tiles.TilesToImage(self,
-                                                                        use_cp=use_cp,
                                                                         TargetRegion=FixedRegion,
                                                                         target_space_scale=target_space_scale)
 
-    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True, use_cp=False,
+    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True,
                                target_space_scale=None,
                                source_space_scale=None):
         """
@@ -282,6 +280,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         """
+
+        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
 
         # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes
         if tile_dims is None:
@@ -352,7 +352,6 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
             (working_image, _mask) = self.AssembleImage(
                 FixedRegion=fixed_region,
                 usecluster=usecluster,
-                use_cp=use_cp,
                 target_space_scale=target_space_scale)
             # source_space_scale=source_space_scale)
 

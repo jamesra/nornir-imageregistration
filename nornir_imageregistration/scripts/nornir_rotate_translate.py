@@ -98,8 +98,7 @@ def Execute(ExecArgs=None):
                                             stosArgs.ControlMask,
                                             stosArgs.WarpedMask,
                                             MinOverlap=Args.min_overlap,
-                                            TestFlip=Args.testflip,
-                                            use_cp=Args.use_cp)
+                                            TestFlip=Args.testflip)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,

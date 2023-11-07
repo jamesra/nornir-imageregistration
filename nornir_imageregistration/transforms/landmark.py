@@ -269,7 +269,7 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         return nornir_imageregistration.transforms.factory._MeshTransformToIRToolsString(self, self.MappedBoundingBox)
 
     def Load(self, TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing, use_cp=True)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     @classmethod
     def load(cls, variableParams, fixedParams):
@@ -522,7 +522,7 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         return nornir_imageregistration.transforms.factory._MeshTransformToIRToolsString(self, self.MappedBoundingBox)
 
     def Load(self, TransformString, pixelSpacing=None):
-        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing, use_cp=False)
+        return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
     @classmethod
     def load(cls, variableParams, fixedParams):
