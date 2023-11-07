@@ -243,6 +243,8 @@ def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDAr
 
     return points
 
+import nornir_imageregistration.computational_lib
+from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationalLib, SetActiveComputationalLib
 
 import nornir_shared.mathhelper
 from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
@@ -329,5 +331,5 @@ from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
-__all__ = ['image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
+__all__ = ['HasCupy', 'image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']

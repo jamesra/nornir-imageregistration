@@ -13,9 +13,18 @@ import warnings
 import weakref
 
 from PIL import Image
-import cupy as cp
-import cupyx
-import cupyx.scipy.ndimage
+
+#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+try:
+    import cupy as cp
+    import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
@@ -47,7 +56,6 @@ __known_shared_memory_allocations = {}  # type: dict[str, (shared_memory.SharedM
 #    __known_shared_memory_allocations.clear()
 
 # from memory_profiler import profile
-
 
 def ravel_index(idx: NDArray, shp: NDArray):
     """
