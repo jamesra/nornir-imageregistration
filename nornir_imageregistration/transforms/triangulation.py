@@ -366,11 +366,11 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     @property
     def FixedTriangles(self):
-        return self.fixedtri.vertices
+        return self.fixedtri.simplices
 
     @property
     def WarpedTriangles(self):
-        return self.warpedtri.vertices
+        return self.warpedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
         '''Centroids of fixed triangles'''
@@ -770,11 +770,11 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     @property
     def FixedTriangles(self):
-        return self.fixedtri.vertices
+        return self.fixedtri.simplices
 
     @property
     def WarpedTriangles(self):
-        return self.warpedtri.vertices
+        return self.warpedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
         '''Centroids of fixed triangles'''
