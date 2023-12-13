@@ -16,6 +16,14 @@ from nornir_imageregistration.transforms.base import ITransform
 
 from nornir_shared.mathhelper import NearestPowerOfTwo
 
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+except ImportError:
+    import cupy_thunk as cp
+
+
 
 def build_coords_array(grid_dims: NDArray[int]) -> NDArray[int]:
     """
@@ -106,6 +114,8 @@ class GridDivisionBase(IGrid):
     def PopulateTargetPoints(self, transform: ITransform):
         if transform is not None:
             self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(float, copy=False)
+            if cp.get_array_module(self.TargetPoints) == cp:
+                self._TargetPoints = self._TargetPoints.get()
             return self._TargetPoints
 
     def RemoveMaskedPoints(self, mask: NDArray[bool]):
@@ -133,6 +143,8 @@ class GridDivisionBase(IGrid):
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
         """
 
+        xp = cp.get_array_module(points)
+        
         if points.shape[0] == 0:
             raise ValueError("points must have non-zero length")
 
@@ -140,10 +152,10 @@ class GridDivisionBase(IGrid):
             min_unmasked_area = 0
 
         cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
-        half_cell = (self._cell_size / 2.0).astype(np.int32, copy=False)
-        cell_area = np.prod(self._cell_size)
+        half_cell = self._cell_size / 2.0
+        cell_area = xp.prod(self._cell_size)
 
-        origins = points - half_cell
+        origins = points - xp.asarray(half_cell, dtype=np.int32)
 
         for iRow in range(0, points.shape[0]):
             o = origins[iRow, :]
@@ -152,7 +164,7 @@ class GridDivisionBase(IGrid):
                                                       int(o[1]), int(o[0]),
                                                       int(self._cell_size[1]), int(self._cell_size[0]),
                                                       cval=False)
-            cell_true_count[iRow] = np.count_nonzero(cell)
+            cell_true_count[iRow] = xp.count_nonzero(cell)
 
         overlaps = cell_true_count / float(cell_area)
         valid = overlaps > min_unmasked_area
@@ -189,12 +201,14 @@ class GridDivisionBase(IGrid):
                                         np.all(self._TargetPoints < target_shape, 1))
         self.RemoveMaskedPoints(valid_inbounds)
 
-    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray):
+    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray): 
+        xp = cp.get_array_module(self._SourcePoints)
+        
         if source_shape is None:
-            source_shape = self._source_shape
+            source_shape = xp.asarray(self._source_shape)
 
-        valid_inbounds = np.logical_and(np.all(self._SourcePoints >= np.asarray((0, 0)), 1),
-                                        np.all(self._SourcePoints < source_shape, 1))
+        valid_inbounds = xp.logical_and(xp.all(self._SourcePoints >= xp.asarray((0, 0)), 1),
+                                        xp.all(self._SourcePoints < source_shape, 1))
         self.RemoveMaskedPoints(valid_inbounds)
 
 
@@ -284,7 +298,7 @@ class CenteredGridDivision(GridDivisionBase):
         :param grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
         """
         super(CenteredGridDivision, self).__init__()
-
+          
         self._cell_size = np.asarray(cell_size, np.int32)
         source_shape = np.asarray(source_shape, np.int64)
 
@@ -318,10 +332,11 @@ class CenteredGridDivision(GridDivisionBase):
         self._SourcePoints -= overage_adjustment
         # self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
 
-        self._source_shape = source_shape
+        self._source_shape = source_shape 
 
         if self._SourcePoints.shape[0] == 0:
             raise ValueError(
                 "No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
 
+        #self._SourcePoints = cp.asarray(self._SourcePoints) if nornir_imageregistration.UsingCupy() else self._SourcePoints
         self._TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None

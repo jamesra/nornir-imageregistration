@@ -26,7 +26,29 @@ assemble_tiles
 from typing import Iterable
 
 from PIL import Image
+import numpy as np
 import numpy.typing
+from numpy.typing import NDArray, DTypeLike
+
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+except ImportError:
+    import cupy_thunk as cp
+
+
+
+# Disable decompression bomb protection since we are dealing with huge images on purpose
+Image.MAX_IMAGE_PIXELS = None
+
+import collections.abc
+
+import matplotlib.pyplot as plt
+
+plt.ioff()
+
+from nornir_shared.mathhelper import RoundingPrecision
 
 
 def default_image_dtype():
@@ -43,23 +65,18 @@ def default_depth_image_dtype():
     return np.float32
 
 
-# Disable decompression bomb protection since we are dealing with huge images on purpose
-Image.MAX_IMAGE_PIXELS = None
-
-import collections.abc
-
-import matplotlib.pyplot as plt
-
-plt.ioff()
-
-from nornir_shared.mathhelper import RoundingPrecision
-
 import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
 
 import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
+import nornir_imageregistration.computational_lib
+from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, SetActiveComputationLib, UsingCupy
+
+def GetComputationModule():
+    """Return the computational module in use"""
+    return cp if UsingCupy() else np
 
 def ParamToDtype(param) -> DTypeLike:
     if param is None:
@@ -114,48 +131,14 @@ def IndexOfValues(A, values) -> numpy.typing.NDArray:
     return np.searchsorted(A, values, side='left', sorter=sorter)
 
 
-def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
-    if not isinstance(points, np.ndarray):
-        if not isinstance(points, collections.abc.Iterable):
-            raise ValueError("points must be Iterable")
-
-        if dtype is None:
-            if isinstance(next(iter(points)), int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
-
-        points = np.asarray(points, dtype=dtype)
-    elif dtype is not None:
-        points = points.astype(dtype, copy=False)
-
-    if points.ndim > 1:
-        points = np.ravel(points)
-
-    return points
-
-def EnsurePointsAre1DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
-    if not isinstance(points, cp.ndarray):
-        if not isinstance(points, collections.abc.Iterable):
-            raise ValueError("points must be Iterable")
-
-        if dtype is None:
-            if isinstance(next(iter(points)), int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
-
-        points = cp.asarray(points, dtype=dtype)
-    elif dtype is not None:
-        points = points.astype(dtype, copy=False)
-
-    if points.ndim > 1:
-        points = cp.ravel(points)
-
-    return points
+def EnsureArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        return EnsureCupyArray(points, dtype)
+    else:
+        return EnsureNumpyArray(points, dtype)
 
 
-def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsureNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -165,10 +148,63 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
                 dtype = np.int32
             else:
                 dtype = np.float32
+                
+        if isinstance(points, cp.ndarray):
+            points = points.get()
+            return points.astype(dtype, copy=False)
 
         points = np.asarray(points, dtype=dtype)
     elif dtype is not None:
         points = points.astype(dtype, copy=False)
+  
+    return points
+
+
+def EnsureCupyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if not isinstance(points, cp.ndarray):
+        if not isinstance(points, collections.abc.Iterable):
+            raise ValueError("points must be Iterable")
+
+        if dtype is None:
+            if isinstance(points[0], int):
+                dtype = np.int32
+            else:
+                dtype = np.float32
+                
+        points = cp.asarray(points, dtype=dtype)
+    elif dtype is not None:
+        points = points.astype(dtype, copy=False)
+  
+    return points
+
+
+def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    points = EnsureNumpyArray(points, dtype)
+
+    if points.ndim > 1:
+        points = np.ravel(points)
+
+    return points
+
+def EnsurePointsAre1DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    points = EnsureCupyArray(points, dtype)
+
+    if points.ndim > 1:
+        points = cp.ravel(points)
+
+    return points
+
+
+def EnsurePointsAre1DArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        return EnsurePointsAre1DCuPyArray(points, dtype)
+    else:
+        return EnsurePointsAre1DNumpyArray(points, dtype)
+
+
+
+def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    points = EnsureNumpyArray(points, dtype)
 
     if points.ndim == 1:
         points = np.resize(points, (1, 2))
@@ -177,19 +213,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
 
 
 def EnsurePointsAre2DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
-    if not isinstance(points, cp.ndarray):
-        if not isinstance(points, collections.abc.Iterable):
-            raise ValueError("points must be Iterable")
-
-        if dtype is None:
-            if isinstance(points[0], int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
-
-        points = cp.asarray(points, dtype=dtype)
-    elif dtype is not None:
-        points = points.astype(dtype, copy=False)
+    points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
         points = cp.resize(points, (1, 2))
@@ -197,20 +221,16 @@ def EnsurePointsAre2DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArra
     return points
 
 
+def EnsurePointsAre2DArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        return EnsurePointsAre2DCuPyArray(points, dtype)
+    else:
+        return EnsurePointsAre2DNumpyArray(points, dtype)
+
+
+
 def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
-    if not isinstance(points, np.ndarray):
-        if not isinstance(points, collections.abc.Iterable):
-            raise ValueError("points must be Iterable")
-
-        if dtype is None:
-            if isinstance(points[0], int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
-
-        points = np.asarray(points, dtype=dtype)
-    elif dtype is not None:
-        points = points.astype(dtype, copy=False)
+    points = EnsureNumpyArray(points, dtype)
 
     if points.ndim == 1:
         points = np.resize(points, (1, 4))
@@ -221,19 +241,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
     return points
 
 def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
-    if not isinstance(points, cp.ndarray):
-        if not isinstance(points, collections.abc.Iterable):
-            raise ValueError("points must be Iterable")
-
-        if dtype is None:
-            if isinstance(points[0], int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
-
-        points = cp.asarray(points, dtype=dtype)
-    elif dtype is not None:
-        points = points.astype(dtype, copy=False)
+    points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
         points = cp.resize(points, (1, 4))
@@ -243,8 +251,13 @@ def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDAr
 
     return points
 
-import nornir_imageregistration.computational_lib
-from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationalLib, SetActiveComputationalLib
+
+def EnsurePointsAre4xN_Array(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        return EnsurePointsAre4xN_CuPyArray(points, dtype)
+    else:
+        return EnsurePointsAre4xN_NumpyArray(points, dtype)
+
 
 import nornir_shared.mathhelper
 from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision

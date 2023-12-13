@@ -5,6 +5,7 @@ Created on Mar 25, 2013
 '''
 import unittest
 import os
+import math
 
 import hypothesis
 from pylab import *

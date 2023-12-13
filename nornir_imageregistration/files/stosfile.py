@@ -312,17 +312,17 @@ class StosFile(object):
 
         return obj
 
+
+
     @staticmethod
     def IsValid(filename) -> bool:
         '''#If stos-grid completely fails it uses the maximum float value for each data point.  This function loads the transform and ensures it is valid'''
 
-        if not os.path.exists(filename):
-            return False
-
-        stos = StosFile.Load(filename)
-
         try:
+            stos = StosFile.Load(filename)
             Transform = nornir_imageregistration.transforms.LoadTransform(stos.Transform, pixelSpacing=1)
+        except FileNotFoundError:
+            return False
         except:
             return False
 

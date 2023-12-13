@@ -7,7 +7,15 @@ Created on Oct 18, 2012
 import logging
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    #import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 from numpy.typing import NDArray
 import scipy
 import scipy.spatial
@@ -124,7 +132,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         method = kwargs.get('method', 'linear')
 
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
         try:
             transPoints = self.InverseInterpolator(points).astype(np.float32, copy=False)

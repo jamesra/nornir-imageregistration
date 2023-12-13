@@ -10,7 +10,16 @@ from collections.abc import Iterable
 from typing import Sequence
 
 import numpy as np
-import cupy as cp
+
+try:
+    import cupy as cp
+    #import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.spatial import *
@@ -167,7 +176,7 @@ def SplitTransform(transformstring):
     return transformName, FixedParts, VariableParts
 
 
-def LoadTransform(Transform, pixelSpacing=None):
+def LoadTransform(Transform: str, pixelSpacing: float | None = None):
     '''Transform is a string from either a stos or mosiac file'''
 
     parts = Transform.split()
@@ -190,11 +199,11 @@ def LoadTransform(Transform, pixelSpacing=None):
     raise ValueError(f"LoadTransform was passed an unknown transform type: {transformType}")
 
 
-def ParseGridTransform(parts, pixelSpacing=None):
+def ParseGridTransform(parts, pixelSpacing: float | None = None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -247,11 +256,11 @@ def ParseGridTransform(parts, pixelSpacing=None):
     return T
 
 
-def ParseMeshTransform(parts, pixelSpacing=None):
+def ParseMeshTransform(parts, pixelSpacing: float | None = None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -281,13 +290,13 @@ def ParseMeshTransform(parts, pixelSpacing=None):
     return T
 
 
-def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
+def ParseLegendrePolynomialTransform(parts, pixelSpacing: float | None = None):
     # Example: LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 10770 -10770 2040 2040
 
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
@@ -298,11 +307,8 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     # if VariableParameters[0]
     if not np.array_equal(np.array(VariableParameters), np.array([1, 0, 1, 1, 1, 0])):
         raise ValueError("We don't support anything but translation from polynomial transforms")
-
-    if use_cp:
-        return nornir_imageregistration.transforms.RigidNoRotation_GPU(target_offset)
-    else:
-        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+ 
+    return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
 
     # # We don't support anything but translation from this transform at the moment:
     # # assert(VariableParameters == [1, 0, 1, 1, 1, 0])  # Sequence for transform only transformation
@@ -325,14 +331,14 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing=None):
     #     PointPairs.append((ControlY, ControlX, mappedY, mappedX))
     #
     # T = nornir_imageregistration.transforms.MeshWithRBFFallback(PointPairs)
-    return T
+    #return T
 
 
-def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float = None):
+def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: float | None = None):
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     # FixedCenterOfRotationAffineTransform_double_2_2 vp 8 0.615661 -0.788011 0.788011 0.615661 -7.60573 -17.8375 5.26637e-67 3.06321e-322 fp 2 122 61
 
@@ -362,16 +368,25 @@ def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: fl
                                                                      post_transform_translation=post_transform_translation)
 
 
-def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = None):
+def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = None, negate_angle: bool = False):
+    """
+    :param parts:
+    :param pixelSpacing:
+    :param negate_angle: Before 11/28/2023 the angle values were inverted.  This flag allows us to support both formats.
+    :return:
+    """
     # Example: Rigid2DTransform_double_2_2 vp 3 0 0 0 fp 2 0 0
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
-    angle = -float(VariableParameters[0])  # We negate angle to be compatible with ITK
+    angle = float(VariableParameters[0])  # We negate angle to be compatible with ITK
+    if negate_angle:
+        angle = -angle
+
     xoffset = float(VariableParameters[1])
     yoffset = float(VariableParameters[2])
 
@@ -380,33 +395,27 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
 
     target_offset = (yoffset, xoffset)
 
-    if use_cp:
-        if angle == 0:
-            return nornir_imageregistration.transforms.RigidNoRotation_GPU(target_offset)
-        else:
-            return nornir_imageregistration.transforms.Rigid_GPU(target_offset=target_offset,
-                                                             source_rotation_center=(y_center, x_center),
-                                                             angle=angle)
+    if angle == 0:
+        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
     else:
-        if angle == 0:
-            return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
-        else:
-            return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
-                                                             source_rotation_center=(y_center, x_center),
-                                                             angle=angle)
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
+                                                         source_rotation_center=(y_center, x_center),
+                                                         angle=angle)
 
 
-def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
+def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing: float | None = None, negate_angle: bool = False):
     # Example: CenteredSimilarity2DTransform_double_2_2 vp 6 0 0 0 0 0 0
     if pixelSpacing is None:
         pixelSpacing = 1.0
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     (VariableParameters, FixedParameters) = __ParseParameters(parts)
 
     scale = float(VariableParameters[0])
     angle = -float(VariableParameters[1])  # We negate angle to be compatible with ITK
+    if negate_angle:
+        angle = -angle
     x_center = float(VariableParameters[2])
     y_center = float(VariableParameters[3])
     xoffset = float(VariableParameters[4])
@@ -415,36 +424,23 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing=None):
     target_offset = (yoffset, xoffset)
     source_center = (y_center, x_center)
 
-    if use_cp:
-        if scale == 1.0 and angle == 0:
-            return nornir_imageregistration.transforms.RigidNoRotation_GPU(target_offset)
-        elif scale == 1.0:
-            return nornir_imageregistration.transforms.Rigid_GPU(target_offset=target_offset,
-                                                             source_rotation_center=source_center,
-                                                             angle=angle)
-        else:
-            return nornir_imageregistration.transforms.CenteredSimilarity2DTransform_GPU(target_offset=target_offset,
-                                                                                     source_rotation_center=source_center,
-                                                                                     angle=angle,
-                                                                                     scale=scale)
+    if scale == 1.0 and angle == 0:
+        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+    elif scale == 1.0:
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
+                                                        source_rotation_center=source_center,
+                                                        angle=angle)
     else:
-        if scale == 1.0 and angle == 0:
-            return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
-        elif scale == 1.0:
-            return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
-                                                             source_rotation_center=source_center,
-                                                             angle=angle)
-        else:
-            return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
-                                                                                     source_rotation_center=source_center,
-                                                                                     angle=angle,
-                                                                                     scale=scale)
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
+                                                                                source_rotation_center=source_center,
+                                                                                angle=angle,
+                                                                                scale=scale)
 
 
 def __CorrectOffsetForMismatchedImageSizes(
         offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
-        FixedImageShape: NDArray[int],
-        MovingImageShape: NDArray[int],
+        target_image_shape: NDArray[int],
+        source_image_shape: NDArray[int],
         scale: float = 1.0) -> tuple[float, float]:
     '''
     :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
@@ -458,11 +454,11 @@ def __CorrectOffsetForMismatchedImageSizes(
     elif not isinstance(scale, Iterable):
         raise NotImplementedError("Unsupported type")
 
-    return (offset[0] + ((FixedImageShape[0] - MovingImageShape[0] * scale[0]) / 2.0),
-            offset[1] + ((FixedImageShape[1] - MovingImageShape[1] * scale[1]) / 2.0))
+    return (offset[0] + ((target_image_shape[0] - source_image_shape[0] * scale[0]) / 2.0),
+            offset[1] + ((target_image_shape[1] - source_image_shape[1] * scale[1]) / 2.0))
 
 
-def CreateRigidTransform(warped_offset, rangle: float, target_image_shape, source_image_shape, flip_ud: bool = False):
+def CreateRigidTransform(warped_offset, rangle: float, target_image_shape: NDArray, source_image_shape: NDArray, flip_ud: bool = False):
     '''Returns a transform, the fixed image defines the boundaries of the transform.
        The warped image '''
 
@@ -572,7 +568,8 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[float],
                                     flip_ud: bool = False,
                                     scale: float = 1.0) -> NDArray[float]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
-       Flip, if requested, is performed before the rotation and translation
+       Flip, if requested, is performed before the rotation and translation.
+       
     :param flip_ud:
     :param tuple size: (Height, Width)
     :param float rangle: Angle in radians
@@ -581,6 +578,9 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[float],
     :return: Nx2 array of points [[BotLeft], [BotRight], [TopLeft],  [TopRight]]
     :rtype: numpy.ndarray
     '''
+    
+    if scale is not None and scale != 1.0:
+        raise NotImplementedError('scale')
 
     # The corners of an X,Y image that starts at 0,0 are located at X-1,Y-1.  So we subtract one from the size
     size = np.array(size, int)  # - np.array((1, 1))

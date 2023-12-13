@@ -514,7 +514,7 @@ def _FindTileOffsets(tile_overlaps, excess_scalar, image_to_source_space_scale=N
 
     # _CalculateImageFFTs(tiles)
 
-    if len(tile_overlaps) == 1:
+    if len(tile_overlaps) == 1 or nornir_imageregistration.UsingCupy():
         pool = nornir_pools.GetGlobalSerialPool()
     else:
         pool = nornir_pools.GetGlobalMultithreadingPool()

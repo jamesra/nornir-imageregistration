@@ -418,7 +418,7 @@ class TestLayout(setup_imagetest.TestBase):
         np.testing.assert_array_almost_equal_nulp(layout.average_center, expected_center)
 
         # 50% of the tiles are candidates to be linked, create layouts for each independent region
-        create_offset = np.random.random_integers(0, 1, grid_dims).astype(np.bool)
+        create_offset = np.random.random_integers(0, 1, grid_dims).astype(bool)
 
         # nornir_imageregistration.ShowGrayscale(create_offset, title="Offset bitmask")
 
@@ -436,8 +436,8 @@ class TestLayout(setup_imagetest.TestBase):
 
                     tile_offset_dict[(tileID, adjID)] = (adj - np.array((iRow, iCol))) * tile_dims
 
-        added_to_layout = np.zeros(grid_dims, dtype=np.bool)
-        checked_mask = np.zeros(grid_dims, dtype=np.bool)
+        added_to_layout = np.zeros(grid_dims, dtype=bool)
+        checked_mask = np.zeros(grid_dims, dtype=bool)
         layout_lists = []
 
         for iRow in range(0, num_rows):
@@ -451,7 +451,7 @@ class TestLayout(setup_imagetest.TestBase):
                 layout = nornir_imageregistration.layout.Layout()
                 layout_lists.append(layout)
 
-                for adj in TestLayout.flood_fill(create_offset, np.array((iRow, iCol), dtype=np.int), added_to_layout):
+                for adj in TestLayout.flood_fill(create_offset, np.array((iRow, iCol), dtype=int), added_to_layout):
                     iAdj = (adj[0] * num_cols) + adj[1]
                     position = adj * tile_dims
                     layout.CreateNode(int(iAdj), position, tile_dims)
@@ -497,7 +497,7 @@ class TestLayout(setup_imagetest.TestBase):
         """
 
         if checked_mask is None:
-            checked_mask = np.zeros(bit_mask.shape, dtype=np.bool)
+            checked_mask = np.zeros(bit_mask.shape, dtype=bool)
 
         key = tuple(origin)
         checked_mask[key] = True

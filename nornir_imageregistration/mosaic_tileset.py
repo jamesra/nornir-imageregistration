@@ -239,7 +239,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param use_cp: use CuPy library for GPU processing
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         """
-        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         usecluster = False if use_cp else usecluster
 
         # Left off here, I need to split this function so that FixedRegion has a consistent meaning
@@ -281,7 +281,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         """
 
-        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
         # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes
         if tile_dims is None:

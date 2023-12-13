@@ -11,7 +11,16 @@ from typing import Sequence
 
 import numpy
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    #import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+
 from PIL import Image
 from numpy.typing import NDArray, DTypeLike
 from pylab import ceil, mod
@@ -120,17 +129,17 @@ class ImageStats:
         else:
             # flatImage = image.ravel() if use_cp else image.flat
             flatImage = xp.ravel(image)
-            obj._median = xp.median(flatImage)
-            obj._mean = xp.mean(flatImage)
-            obj._std = xp.std(flatImage)
-            obj._max = xp.max(flatImage)
-            obj._min = xp.min(flatImage)
+            obj._median = float(xp.median(flatImage)) 
+            obj._mean = float(xp.mean(flatImage))
+            obj._std = float(xp.std(flatImage))
+            obj._max = float(xp.max(flatImage))
+            obj._min = float(xp.min(flatImage))
             del flatImage
 
         #        image.__IrtoolsImageStats__ = obj
         return obj
 
-    def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike, return_numpy: bool = True):
+    def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike):
         '''
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
@@ -158,17 +167,12 @@ class ImageStats:
             width = shape[1] if not one_d_result else 1
             size = int(shape) if one_d_result else shape.shape
 
-        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
-        if use_cp:
-            use_cp = width * height > 4092
+        use_cp = nornir_imageregistration.UsingCupy() 
 
         xp = cp if use_cp else numpy
         data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
-
-        if return_numpy and use_cp:
-            return data.get()
-
+  
         return data
 
 

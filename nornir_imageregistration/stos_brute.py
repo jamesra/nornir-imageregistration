@@ -6,11 +6,20 @@ Created on Oct 4, 2012
 import multiprocessing
 import multiprocessing.sharedctypes
 from time import sleep
-
-import cupy as cp
-import cupyx
 import numpy as np
 from numpy.typing import NDArray
+
+#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+try:
+    import cupy as cp
+    import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+
 
 import nornir_imageregistration
 import nornir_pools
@@ -43,7 +52,7 @@ def SliceToSliceBruteForce(FixedImageInput,
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
        '''
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     if AngleSearchRange is not None:
         if isinstance(AngleSearchRange, np.ndarray):
@@ -186,7 +195,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
     imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original,
                                                                dtype=nornir_imageregistration.default_image_dtype())
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
     # Use of cupy or numpy
     xp = cp.get_array_module(imFixed_original)
     # Use of cupyx.scipy.fft or scipy.fft
@@ -214,7 +223,7 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
             imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(
                 imWarped.dtype, copy=False)  # Numpy cannot rotate float16 images
         imWarpedEmptyIndicies = xp.isnan(imWarped)
-        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype, return_numpy=not use_cp)
+        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
         OKToDelimWarped = True
 
     RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median,
@@ -326,7 +335,7 @@ def _find_best_angle(imFixed: NDArray[float],
 
     Debug = False
     pool = None
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
     use_cluster = False

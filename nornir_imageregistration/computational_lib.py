@@ -1,13 +1,17 @@
-__all__ = ['ComputationLib', 'HasCupy', 'GetActiveComputationalLib', 'SetActiveComputationalLib']
+__all__ = ['ComputationLib', 'HasCupy', 'UsingCupy', 'GetActiveComputationLib', 'SetActiveComputationLib']
 
 from enum import Enum
+import multiprocessing
+import numpy as np
 
 class ComputationLib(Enum):
     numpy = 0
     cupy = 1
 
 _has_cupy = False # type: bool
-_active_lib = None
+
+# If we are in a child process, we use numpy, GPU processing currently runs on a single process
+_active_lib = None if multiprocessing.parent_process() is None else ComputationLib.numpy # type: ComputationLib
 
 try:
     import cupy as cp
@@ -26,17 +30,23 @@ def HasCupy() -> bool:
     """Return true if cupy is available"""
     return cp is None
 
-def SetActiveComputationalLib(lib: ComputationLib):
+def UsingCupy() -> bool:
+    return _active_lib == ComputationLib.cupy
+
+def SetActiveComputationLib(lib: ComputationLib):
     """Set the active computational library"""
     global _active_lib
 
     if lib == ComputationLib.cupy and not _has_cupy:
         raise ModuleNotFoundError("Cupy is not available")
 
+    if lib == ComputationLib.cupy and multiprocessing.parent_process() is not None:
+        raise RuntimeError("Cupy untested in a child process")
+
     _active_lib = lib
 
 
-def GetActiveComputationalLib() -> ComputationLib:
+def GetActiveComputationLib() -> ComputationLib:
     """Get the active computational library"""
     global _active_lib
     return _active_lib

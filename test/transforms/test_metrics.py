@@ -90,7 +90,8 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         # interp_cubic_min_E = mtri.CubicTriInterpolator(plotTriangulation, measurement, kind='min_E')
         # zi_cubic_min_E = interp_cubic_min_E(xi, yi)
 
-        fig1, ax1 = plt.subplots()
+        fig1, axes = plt.subplots(ncols=2)
+        ax1 = axes[0]
         ax1.set_aspect('equal')
         # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
         tpc = ax1.tripcolor(points[:, 1], points[:, 0], transform.FixedTriangles, measurement, vmin=0, vmax=maxVal,
@@ -101,13 +102,15 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         ax1.set_title(
             'Normalized mean difference in internal triangle angles for each vertex from control to warped space')
         # ax1.invert_yaxis()
-        plt.show()
+        
 
         h = nornir_shared.histogram.Histogram.Init(0, maxVal, int(numpy.sqrt(transform.NumControlPoints) * numpy.log(
             transform.NumControlPoints)))
         h.Add(measurement)
 
-        nornir_shared.plot.Histogram(h)
+        nornir_shared.plot.Histogram(h, axes=axes[1])
+        
+        plt.show()
 
         pass
 
@@ -123,8 +126,9 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
 
         img = scipy.interpolate.griddata(self.transform.SourcePoints, measurement, (grid_x, grid_y), method='cubic',
                                          fill_value=0)
+        img /= img.max()
 
-        self.assertTrue(nornir_imageregistration.ShowGrayscale([img], title='An image showing transform warp metric',
+        self.assertTrue(nornir_imageregistration.ShowGrayscale((img), title='An image showing transform warp metric',
                                                                PassFail=True))
 
 

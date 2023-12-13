@@ -5,9 +5,20 @@ Created on Oct 18, 2012
 """
 
 import numpy
-import cupy as cp
+try:
+    import cupy as cp
+    from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+
+    #import cupyx
+    #from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+    #from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 import scipy.spatial
-from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
 from scipy.interpolate import RegularGridInterpolator as RegularGridInterpolator
 from numpy.typing import NDArray
 
@@ -93,7 +104,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
             return TransformedPoints
@@ -129,7 +140,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
             return TransformedPoints
@@ -374,7 +385,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         self._discrete_transform.OnWarpedPointChanged()
         self.OnTransformChanged()
 
-    def Transform(self, points: NDArray[float], return_cp: bool = False, **kwargs) -> NDArray[float]:
+    def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
@@ -383,26 +394,17 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
         if points.shape[0] == 0:
-            if return_cp:
-                return cp.empty((0, 2), dtype=points.dtype)
-            else:
-                return numpy.empty((0, 2), dtype=points.dtype)
+            return cp.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
 
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
         else:
             if len(points) > 1:
                 # print InvalidIndicies;
@@ -417,12 +419,12 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
 
-    def InverseTransform(self, points: NDArray[float], return_cp: bool = False, **kwargs):
+        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to Numpy, so ensure we hand back points on the GPU
+        TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
+        return TransformedPoints
+
+    def InverseTransform(self, points: NDArray[float], **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -433,21 +435,15 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         if points.shape[0] == 0:
             return cp.empty((0, 2), dtype=points.dtype)
 
-        TransformedPoints = self._discrete_transform.InverseTransform(points.get(), return_cp=True)
+        TransformedPoints = self._discrete_transform.InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
 
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
         else:
             if points.ndim > 1:
                 BadPoints = points[InvalidIndicies]
@@ -457,13 +453,13 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
             BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
 
-        FixedPoints = self._continuous_transform.InverseTransform(BadPoints, return_cp=True)
-
+        FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
         TransformedPoints[InvalidIndicies] = FixedPoints
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+
+        #Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to Numpy, so ensure we hand back points on the GPU
+        TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
+        return TransformedPoints
+
 
     def __init__(self,
                  grid: ITKGridDivision):
@@ -730,7 +726,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points, **kwargs):
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
@@ -739,12 +735,9 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
         TransformedPoints = super(GridWithRBFInterpolator_Direct_GPU, self).Transform(points)
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+        return TransformedPoints
 
-    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+    def InverseTransform(self, points, **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -754,10 +747,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
         iTransformedPoints = super(GridWithRBFInterpolator_Direct_GPU, self).InverseTransform(points)
-        if return_cp:
-            return iTransformedPoints
-        else:
-            return iTransformedPoints.get()
+        return iTransformedPoints
 
     def __init__(self, grid: ITKGridDivision):
         """
@@ -1016,7 +1006,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points, **kwargs):
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
@@ -1025,26 +1015,17 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
         if points.shape[0] == 0:
-            if return_cp:
-                return cp.empty((0, 2), dtype=points.dtype)
-            else:
-                return numpy.empty((0, 2), dtype=points.dtype)
+            return cp.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
 
         (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
         else:
             if len(points) > 1:
                 # print InvalidIndicies;
@@ -1059,12 +1040,9 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         FixedPoints = super(GridWithRBFInterpolator_GPU, self).Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+        return TransformedPoints
 
-    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+    def InverseTransform(self, points, **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -1073,10 +1051,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
         iTransformedPoints = super(GridWithRBFInterpolator_GPU, self).InverseTransform(points)
-        if return_cp:
-            return iTransformedPoints
-        else:
-            return iTransformedPoints.get()
+        return iTransformedPoints
 
     def __init__(self, grid: ITKGridDivision):
         """

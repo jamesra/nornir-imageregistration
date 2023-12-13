@@ -2,7 +2,15 @@ from abc import ABCMeta, abstractmethod
 import operator
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    #import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 from numpy.typing import NDArray
 
 import nornir_imageregistration
@@ -74,7 +82,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
     def RemoveDuplicateControlPoints(points: NDArray[float]) -> NDArray[float]:
         '''Returns a copy of the array sorted in fixed space x,y without duplicates'''
 
-        (points, indicies) = utils.InvalidIndicies(points)
+        (points, invalid_indicies, valid_indicies) = utils.InvalidIndicies(points)
 
         # The original implementation returned a sorted array.  I had to remove
         # that behavior because the change in index was breaking the existing

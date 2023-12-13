@@ -5,7 +5,12 @@ Created on Sep 28, 2022
 '''
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+except ImportError:
+    import cupy_thunk as cp
 from numpy.typing import NDArray
 
 import nornir_imageregistration.transforms

@@ -467,8 +467,7 @@ class Rectangle(object):
         :rtype: Rectangle
         """
 
-        if not isinstance(points, np.ndarray):
-            points = np.asarray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         rect = nornir_imageregistration.spatial.BoundingPrimitiveFromPoints(points)
         if not isinstance(rect, Rectangle):

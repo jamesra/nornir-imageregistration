@@ -7,8 +7,15 @@ Created on Apr 4, 2013
 from collections.abc import Iterable
 
 import numpy as np
-import cupy as cp
 from numpy.typing import NDArray
+
+try:
+    import cupy as cp 
+except ModuleNotFoundError:
+    import cupy_thunk as cp 
+except ImportError:
+    import cupy_thunk as cp 
+    
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints
@@ -19,41 +26,28 @@ def InvalidIndicies(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int
     '''Removes rows with a NAN value.
      :return: A flat array with NaN containing rows removed and set of row indicies that were removed
     '''
-
+    
     if points is None:
         raise ValueError("points must not be None")
+    
+    xp = cp.get_array_module(points)
 
     numPoints = points.shape[0]
 
-    nan1D = np.isnan(points).any(axis=1)
+    nan1D = xp.isnan(points).any(axis=1)
 
-    invalidIndicies = np.flatnonzero(nan1D)
-    points = np.delete(points, invalidIndicies, axis=0)
-
-    assert (points.shape[0] + invalidIndicies.shape[0] == numPoints)
-
-    return points, invalidIndicies
-
-
-def InvalidIndicies_GPU(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int]]:
-    '''Removes rows with a NAN value.
-     :return: A flat array with NaN containing rows removed and set of row indicies that were removed
-    '''
-
-    if points is None:
-        raise ValueError("points must not be None")
-
-    points = cp.asarray(points) if not isinstance(points,cp.ndarray) else points
-
-    numPoints = points.shape[0]
-    nan1D = cp.isnan(points).any(axis=1)
-    invalidIndicies = cp.flatnonzero(nan1D)
-    validIndicies = cp.flatnonzero(~nan1D)
-    points = points[validIndicies, :]
+    invalidIndicies = xp.flatnonzero(nan1D)
+    validIndicies = xp.flatnonzero(~nan1D)
+    
+    if xp == np: #If we are using numpy
+        points = xp.delete(points, invalidIndicies, axis=0)
+    else:
+        points = points[validIndicies, :]
 
     assert (points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
     return points, invalidIndicies, validIndicies
+
 
 
 def RotationMatrix(rangle: float) -> NDArray[float]:
@@ -63,8 +57,10 @@ def RotationMatrix(rangle: float) -> NDArray[float]:
     if rangle is None:
         raise ValueError("Angle must not be none")
 
-    rot_mat = np.array([[np.cos(rangle), np.sin(rangle), 0],
-                        [-np.sin(rangle), np.cos(rangle), 0],
+    xp = nornir_imageregistration.GetComputationModule()
+
+    rot_mat = xp.array([[np.cos(rangle), -np.sin(rangle), 0],
+                        [np.sin(rangle), np.cos(rangle), 0],
                         [0, 0, 1]])
 
     return rot_mat
@@ -76,20 +72,6 @@ def RotationMatrix(rangle: float) -> NDArray[float]:
     # result = interchange @ rot_mat
     #
     # return result
-
-
-def RotationMatrix_GPU(rangle: float) -> NDArray[float]:
-    '''
-    :param float rangle: Angle in radians
-    '''
-    if rangle is None:
-        raise ValueError("Angle must not be none")
-
-    rot_mat = cp.array([[np.cos(rangle), np.sin(rangle), 0],
-                        [-np.sin(rangle), np.cos(rangle), 0],
-                        [0, 0, 1]])
-
-    return rot_mat
 
 
 def IdentityMatrix() -> NDArray[float]:
@@ -115,12 +97,13 @@ def ScaleMatrixXY(scale: float) -> NDArray[float]:
     '''
     :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
     '''
+    xp = nornir_imageregistration.GetComputationModule()
     if scale is None:
         raise ValueError("Angle must not be none")
     elif isinstance(scale, float):
-        return np.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
     elif hasattr(scale, "__iter__"):
-        return np.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
+        return xp.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
 
     raise NotImplementedError("Unexpected argument")
 
@@ -129,20 +112,15 @@ def FlipMatrixY() -> NDArray[float]:
     '''
     Flip the Y axis
     '''
-    return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
-
-def FlipMatrixY_GPU() -> NDArray[float]:
-    '''
-    Flip the Y axis
-    '''
-    return cp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
-
+    xp = nornir_imageregistration.GetComputationModule()
+    return xp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 def FlipMatrixX() -> NDArray[float]:
     '''
     Flip the Y axis
     '''
-    return np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
+    xp = nornir_imageregistration.GetComputationModule()
+    return xp.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
 
 
 def BlendWithLinear(transform: IControlPoints,
@@ -235,23 +213,7 @@ def BlendTransforms(transform: IControlPoints,
         output_points = np.append(output_target_points, source_points, 1)
         output = nornir_imageregistration.transforms.MeshWithRBFFallback(output_points)
         return output
-
-
-def PointBoundingRect(points):
-    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
-
-    (minY, minX) = np.min(points, 0)
-    (maxY, maxX) = np.max(points, 0)
-    return minY, minX, maxY, maxX
-
-
-def PointBoundingBox(points):
-    raise DeprecationWarning("Use spatial.BoundsArrayFromPoints")
-
-    (minZ, minY, minX) = np.min(points, 0)
-    (maxZ, maxY, maxX) = np.max(points, 0)
-    return minZ, minY, minX, maxZ, maxY, maxX
-
+  
 
 def FixedOriginOffset(transforms):
     '''
@@ -265,7 +227,7 @@ def FixedOriginOffset(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
         elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
-            mins[i, :] = t.target_offset
+            mins[i, :] = t._target_offset
         elif hasattr(t, 'FixedBoundingBox'):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
         else:
@@ -313,8 +275,8 @@ def FixedBoundingBox(transforms, images=None):
             else:
                 size = nornir_imageregistration.GetImageSize(images[i])
 
-            mbb[i, :2] = t.target_offset
-            mbb[i, 2:] = t.target_offset + size
+            mbb[i, :2] = t._target_offset
+            mbb[i, 2:] = t._target_offset + size
         elif hasattr(t, 'FixedBoundingBox'):
             mbb[i, :] = t.FixedBoundingBox.ToArray()
         else:

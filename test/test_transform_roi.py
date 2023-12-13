@@ -30,7 +30,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         # Shape in numpy is (height, width)
         sourceShape = (2, 6)
         targetShape = sourceShape
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, (0, 0), targetShape)
 
@@ -52,7 +52,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         sourceShape = (2, 6)
         targetShape = sourceShape
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (read_coords, target_coords) = assemble.write_to_target_roi_coords(transform, offset, targetShape)
 
@@ -71,7 +71,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         targetShape = sourceShape
         offset = (0, 0)  # numpy.array(canvasShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
@@ -87,7 +87,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         targetShape = (3, 7)
         offset = (1, 1)  # numpy.array(canvasShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
@@ -104,7 +104,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         targetShape = (6, 3)
         offset = (0, 0)  # numpy.array(targetShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
@@ -122,7 +122,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         targetShape = (5, 5)
         offset = (0, 0)  # numpy.array(targetShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
@@ -144,7 +144,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         offset = (0, 0)  # numpy.array(targetShape) / 2.0
 
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
@@ -166,7 +166,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         offset = (0, 0)  # numpy.array(targetShape) / 2.0
 
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
-        transform = arecord.ToTransform(targetShape, sourceShape)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 

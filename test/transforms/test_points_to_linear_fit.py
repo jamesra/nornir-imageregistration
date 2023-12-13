@@ -87,13 +87,14 @@ class TestGridFitting(unittest.TestCase):
     @staticmethod
     def build_output_points(rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool,
                             points: list[tuple[float, float]], hypothesis_test: bool) -> NDArray[float]:
+        xp = nornir_imageregistration.GetComputationModule()
         R = nornir_imageregistration.transforms.utils.RotationMatrix(rangle)
         # t = np.random.randint(1, 10, size=2)
-        t = np.array(translate)
+        t = xp.array(translate)
         # c = scale
         scale_matrix = nornir_imageregistration.transforms.utils.ScaleMatrixXY(scale)
-        c = np.array((scale, scale, 1.0))
-        points_array = np.array(points)
+        c = xp.array((scale, scale, 1.0))
+        points_array = xp.array(points)
 
         # print(f'Starting angle: {rangle}')
         # print(f'Starting scale: {scale}')
@@ -115,11 +116,11 @@ class TestGridFitting(unittest.TestCase):
         # points2D1 = pts
         num_pts = points_array.shape[0]
         # points2D1 = np.transpose(points_array)
-        points2D1 = np.array(points_array)
-        points2D1 = np.hstack((points2D1, np.ones((num_pts, 1))))
+        points2D1 = xp.array(points_array)
+        points2D1 = xp.hstack((points2D1, xp.ones((num_pts, 1))))
 
         if flip_ud:
-            points2D1 = np.flipud(points2D1)
+            points2D1 = xp.flipud(points2D1)
 
             # points2D1 = np.transpose(points2D1)
         points2D1_scaled = (scale_matrix @ points2D1.T).T

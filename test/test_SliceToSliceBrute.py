@@ -81,37 +81,37 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
             "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
 
     def testStosBrute_SingleThread(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
     def testStosBrute_MultiThread(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, FlipUD=False)
 
     def testStosBrute_Cluster(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True,
                                     FlipUD=False)
 
     def testStosBrute_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
     def testStosBruteWithFlip_SingleThread(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
 
     def testStosBruteWithFlip_MultiThread(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, FlipUD=True)
 
     def testStosBruteWithFlip_Cluster(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, Cluster=True,
                                     FlipUD=True)
 
     def testStosBruteWithFlip_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
 
     def RunBasicBruteAlignment(self, FixedImagePath: str,
@@ -120,10 +120,11 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                SingleThread: bool = False,
                                Cluster: bool = False):
 
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
 
-        SingleThread = True if nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy else SingleThread
+        SingleThread = True if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy else SingleThread
 
         MinOverlap = 0.75
 
@@ -143,7 +144,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                                             Cluster=Cluster)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
-        timer.End(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy}")
+        timer.End(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
 
         CheckAlignmentRecord(self, AlignmentRecord, angle=132.0, X=-4, Y=22, flipud=FlipUD)
 
@@ -154,7 +155,7 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedSize = core.GetImageSize(FixedImagePath)
         WarpedSize = core.GetImageSize(WarpedImagePath)
 
-        alignmentTransform = AlignmentRecord.ToTransform(FixedSize, WarpedSize)
+        alignmentTransform = AlignmentRecord.ToImageTransform(FixedSize, WarpedSize)
 
         if FlipUD:
             stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_flipped.stos')
@@ -188,7 +189,7 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
     def testStosBruteWithMask_MultiThread(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
                                                               self.FixedImageMaskPath, self.WarpedImageMaskPath,
                                                               SingleThread=False, FlipUD=False)
@@ -199,7 +200,7 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.CheckStosObj(savedstosObj,'17-18_brute_WithMask.stos', self.FixedImageMaskPath, self.WarpedImageMaskPath)
 
     def testStosBruteWithMask_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
                                                               self.FixedImageMaskPath, self.WarpedImageMaskPath,
                                                               SingleThread=True, FlipUD=False)
@@ -224,7 +225,7 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
 
-        use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         timer = TaskTimer()
         timer.Start(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
 
@@ -270,11 +271,11 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                          "Mask in .stos does not match mask used in alignment\n")
 
     def testStosBruteScaleMismatchWithMask(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runStosBruteScaleMismatchWithMask()
 
     def testStosBruteScaleMismatchWithMask_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runStosBruteScaleMismatchWithMask()
 
     def runStosBruteScaleMismatchWithMask(self):
@@ -336,11 +337,11 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(stosfilepath), "Stos brute script should create output")
 
     def testStosBruteExecuteWithMask(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runStosBruteExecuteWithMask()
 
     def testStosBruteExecuteWithMask_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runStosBruteExecuteWithMask()
 
 
@@ -381,7 +382,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
     def testSameTEMImageFast_SingleThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
 
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
@@ -394,7 +395,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImageFast_MultiThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
@@ -407,7 +408,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImageFast_GPU(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
@@ -432,7 +433,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
     def testSameTEMImage_MultiThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
 
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 
@@ -444,7 +445,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImage_GPU(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
 

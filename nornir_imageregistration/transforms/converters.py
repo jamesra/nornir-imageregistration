@@ -165,19 +165,19 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransform):
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle,
             scalar=input_transform.scalar)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle,
             scalar=input_transform.scalar)
     elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle,
             scalar=input_transform.scalar)
@@ -199,18 +199,18 @@ def ConvertTransformToRigidTransform(input_transform: ITransform, ignore_rotatio
 
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle,
             scalar=input_transform.scalar)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return nornir_imageregistration.transforms.Rigid(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle)
     elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
         return nornir_imageregistration.transforms.RigidNoRotation(
-            target_offset=input_transform.target_offset,
+            target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle)
 

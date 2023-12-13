@@ -84,8 +84,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
             outputImagePath = os.path.join(OutputDir, mosaicBaseName + '.png')
             outputImageMaskPath = os.path.join(OutputDir, mosaicBaseName + '_mask.png')
 
-            nornir_imageregistration.SaveImage(outputImagePath, mosaicImage, bpp=8)
-            nornir_imageregistration.SaveImage(outputImageMaskPath, mask)
+            nornir_imageregistration.SaveImage(outputImagePath, mosaicImage.get() if cp.get_array_module(mosaicImage) == cp else mosaicImage, bpp=8)
+            nornir_imageregistration.SaveImage(outputImageMaskPath, mask.get() if cp.get_array_module(mask) == cp else mask)
             self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
 
             outputMask = nornir_imageregistration.LoadImage(outputImageMaskPath)
@@ -177,7 +177,9 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         3) Assemble subregion directly using _TransformTile
         4) Check the output of all match
         """
-
+        
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        
         mosaicObj = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         self.assertIsNotNone(mosaicObj, "Mosaic not loaded")
 
@@ -200,24 +202,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
                                                             target_space_scale=1.0 / downsample)
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
-
-        # Need to create specific mosaicObj_CPU and mosaicTileset_CPU variables due to specific CPU transform
-        mosaicObj_CPU = Mosaic.LoadFromMosaicFile(mosaicFilePath)
-        self.assertIsNotNone(mosaicObj_CPU, "Mosaic not loaded")
-        mosaicTileset_CPU = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj_CPU, tilesDir, downsample)
-        mosaicTileset_CPU.TranslateToZeroOrigin()
-        mosaicObj_CPU.TranslateToZeroOrigin()
-
-        (CPUtileImage, CPUtileMask) = mosaicTileset_CPU.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
-                                                                      target_space_scale=1.0 / downsample)
-        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
-
-        CPU_delta = np.abs(CPUtileImage - tileImage)
-        CPU_delta_sum = np.sum(CPU_delta.flat)
-        if CPU_delta_sum >= 0.65:
-            nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
-                                                   title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=False)
+        
+        
 
         # 10-13-2022: This test passes if the CPU composites the tiles in the same order as the single-threaded assembly.
 
@@ -239,6 +225,33 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
                                                                int(ScaledFixedRegion[0]),
                                                                int(ScaledFixedRegion[3] - ScaledFixedRegion[1]),
                                                                int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
+        
+        
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        
+        
+        tileImage = tileImage.get()
+        timeMask = tileMask.get()
+        croppedWholeImage = croppedWholeImage.get()
+        
+
+        # Need to create specific mosaicObj_CPU and mosaicTileset_CPU variables due to specific CPU transform
+        mosaicObj_CPU = Mosaic.LoadFromMosaicFile(mosaicFilePath)
+        self.assertIsNotNone(mosaicObj_CPU, "Mosaic not loaded")
+        mosaicTileset_CPU = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaicObj_CPU, tilesDir, downsample)
+        mosaicTileset_CPU.TranslateToZeroOrigin()
+        mosaicObj_CPU.TranslateToZeroOrigin()
+
+        (CPUtileImage, CPUtileMask) = mosaicTileset_CPU.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
+                                                                      target_space_scale=1.0 / downsample)
+        # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
+
+        CPU_delta = np.abs(CPUtileImage - tileImage)
+        CPU_delta_sum = np.sum(CPU_delta.flat)
+        if CPU_delta_sum >= 0.65:
+            nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
+                                                   title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
+                                                   PassFail=False)
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale(
             [(result.image, CPU_delta), (tileImage, CPUtileImage), (croppedWholeImage, wholeimage)],
@@ -253,7 +266,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample,
                                     SingleThread: bool = False):
-        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePat)
+        mosaic = Mosaic.LoadFromMosaicFile(mosaicFilePath)
         mosaicBaseName = os.path.basename(mosaicFilePath)
 
         mosaicDir = os.path.dirname(mosaicFilePath)
@@ -380,7 +393,7 @@ class PMGTests(TestMosaicAssemble):
     def test_AssemblePMG(self):
         testName = "PMG1"
 
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath()
@@ -390,14 +403,14 @@ class PMGTests(TestMosaicAssemble):
     def test_AssemblePMG_GPU(self):
         testName = "PMG1"
 
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath()
 
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssemblePMG_Parallel(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         testName = "PMG1"
 
         mosaicFiles = self.GetMosaicFiles()
@@ -406,7 +419,7 @@ class PMGTests(TestMosaicAssemble):
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssemblePMG_OneMosaic(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
         testName = "PMG1"
 
@@ -417,7 +430,7 @@ class PMGTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False)
 
     def test_AssemblePMG_OneMosaic_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
 
         testName = "PMG1"
 
@@ -431,7 +444,7 @@ class PMGTests(TestMosaicAssemble):
 
     def test_AssemblePMG_OneMosaic_Parallel(self):
         testName = "PMG1"
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath()
@@ -447,14 +460,14 @@ class IDOCTests(TestMosaicAssemble):
         return "IDOC1"
 
     def test_AssembleIDOC_DS1(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS4(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='004')
 
@@ -462,35 +475,35 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleIDOC_DS1_GPU(self):
 
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
-        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir, use_cp=True)
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS4_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='004')
 
-        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir, use_cp=True)
+        self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS1_Parallel(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS4_Parallel(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='004')
 
         self.ParallelAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_OneMosaic_DS1(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
@@ -498,7 +511,7 @@ class IDOCTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False)
 
     def test_AssembleIDOC_OneMosaic_DS1_GPU(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
@@ -506,7 +519,7 @@ class IDOCTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False)
 
     def test_AssembleIDOC_OneMosaic_DS1_Parallel(self):
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
 
@@ -515,17 +528,17 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTilesIDoc(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=False)
 
     def test_AssembleOptimizedTilesIDoc_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=False)
 
     def test_AssembleOptimizedTilesIDoc_Cluster(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=True)
 
     def runAssembleOptimizedTilesIDoc(self, use_cluster: bool):
@@ -550,7 +563,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleAndTransformTileIDoc(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '004'
 
         mosaicFiles = self.GetMosaicFiles()
@@ -566,7 +579,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleAndTransformTileIDoc_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         downsamplePath = '004'
 
         mosaicFiles = self.GetMosaicFiles()
@@ -583,7 +596,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTileIDoc(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '004'
 
         mosaicFiles = self.GetMosaicFiles()
@@ -598,7 +611,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTileIDoc_DS1_MultiThread(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '001'
 
         mosaicFiles = self.GetMosaicFiles()
@@ -613,7 +626,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTileIDoc_DS1_SingleThread(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '001'
 
         mosaicFiles = self.GetMosaicFiles()
@@ -628,7 +641,7 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTileIDoc_DS1_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         downsamplePath = '001'
 
         mosaicFiles = self.GetMosaicFiles()

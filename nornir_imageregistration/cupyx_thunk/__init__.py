@@ -1,1 +1,1 @@
-import scipy_thunk as scipy
+import scipy

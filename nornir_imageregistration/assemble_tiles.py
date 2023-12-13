@@ -168,6 +168,8 @@ def __MaxZBufferValue(dtype):
 
 def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
     dtype = np.float16 if dtype is None else dtype
+    
+    xp = nornir_imageregistration.GetComputationModule()
 
     if _use_memmap():  # use_memmap:
         full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
@@ -177,7 +179,7 @@ def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
         return fullImageZbuffer
         # fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
     else:
-        return np.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
+        return xp.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
 
 #
@@ -212,6 +214,9 @@ def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
 def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
     '''Create output images using the passed width and height
     '''
+    
+    xp = nornir_imageregistration.GetComputationModule()
+    
     fullImage = None
     fullImage_shape = (
         int(Height),
@@ -229,7 +234,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
     else:
-        fullImage = np.zeros(fullImage_shape, dtype=dtype)
+        fullImage = xp.zeros(fullImage_shape, dtype=dtype)
 
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape)
     return fullImage, fullImageZbuffer
@@ -358,7 +363,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         distanceImage = __GetOrCreateDistanceImage(distanceImage, tile.ImageSize)
 
         transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
-                                             TargetRegion=regionToRender, SingleThreadedInvoke=True, use_cp=use_cp)
+                                             TargetRegion=regionToRender, SingleThreadedInvoke=True)
         if transformedImageData.image is None:
             # logger = logging.getLogger('TilesToImageParallel')
             prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))

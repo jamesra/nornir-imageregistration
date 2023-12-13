@@ -52,7 +52,7 @@ def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
                        AToB_mapped_Transform: ITransform):
     
     if isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.RigidNoRotation):
-        target_offset = AToB_mapped_Transform.target_offset + BToC_Unaltered_Transform.target_offset
+        target_offset = AToB_mapped_Transform.target_offset + BToC_Unaltered_Transform._target_offset
         if BToC_Unaltered_Transform.angle == 0 and AToB_mapped_Transform.angle == 0:
             return nornir_imageregistration.transforms.RigidNoRotation(target_offset=target_offset,
                                                                        source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation)
@@ -147,7 +147,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
 
         # In extreme distortion we don't want to add new control points forever or converge on existing control points.
         # So ignore centroids falling too close to an existing vertex
-        CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, np.bool)
+        CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, bool)
         A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles[CentroidMisplaced]]
         CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced],
                                                                               A_CentroidTriangles)

@@ -149,8 +149,8 @@ class TestOverlapMask(setup_imagetest.ImageTestBase):
 
         QuadrantSize = CorrelationImageSize // 2
 
-        BruteForceMask = np.zeros(QuadrantSize, dtype=np.bool)
-        BruteForceMaskOptimized = np.zeros(QuadrantSize, dtype=np.bool)
+        BruteForceMask = np.zeros(QuadrantSize, dtype=bool)
+        BruteForceMaskOptimized = np.zeros(QuadrantSize, dtype=bool)
 
         BruteForceMask = nornir_imageregistration.overlapmasking._PopulateMaskQuadrantBruteForce(BruteForceMask,
                                                                                                  FixedImageSize,

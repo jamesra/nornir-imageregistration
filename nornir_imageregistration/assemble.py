@@ -7,8 +7,18 @@ Created on Apr 22, 2013
 import os
 import warnings
 
-import cupy as cp
-import cupyx
+try:
+    import cupy as cp
+    import cupyx
+    import cupyx.scipy
+    import cupyx.scipy.ndimage
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+    
 import numpy as np
 from numpy.typing import NDArray
 import scipy
@@ -16,12 +26,15 @@ import scipy
 import nornir_pools
 import nornir_imageregistration
 from nornir_imageregistration.transforms import ITransform, factory, triangulation
-from nornir_imageregistration.transforms.utils import InvalidIndicies, InvalidIndicies_GPU
+from nornir_imageregistration.transforms.utils import InvalidIndicies
 
 
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[float]:
-    x_range = np.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
-    y_range = np.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+    xp = cp if use_cp else np 
+    
+    x_range = xp.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
+    y_range = xp.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
 
     # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
@@ -30,38 +43,20 @@ def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, floa
     if len(y_range) > area[0]:
         y_range = y_range[:int(area[0])]
 
-    i_y, i_x = np.meshgrid(y_range, x_range, sparse=False, indexing='ij')
-
-    coordArray = np.vstack((i_y.flat, i_x.flat)).transpose()
-
+    i_y, i_x = xp.meshgrid(y_range, x_range, sparse=False, indexing='ij')
+    
+    if use_cp:
+        coordArray = xp.vstack((i_y.ravel(), i_x.ravel())).transpose()
+    else:
+        coordArray = xp.vstack((i_y.flat, i_x.flat)).transpose()
+        
     del i_y
     del i_x
     del x_range
     del y_range
 
     return coordArray
-
-def GetROICoords_GPU(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray):
-    x_range = cp.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
-    y_range = cp.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
-
-    # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
-    if len(x_range) > area[1]:
-        x_range = x_range[:int(area[1])]
-
-    if len(y_range) > area[0]:
-        y_range = y_range[:int(area[0])]
-
-    i_y, i_x = cp.meshgrid(y_range, x_range, sparse=False, indexing='ij')
-
-    coordArray = cp.vstack((i_y.ravel(), i_x.ravel())).transpose()
-
-    del i_y
-    del i_x
-    del x_range
-    del y_range
-
-    return coordArray
+ 
 
 def write_to_source_roi_coords(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
@@ -85,11 +80,14 @@ def write_to_source_roi_coords(transform: ITransform,
     write_space_coords = GetROICoords(botleft, area)
 
     read_space_coords = transform.Transform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
-    (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
+    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
 
-    valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        valid_write_space_coords = write_space_coords[valid_coords_mask,:]
+    else:
+        valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
     # valid_write_space_coords = valid_write_space_coords  # - botleft
 
     return valid_read_space_coords, valid_write_space_coords
@@ -117,51 +115,19 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32,
-                                                                                                       copy=False)
-    (valid_read_space_coords, invalid_coords_mask) = InvalidIndicies(read_space_coords)
+    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
+    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndicies(read_space_coords)
 
     del read_space_coords
 
-    valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
+    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+        valid_write_space_coords = write_space_coords[valid_coords_mask,:]
+    else:
+        valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
     # valid_write_space_coords = valid_write_space_coords  # - botleft
 
     return valid_read_space_coords, valid_write_space_coords
-
-def write_to_target_roi_coords_GPU(transform: ITransform,
-                               botleft: tuple[float, float] | NDArray,
-                               area: tuple[float, float] | NDArray,
-                               extrapolate: bool=False):
-    """
-    This function is used to generate coordinates to transform image data in source space forward into target space.
-
-    Given a transform and a region in target space, create uniform integer coordinates over the region of interest in source
-    space for each pixel.  Then run a inverse transform to map target coordinates back in source space.  The source
-    space coordinates will be used later to interpolate pixel values for each integer pixel valued destination target
-    coordinates.
-
-    :param extrapolate:
-    :param transform transform: The transform used to map points between fixed and mapped space
-    :param botleft: The (Y,X) coordinates of the bottom left corner in target space
-    :param area: The (Height, Width) of the region of interest
-e coordinates.
-    :return: (read_space_coords, write_space_coords)
-    """
-
-    write_space_coords = GetROICoords_GPU(botleft, area)
-
-    read_space_coords = transform.InverseTransform(write_space_coords,
-                                                   return_cp = True,
-                                                   extrapolate=extrapolate).astype(np.float32, copy=False)
-    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndicies_GPU(read_space_coords)
-
-    del read_space_coords
-
-    # write_space_coords = cp.asarray(write_space_coords) if not isinstance(write_space_coords, cp.ndarray) else write_space_coords
-    valid_write_space_coords = write_space_coords[valid_coords_mask,:]
-
-    return valid_read_space_coords, valid_write_space_coords
-
+ 
 
 def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> tuple[NDArray, NDArray]:
     """Given an Nx2 array off image coordinates, remove the coordinates that
@@ -174,7 +140,7 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
     """
 
     xp = cp.get_array_module(coords)
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     if isinstance(origin, int):
         adjusted_origin = np.array((origin, origin), dtype=np.int32)
@@ -287,29 +253,21 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :param use_cp: Use CuPy library for GPU processing
     """
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
     xp = cp if use_cp else np
     sp = cupyx.scipy if use_cp else scipy
 
     if output_origin is None:
         output_origin = target_coords.min(0)
+    
+    output_area = nornir_imageregistration.EnsurePointsAre1DNumpyArray(output_area, dtype=np.int32)
+    output_origin = nornir_imageregistration.EnsurePointsAre1DArray(output_origin, dtype=np.int32)
 
-    if use_cp:
-        if not isinstance(target_coords, cp.ndarray):
-            target_coords = cp.asarray(target_coords)
-        if not isinstance(source_coords, cp.ndarray):
-            source_coords = cp.asarray(source_coords)
+    if use_cp: 
+        target_coords = nornir_imageregistration.EnsurePointsAre2DArray(target_coords) 
+        source_coords = nornir_imageregistration.EnsurePointsAre2DArray(source_coords)
         if not isinstance(source_image, cp.ndarray):
             source_image = cp.asarray(source_image)
-        if not isinstance(output_origin, cp.ndarray):
-            output_origin = cp.asarray(output_origin, dtype=np.int32)
-        if not isinstance(output_area, cp.ndarray):
-            output_area = cp.asarray(output_area, dtype=np.int32)
-    else:
-        if not isinstance(output_origin, np.ndarray):
-            output_origin = np.asarray(output_origin, dtype=np.int32)
-        if not isinstance(output_area, np.ndarray):
-            output_area = np.asarray(output_area, dtype=np.int32)
 
     if output_origin.dtype != np.int32:
         output_origin = xp.asarray(output_origin, dtype=np.int32)
@@ -392,21 +350,19 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area if not use_cp else output_area.get(),
                                                                                                   dtype=original_dtype)
         outputImage.fill(cval)
-    else:
-        if use_cp:
-            outputImage = cp.full(output_area.get(), cval,
-                                  dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
-        else:
-            outputImage = np.full(output_area, cval,
-                                  dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
-
+    else: 
+        outputImage = xp.full(output_area, cval, dtype=original_dtype) # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
+        
     target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(
         np.int32, copy=False)
     # del filtered_target_coords
 
     # Note - Clement: flat assignment doesn't work with cupy
-    if use_cp:
-        cp.ravel(outputImage)[target_coords_flat] = outputValues
+    if cp.get_array_module(outputImage) == cp:
+        start_shape = outputImage.shape
+        outputImage = outputImage.ravel()
+        outputImage[target_coords_flat] = outputValues
+        outputImage = outputImage.reshape(start_shape)
     else:
         outputImage.flat[target_coords_flat] = outputValues
     # outputImage[fixed_coords] = outputValues
@@ -428,11 +384,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     #         return transformedImage
     if return_shared_memory:
         return output_shared_mem_meta
-    else:
-        if use_cp:
-            return outputImage.get()
-        else:
-            return outputImage
+    else:   
+        return outputImage
 
 
 def _ReplaceFilesWithImages(listImages: list[str] | list[NDArray] | NDArray | str):
@@ -541,7 +494,7 @@ def SourceImageToTargetSpace(transform: ITransform,
     :param bool extrapolate: If true map points that fall outside the bounding box of the transform
     """
 
-    use_cp = nornir_imageregistration.GetActiveComputationalLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)
 
     if output_botleft is None:
@@ -574,12 +527,8 @@ def SourceImageToTargetSpace(transform: ITransform,
 
     # timer.Start('write_to_target_roi_coords')
 
-    if use_cp:
-        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords_GPU(transform, output_botleft, output_area,
-                                                                         extrapolate=extrapolate)
-    else:
-        (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
-                                                                         extrapolate=extrapolate)
+    (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
+                                                                    extrapolate=extrapolate)
     # (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
     #                                                                  extrapolate=extrapolate, use_cp=use_cp)
 
@@ -669,7 +618,7 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
     # warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
-        nornir_imageregistration.SaveImage(OutputFilename, warpedImage, cmap='gray', bpp=8)
+        nornir_imageregistration.SaveImage(OutputFilename, warpedImage.get() if cp.get_array_module(warpedImage) == cp else warpedImage, cmap='gray', bpp=8)
 
     return warpedImage
 
@@ -706,7 +655,7 @@ def TransformImage(transform: ITransform,
     if np.all(grid_shape == np.array([1, 1])):
         # Single threaded
         return SourceImageToTargetSpace(transform, warpedImage, output_botleft=np.array([0, 0]),
-                                        output_area=fixedImageShape, extrapolate=not CropUndefined, use_cp=use_cp)
+                                        output_area=fixedImageShape, extrapolate=not CropUndefined)
     else:
         outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)

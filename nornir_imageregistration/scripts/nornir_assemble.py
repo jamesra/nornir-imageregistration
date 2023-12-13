@@ -106,9 +106,9 @@ def Execute(ExecArgs=None):
     ValidateArgs(Args)
 
     if Args.use_cp:
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.cupy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
     else:
-        nornir_imageregistration.SetActiveComputationalLib(nornir_imageregistration.ComputationLib.numpy)
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
     mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
     

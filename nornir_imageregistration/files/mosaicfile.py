@@ -330,16 +330,16 @@ class MosaicFile(object):
                 outTrans = None
                 if isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
                     outTrans = nornir_imageregistration.transforms.RigidNoRotation(
-                        (t.target_offset[1], t.target_offset[0]))
+                        (t._target_offset[1], t._target_offset[0]))
                 elif isinstance(t, nornir_imageregistration.transforms.Rigid):
                     outTrans = nornir_imageregistration.transforms.Rigid(
-                        target_offset=(t.target_offset[1], t.target_offset[0]),
+                        target_offset=(t._target_offset[1], t._target_offset[0]),
                         source_rotation_center=(
                             t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
                         angle=t.angle)
                 elif isinstance(t, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
                     outTrans = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-                        target_offset=(t.target_offset[1], t.target_offset[0]),
+                        target_offset=(t._target_offset[1], t._target_offset[0]),
                         source_rotation_center=(
                             t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
                         angle=t.angle,
@@ -348,7 +348,7 @@ class MosaicFile(object):
                     raise ValueError(f"Unexpected transform type: {t.__class__}")
 
                 # output[image] = outTrans.ToITKString()
-                transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {t.target_offset[1]} {t.target_offset[0]} 1 1'
+                transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {t._target_offset[1]} {t._target_offset[0]} 1 1'
                 output[image] = transform_string
             else:
                 output[image] = transformStr

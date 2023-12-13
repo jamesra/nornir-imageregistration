@@ -5,13 +5,31 @@ from nornir_imageregistration import assemble as assemble
 import setup_imagetest
 
 
-class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
+#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+try:
+    import cupy as cp 
+except ModuleNotFoundError:
+    import cupy_thunk as cp 
+except ImportError:
+    import cupy_thunk as cp 
 
+
+class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
+    
     def test_write_to_target_image_coord_generation(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        self.write_to_target_image_coord_generation()
+        
+    def test_write_to_target_image_coord_generation_gpu(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        self.write_to_target_image_coord_generation()
+
+    def write_to_target_image_coord_generation(self):
         """
         Define an ROI on an image in target space we want to fill with interpolated values from coordinates in source space
         :return:
         """
+        xp = cp if nornir_imageregistration.UsingCupy() else np
         target_bottom_left = np.array((0, 0))
         target_area = np.array((3, 3))
         # source_image = self.create_gradient_image((9, 9))
@@ -24,14 +42,27 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.assertTrue(np.array_equal(target_coords, roi_write_coords))
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
+        
+        read_area = read_area.get() if xp == cp else read_area 
+        read_bottom_left = read_bottom_left.get() if xp == cp else read_bottom_left
+        
         self.assertTrue(np.array_equal(target_area, read_area))
         self.assertTrue(np.array_equal(read_bottom_left, target_bottom_left - source_to_target_offset))
-
+        
     def test_write_to_source_image_coord_generation(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        self.write_to_source_image_coord_generation()
+        
+    def test_write_to_source_image_coord_generation_gpu(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        self.write_to_source_image_coord_generation() 
+        
+    def write_to_source_image_coord_generation(self):
         """
         Transform uniform coordinates from target_space
         :return:
         """
+        xp = cp if nornir_imageregistration.UsingCupy() else np
         source_bottom_left = np.array((0, 0))
         source_area = np.array((3, 3))
 
@@ -41,13 +72,25 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
 
         roi_read_coords, roi_write_coords = assemble.write_to_source_roi_coords(transform, source_bottom_left,
                                                                                 source_area)
-        self.assertTrue(np.array_equal(source_coords, roi_write_coords))
+        self.assertTrue(xp.array_equal(source_coords, roi_write_coords))
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
-        self.assertTrue(np.array_equal(source_area, read_area))
-        self.assertTrue(np.array_equal(read_bottom_left, source_bottom_left + source_to_target_offset))
-
+        
+        read_area = read_area.get() if xp is cp else read_area 
+        read_bottom_left = read_bottom_left.get() if xp is cp else read_bottom_left
+         
+        self.assertTrue(xp.array_equal(source_area, read_area))
+        self.assertTrue(xp.array_equal(read_bottom_left, source_bottom_left + source_to_target_offset))
+        
     def test_grid_division_identity(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        self.grid_division_identity()
+        
+    def test_grid_division_identity_gpu(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        self.grid_division_identity()
+
+    def grid_division_identity(self):
         """
         Divide an image into 3x3 tile regions and return each cell
         :return:
@@ -63,8 +106,16 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
                                source_to_target_offset=source_to_target_offset,
                                cell_size=cell_size,
                                grid_dims=grid_dims)
-
+        
     def test_grid_division_offset(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        self.grid_division_offset()
+        
+    def test_grid_division_offset_gpu(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        self.grid_division_offset()
+
+    def grid_division_offset(self):
         """
         Divide an image into 3x3 tile regions and return each cell
         :return:

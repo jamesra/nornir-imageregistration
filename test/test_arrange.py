@@ -142,7 +142,7 @@ def ShowMosaicSet(test, mosaicTileset, path=None, openwindow=True, usecluster=Tr
 
     if openwindow:
         if title is None:
-            title = "A mos = aic with no tiles out of place"
+            title = "A mosaic with no tiles out of place"
 
         test.assertTrue(nornir_imageregistration.ShowGrayscale(assembledImage, title=title, PassFail=True))
 
@@ -717,9 +717,16 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #                              config=config)
     #
     #     print("All done")
+    
+    def test_RPC2_0989_Mosaic_CPU(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        self.RPC2_0989_Mosaic_CPU()
 
-    def test_RPC2_0989_Mosaic(self):
-
+    def test_RPC2_0989_Mosaic_GPU(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        self.RPC2_0989_Mosaic_CPU()
+        
+    def RPC2_0989_Mosaic_CPU(self):
         config = self.GetStandardTranslateSettings()
         self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
                            TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",

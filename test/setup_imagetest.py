@@ -3,7 +3,7 @@ Created on Mar 21, 2013
 
 @author: u0490822
 '''
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractstaticmethod
 import cProfile
 import glob
 import logging
@@ -19,6 +19,12 @@ import six
 import nornir_imageregistration
 import nornir_pools
 from nornir_shared.misc import SetupLogging
+
+try:
+    import cupy as cp
+except ImportError:
+    print("cupy module not present for tests, setting cp = None")
+    cp = None
 
 
 class PickleHelper(object):
@@ -80,6 +86,10 @@ class PickleHelper(object):
 
 
 class TestBase(unittest.TestCase, ABC):
+    
+    @staticmethod
+    def use_cp():
+        return nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     @staticmethod
     def create_gradient_image(shape, min_val=0.2, max_val=0.8, num_shades=8):
@@ -97,6 +107,9 @@ class TestBase(unittest.TestCase, ABC):
             for y in range(0, shape[0]):
                 color_index = (((x % num_shades) + (y % num_shades)) % num_shades) / num_shades
                 image[y, x] = (color_index * max_val) + min_val
+                
+        if TestBase.use_cp():
+            image = cp.asarray(image)
 
         return image
 
@@ -135,6 +148,9 @@ class TestBase(unittest.TestCase, ABC):
                     color_index += half_shade_step
 
                 image[y, x] = (color_index * max_val) + min_val
+                
+        if TestBase.use_cp():
+            image = cp.asarray(image)
 
         return image
 

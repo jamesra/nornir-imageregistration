@@ -89,8 +89,7 @@ class GridRefinement(object):
                  max_travel_for_finalization_improvement: float = None,
                  min_alignment_overlap: float = None,
                  min_unmasked_area: float = None,
-                 single_thread_processing: bool = False,
-                 cupy_processing: bool = False):
+                 single_thread_processing: bool = False):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
@@ -113,8 +112,7 @@ class GridRefinement(object):
         :param bool cupy_processing: True if the refinement will be done on the GPU.  When set, arrays are created as cupy arrays instead of NDArrays
         """
 
-        self._single_thread_processing = single_thread_processing or cupy_processing
-        self._cupy_processing = cupy_processing
+        self._single_thread_processing = single_thread_processing or nornir_imageregistration.UsingCupy()  
 
         if target_image is None:
             raise ValueError("target_image must be specified")
@@ -154,7 +152,7 @@ class GridRefinement(object):
         self.target_image_stats = target_image_stats
         self.source_image_stats = source_image_stats
 
-        if not single_thread_processing:
+        if not self._single_thread_processing:
             self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToSharedArray(self.source_image)
             self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToSharedArray(self.target_image)
             self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)
@@ -187,8 +185,7 @@ class GridRefinement(object):
                                      max_travel_for_finalization_improvement: float = None,
                                      min_alignment_overlap: float = None,
                                      min_unmasked_area: float = None,
-                                     single_thread_processing: bool = False,
-                                     cupy_processing: bool = False) -> GridRefinement:
+                                     single_thread_processing: bool = False) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
 
@@ -207,8 +204,7 @@ class GridRefinement(object):
                               max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                               min_alignment_overlap=min_alignment_overlap,
                               min_unmasked_area=min_unmasked_area,
-                              single_thread_processing=single_thread_processing,
-                              cupy_processing=cupy_processing)
+                              single_thread_processing=single_thread_processing)
 
     @staticmethod
     def CreateWithUnproccessedImages(
@@ -226,8 +222,7 @@ class GridRefinement(object):
             max_travel_for_finalization_improvement: float = None,
             min_alignment_overlap: float = None,
             min_unmasked_area: float = None,
-            single_thread_processing: bool = False,
-            cupy_processing: bool = False) -> GridRefinement:
+            single_thread_processing: bool = False) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
         target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
                                                                           extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
@@ -244,8 +239,7 @@ class GridRefinement(object):
                                                            max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                            min_alignment_overlap=min_alignment_overlap,
                                                            min_unmasked_area=min_unmasked_area,
-                                                           single_thread_processing=single_thread_processing,
-                                                           cupy_processing=cupy_processing)
+                                                           single_thread_processing=single_thread_processing)
 
     def __str__(self):
         return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'

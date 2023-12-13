@@ -5,8 +5,16 @@ Created on Oct 18, 2012
 """
 
 import numpy
-import cupy as cp
-from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+try:
+    import cupy as cp
+    #import cupyx
+    from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 
 import nornir_imageregistration
 import nornir_pools
@@ -105,7 +113,7 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, InvalidIndicies, valid_indicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
             return TransformedPoints
@@ -131,7 +139,7 @@ class MeshWithRBFFallback(Triangulation):
         :param points:
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
         if points.shape[0] == 0:
             return []
@@ -141,7 +149,7 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, InvalidIndicies, valid_indicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
             return TransformedPoints
@@ -245,7 +253,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points, **kwargs):
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
@@ -259,21 +267,15 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         TransformedPoints = super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            # if return_cp:
             #     return TransformedPoints
-            # else:
-            #     return TransformedPoints.get()
             return TransformedPoints
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
         else:
             if len(points) > 1:
                 # print InvalidIndicies;
@@ -290,12 +292,9 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
                                                                 cp.ndarray) else FixedPoints
 
         TransformedPoints[InvalidIndicies] = FixedPoints
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+        return TransformedPoints
 
-    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+    def InverseTransform(self, points, **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -309,21 +308,14 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         TransformedPoints = super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            # if return_cp:
-            #     return TransformedPoints
-            # else:
-            #     return TransformedPoints.get()
             return TransformedPoints
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies_GPU(TransformedPoints)
+        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
 
         if len(InvalidIndicies) == 0:
-            if return_cp:
-                return TransformedPoints
-            else:
-                return TransformedPoints.get()
+            return TransformedPoints
         else:
             if points.ndim > 1:
                 BadPoints = points[InvalidIndicies]
@@ -338,10 +330,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
                                                                             cp.ndarray) else FixedPoints
 
         TransformedPoints[InvalidIndicies] = FixedPoints
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+        return TransformedPoints
 
     def __init__(self, pointpairs):
         """
@@ -415,29 +404,23 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points, **kwargs):
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
         TransformedPoints = super(MeshWithRBFInterpolator_GPU, self).Transform(points)
-        if return_cp:
-            return TransformedPoints
-        else:
-            return TransformedPoints.get()
+        return TransformedPoints
 
-    def InverseTransform(self, points, return_cp: bool = False, **kwargs):
+    def InverseTransform(self, points, **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
         """
 
         iTransformedPoints = super(MeshWithRBFInterpolator_GPU, self).InverseTransform(points)
-        if return_cp:
-            return iTransformedPoints
-        else:
-            return iTransformedPoints.get()
+        return iTransformedPoints
 
     def __init__(self, pointpairs):
         """

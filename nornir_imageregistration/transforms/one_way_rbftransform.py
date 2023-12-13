@@ -7,12 +7,20 @@ Created on Oct 18, 2012
 from typing import Callable
 
 import numpy as np
-import cupy as cp
 from numpy.typing import NDArray
+try:
+    import cupy as cp
+    #import cupyx
+    import cupyx.scipy.spatial as cuspatial
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 import scipy.interpolate
 import scipy.linalg
 import scipy.spatial
-import cupyx.scipy.spatial as cuspatial
 
 import nornir_imageregistration
 import nornir_pools

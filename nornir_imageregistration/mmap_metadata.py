@@ -1,8 +1,16 @@
 import tempfile
-
-import cupy as cp
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
+
+try:
+    import cupy as cp
+    #import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 
 
 class memmap_metadata(object):

@@ -17,6 +17,17 @@ import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
 
+try:
+    import cupy as cp
+    import cupyx
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+
+
 # import nornir_imageregistration.views.grid_data
 
 # Summary type used for typing
@@ -584,7 +595,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
     # Remove finalized points from refinement consideration
     if finalized is not None and len(finalized) > 0:
         not_finalized = [tuple(grid_data.coords[i, :]) not in finalized for i in range(grid_data.coords.shape[0])]
-        valid = np.asarray(not_finalized, np.bool)
+        valid = np.asarray(not_finalized, bool)
         grid_data.RemoveMaskedPoints(valid)
 
     # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
@@ -660,7 +671,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     nPoints = len(keys)
 
-    pool = nornir_pools.GetGlobalMultithreadingPool()
+    
+    pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
     # pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
@@ -1068,8 +1080,10 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
+    
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
+    xp = cp.get_array_module(source_points)
 
     numPoints = source_points.shape[0]
 
@@ -1080,19 +1094,21 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
         if source_points.shape[0] > 1:
             estimated_cell_distance = scipy.spatial.distance.cdist(source_points[0:1, :],
                                                                    source_points[1:, :]).min() / 2.0
-            offset = np.array((0, estimated_cell_distance))
+            offset = xp.array((0, estimated_cell_distance))
         else:
-            offset = np.array((0, 1))
+            offset = xp.array((0, 1))
     else:
         offset = cell_size / 2.0
 
-    offset_source_points = source_points + offset
+    offset_source_points = source_points + xp.asarray(offset)
 
     offsets = np.tile(offset, (numPoints, 1))
     origins = np.tile(np.array([0, 0]), (numPoints, 1))
 
     target_points = input_transform.Transform(source_points)
+    target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
     offset_target_points = input_transform.Transform(offset_source_points)
+    offset_target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(offset_target_points)
 
     target_delta = offset_target_points - target_points
 
@@ -1127,6 +1143,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :param description:  Entirely optional parameter describing which cell we are processing
     :return:
     """
+    xp = nornir_imageregistration.GetComputationModule()
+    
     targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param,
                                                                   dtype=nornir_imageregistration.default_image_dtype())
     sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param,
@@ -1165,7 +1183,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
 
     if source_image_stats is not None:
         source_image_roi = nornir_imageregistration.RandomNoiseMask(source_image_roi,
-                                                                    np.logical_not(np.isnan(source_image_roi)),
+                                                                    xp.logical_not(xp.isnan(source_image_roi)),
                                                                     imagestats=source_image_stats)
 
     nornir_imageregistration.close_shared_memory(targetImage_param)

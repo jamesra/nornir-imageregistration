@@ -2,7 +2,12 @@ import collections.abc
 import math
 from typing import Iterable, Sequence
 
-import cupy as cp
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+except ImportError:
+    import cupy_thunk as cp
 import matplotlib.colors
 import matplotlib.gridspec
 import matplotlib.pyplot as plt

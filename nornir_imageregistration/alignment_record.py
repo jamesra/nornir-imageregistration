@@ -113,53 +113,51 @@ class AlignmentRecord(object):
         self._weight = float(weight)
         self._flippedud = flipped_ud
 
-    def CorrectPeakForOriginalImageSize(self, FixedImageShape: NDArray[int], MovingImageShape: NDArray[int]):
+    def CorrectPeakForOriginalImageSize(self, TargetImageShape: NDArray[int], SourceImageShape: NDArray[int]):
 
         offset = self.peak
         if self.peak is None:
             offset = (0, 0)
 
         return nornir_imageregistration.transforms.factory.__CorrectOffsetForMismatchedImageSizes(offset=offset,
-                                                                                                  FixedImageShape=FixedImageShape,
-                                                                                                  MovingImageShape=MovingImageShape)
+                                                                                                  target_image_shape=TargetImageShape,
+                                                                                                  source_image_shape=SourceImageShape)
 
     def GetTransformedCornerPoints(self, warpedImageSize: NDArray[int]) -> NDArray[float]:
         '''
         '''
         # Adjust image size by 1 since the images are indexed by 0
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize - 1,
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize,
                                                                                            self.rangle,
                                                                                            self.peak, self.flippedud)
 
-    def ToTransform(self, fixedImageSize: NDArray | tuple[int, int],
-                    warpedImageSize: NDArray | tuple[int, int] | None = None) -> ITransform:
+    def ToImageTransform(self, target_image_shape: NDArray | tuple[int, int],
+                         source_image_shape: NDArray | tuple[int, int] | None = None) -> ITransform:
         '''
-        Generates a rigid transform for the alignment record.
-        :param (Height, Width) fixedImageSize: Size of translated image in fixed space
-        :param (Height, Width) warpedImageSize: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
+        Generates a rigid transform for the alignment record in the context of two images of the specified size.  Because
+        images are indexed starting at zero, the center of a 10x10 image is 4.5,4.5.  The center of a 9x9 image is 4,4.
+
+
+        :param (Height, Width) target_image_shape: Size of translated image in fixed space
+        :param (Height, Width) source_image_shape: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
         :return: A rigid rotation+translation transform described by the alignment record
         '''
 
-        if warpedImageSize is None:
-            warpedImageSize = fixedImageSize
+        if source_image_shape is None:
+            source_image_shape = target_image_shape
 
-        warpedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(warpedImageSize)
-        fixedImageSize = nornir_imageregistration.EnsurePointsAre1DNumpyArray(fixedImageSize)
+        source_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_image_shape)
+        target_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(target_image_shape)
 
-        source_center_of_rotation = (warpedImageSize - 1) / 2.0  # Subtract 1 because images are indexed starting at zero
+        source_center_of_rotation = (source_image_shape - 1) / 2.0  # Subtract 1 because images are indexed starting at zero, so an image of size 10,10 has a center of 4.5,4.5
         # Adjust the center of rotation by 0.5 if there is an even dimension
         # source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
-        target_center = (fixedImageSize - 1) / 2.0
+        target_center = (target_image_shape - 1) / 2.0
 
-        target_translation = (source_center_of_rotation - target_center) + self.peak
+        target_translation = (target_center - source_center_of_rotation) + self.peak
 
-        if GetActiveComputationalLib() == ComputationLib.cupy:
-            return nornir_imageregistration.transforms.Rigid_GPU(target_offset=target_translation,
-                                                             source_rotation_center=source_center_of_rotation,
-                                                             angle=self.rangle,
-                                                             flip_ud=self.flippedud)
-        else:
-            return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
+       
+        return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
                                                          source_rotation_center=source_center_of_rotation,
                                                          angle=self.rangle,
                                                          flip_ud=self.flippedud)
@@ -218,8 +216,8 @@ class AlignmentRecord(object):
         # 'width': stos.MappedImageDim[0],
         # 'height': stos.MappedImageDim[1]}
 
-        transform = self.ToTransform(fixedImageSize=(ControlHeight, ControlWidth),
-                                     warpedImageSize=(MappedHeight, MappedWidth))
+        transform = self.ToImageTransform(target_image_shape=(ControlHeight, ControlWidth),
+                                          source_image_shape=(MappedHeight, MappedWidth))
 
         stos.Transform = transform.ToITKString()
 

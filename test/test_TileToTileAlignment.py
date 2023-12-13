@@ -173,7 +173,7 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         print(str(alignrecord))
 
         tile = nornir_imageregistration.Tile(
-            transform=alignrecord.ToTransform(fixedImageSize=imFixed.shape, warpedImageSize=imMoving.shape),
+            transform=alignrecord.ToImageTransform(target_image_shape=imFixed.shape, source_image_shape=imMoving.shape),
             imagepath=os.path.join(self.TilesPath, TileBFilename),
             image_to_source_space_scale=1,
             ID=0)

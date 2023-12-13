@@ -1,13 +1,21 @@
 import logging
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    #import cupyx
+    from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+    from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    #import cupyx_thunk as cupyx
 from numpy.typing import NDArray
 import scipy
 from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
 import scipy.spatial
-from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
-from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 
 import nornir_imageregistration
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
@@ -535,16 +543,13 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return self._InverseInterpolator
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points,  **kwargs):
         '''Map points from the warped space to fixed space'''
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
         transPoints = self.ForwardInterpolator(points)
-        if return_cp:
-            return transPoints
-        else:
-            return transPoints.get()
+        return transPoints
 
     def InverseTransform(self, points, **kwargs):
         '''Map points from the fixed space to the warped space'''
@@ -570,7 +575,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     @property
     def FixedTriangles(self):
-        return self.fixedtri.vertices
+        return self.fixedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
         '''Centroids of fixed triangles'''
@@ -792,16 +797,13 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         return self._InverseInterpolator
 
-    def Transform(self, points, return_cp: bool = False, **kwargs):
+    def Transform(self, points, **kwargs):
         '''Map points from the warped space to fixed space'''
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
         transPoints = self.ForwardInterpolator(points)
-        if return_cp:
-            return transPoints
-        else:
-            return transPoints.get()
+        return transPoints
 
     def InverseTransform(self, points, **kwargs):
         '''Map points from the fixed space to the warped space'''
@@ -809,10 +811,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
         transPoints = self.InverseInterpolator(points)
-        if return_cp:
-            return transPoints
-        else:
-            return transPoints.get()
+        return transPoints
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float] | None):
         '''Rotate all warped points about a center by a given angle'''

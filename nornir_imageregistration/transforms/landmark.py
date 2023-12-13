@@ -17,8 +17,16 @@ from .base import IDiscreteTransform, ITransformScaling, ITransformRelativeScali
 
 from scipy.interpolate import RBFInterpolator as RBFInterpolator
 
-import cupy as cp
-from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+try:
+    import cupy as cp
+    import cupyx
+    from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+except ModuleNotFoundError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
+except ImportError:
+    import cupy_thunk as cp
+    import cupyx_thunk as cupyx
 
 
 from .addition import AddTransforms

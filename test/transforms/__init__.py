@@ -27,12 +27,21 @@ def ForwardTransformCheck(test, transform: ITransform, warpedPoint, fixedPoint):
     np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
 
 
-def TransformCheck(test, transform: ITransform, warpedPoint, fixedPoint):
+def TransformCheck(test, transform: ITransform, source_point, target_point):
     '''Ensures that a point can map to its expected transformed position and back again'''
-    fp = transform.Transform(warpedPoint)
-    np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
+    xp = nornir_imageregistration.GetComputationModule()
+    
+    source_point = nornir_imageregistration.EnsureNumpyArray(source_point)
+    target_point = nornir_imageregistration.EnsureNumpyArray(target_point)
+    
+    fp = transform.Transform(source_point) 
     wp = transform.InverseTransform(fp)
-    np.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
+    
+    fp = fp.get() if nornir_imageregistration.UsingCupy() else fp
+    wp = wp.get() if nornir_imageregistration.UsingCupy() else wp
+    
+    np.testing.assert_allclose(fp, target_point, atol=__transform_tolerance, rtol=0)
+    np.testing.assert_allclose(wp, source_point, atol=__transform_tolerance, rtol=0)
 
 
 def NearestFixedCheck(test, transform: ITransform, fixedPoints, testPoints):

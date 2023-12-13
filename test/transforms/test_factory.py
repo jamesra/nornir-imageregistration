@@ -136,14 +136,14 @@ class TestIO(test.setup_imagetest.TransformTestBase):
         if isinstance(transform, RigidNoRotation):
             self.assertTrue(isinstance(loadedTransform, RigidNoRotation),
                             "Loaded transform must have same interface as saved transform")
-            self.assertTrue(numpy.allclose(transform.target_offset, loadedTransform.target_offset))
+            self.assertTrue(numpy.allclose(transform._target_offset, loadedTransform._target_offset))
 
         if isinstance(transform, Rigid):
             self.assertTrue(isinstance(loadedTransform, Rigid),
                             "Loaded transform must have same interface as saved transform")
             self.assertTrue(numpy.allclose(transform.angle, loadedTransform.angle))
             self.assertTrue(numpy.allclose(transform.source_space_center_of_rotation,
-                                           loadedTransform.source_space_center_of_rotation))
+                                           loadedTransform._source_space_center_of_rotation))
 
         secondString = factory.TransformToIRToolsString(loadedTransform)
         self.assertTrue(secondString == transformString,
