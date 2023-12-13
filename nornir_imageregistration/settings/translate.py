@@ -15,22 +15,22 @@ class TranslateSettings(object):
         return self.feature_score_threshold is not None or self.use_feature_score is True
 
     def __init__(self,
-                 min_overlap: float = None,
-                 max_relax_iterations: int = None,
-                 max_relax_tension_cutoff: float = None,
-                 feature_score_threshold: float = None,
-                 offset_acceptance_threshold: float = None,
-                 min_translate_iterations: int = None,
-                 max_translate_iterations: int = None,
-                 inter_tile_distance_scale: float = None,
-                 first_pass_inter_tile_distance_scale: float = None,
-                 first_pass_excess_scalar: float = None,
-                 min_offset_weight: float = None,
-                 max_offset_weight: float = None,
-                 excess_scalar: float = None,
-                 use_feature_score: bool = False,
-                 exclude_diagonal_overlaps: bool = True,
-                 known_offsets: [] = None):
+                 min_overlap: float | None = None,
+                 max_relax_iterations: int | None = None,
+                 max_relax_tension_cutoff: float | None = None,
+                 feature_score_threshold: float | None = None,
+                 offset_acceptance_threshold: float | None = None,
+                 min_translate_iterations: int | None = None,
+                 max_translate_iterations: int | None = None,
+                 inter_tile_distance_scale: float | None = None,
+                 first_pass_inter_tile_distance_scale: float | None = None,
+                 first_pass_excess_scalar: float | None = None,
+                 min_offset_weight: float | None = None,
+                 max_offset_weight: float | None = None,
+                 excess_scalar: float | None = None,
+                 use_feature_score: bool | None = False,
+                 exclude_diagonal_overlaps: bool | None = True,
+                 known_offsets: list | None = None):
         """
         :param float min_overlap: The percentage of area that two tilesets must overlap before being considered by the layout model
         :param int max_relax_iterations: Maximum number of iterations in the relax stage
