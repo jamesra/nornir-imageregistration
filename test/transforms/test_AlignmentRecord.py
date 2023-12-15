@@ -158,8 +158,8 @@ class TestAlignmentRecord(unittest.TestCase):
 
     def testAlignmentRecord(self):
         xp = nornir_imageregistration.GetComputationModule()
-        record = nornir_imageregistration.AlignmentRecord((2.5, 0), 100, 90)
-        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
+        record = nornir_imageregistration.AlignmentRecord((2.5, 0), 100, -90)
+        self.assertEqual(round(record.rangle, 3), -round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
         predictedArray = np.array([[2.5, 10],
@@ -173,8 +173,8 @@ class TestAlignmentRecord(unittest.TestCase):
         np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
                                    predictedArray)
 
-        record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, 90)
-        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
+        record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, -90)
+        self.assertEqual(round(record.rangle, 3), -round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
         # Get the corners for a 10,10  image rotated 90 degrees
         predictedArray = xp.array([[-2.5, 12.5],
