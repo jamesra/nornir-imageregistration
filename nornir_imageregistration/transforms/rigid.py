@@ -113,8 +113,8 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
 
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)
-        
-        xp = cp if nornir_imageregistration.UsingCupy() else np
+
+        xp = nornir_imageregistration.GetComputationModule()
         
         self._target_offset = xp.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
         self._source_space_center_of_rotation = xp.asarray((self._source_space_center_of_rotation[0],
