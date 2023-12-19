@@ -105,8 +105,8 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
         tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()
         sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()
         
-        odict = {'_angle': self._angle, 'target_offset': (tgt_offset[0], tgt_offset[1]),
-                 'source_space_center_of_rotation': (sscr[0],
+        odict = {'_angle': self._angle, '_target_offset': (tgt_offset[0], tgt_offset[1]),
+                 '_source_space_center_of_rotation': (sscr[0],
                                                      sscr[1])}
         
         return odict
