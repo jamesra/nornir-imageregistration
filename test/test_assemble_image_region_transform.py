@@ -29,7 +29,7 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         Define an ROI on an image in target space we want to fill with interpolated values from coordinates in source space
         :return:
         """
-        xp = cp if nornir_imageregistration.UsingCupy() else np
+        xp = nornir_imageregistration.GetComputationModule()
         target_bottom_left = np.array((0, 0))
         target_area = np.array((3, 3))
         # source_image = self.create_gradient_image((9, 9))
@@ -62,7 +62,7 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         Transform uniform coordinates from target_space
         :return:
         """
-        xp = cp if nornir_imageregistration.UsingCupy() else np
+        xp = nornir_imageregistration.GetComputationModule()
         source_bottom_left = np.array((0, 0))
         source_area = np.array((3, 3))
 
