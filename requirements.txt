@@ -1,0 +1,9 @@
+python>=3.9.5
+numpy>=1.9.1
+scipy>=0.13.2
+matplotlib>=1.3.0
+Pillow-SIMD>=5.3; sys_platform=="win32"
+Pillow>=5.3; sys_platform=="linux" or sys_platform=="darwin"
+six
+git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.4.1
+git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.4.1
