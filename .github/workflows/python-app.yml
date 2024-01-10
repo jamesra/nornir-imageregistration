@@ -15,6 +15,7 @@ permissions:
 
 env:
   CURSES: False
+  TERM: xterm
 
 jobs:
   build:
