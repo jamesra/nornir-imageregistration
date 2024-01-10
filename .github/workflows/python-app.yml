@@ -13,6 +13,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TERM: xterm
+
 jobs:
   build:
 
