@@ -16,6 +16,7 @@ permissions:
 env:
   CURSES: False
   TERM: xterm
+  ECLIPSE: ECLIPSE
 
 jobs:
   build:
