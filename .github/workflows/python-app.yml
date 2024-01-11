@@ -13,10 +13,17 @@ on:
 permissions:
   contents: read
 
+env:
+  CURSES: False
+  TERM: xterm
+  ECLIPSE: ECLIPSE
+  TESTINPUTPATH: ${{ github.workspace }}/testdata
+  TESTOUTPUTPATH: ${{ github.workspace }}/testdata_output
+
 jobs:
   build:
 
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
@@ -28,6 +35,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+    - name: Create test data folders
+      run: |
+        mkdir -p $TESTINPUTPATH 
+        mkdir -p $TESTOUTPUTPATH
     - name: Test with unittest
       run: |
-        python -m unittest test/test_assemble.py
+        python -m unittest discover -s ./test  -p 'test_grid_division*.py'
