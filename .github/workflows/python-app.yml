@@ -17,6 +17,8 @@ env:
   CURSES: False
   TERM: xterm
   ECLIPSE: ECLIPSE
+  TEST_INPUT_PATH: ${{ github.workspace }}/testdata
+  TEST_OUTPUT_PATH: ${{ github.workspace }}/testdata_output
 
 jobs:
   build:
