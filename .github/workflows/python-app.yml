@@ -41,4 +41,4 @@ jobs:
         mkdir -p $TESTOUTPUTPATH
     - name: Test with unittest
       run: |
-        python -m unittest discover -s ./test  -p 'test_assemble_tiles_basics*.py'
+        python -m unittest discover -s ./test  -p 'test_grid_division*.py'
