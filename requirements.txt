@@ -7,3 +7,4 @@ Pillow>=5.3
 six
 git+https://github.com/jamesra/nornir-pools@dev#egg=nornir_pools
 git+https://github.com/jamesra/nornir-shared@dev#egg=nornir_shared
+hypothesis
