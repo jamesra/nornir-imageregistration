@@ -35,6 +35,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+    - name: Create test data folders
+      run: |
+        mkdir -p $TESTINPUTPATH 
+        mkdir -p $TESTOUTPUTPATH
     - name: Test with unittest
       run: |
         python -m unittest discover -s ./test  -p 'test_assemble_tiles_basics*.py'
