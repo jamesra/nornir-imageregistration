@@ -15,5 +15,5 @@ from nornir_imageregistration.spatial.rectangle import Rectangle, RectangleSet, 
 import nornir_imageregistration.spatial.rectangle as rectangle
 from nornir_imageregistration.spatial.boundingbox import BoundingBox
 import nornir_imageregistration.spatial.boundingbox as boundingbox
-from nornir_imageregistration.spatial.converters import ArcAngle, BoundingPrimitiveFromPoints, BoundsArrayFromPoints
+from nornir_imageregistration.spatial.converters import ArcAngle, BoundingPrimitiveFromPoints, BoundsArrayFromPoints, BoundingBoxFromPoints, BoundingRectangleFromPoints
 import nornir_imageregistration.spatial.converters as converters

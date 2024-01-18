@@ -25,6 +25,13 @@ def __argumentToStos(Argument):
 class StosFile(object):
     """description of class"""
 
+    ControlImagePath: str | None = None
+    ControlImageName: str | None = None
+    MappedImagePath: str | None = None
+    MappedImageName: str | None = None
+    _Transform: str | None = None
+    _Downsample: float | int | None = None
+
     @staticmethod
     def FileHasMasks(path: str) -> bool:
         stosObj = StosFile.Load(path)
@@ -71,7 +78,12 @@ class StosFile(object):
             self._Downsample = newDownsample
 
     @property
-    def ControlImageFullPath(self) -> str | None:
+    def ControlImageFullPath(self) -> str:
+        if self.ControlImagePath is None:
+            raise ValueError("ControlImagePath is not set")
+        if self.ControlImageName is None:
+            raise ValueError("ControlImageName is not set")
+
         return os.path.join(self.ControlImagePath, self.ControlImageName)
 
     @ControlImageFullPath.setter
@@ -88,7 +100,12 @@ class StosFile(object):
             self.ControlImageName = f.strip()
 
     @property
-    def MappedImageFullPath(self) -> str | None:
+    def MappedImageFullPath(self) -> str:
+        if self.MappedImagePath is None:
+            raise ValueError("MappedImagePath is not set")
+        if self.MappedImageName is None:
+            raise ValueError("MappedImageName is not set")
+            
         return os.path.join(self.MappedImagePath, self.MappedImageName)
 
     @MappedImageFullPath.setter

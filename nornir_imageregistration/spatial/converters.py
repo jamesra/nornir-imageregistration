@@ -66,3 +66,29 @@ def BoundingPrimitiveFromPoints(
         return BoundingBox.CreateFromBounds(bounds)
 
     raise ValueError("Expected either 4 or 6 bounding values")
+
+def BoundingRectangleFromPoints(
+        points: NDArray) -> Rectangle:
+    '''Return either a rectangle or bounding box for a set of points'''
+
+    if not isinstance(points, numpy.ndarray):
+        points = points.get()
+
+    bounds = BoundsArrayFromPoints(points)
+    if bounds.shape[0] != 4:
+        raise ValueError("Expected 4 bounding values")
+    
+    return Rectangle.CreateFromBounds(bounds)
+
+def BoundingBoxFromPoints(
+        points: NDArray) -> BoundingBox:
+    '''Return either a rectangle or bounding box for a set of points'''
+
+    if not isinstance(points, numpy.ndarray):
+        points = points.get()
+
+    bounds = BoundsArrayFromPoints(points)
+    if bounds.shape[0] != 7:
+        raise ValueError("Expected 7 bounding values")
+    
+    return BoundingBox.CreateFromBounds(bounds)

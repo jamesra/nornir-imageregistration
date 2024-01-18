@@ -15,12 +15,12 @@ class GridRefinement(object):
     """
     Settings for grid refinement
     """
-    source_image: NDArray[float]
-    target_image: NDArray[float]
-    source_mask: NDArray[bool]
-    target_mask: NDArray[bool]
-    cell_size: NDArray[int]
-    grid_spacing: NDArray[int]
+    source_image: NDArray[np.floating]
+    target_image: NDArray[np.floating]
+    source_mask: NDArray[np.bool_]
+    target_mask: NDArray[np.bool_]
+    cell_size: NDArray[np.integer]
+    grid_spacing: NDArray[np.integer]
     angles_to_search: list[int]
     final_pass_angles: list[int]
     num_iterations: int
@@ -74,12 +74,12 @@ class GridRefinement(object):
         nornir_imageregistration.unlink_shared_memory(self.target_mask_meta)
 
     def __init__(self,
-                 target_image: NDArray[float],
-                 source_image: NDArray[float],
+                 target_image: NDArray[np.floating],
+                 source_image: NDArray[np.floating],
                  target_image_stats: nornir_imageregistration.ImageStats,
                  source_image_stats: nornir_imageregistration.ImageStats,
-                 target_mask: NDArray[bool] | None = None,
-                 source_mask: NDArray[bool] | None = None,
+                 target_mask: NDArray[np.bool_] | None = None,
+                 source_mask: NDArray[np.bool_] | None = None,
                  num_iterations: int = None,
                  cell_size=None,
                  grid_spacing=None,

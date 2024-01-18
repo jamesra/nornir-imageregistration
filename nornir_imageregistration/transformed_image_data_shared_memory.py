@@ -20,8 +20,8 @@ from nornir_imageregistration.transformed_image_data import ITransformedImageDat
 class TransformedImageDataViaSharedMemory(ITransformedImageData):
     _image_shared_mem_meta: Shared_Mem_Metadata
     _center_distance_image_shared_mem_meta: Shared_Mem_Metadata
-    _image: NDArray[float]
-    _centerDistanceImage: NDArray[float]
+    _image: NDArray[np.floating]
+    _centerDistanceImage: NDArray[np.floating]
     _source_space_scale: float
     _target_space_scale: float
 

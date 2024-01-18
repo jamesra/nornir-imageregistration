@@ -322,8 +322,8 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return fixedStats, warpedStats
 
 
-def _find_best_angle(imFixed: NDArray[float],
-                     imWarped: NDArray[float],
+def _find_best_angle(imFixed: NDArray[np.floating],
+                     imWarped: NDArray[np.floating],
                      fixed_stats: nornir_imageregistration.ImageStats,
                      warped_stats: nornir_imageregistration.ImageStats,
                      AngleList: list[float] | None,

@@ -261,8 +261,8 @@ def SplitDisplacements(A, B, point_pairs):
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    OutputStosPath: str,
                    num_iterations: int | None = None,
-                   cell_size: NDArray[int] | tuple[int, int] = None,
-                   grid_spacing: NDArray[int] | tuple[int, int] = None,
+                   cell_size: NDArray[np.integer] | tuple[int, int] = None,
+                   grid_spacing: NDArray[np.integer] | tuple[int, int] = None,
                    angles_to_search=None,
                    final_pass_angles=None,
                    max_travel_for_finalization=None,
@@ -995,7 +995,7 @@ def plot_percentile_estimates(input_data: np.typing.NDArray, output_path: str | 
 
 def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList,
                                           percentile: float = 0.5, max_travel_distance: float = 1.0,
-                                          weight_cutoff: float | None = None) -> NDArray[bool]:
+                                          weight_cutoff: float | None = None) -> NDArray[np.bool_]:
     """
     :param alignment_records:
     :param weight_cutoff:

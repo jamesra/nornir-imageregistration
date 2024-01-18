@@ -438,9 +438,9 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing: float
 
 
 def __CorrectOffsetForMismatchedImageSizes(
-        offset: NDArray[float] | NDArray[int] | tuple[float, float] | tuple[int, int],
-        target_image_shape: NDArray[int],
-        source_image_shape: NDArray[int],
+        offset: NDArray[np.floating] | NDArray[np.integer] | tuple[float, float] | tuple[int, int],
+        target_image_shape: NDArray[np.integer],
+        source_image_shape: NDArray[np.integer],
         scale: float = 1.0) -> tuple[float, float]:
     '''
     :param float scale: Scale the movingImageShape by this amount before correcting to match scaling done to the moving image when passed to the registration algorithm
@@ -516,8 +516,8 @@ def CreateRigidTransform(warped_offset, rangle: float, target_image_shape: NDArr
     return transform
 
 
-def CreateRigidMeshTransform(target_image_shape: NDArray[int] | tuple[int, int],
-                             source_image_shape: NDArray[int] | tuple[int, int],
+def CreateRigidMeshTransform(target_image_shape: NDArray[np.integer] | tuple[int, int],
+                             source_image_shape: NDArray[np.integer] | tuple[int, int],
                              rangle: float,
                              warped_offset: NDArray | tuple[float, float],
                              flip_ud: bool = False,
@@ -545,9 +545,9 @@ def CreateRigidMeshTransform(target_image_shape: NDArray[int] | tuple[int, int],
                                               scale=scale)
 
 
-def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDArray[int],
+def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDArray[np.integer],
                                        rangle: float,
-                                       target_space_offset: tuple[float, float] | NDArray[float],
+                                       target_space_offset: tuple[float, float] | NDArray[np.floating],
                                        scale: float = 1.0,
                                        flip_ud: bool = False) -> ITransform:
     # The offset is the translation of the warped image over the fixed image.  If we translate 0,0 from the warped space into
@@ -562,11 +562,11 @@ def CreateRigidMeshTransformWithOffset(source_image_shape: tuple[int, int] | NDA
     return transform
 
 
-def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[float],
+def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[np.floating],
                                     rangle: float,
-                                    offset: tuple[float, float] | NDArray[float],
+                                    offset: tuple[float, float] | NDArray[np.floating],
                                     flip_ud: bool = False,
-                                    scale: float = 1.0) -> NDArray[float]:
+                                    scale: float = 1.0) -> NDArray[np.floating]:
     '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
        Flip, if requested, is performed before the rotation and translation.
        

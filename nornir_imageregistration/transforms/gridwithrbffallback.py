@@ -4,7 +4,7 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import numpy
+import numpy as np
 try:
     import cupy as cp
     from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
@@ -88,16 +88,16 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._discrete_transform.OnWarpedPointChanged()
         self.OnTransformChanged()
 
-    def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
+    def Transform(self, points: NDArray[np.floating], **kwargs) -> NDArray[np.floating]:
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
 
         if points.shape[0] == 0:
-            return numpy.empty((0, 2), dtype=points.dtype)
+            return np.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -115,25 +115,25 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
             else:
                 BadPoints = points
 
-        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = np.asarray(BadPoints, dtype=np.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = np.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
         return TransformedPoints
 
-    def InverseTransform(self, points: NDArray[float], **kwargs):
+    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
 
         if points.shape[0] == 0:
-            return numpy.empty((0, 2), dtype=points.dtype)
+            return np.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -150,8 +150,8 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = np.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
 
@@ -188,62 +188,62 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         return self._discrete_transform.FixedBoundingBox
 
     @property
-    def SourcePoints(self) -> NDArray[float]:
+    def SourcePoints(self) -> NDArray[np.floating]:
         return self._discrete_transform.SourcePoints
 
     @property
-    def TargetPoints(self) -> NDArray[float]:
+    def TargetPoints(self) -> NDArray[np.floating]:
         return self._discrete_transform.TargetPoints
 
     @property
-    def points(self) -> NDArray[float]:
+    def points(self) -> NDArray[np.floating]:
         return self._discrete_transform.points
 
     @property
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
-    def NearestTargetPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestTargetPoint(points)
 
-    def NearestFixedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestSourcePoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestWarpedPoint(points)
 
-    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
 
@@ -255,11 +255,11 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         '''Return the point pairs inside the rectangle defined in source space'''
         return self._discrete_transform.GetPointPairsInSourceRect(bounds)
 
-    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+    def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
         '''Return the warped points from a set of target-source point pairs'''
         return self._discrete_transform.PointPairsToWarpedPoints(points)
 
-    def PointPairsToTargetPoints(self, points: NDArray[float]):
+    def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
         '''Return the target points from a set of target-source point pairs'''
         return self._discrete_transform.PointPairsToTargetPoints(points)
 
@@ -275,14 +275,14 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.target_space_trianglulation
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._discrete_transform.TranslateFixed(offset)
         self._continuous_transform.TranslateFixed(offset)
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._discrete_transform.TranslateWarped(offset)
         self._continuous_transform.TranslateWarped(offset)
@@ -306,7 +306,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._continuous_transform.ScaleFixed(scalar)
         self.OnTransformChanged()
 
-    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         if rotation_center is None:
             rotation_center = self.FixedBoundingBox.Center
@@ -317,14 +317,14 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float] | None) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
         result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
         self._continuous_transform.UpdateTargetPointsByIndex(index, point)
         self.OnTransformChanged()
         return result
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[float], point: NDArray[float] | None) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
         result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
         self._continuous_transform.UpdateTargetPointsByPosition(index, point)
         self.OnTransformChanged()
@@ -385,7 +385,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         self._discrete_transform.OnWarpedPointChanged()
         self.OnTransformChanged()
 
-    def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
+    def Transform(self, points: NDArray[np.floating], **kwargs) -> NDArray[np.floating]:
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
@@ -412,19 +412,19 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
             else:
                 BadPoints = points
 
-        # BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
+        # BadPoints = cp.asarray(BadPoints, dtype=np.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = cp.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
 
-        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to Numpy, so ensure we hand back points on the GPU
+        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
         return TransformedPoints
 
-    def InverseTransform(self, points: NDArray[float], **kwargs):
+    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -450,13 +450,13 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = cp.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
         TransformedPoints[InvalidIndicies] = FixedPoints
 
-        #Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to Numpy, so ensure we hand back points on the GPU
+        #Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
         return TransformedPoints
 
@@ -492,62 +492,62 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         return self._discrete_transform.FixedBoundingBox
 
     @property
-    def SourcePoints(self) -> NDArray[float]:
+    def SourcePoints(self) -> NDArray[np.floating]:
         return self._discrete_transform.SourcePoints
 
     @property
-    def TargetPoints(self) -> NDArray[float]:
+    def TargetPoints(self) -> NDArray[np.floating]:
         return self._discrete_transform.TargetPoints
 
     @property
-    def points(self) -> NDArray[float]:
+    def points(self) -> NDArray[np.floating]:
         return self._discrete_transform.points
 
     @property
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
-    def NearestTargetPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestTargetPoint(points)
 
-    def NearestFixedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestSourcePoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestWarpedPoint(points)
 
-    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self._discrete_transform.GetPointPairsInRect(self.SourcePoints, bounds)
 
@@ -559,11 +559,11 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         '''Return the point pairs inside the rectangle defined in source space'''
         return self._discrete_transform.GetPointPairsInSourceRect(bounds)
 
-    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+    def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
         '''Return the warped points from a set of target-source point pairs'''
         return self._discrete_transform.PointPairsToWarpedPoints(points)
 
-    def PointPairsToTargetPoints(self, points: NDArray[float]):
+    def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
         '''Return the target points from a set of target-source point pairs'''
         return self._discrete_transform.PointPairsToTargetPoints(points)
 
@@ -579,14 +579,14 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self._discrete_transform.target_space_trianglulation
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._discrete_transform.TranslateFixed(offset)
         self._continuous_transform.TranslateFixed(offset)
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._discrete_transform.TranslateWarped(offset)
         self._continuous_transform.TranslateWarped(offset)
@@ -610,7 +610,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         self._continuous_transform.ScaleFixed(scalar)
         self.OnTransformChanged()
 
-    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         if rotation_center is None:
             rotation_center = self.FixedBoundingBox.Center
@@ -621,14 +621,14 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float] | None) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
         result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
         self._continuous_transform.UpdateTargetPointsByIndex(index, point)
         self.OnTransformChanged()
         return result
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[float], point: NDArray[float] | None) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
         result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
         self._continuous_transform.UpdateTargetPointsByPosition(index, point)
         self.OnTransformChanged()
@@ -865,7 +865,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
 
         TransformedPoints = super(GridWithRBFInterpolator_Direct_CPU, self).Transform(points)
         return TransformedPoints
@@ -1033,9 +1033,9 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
             else:
                 BadPoints = points
 
-        # BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
+        # BadPoints = cp.asarray(BadPoints, dtype=np.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = cp.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = super(GridWithRBFInterpolator_GPU, self).Transform(BadPoints)
 
@@ -1133,7 +1133,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
     def discrete_transform(self):
         if self._discrete_transform is None:
             self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
-                                                                  numpy.reshape(self.TargetPoints, (
+                                                                  np.reshape(self.TargetPoints, (
                                                                       self._grid.grid_dims[0], self._grid.grid_dims[1],
                                                                       2)),
                                                                   bounds_error=False)
@@ -1191,7 +1191,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         points = nornir_imageregistration.EnsurePointsAre2DNumpArray(points)
 
         if points.shape[0] == 0:
-            return numpy.empty((0, 2), dtype=points.dtype)
+            return np.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -1209,8 +1209,8 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
             else:
                 BadPoints = points
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = np.asarray(BadPoints, dtype=numpy.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = np.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = super(GridWithRBFInterpolator_CPU, self).Transform(BadPoints)
 
@@ -1223,7 +1223,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         :param points:
         """
         print("GridWithRBFInterpolator_CPU -> INVERSETRANSFORM()")
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
 
         iTransformedPoints = super(GridWithRBFInterpolator_CPU, self).InverseTransform(points)
         return iTransformedPoints
@@ -1234,14 +1234,14 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         """
         self._grid = grid
         try:
-            control_points = numpy.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
 
         super(GridWithRBFInterpolator_CPU, self).__init__(control_points)
         self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
-                                                                numpy.reshape(self._grid.TargetPoints, (
+                                                                np.reshape(self._grid.TargetPoints, (
                                                                 self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
                                                                 bounds_error=False)
         self._ReverseRBFInstance = None
@@ -1252,12 +1252,12 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
 if __name__ == '__main__':
-    p = numpy.array([[0, 0, 0, 0],
+    p = np.array([[0, 0, 0, 0],
                      [0, 10, 0, -10],
                      [10, 0, -10, 0],
                      [10, 10, -10, -10]])
 
-    (Fixed, Moving) = numpy.hsplit(p, 2)
+    (Fixed, Moving) = np.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)
 
     warpedPoints = [[0, 0], [-5, -5]]

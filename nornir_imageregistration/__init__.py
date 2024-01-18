@@ -23,7 +23,7 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from PIL import Image
 import numpy as np
@@ -72,13 +72,13 @@ import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
 import nornir_imageregistration.computational_lib
-from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, SetActiveComputationLib, UsingCupy
+from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, SetActiveComputationLib, UsingCupy, TryInitCupyContext
 
 def GetComputationModule():
     """Return the computational module in use"""
     return cp if UsingCupy() else np
 
-def ParamToDtype(param) -> DTypeLike:
+def ParamToDtype(param: NDArray) -> DTypeLike:
     if param is None:
         raise ValueError("'None' cannot be converted to a dtype")
 
@@ -89,21 +89,21 @@ def ParamToDtype(param) -> DTypeLike:
     return dtype
 
 
-def IsFloatArray(param) -> bool:
+def IsFloatArray(param: NDArray) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.floating)
 
 
-def IsIntArray(param) -> bool:
+def IsIntArray(param: NDArray) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.integer)
 
 
-def ImageMaxPixelValue(image) -> int:
+def ImageMaxPixelValue(image: NDArray) -> int:
     '''The maximum value that can be stored in an image represented by integers'''
     probable_bpp = int(image.itemsize * 8)
     if probable_bpp > 8:
@@ -112,7 +112,7 @@ def ImageMaxPixelValue(image) -> int:
     return (1 << probable_bpp) - 1
 
 
-def ImageBpp(image) -> int:
+def ImageBpp(image: NDArray) -> int:
     probable_bpp = int(image.itemsize * 8)
     # if probable_bpp > 8:
     #    if 'i' == dt.kind: #Signed integers we use a smaller probable_bpp
@@ -131,14 +131,14 @@ def IndexOfValues(A, values) -> numpy.typing.NDArray:
     return np.searchsorted(A, values, side='left', sorter=sorter)
 
 
-def EnsureArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsureArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsureCupyArray(points, dtype)
     else:
         return EnsureNumpyArray(points, dtype)
 
 
-def EnsureNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -160,7 +160,7 @@ def EnsureNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     return points
 
 
-def EnsureCupyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsureCupyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     if not isinstance(points, cp.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -178,7 +178,7 @@ def EnsureCupyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
     return points
 
 
-def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre1DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     points = EnsureNumpyArray(points, dtype)
 
     if points.ndim > 1:
@@ -186,7 +186,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
 
     return points
 
-def EnsurePointsAre1DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre1DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim > 1:
@@ -195,7 +195,7 @@ def EnsurePointsAre1DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArra
     return points
 
 
-def EnsurePointsAre1DArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre1DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre1DCuPyArray(points, dtype)
     else:
@@ -203,7 +203,7 @@ def EnsurePointsAre1DArray(points: NDArray | Iterable, dtype=None) -> NDArray[fl
 
 
 
-def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre2DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     points = EnsureNumpyArray(points, dtype)
 
     if points.ndim == 1:
@@ -212,7 +212,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Iterable, dtype=None) -> NDArr
     return points
 
 
-def EnsurePointsAre2DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre2DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
@@ -221,7 +221,7 @@ def EnsurePointsAre2DCuPyArray(points: NDArray | Iterable, dtype=None) -> NDArra
     return points
 
 
-def EnsurePointsAre2DArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre2DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre2DCuPyArray(points, dtype)
     else:
@@ -229,7 +229,7 @@ def EnsurePointsAre2DArray(points: NDArray | Iterable, dtype=None) -> NDArray[fl
 
 
 
-def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre4xN_NumpyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
     points = EnsureNumpyArray(points, dtype)
 
     if points.ndim == 1:
@@ -240,7 +240,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray | Iterable, dtype=None) -> NDA
 
     return points
 
-def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre4xN_CuPyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
@@ -252,7 +252,7 @@ def EnsurePointsAre4xN_CuPyArray(points: NDArray | Iterable, dtype=None) -> NDAr
     return points
 
 
-def EnsurePointsAre4xN_Array(points: NDArray | Iterable, dtype=None) -> NDArray[float]:
+def EnsurePointsAre4xN_Array(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre4xN_CuPyArray(points, dtype)
     else:

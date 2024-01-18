@@ -10,15 +10,15 @@ tau = np.pi * 2
 
 
 class RigidComponents(NamedTuple):
-    source_rotation_center: NDArray[float]
+    source_rotation_center: NDArray[np.floating]
     angle: float
     scale: float
-    translation: NDArray[float]
+    translation: NDArray[np.floating]
     reflected: bool
 
 
-def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
-    NDArray[float], float, NDArray[float]]:
+def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[np.floating]) -> tuple[
+    NDArray[np.floating], float, NDArray[np.floating]]:
     '''
     This function is used to get the translation, rotation and scaling factors when aligning
     points in B on reference points in A.
@@ -78,8 +78,8 @@ def _kabsch_umeyama(target_points: NDArray[float], source_points: NDArray[float]
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
 
-def _kabsch_umeyama_translation_scaling(target_points: NDArray[float], source_points: NDArray[float]) -> tuple[
-    NDArray[float], float, NDArray[float]]:
+def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], source_points: NDArray[np.floating]) -> tuple[
+    NDArray[np.floating], float, NDArray[np.floating]]:
     '''
     This function is used to get the translation and scaling factors when aligning
     points in B on reference points in A.
@@ -108,8 +108,8 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[float], source_po
     return scale, translation
 
 
-def EstimateRigidComponentsFromControlPoints(target_points: NDArray[float],
-                                             source_points: NDArray[float],
+def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
+                                             source_points: NDArray[np.floating],
                                              ignore_rotation: bool = False) -> RigidComponents:
     source_rotation_center = np.zeros((1, 2))
 
@@ -232,7 +232,7 @@ def ConvertTransformToMeshTransform(input_transform: ITransform,
 
 
 def GetTargetSpaceCornerPoints(input_transform: ITransform,
-                               source_image_shape: NDArray) -> NDArray[float]:
+                               source_image_shape: NDArray) -> NDArray[np.floating]:
     ymax, xmax = source_image_shape
     corners = np.array([[0, 0],
                         [0, xmax],
@@ -242,7 +242,7 @@ def GetTargetSpaceCornerPoints(input_transform: ITransform,
 
 
 def GetControlPointsForRigidTransform(input_transform: ITransform,
-                                      source_image_shape: NDArray) -> NDArray[float]:
+                                      source_image_shape: NDArray) -> NDArray[np.floating]:
     ymax, xmax = source_image_shape
     corners = np.array([[0, 0],
                         [0, xmax],

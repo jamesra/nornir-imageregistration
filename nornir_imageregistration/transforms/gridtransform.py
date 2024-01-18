@@ -135,25 +135,25 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self.fixedtri
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestTargetPoint(self, points: NDArray[float]):
+    def NearestTargetPoint(self, points: NDArray[np.floating]):
         '''Return the target points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.WarpedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]):
+    def NearestSourcePoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
@@ -174,18 +174,18 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[float], bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -205,27 +205,27 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         return OutputPoints
 
-    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+    def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
         '''Return the warped points from a set of target-source point pairs'''
         return points[:, 2:4]
 
-    def PointPairsToTargetPoints(self, points: NDArray[float]):
+    def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
         '''Return the target points from a set of target-source point pairs'''
         return points[:, 0:2]
 
@@ -290,17 +290,17 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
@@ -432,25 +432,25 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         return self.fixedtri
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestTargetPoint(self, points: NDArray[float]):
+    def NearestTargetPoint(self, points: NDArray[np.floating]):
         '''Return the target points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.WarpedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]):
+    def NearestSourcePoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
@@ -471,18 +471,18 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[float], bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -502,27 +502,27 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return OutputPoints
 
-    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+    def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
         '''Return the warped points from a set of target-source point pairs'''
         return points[:, 2:4]
 
-    def PointPairsToTargetPoints(self, points: NDArray[float]):
+    def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
         '''Return the target points from a set of target-source point pairs'''
         return points[:, 0:2]
 
@@ -587,17 +587,17 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
@@ -698,13 +698,13 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         return transform_string
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return None
 
-    def NearestWarpedPoint(self, points: NDArray[float]):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
@@ -725,18 +725,18 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + cp.asarray(offset)
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + cp.asarray(offset)
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[float], bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -756,27 +756,27 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         return OutputPoints
 
-    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
-    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[float]):
+    def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         '''bounds = [bottom left top right]'''
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
-    def PointPairsToWarpedPoints(self, points: NDArray[float]):
+    def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
         '''Return the warped points from a set of target-source point pairs'''
         return points[:, 2:4]
 
-    def PointPairsToTargetPoints(self, points: NDArray[float]):
+    def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
         '''Return the target points from a set of target-source point pairs'''
         return points[:, 0:2]
 
@@ -813,17 +813,17 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         transPoints = self.InverseInterpolator(points)
         return transPoints
 
-    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
