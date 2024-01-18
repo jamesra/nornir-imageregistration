@@ -105,16 +105,16 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
         tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()
         sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()
         
-        odict = {'_angle': self._angle, 'target_offset': (tgt_offset[0], tgt_offset[1]),
-                 'source_space_center_of_rotation': (sscr[0],
+        odict = {'_angle': self._angle, '_target_offset': (tgt_offset[0], tgt_offset[1]),
+                 '_source_space_center_of_rotation': (sscr[0],
                                                      sscr[1])}
         
         return odict
 
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)
-        
-        xp = cp if nornir_imageregistration.UsingCupy() else np
+
+        xp = nornir_imageregistration.GetComputationModule()
         
         self._target_offset = xp.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
         self._source_space_center_of_rotation = xp.asarray((self._source_space_center_of_rotation[0],
