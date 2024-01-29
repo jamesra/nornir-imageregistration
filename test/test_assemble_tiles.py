@@ -138,7 +138,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         if cluster_delta_sum >= 0.65:
             nornir_imageregistration.ShowGrayscale([cluster_delta, cluster_delta > 0],
                                                    title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=False)
+                                                   PassFail=True)
 
         # 10-13-2022: This test passes if the cluster composites the tiles in the same order as the single-threaded assembly.
 
@@ -251,7 +251,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         if CPU_delta_sum >= 0.65:
             nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
                                                    title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=False)
+                                                   PassFail=True)
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale(
             [(result.image, CPU_delta), (tileImage, CPUtileImage), (croppedWholeImage, wholeimage)],

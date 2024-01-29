@@ -235,7 +235,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         :return: (minY, minX, maxY, maxX)
         '''
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = nornir_imageregistration.BoundingRectangleFromPoints(self.SourcePoints)
+            self._MappedBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.SourcePoints)
 
         return self._MappedBoundingBox
 

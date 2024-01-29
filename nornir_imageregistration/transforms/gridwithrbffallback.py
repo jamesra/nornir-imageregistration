@@ -24,6 +24,7 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformScaling, \
     ITransformRelativeScaling, ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, \
@@ -94,7 +95,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return np.empty((0, 2), dtype=points.dtype)
@@ -130,7 +131,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         :param points:
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return np.empty((0, 2), dtype=points.dtype)
@@ -865,7 +866,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
-        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         TransformedPoints = super(GridWithRBFInterpolator_Direct_CPU, self).Transform(points)
         return TransformedPoints
@@ -886,7 +887,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
         """
         self._grid = grid
         try:
-            control_points = numpy.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
@@ -1188,7 +1189,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
         print("GridWithRBFInterpolator_CPU -> TRANSFORM()")
-        points = nornir_imageregistration.EnsurePointsAre2DNumpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return np.empty((0, 2), dtype=points.dtype)
@@ -1223,7 +1224,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         :param points:
         """
         print("GridWithRBFInterpolator_CPU -> INVERSETRANSFORM()")
-        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         iTransformedPoints = super(GridWithRBFInterpolator_CPU, self).InverseTransform(points)
         return iTransformedPoints

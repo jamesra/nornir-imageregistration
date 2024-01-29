@@ -94,6 +94,7 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: Sequence
         set_title_for_multi_image(fig, title)
 
         for i, image in enumerate(input_params):
+            image = nornir_imageregistration.EnsureNumpyArray(image)
             # fig = figure()
             if isinstance(image, np.ndarray):
                 # ax = fig.add_subplot(101 + ((len(input_params) - (i)) * 10))
@@ -141,12 +142,13 @@ def ShowGrayscale(input_params, title: str | None = None, image_titles: Sequence
 def _ConvertParamsToImageList(param):
     output = None
     if isinstance(param, str):
-        loaded_image = nornir_imageregistration.ImageParamToImageArray(param)
+        loaded_image = nornir_imageregistration.ImageParamToNumpyImageArray(param)
         output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, cp.ndarray):
-        output = nornir_imageregistration.core._Image_To_Uint8(param.get())
+        param = nornir_imageregistration.EnsureNumpyArray(param) #Ensure it is not a Cupy array
+        output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
         if len(output) == 1:
@@ -161,6 +163,8 @@ def _GridLayoutDims(image_list: np.typing.NDArray | Iterable) -> tuple[int, int]
 
     def _num_images(param):
         if isinstance(param, np.ndarray):
+            return 1
+        elif isinstance(param, cp.ndarray):
             return 1
         else:
             return len(param)
@@ -284,6 +288,7 @@ def _DisplayImageList1D(input_params, image_titles: Sequence[str] | None = None,
 
     for i, image in enumerate(input_params):
 
+        image = nornir_imageregistration.EnsureNumpyArray(image)
         ax = None
 
         if ndim == 1:
@@ -358,6 +363,7 @@ def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None 
 
         numCols = len(row_list)
         for iCol, image in enumerate(row_list):
+            image = nornir_imageregistration.EnsureNumpyArray(image)
             # print("Row %d Col %d" % (iRow, iCol))
 
             if iCol == numCols - 1 and numCols < width:

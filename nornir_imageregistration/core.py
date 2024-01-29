@@ -111,19 +111,20 @@ def ApproxEqual(a, b, epsilon=None):
 
 
 def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None):
-    image = None
-
-    if isinstance(imageparam, np.ndarray) or isinstance(imageparam, cp.ndarray):
-        xp = cp.get_array_module(imageparam)
+    if isinstance(imageparam, cp.ndarray):
+        imageparam = nornir_imageregistration.EnsureNumpyArray(imageparam, dtype)
+        
+    if isinstance(imageparam, np.ndarray):
         if dtype is None:
             image = imageparam
-        elif xp.issubdtype(imageparam.dtype, np.integer) and xp.issubdtype(dtype, np.floating):
+        elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / xp.iinfo(imageparam.dtype).max
+            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
         else:
             image = imageparam.astype(dtype=dtype, copy=False)
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam, dtype=dtype)
+        image = nornir_imageregistration.EnsureNumpyArray(image, dtype)
     elif isinstance(imageparam, nornir_imageregistration.Shared_Mem_Metadata):
         shared_mem = shared_memory.SharedMemory(name=imageparam.name, create=False)
         image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
@@ -192,7 +193,7 @@ def ScalarForMaxDimension(max_dim: float, shapes):
     return max_dim / maxVal
 
 
-def ReduceImage(image: NDArray, scalar: float):
+def ReduceImage(image: NDArray, scalar: float) -> NDArray:
     """
     Returns a zoomed array using spline interpolation (CPU/GPU agnostic function)
     """
@@ -200,7 +201,7 @@ def ReduceImage(image: NDArray, scalar: float):
     return xp.ndimage.zoom(image, scalar)
 
 
-def ExtractROI(image: NDArray, center, area):
+def ExtractROI(image: NDArray, center, area) -> NDArray:
     """Returns an ROI around a center point with the area, if the area passes a boundary the ROI
        maintains the same area, but is shifted so the entire area remains in the image.
        USES NUMPY (Y,X) INDEXING"""
@@ -214,7 +215,7 @@ def ExtractROI(image: NDArray, center, area):
     return ROI
 
 
-def SafeROIRange(start, count, maxVal, minVal=0):
+def SafeROIRange(start: int, count: int, maxVal: int, minVal: int = 0) -> list[int]:
     """
     Returns a range cropped within min and max values, but always attempts to have count entries in the ROI.
     If minVal or maxVal would crop the list then start is shifted to ensure the resulting value has the correct number of entries.
@@ -223,6 +224,7 @@ def SafeROIRange(start, count, maxVal, minVal=0):
     :param int maxVal: Maximum value allowed to be returned.  Output list will be cropped if it equals or exceeds this value.
     :param int minVal: Minimum value allowed to be returned.  Output list will be cropped below this value.
     :return:  [start start+1, start+2, ..., start+count]
+    :raises ValueError: If maxVal < minVal or maxVal - minVal < count
     """
 
     if count == 0:
@@ -247,7 +249,7 @@ def SafeROIRange(start, count, maxVal, minVal=0):
     return r
 
 
-def ConstrainedRange(start, count, maxVal, minVal=0):
+def ConstrainedRange(start: int, count: int, maxVal: int, minVal: int = 0) -> list[int]:
     """Returns a range that falls within min/max limits."""
 
     end = start + count
@@ -311,7 +313,7 @@ def Shrink(InFile: str, OutFile: str, Scalar: float, **kwargs):
         _ShrinkPillowImageFile(InFile, OutFile, Scalar, **kwargs)
 
 
-def ResizeImage(image, scalar):
+def ResizeImage(image: NDArray, scalar: float | Iterable[float] | NDArray[np.floating]) -> NDArray:
     """Change image size by scalar"""
 
     original_min = image.min()
@@ -681,7 +683,7 @@ def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
     return output, shared_array
 
 
-def create_shared_memory_array(shape: NDArray[int], dtype: DTypeLike, read_only: bool = True) -> tuple[
+def create_shared_memory_array(shape: NDArray[np.integer], dtype: DTypeLike, read_only: bool = True) -> tuple[
     nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
     """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
     when it is no longer in use.
@@ -715,7 +717,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     return image
 
  
-def GetImageSize(image_param: str | np.ndarray | Iterable):
+def GetImageSize(image_param: str | np.ndarray | Iterable) -> NDArray[np.integer]:
     """
     :param image_param: Either a path to an image file, an ndarray, or a list
     of paths/ndimages
@@ -726,9 +728,9 @@ def GetImageSize(image_param: str | np.ndarray | Iterable):
     if isinstance(image_param, str):
         return nornir_shared.images.GetImageSize(image_param)
     elif isinstance(image_param, np.ndarray):
-        return image_param.shape
+        return np.array(image_param.shape, dtype=int, copy=False)
     elif isinstance(image_param, Iterable):
-        return [GetImageSize(i) for i in image_param]
+        return np.array([GetImageSize(i) for i in image_param], dtype=int)
 
     raise ValueError(f'Unexpected image argument {image_param}')
 
@@ -1018,7 +1020,7 @@ def LoadImage(ImageFullPath: str,
     if not os.path.isfile(ImageFullPath):
         # logger = logging.getLogger(__name__)
         prettyoutput.LogErr(f'File does not exist: {ImageFullPath}')
-        raise IOError(f"Unable to load image: {ImageFullPath}")
+        raise FileNotFoundError(f"Unable to load image: {ImageFullPath}")
 
     (root, ext) = os.path.splitext(ImageFullPath)
 
@@ -1031,7 +1033,7 @@ def LoadImage(ImageFullPath: str,
 
     image_mask = None
 
-    if not ImageMaskFullPath is None:
+    if ImageMaskFullPath is not None:
         if not os.path.isfile(ImageMaskFullPath):
             # logger = logging.getLogger(__name__)
             prettyoutput.LogErr('Fixed image mask file does not exist: ' + ImageMaskFullPath)
@@ -1163,7 +1165,7 @@ def GetImageTile(source_image, iRow, iCol, tile_size):
     return source_image[StartY:EndY, StartX:EndX]
 
 
-def RandomNoiseMask(image: NDArray, Mask: NDArray[bool],
+def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
                     imagestats: nornir_imageregistration.image_stats.ImageStats = None, Copy=False) -> NDArray:
     """
     Fill the masked area with random noise with gaussian distribution about the image

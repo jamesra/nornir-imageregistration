@@ -59,8 +59,9 @@ def RotationMatrix(rangle: float) -> NDArray[np.floating]:
 
     xp = nornir_imageregistration.GetComputationModule()
 
-    rot_mat = xp.array([[np.cos(rangle), -np.sin(rangle), 0],
-                        [np.sin(rangle), np.cos(rangle), 0],
+    #The columns of this rotation matrix are swapped because we swap the input from X,Y to Y,X
+    rot_mat = xp.array([[np.cos(rangle), np.sin(rangle), 0],
+                        [-np.sin(rangle), np.cos(rangle), 0], 
                         [0, 0, 1]])
 
     return rot_mat
