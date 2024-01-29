@@ -278,7 +278,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     @property
     def FixedTriangles(self):
-        return self.fixedtri.vertices
+        return self.fixedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
         '''Centroids of fixed triangles'''
