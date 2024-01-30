@@ -825,6 +825,8 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
     """
     dirname = os.path.dirname(ImageFullPath)
     may_need_to_create_dir = dirname is not None and len(dirname) > 0
+    
+    image = nornir_imageregistration.EnsureNumpyArray(image)
 
     if bpp is None:
         bpp = nornir_imageregistration.ImageBpp(image)

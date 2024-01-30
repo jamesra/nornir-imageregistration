@@ -27,7 +27,7 @@ except ImportError:
 
 def HasCupy() -> bool:
     """Return true if cupy is available"""
-    return cp is None
+    return _has_cupy
 
 def UsingCupy() -> bool:
     return _active_lib == ComputationLib.cupy

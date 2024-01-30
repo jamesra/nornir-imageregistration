@@ -151,7 +151,7 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
             else:
                 dtype = np.float32
                 
-        if isinstance(points, cp.ndarray):
+        if HasCupy() and isinstance(points, cp.ndarray):
             points = points.get()
             return points.astype(dtype, copy=False)
 
