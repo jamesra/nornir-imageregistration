@@ -19,10 +19,9 @@ from nornir_shared.mathhelper import NearestPowerOfTwo
 try:
     import cupy as cp
 except ModuleNotFoundError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    import cupy_thunk as cp
-
+    import nornir_imageregistration.cupy_thunk as cp
 
 
 def build_coords_array(grid_dims: NDArray[np.integer]) -> NDArray[np.integer]:

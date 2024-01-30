@@ -29,13 +29,16 @@ from PIL import Image
 import numpy as np
 import numpy.typing
 from numpy.typing import NDArray, DTypeLike
+from nornir_shared.mathhelper import RoundingPrecision
 
 try:
     import cupy as cp
 except ModuleNotFoundError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cupyx_thunk
 except ImportError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cupyx_thunk
 
 
 
@@ -48,7 +51,6 @@ import matplotlib.pyplot as plt
 
 plt.ioff()
 
-from nornir_shared.mathhelper import RoundingPrecision
 
 
 def default_image_dtype():

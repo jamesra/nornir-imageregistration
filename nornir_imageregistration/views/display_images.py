@@ -5,9 +5,9 @@ from typing import Iterable, Sequence
 try:
     import cupy as cp
 except ModuleNotFoundError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 import matplotlib.colors
 import matplotlib.gridspec
 import matplotlib.pyplot as plt

@@ -8,9 +8,9 @@ import numpy as np
 try:
     import cupy as cp
 except ModuleNotFoundError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 from numpy.typing import NDArray
 
 import nornir_imageregistration.transforms

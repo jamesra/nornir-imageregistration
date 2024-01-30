@@ -13,11 +13,9 @@ try:
     #from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
     #from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
 import scipy.spatial
 from scipy.interpolate import RegularGridInterpolator as RegularGridInterpolator
 from numpy.typing import NDArray

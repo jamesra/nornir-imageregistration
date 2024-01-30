@@ -14,11 +14,11 @@ try:
     import cupy as cp
     import cupyx
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cupyx
 
 
 import nornir_imageregistration
