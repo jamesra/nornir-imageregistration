@@ -23,7 +23,7 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 '''
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Any
 
 from PIL import Image
 import numpy as np
@@ -90,6 +90,20 @@ def ParamToDtype(param: NDArray) -> DTypeLike:
 
     return dtype
 
+def __DetermineDType(array: Sequence[Any] | NDArray) -> DTypeLike:
+    """Given a numpy/cupy array, or a sequence, determine an appropriate dtype""" 
+    try:
+        dtype = getattr(array, 'dtype')
+        if not isinstance(dtype, np.dtype):
+            raise AttributeError("dtype property on points object is not a numpy dtype")
+    except AttributeError: # The points object doesn't have a dtype attribute or the type is incorrect
+        if isinstance(array[0], int):
+            dtype = np.int32
+        else:
+            dtype = np.float32
+    
+    return dtype
+
 
 def IsFloatArray(param: NDArray) -> bool:
     if param is None:
@@ -146,10 +160,7 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
             raise ValueError("points must be Iterable")
 
         if dtype is None:
-            if isinstance(points[0], int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
+            dtype = __DetermineDType(points)
                 
         if HasCupy() and isinstance(points, cp.ndarray):
             points = points.get()
@@ -168,10 +179,7 @@ def EnsureCupyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
             raise ValueError("points must be Iterable")
 
         if dtype is None:
-            if isinstance(points[0], int):
-                dtype = np.int32
-            else:
-                dtype = np.float32
+            dtype = __DetermineDType(points)
                 
         points = cp.asarray(points, dtype=dtype)
     elif dtype is not None:
