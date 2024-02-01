@@ -7,8 +7,19 @@ import os
 import os.path
 import unittest
 
-import cupy as cp
 import numpy as np
+
+try:
+    import cupy as cp
+    import cupyx
+    init_context = cp.zeros((64,64)) #Attempt to initialize CUDA context if we get this far 
+    init_context = init_context.mean()
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 from nornir_imageregistration import local_distortion_correction
@@ -20,8 +31,6 @@ import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 import nornir_pools
 import setup_imagetest
 
-init_context = cp.asarray((1, 2, 3))
-init_context = init_context.mean()
 
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):

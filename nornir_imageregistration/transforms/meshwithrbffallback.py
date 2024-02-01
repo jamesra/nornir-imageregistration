@@ -11,10 +11,10 @@ try:
     from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupy_thunk as cupyx
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupy_thunk as cupyx
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 import nornir_pools
@@ -119,6 +119,7 @@ class MeshWithRBFFallback(Triangulation):
             return TransformedPoints
         else:
             if len(points) > 1:
+                InvalidIndicies = nornir_imageregistration.EnsureNumpyArray(InvalidIndicies)
                 # print InvalidIndicies;
                 BadPoints = points[InvalidIndicies]
             else:
@@ -155,6 +156,7 @@ class MeshWithRBFFallback(Triangulation):
             return TransformedPoints
         else:
             if points.ndim > 1:
+                InvalidIndicies = nornir_imageregistration.EnsureNumpyArray(InvalidIndicies)
                 BadPoints = points[InvalidIndicies]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now

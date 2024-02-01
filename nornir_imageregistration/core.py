@@ -12,6 +12,9 @@ import typing
 import warnings
 import weakref
 
+import numpy as np
+import matplotlib.pyplot as plt
+
 from PIL import Image
 
 #Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
@@ -20,13 +23,11 @@ try:
     import cupyx
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx
+    import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
-import matplotlib.pyplot as plt
-import numpy as np
 from numpy.typing import DTypeLike, NDArray
 # import numpy.fft.fftpack as fftpack
 import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested.
@@ -1275,9 +1276,9 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
         if nLabels == 0:  # If there are no labels, do not mask anything
             return xp.ones(image.shape, extrema_mask.dtype)
 
-        label_sums = sp.ndimage.sum_labels(extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask,
-                                           extrema_mask_label,
-                                           xp.array(range(0, nLabels)))
+        label_sums = sp.ndimage.sum_labels(extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask, extrema_mask_label, xp.array(range(0, nLabels)))
+                                           
+                                           
 
         cutoff_value = None
         # if cutoff value is less than one treat it as a fraction of total area
@@ -1602,7 +1603,6 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
     :return: scaled_offset of peak from image center and sum of pixels values at peak
     :rtype: (tuple, float)
     """
-    use_cupy = isinstance(image, cp.ndarray)
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
@@ -1681,7 +1681,7 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         # scaled_offset = (image.shape[0] / 2.0 - PeakCenterOfMass[0], image.shape[1] / 2.0 - PeakCenterOfMass[1])
         # print(image.shape)
         # PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1])))
-        if use_cupy:
+        if nornir_imageregistration.UsingCupy():
             PeakCenterOfMass = np.array((cp.asnumpy(PeakCenterOfMass[0]), cp.asnumpy(PeakCenterOfMass[1])))
             # print(PeakCenterOfMass)
         scaled_offset = (np.asarray(image.shape) / 2.0) - PeakCenterOfMass

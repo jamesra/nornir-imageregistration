@@ -8,10 +8,10 @@ try:
     from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupy_thunk as cupyx
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupy_thunk as cupyx
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 from numpy.typing import NDArray
 import scipy
 from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
@@ -529,10 +529,9 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = cuRegularGridInterpolator(self._grid.axis_points,
-                                                                cp.reshape(self.TargetPoints, (
-                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
-                                                                bounds_error=False)
+            self._ForwardInterpolator = cuRegularGridInterpolator(cp.array(self._grid.axis_points),
+                                                                  cp.reshape(self.TargetPoints, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                  bounds_error=False)
 
         return self._ForwardInterpolator
 

@@ -6,8 +6,18 @@ Created on Mar 21, 2013
 import os
 import unittest
 
-import cupy as cp
-
+#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+try:
+    import cupy as cp
+    import cupyx
+    init_context = cp.zeros((64, 64))
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+ 
 import nornir_imageregistration
 from nornir_imageregistration import alignment_record
 import nornir_imageregistration.core as core
@@ -19,7 +29,6 @@ from nornir_shared.tasktimer import TaskTimer
 # from . import setup_imagetest
 import setup_imagetest
 
-init_context = cp.zeros((64, 64))
 
 
 def CheckAlignmentRecord(test, arecord, angle, X, Y, flipud=False, adelta=None, sdelta=None):

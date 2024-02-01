@@ -35,10 +35,10 @@ try:
     import cupy as cp
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx_thunk
+    import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx_thunk
+    import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 
 
 

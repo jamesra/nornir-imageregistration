@@ -106,7 +106,7 @@ class GridDivisionBase(IGrid):
 
     def PopulateTargetPoints(self, transform: ITransform):
         if transform is not None:
-            self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(float, copy=False)
+            self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(np.float32, copy=False)
             if cp.get_array_module(self.TargetPoints) == cp:
                 self._TargetPoints = self._TargetPoints.get()
             return self._TargetPoints

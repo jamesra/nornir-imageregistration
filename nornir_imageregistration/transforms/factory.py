@@ -16,10 +16,10 @@ try:
     #import cupyx
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx
+    import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupy_thunk as cupyx
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.spatial import *

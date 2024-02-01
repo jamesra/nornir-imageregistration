@@ -7,7 +7,16 @@ import os
 from typing import AnyStr
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    import cupyx
+    init_context = cp.zeros((64,64)) #Attempt to initialize CUDA context if we get this far
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble_tiles as at
@@ -15,8 +24,7 @@ from nornir_imageregistration.mosaic import Mosaic
 import nornir_imageregistration.mosaic_tileset
 from nornir_shared.tasktimer import TaskTimer
 import setup_imagetest
-
-init_context = cp.zeros((64,64))
+ 
 
 # from pylab import *
 class TestMosaicAssemble(setup_imagetest.TransformTestBase):
