@@ -103,6 +103,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                     FlipUD=False)
 
     def testStosBrute_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
@@ -120,6 +122,9 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
                                     FlipUD=True)
 
     def testStosBruteWithFlip_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
 
@@ -209,6 +214,9 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.CheckStosObj(savedstosObj,'17-18_brute_WithMask.stos', self.FixedImageMaskPath, self.WarpedImageMaskPath)
 
     def testStosBruteWithMask_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
                                                               self.FixedImageMaskPath, self.WarpedImageMaskPath,
@@ -284,6 +292,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.runStosBruteScaleMismatchWithMask()
 
     def testStosBruteScaleMismatchWithMask_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runStosBruteScaleMismatchWithMask()
 
@@ -350,6 +360,9 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.runStosBruteExecuteWithMask()
 
     def testStosBruteExecuteWithMask_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runStosBruteExecuteWithMask()
 
@@ -417,6 +430,9 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImageFast_GPU(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")
@@ -454,6 +470,9 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
 
     def testSameTEMImage_GPU(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(self.FixedImageMaskPath), "Missing test input")

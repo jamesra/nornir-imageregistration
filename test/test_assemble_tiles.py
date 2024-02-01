@@ -486,7 +486,8 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS1_GPU(self):
-
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
