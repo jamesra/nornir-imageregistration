@@ -271,30 +271,30 @@ class Rectangle(object):
         return self._bounds[iRect.MaxY] - self._bounds[iRect.MinY]
 
     @property
-    def BottomLeft(self) -> NDArray[float]:
+    def BottomLeft(self) -> NDArray[np.floating]:
         return np.array([self._bounds[iRect.MinY], self._bounds[iRect.MinX]])
 
     @property
-    def TopLeft(self) -> NDArray[float]:
+    def TopLeft(self) -> NDArray[np.floating]:
         return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MinX]])
 
     @property
-    def BottomRight(self) -> NDArray[float]:
+    def BottomRight(self) -> NDArray[np.floating]:
         return np.array([self._bounds[iRect.MinY], self._bounds[iRect.MaxX]])
 
     @property
-    def TopRight(self) -> NDArray[float]:
+    def TopRight(self) -> NDArray[np.floating]:
         return np.array([self._bounds[iRect.MaxY], self._bounds[iRect.MaxX]])
 
     @property
-    def Corners(self) -> NDArray[float]:
+    def Corners(self) -> NDArray[np.floating]:
         return np.vstack((self.BottomLeft,
                           self.TopLeft,
                           self.TopRight,
                           self.BottomRight))
 
     @property
-    def Center(self) -> NDArray[float]:
+    def Center(self) -> NDArray[np.floating]:
         return self.BottomLeft + ((self.TopRight - self.BottomLeft) / 2.0)
 
     @property
@@ -302,7 +302,7 @@ class Rectangle(object):
         return self.Width * self.Height
 
     @property
-    def Dimensions(self) -> NDArray[float]:
+    def Dimensions(self) -> NDArray[np.floating]:
         """
         The [height, width] of the rectangle
         """
@@ -310,7 +310,7 @@ class Rectangle(object):
         return np.asarray([self.Height, self.Width], np.float64)
 
     @property
-    def shape(self) -> NDArray[float]:
+    def shape(self) -> NDArray[np.floating]:
         """
         The [height, width] of the rectangle
         """
@@ -318,11 +318,11 @@ class Rectangle(object):
         return np.ceil(np.asarray([self.Height, self.Width])).astype(np.int64, copy=False)
 
     @property
-    def Size(self) -> NDArray[float]:
+    def Size(self) -> NDArray[np.floating]:
         return self.TopRight - self.BottomLeft
 
     @property
-    def BoundingBox(self) -> NDArray[float]:
+    def BoundingBox(self) -> NDArray[np.floating]:
         return self._bounds
 
     def __eq__(self, other: Rectangle | NDArray) -> bool:
@@ -460,7 +460,7 @@ class Rectangle(object):
             np.issubdtype(bounds.dtype, np.floating)
 
     @staticmethod
-    def CreateBoundingRectangleForPoints(points: NDArray[float]) -> Rectangle:
+    def CreateBoundingRectangleForPoints(points: NDArray[np.floating]) -> Rectangle:
         """
         Create a rectangle bounding the passed array of points
         :param tuple points: ndarray of (Y,X)
@@ -510,7 +510,7 @@ class Rectangle(object):
             point[iPoint.X] + area[iArea.Width]))
 
     @staticmethod
-    def CreateFromBounds(bounds: NDArray[float]) -> Rectangle:
+    def CreateFromBounds(bounds: NDArray[np.floating]) -> Rectangle:
         """
         :param bounds: (MinY,MinX,MaxY,MaxX)
         """

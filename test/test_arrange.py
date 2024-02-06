@@ -723,8 +723,9 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         self.RPC2_0989_Mosaic_CPU()
 
     def test_RPC2_0989_Mosaic_GPU(self):
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.RPC2_0989_Mosaic_CPU()
+        if nornir_imageregistration.HasCupy():
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            self.RPC2_0989_Mosaic_CPU()
         
     def RPC2_0989_Mosaic_CPU(self):
         config = self.GetStandardTranslateSettings()

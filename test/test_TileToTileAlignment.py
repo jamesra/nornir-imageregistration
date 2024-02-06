@@ -29,7 +29,7 @@ class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
         return self.__class__.__name__
 
     def test_Alignment_RC3_0001(self):
-        volume_dir = os.path.join("D:\\", "Data", "RC3", "TEM", "0001", "TEM")
+        volume_dir = os.path.join(self.TestInputDataPath, "RC3", "TEM", "0001", "TEM")
 
         layout_files_dir = os.path.join(volume_dir, "Layouts", "Min_0.0")
         mosaic_tileset_filepath = os.path.join(layout_files_dir, "mosaic_tileset.pickle")
@@ -43,7 +43,7 @@ class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 776, 802)
         
 
-    def align_two_tiles(self, mosaic_tileset, volume_dir, iPass, TileA_ID, TileB_ID):
+    def align_two_tiles(self, mosaic_tileset, volume_dir: str, iPass: int, TileA_ID: int, TileB_ID: int):
         layout_files_dir = os.path.join(volume_dir, "Layouts", "Min_0.0")
         layout_file = os.path.join(layout_files_dir, f"pass_{iPass}_tile_overlaps.pickle")
 

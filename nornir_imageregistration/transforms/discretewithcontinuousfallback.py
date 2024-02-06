@@ -4,7 +4,7 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import numpy
+import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
@@ -52,16 +52,16 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         self._continous_transform.OnWarpedPointChanged()
         self._discrete_transform.OnWarpedPointChanged()
 
-    def Transform(self, points: NDArray[float], **kwargs) -> NDArray[float]:
+    def Transform(self, points: NDArray[np.floating], **kwargs) -> NDArray[np.floating]:
         """
         Transform from warped space to fixed space
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
 
         if points.shape[0] == 0:
-            return numpy.empty((0, 2), dtype=points.dtype)
+            return np.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -79,16 +79,16 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
             else:
                 BadPoints = points
 
-        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = np.asarray(BadPoints, dtype=np.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = np.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
         TransformedPoints[InvalidIndicies] = FixedPoints
         return TransformedPoints
 
-    def InverseTransform(self, points: NDArray[float], **kwargs):
+    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
         """
         Transform from fixed space to warped space
         :param points:
@@ -97,7 +97,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
-            return numpy.empty((0, 2), dtype=points.dtype)
+            return np.empty((0, 2), dtype=points.dtype)
 
         TransformedPoints = self._discrete_transform.InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -114,8 +114,8 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        if not (BadPoints.dtype == np.float32 or BadPoints.dtype == np.float64):
+            BadPoints = np.asarray(BadPoints, dtype=np.float32)
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
 
@@ -170,14 +170,14 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
     def points(self) -> NDArray:
         return self._discrete_transform.points
 
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[float], int | NDArray[int])):
+    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -204,12 +204,12 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
 
 if __name__ == '__main__':
-    p = numpy.array([[0, 0, 0, 0],
+    p = np.array([[0, 0, 0, 0],
                      [0, 10, 0, -10],
                      [10, 0, -10, 0],
                      [10, 10, -10, -10]])
 
-    (Fixed, Moving) = numpy.hsplit(p, 2)
+    (Fixed, Moving) = np.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)
 
     warpedPoints = [[0, 0], [-5, -5]]

@@ -21,6 +21,9 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.write_to_target_image_coord_generation()
         
     def test_write_to_target_image_coord_generation_gpu(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.write_to_target_image_coord_generation()
 
@@ -54,6 +57,9 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.write_to_source_image_coord_generation()
         
     def test_write_to_source_image_coord_generation_gpu(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.write_to_source_image_coord_generation() 
         
@@ -87,6 +93,8 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.grid_division_identity()
         
     def test_grid_division_identity_gpu(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.grid_division_identity()
 
@@ -112,6 +120,8 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.grid_division_offset()
         
     def test_grid_division_offset_gpu(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.grid_division_offset()
 

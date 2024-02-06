@@ -6,16 +6,17 @@ Created on Oct 18, 2012
 
 import logging
 
-import numpy as np
+import numpy as np 
+
 try:
     import cupy as cp
     #import cupyx
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 from numpy.typing import NDArray
 import scipy
 import scipy.spatial
@@ -24,7 +25,7 @@ from scipy.interpolate import LinearNDInterpolator
 import nornir_imageregistration
 import nornir_pools
 from . import TransformType
-from .base import ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
+from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
     IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
     ITriangulatedSourceSpace, IControlPointAddRemove
 from .controlpointbase import ControlPointBase
@@ -38,6 +39,15 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
     Triangulation transform has a nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
     '''
+
+    _points: NDArray[np.floating]
+    _ForwardInterpolator: LinearNDInterpolator | None
+    _InverseInterpolator: LinearNDInterpolator | None
+    _fixedtri: scipy.spatial.Delaunay | None
+    _warpedtri: scipy.spatial.Delaunay | None
+    _WarpedKDTree: scipy.spatial.cKDTree | None
+    _FixedKDTree: scipy.spatial.cKDTree | None
+
 
     @property
     def type(self) -> TransformType:
@@ -101,11 +111,11 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         return self._InverseInterpolator
 
-    def AddTransform(self, mappedTransform, EnrichTolerance=None, create_copy=True):
+    def AddTransform(self, mappedTransform: ITransform, EnrichTolerance: float | None = None, create_copy: bool = True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
         return nornir_imageregistration.transforms.AddTransforms(self, mappedTransform, EnrichTolerance=EnrichTolerance, create_copy=create_copy)
 
-    def Transform(self, points, **kwargs):
+    def Transform(self, points: NDArray[np.floating], **kwargs):
         '''Map points from the warped space to fixed space'''
         transPoints = None
 
@@ -123,6 +133,9 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
             transPoints[:] = np.NaN
+            
+        #When CuPy support was first added, there was no support for LinearNDInterpolator, but the rest of the Cupy paths expect a Cupy array, so convert the array to CuPy if needed
+        transPoints = transPoints if nornir_imageregistration.GetComputationModule() == np else nornir_imageregistration.EnsurePointsAre2DCuPyArray(transPoints)
 
         return transPoints
 
@@ -132,7 +145,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         method = kwargs.get('method', 'linear')
 
-        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         try:
             transPoints = self.InverseInterpolator(points).astype(np.float32, copy=False)
@@ -145,10 +158,13 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
             transPoints[:] = np.NaN
+            
+        #When CuPy support was first added, there was no support for LinearNDInterpolator, but the rest of the Cupy paths expect a Cupy array, so convert the array to CuPy if needed
+        transPoints = transPoints if nornir_imageregistration.GetComputationModule() == np else nornir_imageregistration.EnsurePointsAre2DCuPyArray(transPoints)
 
         return transPoints
 
-    def AddPoints(self, new_points: NDArray[float]):
+    def AddPoints(self, new_points: NDArray[np.floating]):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
@@ -168,23 +184,23 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         return
 
-    def AddPoint(self, pointpair: NDArray[float]) -> int:
+    def AddPoint(self, pointpair: NDArray[np.floating]) -> int:
         '''Add the point and return the index'''
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint((pointpair[0], pointpair[1]))
         return index
 
-    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
+    def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
         self._points[index, :] = pointpair
         self._points = Triangulation.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint((pointpair[0], pointpair[1]))
         return index
 
-    def UpdateFixedPoints(self, index: int, points: NDArray[float]):
+    def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
         self._points[index, 0:2] = points
         self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
@@ -192,15 +208,15 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         distance, index = self.NearestFixedPoint(points)
         return index
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
-        return self.UpdateFixedPoints(index, points)
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], new_points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+        return self.UpdateFixedPoints(index, new_points)
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(index, new_points)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[int] | NDArray[float], points: NDArray[float]) -> int | NDArray[
-        int]:
+    def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
+        np.integer]:
         self._points[index, 2:4] = points
         self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
@@ -208,14 +224,14 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         distance, index = self.NearestWarpedPoint(points)
         return index
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
-        return self.UpdateWarpedPoints(index, point)
+    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], new_points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+        return self.UpdateWarpedPoints(index, new_points)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)
-        return self.UpdateSourcePointsByIndex(index, points)
+        return self.UpdateSourcePointsByIndex(index, new_points)
 
-    def RemovePoint(self, index: int | NDArray[int]):
+    def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
@@ -301,40 +317,40 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
 
-    def NearestTargetPoint(self, points: NDArray[float]):
+    def NearestTargetPoint(self, points: NDArray[np.floating]):
         return self.FixedKDTree.query(points)
 
-    def NearestFixedPoint(self, points: NDArray[float] | tuple[float, float]):
+    def NearestFixedPoint(self, points: NDArray[np.floating] | tuple[float, float]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float] | tuple[float, float]):
+    def NearestSourcePoint(self, points: NDArray[np.floating] | tuple[float, float]):
         return self.WarpedKDTree.query(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]):
         '''Return the warped points nearest to the query points
         :return: Distance, Index'''
         return self.WarpedKDTree.query(points)
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotation_center)
         self.OnTransformChanged()
 
-    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotation_center)
         self.OnTransformChanged()
@@ -400,7 +416,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    def __init__(self, pointpairs: NDArray[float]):
+    def __init__(self, pointpairs: NDArray[np.floating]):
         '''
         Constructor requires at least three point pairs
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
@@ -552,7 +568,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return transPoints
 
-    def AddPoints(self, new_points: NDArray[float]):
+    def AddPoints(self, new_points: NDArray[np.floating]):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
@@ -572,7 +588,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return
 
-    def AddPoint(self, pointpair: NDArray[float]) -> int:
+    def AddPoint(self, pointpair: NDArray[np.floating]) -> int:
         '''Add the point and return the index'''
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
@@ -580,7 +596,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
-    def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
+    def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
         self._points[index, :] = pointpair
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
@@ -588,7 +604,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
         return index
 
-    def UpdateFixedPoints(self, index: int, points: NDArray[float]):
+    def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
         self._points[index, 0:2] = points
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
@@ -596,14 +612,14 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         distance, index = self.NearestFixedPoint(points)
         return index
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[int], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         return self.UpdateFixedPoints(index, points)
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)
         return self.UpdateTargetPointsByIndex(index, points)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[int] | NDArray[float], points: NDArray[float]) -> int | NDArray[
+    def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
         int]:
         self._points[index, 2:4] = points
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
@@ -612,14 +628,14 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         distance, index = self.NearestWarpedPoint(points)
         return index
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[int], point: NDArray[float]) -> int | NDArray[int]:
+    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         return self.UpdateWarpedPoints(index, point)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[float], points: NDArray[float]) -> int | NDArray[int]:
+    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)
         return self.UpdateSourcePointsByIndex(index, points)
 
-    def RemovePoint(self, index: int | NDArray[int]):
+    def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
@@ -705,40 +721,40 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
 
-    def NearestTargetPoint(self, points: NDArray[float]):
+    def NearestTargetPoint(self, points: NDArray[np.floating]):
         return self.FixedKDTree.query(points)
 
-    def NearestFixedPoint(self, points: NDArray[float]):
+    def NearestFixedPoint(self, points: NDArray[np.floating]):
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self.FixedKDTree.query(points)
 
-    def NearestSourcePoint(self, points: NDArray[float]):
+    def NearestSourcePoint(self, points: NDArray[np.floating]):
         return self.WarpedKDTree.query(points)
 
-    def NearestWarpedPoint(self, points: NDArray[float]):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]):
         '''Return the warped points nearest to the query points
         :return: Distance, Index'''
         return self.WarpedKDTree.query(points)
 
-    def TranslateFixed(self, offset: NDArray[float]):
+    def TranslateFixed(self, offset: NDArray[np.floating]):
         '''Translate all fixed points by the specified amount'''
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
-    def TranslateWarped(self, offset: NDArray[float]):
+    def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotation_center)
         self.OnTransformChanged()
 
-    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[float] | None):
+    def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotation_center)
         self.OnTransformChanged()
@@ -804,7 +820,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         Centroids = np.mean(swappedTriangleVerticies, 1)
         return np.swapaxes(Centroids, 0, 1)
 
-    def __init__(self, pointpairs: NDArray[float]):
+    def __init__(self, pointpairs: NDArray[np.floating]):
         '''
         Constructor requires at least three point pairs
         :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX]

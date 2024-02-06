@@ -29,8 +29,8 @@ from nornir_imageregistration.transformed_image_data import ITransformedImageDat
 class TransformedImageDataViaTempFile(ITransformedImageData):
     _image_path: str
     _centerDistanceImage_path: str
-    _image: NDArray[float]
-    _centerDistanceImage: NDArray[float]
+    _image: NDArray[np.floating]
+    _centerDistanceImage: NDArray[np.floating]
     _source_space_scale: float
     _target_space_scale: float
     # _transform: nornir_imageregistration.ITransform

@@ -25,7 +25,7 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
 
 def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,
                   EnrichTolerance: float | None = None,
-                  create_copy: bool = True):
+                  create_copy: bool = True) -> IControlPoints:
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param BToC_Unaltered_Transform:
     :param AToB_mapped_Transform:

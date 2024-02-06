@@ -100,6 +100,8 @@ class MosaicFile(object):
             except:
                 Channel = None
                 prettyoutput.Log('Could not determine mosaic channel: ' + str(filename))
+        else:
+            Channel = None
 
         # If we don't have a valid downsample value we assume 1
         try:
@@ -109,7 +111,7 @@ class MosaicFile(object):
             Downsample = None
             prettyoutput.Log('Could not determine mosaic downsample: ' + str(filename))
 
-        return [SectionNumber, Channel, MosaicType, Downsample]
+        return SectionNumber, Channel, MosaicType, Downsample
 
     @classmethod
     def Load(cls, filename):

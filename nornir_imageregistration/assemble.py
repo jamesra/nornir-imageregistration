@@ -13,11 +13,11 @@ try:
     import cupyx.scipy
     import cupyx.scipy.ndimage
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
     
 import numpy as np
 from numpy.typing import NDArray
@@ -29,7 +29,7 @@ from nornir_imageregistration.transforms import ITransform, factory, triangulati
 from nornir_imageregistration.transforms.utils import InvalidIndicies
 
 
-def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[float]:
+def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[np.floating]:
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
     xp = cp if use_cp else np 
     
@@ -185,7 +185,7 @@ def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> 
 
 
 def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: int, cval=0) -> tuple[
-    NDArray[float], NDArray[int]]:
+    NDArray[np.floating], NDArray[np.integer]]:
     """For large images we only need a specific range of coordinates from the image.  However Scipy calls such as map_coordinates will
        send the entire image through a spline_filter first.  To avoid this we crop the image with a padding of one and adjust the
        coordinates appropriately
@@ -237,8 +237,8 @@ def my_cheesy_map_coordinates(image, coords):
 def _TransformImageUsingCoords(target_coords: NDArray,
                                source_coords: NDArray,
                                source_image: NDArray,
-                               output_origin: NDArray[int] | tuple[int, int] | None,
-                               output_area: NDArray[int] | tuple[float, float],
+                               output_origin: NDArray[np.integer] | tuple[int, int] | None,
+                               output_area: NDArray[np.integer] | tuple[float, float],
                                cval=0,
                                return_shared_memory: bool = False):
     """Use the passed coordinates to create a warped image

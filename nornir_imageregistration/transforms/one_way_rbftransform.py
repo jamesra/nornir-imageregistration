@@ -13,11 +13,11 @@ try:
     #import cupyx
     import cupyx.scipy.spatial as cuspatial
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 import scipy.interpolate
 import scipy.linalg
 import scipy.spatial
@@ -72,11 +72,11 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return self._rigid_transform is not None
 
     @staticmethod
-    def DefaultBasisFunction(distance: NDArray[float]) -> NDArray[float]:
+    def DefaultBasisFunction(distance: NDArray[np.floating]) -> NDArray[np.floating]:
         return np.multiply(np.power(distance, 2), np.log(distance))
 
-    def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float],
-                 BasisFunction: Callable[[NDArray[float]], NDArray[float]] | None = None):
+    def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
+                 BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
 
         points = np.hstack((FixedPoints, WarpedPoints))
         super(OneWayRBFWithLinearCorrection, self).__init__(points)
@@ -94,7 +94,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
     def Load(TransformString: str, pixelSpacing: float | None = None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
-    def _GetMatrixWeightSums(self, Points: NDArray[float], WarpedPoints: NDArray[float], MaxChunkSize: int = 65536):
+    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating], MaxChunkSize: int = 65536):
         NumCtrlPts = len(WarpedPoints)
         NumPts = Points.shape[0]
 
@@ -146,7 +146,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
             return MatrixWeightSumX, MatrixWeightSumY
 
-    def Transform(self, Points: NDArray[float], **kwargs):
+    def Transform(self, Points: NDArray[np.floating], **kwargs):
         # if self._rigid_transform is not None:
         #   return self._rigid_transform.Transform(Points)
 
@@ -229,7 +229,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return ResultMatrixX, ResultMatrixY
 
     @staticmethod
-    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[float]], NDArray[float]] = None):
+    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] = None):
         # if BasisFunction is None:
         #    BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
 
@@ -276,7 +276,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
-                            BasisFunction: Callable[[NDArray[float]], NDArray[float]]) -> tuple[NDArray, bool]:
+                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[NDArray, bool]:
         '''
         For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
         
@@ -350,23 +350,23 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
         return source_rotation_center, angle, translate, scale
 
-    # def AddPoint(self, pointpair: NDArray[float]):
+    # def AddPoint(self, pointpair: NDArray[np.floating]):
     #     self.points = np.vstack((self.points, pointpair))
     #     self.OnTransformChanged()
     #
-    # def AddPoints(self, new_points: NDArray[float]):
+    # def AddPoints(self, new_points: NDArray[np.floating]):
     #     self.points = np.vstack((self.points, new_points))
     #     self.OnTransformChanged()
     #
-    # def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
+    # def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
     #     self.points[index, :] = pointpair
     #     self.OnTransformChanged()
     #
-    # def UpdateTargetPoints(self, index: int | NDArray[int], points: NDArray[float]):
+    # def UpdateTargetPoints(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
     #     self.points[index, 0:2] = points
     #     self.OnFixedPointChanged()
     #
-    # def UpdateSourcePoints(self, index: int | NDArray[int], points: NDArray[float]):
+    # def UpdateSourcePoints(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
     #     self.points[index, 2:4] = points
     #     self.OnWarpedPointChanged()
     #
@@ -436,11 +436,11 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         return self._rigid_transform is not None
 
     @staticmethod
-    def DefaultBasisFunction(distance: NDArray[float]) -> NDArray[float]:
+    def DefaultBasisFunction(distance: NDArray[np.floating]) -> NDArray[np.floating]:
         return cp.multiply(cp.power(distance, 2), cp.log(distance))
 
-    def __init__(self, WarpedPoints: NDArray[float], FixedPoints: NDArray[float],
-                 BasisFunction: Callable[[NDArray[float]], NDArray[float]] | None = None):
+    def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
+                 BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
 
         points = np.hstack((FixedPoints, WarpedPoints))
         super(OneWayRBFWithLinearCorrection_GPUComponent, self).__init__(points)
@@ -458,7 +458,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
     def Load(TransformString: str, pixelSpacing: float | None = None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
-    def _GetMatrixWeightSums(self, Points: NDArray[float], WarpedPoints: NDArray[float], MaxChunkSize: int = 65536):
+    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating], MaxChunkSize: int = 65536):
         NumCtrlPts = len(WarpedPoints)
         NumPts = Points.shape[0]
 
@@ -510,7 +510,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
             return MatrixWeightSumX, MatrixWeightSumY
 
-    def Transform(self, Points: NDArray[float], **kwargs):
+    def Transform(self, Points: NDArray[np.floating], **kwargs):
         # if self._rigid_transform is not None:
         #   return self._rigid_transform.Transform(Points)
 
@@ -594,7 +594,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         return ResultMatrixX, ResultMatrixY
 
     @staticmethod
-    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[float]], NDArray[float]] = None):
+    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] = None):
         # if BasisFunction is None:
         #    BasisFunction = OneWayRBFWithLinearCorrection_GPUComponent.DefaultBasisFunction
 
@@ -644,7 +644,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
-                            BasisFunction: Callable[[NDArray[float]], NDArray[float]]) -> tuple[NDArray, bool]:
+                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[NDArray, bool]:
         '''
         For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
 
@@ -722,23 +722,23 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
         return source_rotation_center, angle, translate, scale
 
-    # def AddPoint(self, pointpair: NDArray[float]):
+    # def AddPoint(self, pointpair: NDArray[np.floating]):
     #     self.points = np.vstack((self.points, pointpair))
     #     self.OnTransformChanged()
     #
-    # def AddPoints(self, new_points: NDArray[float]):
+    # def AddPoints(self, new_points: NDArray[np.floating]):
     #     self.points = np.vstack((self.points, new_points))
     #     self.OnTransformChanged()
     #
-    # def UpdatePointPair(self, index: int, pointpair: NDArray[float]):
+    # def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
     #     self.points[index, :] = pointpair
     #     self.OnTransformChanged()
     #
-    # def UpdateTargetPoints(self, index: int | NDArray[int], points: NDArray[float]):
+    # def UpdateTargetPoints(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
     #     self.points[index, 0:2] = points
     #     self.OnFixedPointChanged()
     #
-    # def UpdateSourcePoints(self, index: int | NDArray[int], points: NDArray[float]):
+    # def UpdateSourcePoints(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
     #     self.points[index, 2:4] = points
     #     self.OnWarpedPointChanged()
     #

@@ -7,7 +7,16 @@ import os
 from typing import AnyStr
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+    import cupyx
+    init_context = cp.zeros((64,64)) #Attempt to initialize CUDA context if we get this far
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble_tiles as at
@@ -15,8 +24,7 @@ from nornir_imageregistration.mosaic import Mosaic
 import nornir_imageregistration.mosaic_tileset
 from nornir_shared.tasktimer import TaskTimer
 import setup_imagetest
-
-init_context = cp.zeros((64,64))
+ 
 
 # from pylab import *
 class TestMosaicAssemble(setup_imagetest.TransformTestBase):
@@ -138,7 +146,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         if cluster_delta_sum >= 0.65:
             nornir_imageregistration.ShowGrayscale([cluster_delta, cluster_delta > 0],
                                                    title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=False)
+                                                   PassFail=True)
 
         # 10-13-2022: This test passes if the cluster composites the tiles in the same order as the single-threaded assembly.
 
@@ -251,7 +259,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         if CPU_delta_sum >= 0.65:
             nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
                                                    title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=False)
+                                                   PassFail=True)
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale(
             [(result.image, CPU_delta), (tileImage, CPUtileImage), (croppedWholeImage, wholeimage)],
@@ -402,7 +410,9 @@ class PMGTests(TestMosaicAssemble):
 
     def test_AssemblePMG_GPU(self):
         testName = "PMG1"
-
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath()
@@ -430,6 +440,8 @@ class PMGTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False)
 
     def test_AssemblePMG_OneMosaic_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
 
         testName = "PMG1"
@@ -474,7 +486,8 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS1_GPU(self):
-
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
@@ -482,6 +495,8 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleEachMosaic(mosaicFiles, tilesDir)
 
     def test_AssembleIDOC_DS4_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='004')
@@ -511,6 +526,8 @@ class IDOCTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'CreateAssembleOneMosaicType', parallel=False)
 
     def test_AssembleIDOC_OneMosaic_DS1_GPU(self):
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         mosaicFiles = self.GetMosaicFiles()
         tilesDir = self.GetTileFullPath(downsamplePath='001')
@@ -533,6 +550,9 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTilesIDoc_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=False)
 
@@ -579,6 +599,9 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleAndTransformTileIDoc_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        if not nornir_imageregistration.HasCupy():
+            return 
+        
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         downsamplePath = '004'
 
@@ -641,6 +664,8 @@ class IDOCTests(TestMosaicAssemble):
 
     def test_AssembleOptimizedTileIDoc_DS1_GPU(self):
         '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        if not nornir_imageregistration.HasCupy():
+            return 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         downsamplePath = '001'
 

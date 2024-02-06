@@ -112,7 +112,7 @@ class Tile(object):
         return self._image
 
     @property
-    def ImageSize(self) -> NDArray[float]:
+    def ImageSize(self) -> NDArray[np.floating]:
         '''
         Size of the image.  It may not match the dimensions of the Source Space
         if the image is downsampled.  Use image_to_source_space_scale to correct.

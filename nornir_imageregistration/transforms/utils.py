@@ -12,17 +12,18 @@ from numpy.typing import NDArray
 try:
     import cupy as cp 
 except ModuleNotFoundError:
-    import cupy_thunk as cp 
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp 
-    
+    import nornir_imageregistration.cupy_thunk as cp
+    #import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints
 from nornir_shared import prettyoutput
 
 
-def InvalidIndicies(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int]]:
+def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer]]:
     '''Removes rows with a NAN value.
      :return: A flat array with NaN containing rows removed and set of row indicies that were removed
     '''
@@ -50,7 +51,7 @@ def InvalidIndicies(points: NDArray[float]) -> tuple[NDArray[float], NDArray[int
 
 
 
-def RotationMatrix(rangle: float) -> NDArray[float]:
+def RotationMatrix(rangle: float) -> NDArray[np.floating]:
     '''
     :param float rangle: Angle in radians
     '''
@@ -59,8 +60,9 @@ def RotationMatrix(rangle: float) -> NDArray[float]:
 
     xp = nornir_imageregistration.GetComputationModule()
 
-    rot_mat = xp.array([[np.cos(rangle), -np.sin(rangle), 0],
-                        [np.sin(rangle), np.cos(rangle), 0],
+    #The columns of this rotation matrix are swapped because we swap the input from X,Y to Y,X
+    rot_mat = xp.array([[np.cos(rangle), np.sin(rangle), 0],
+                        [-np.sin(rangle), np.cos(rangle), 0], 
                         [0, 0, 1]])
 
     return rot_mat
@@ -74,13 +76,13 @@ def RotationMatrix(rangle: float) -> NDArray[float]:
     # return result
 
 
-def IdentityMatrix() -> NDArray[float]:
+def IdentityMatrix() -> NDArray[np.floating]:
     '''
     '''
     return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[float]:
+def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.floating]:
     '''
     :param offset: An offset to translate by, either tuple of (Y,X) or an array
     '''
@@ -93,7 +95,7 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[float]:
     raise NotImplementedError("Unexpected argument")
 
 
-def ScaleMatrixXY(scale: float) -> NDArray[float]:
+def ScaleMatrixXY(scale: float) -> NDArray[np.floating]:
     '''
     :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
     '''
@@ -108,14 +110,14 @@ def ScaleMatrixXY(scale: float) -> NDArray[float]:
     raise NotImplementedError("Unexpected argument")
 
 
-def FlipMatrixY() -> NDArray[float]:
+def FlipMatrixY() -> NDArray[np.floating]:
     '''
     Flip the Y axis
     '''
     xp = nornir_imageregistration.GetComputationModule()
     return xp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
-def FlipMatrixX() -> NDArray[float]:
+def FlipMatrixX() -> NDArray[np.floating]:
     '''
     Flip the Y axis
     '''

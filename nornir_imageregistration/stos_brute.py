@@ -14,11 +14,11 @@ try:
     import cupy as cp
     import cupyx
 except ModuleNotFoundError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
-    import cupy_thunk as cp
-    import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 
 import nornir_imageregistration
@@ -322,8 +322,8 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return fixedStats, warpedStats
 
 
-def _find_best_angle(imFixed: NDArray[float],
-                     imWarped: NDArray[float],
+def _find_best_angle(imFixed: NDArray[np.floating],
+                     imWarped: NDArray[np.floating],
                      fixed_stats: nornir_imageregistration.ImageStats,
                      warped_stats: nornir_imageregistration.ImageStats,
                      AngleList: list[float] | None,

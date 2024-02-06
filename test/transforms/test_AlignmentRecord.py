@@ -32,7 +32,7 @@ from scipy import pi
 import nornir_imageregistration
 from nornir_imageregistration.files.stosfile import StosFile
 import test.setup_imagetest
-from . import TransformCheck, TranslateRotateFlippedTransformPoints
+from . import TransformCheck, TranslateRotateTransformPoints, TranslateRotateFlippedTransformPoints, RotateTransformPoints
 
 
 # ##An alignment record records how a warped image should be translated and rotated to be
@@ -90,10 +90,17 @@ class TestAlignmentRecord(unittest.TestCase):
         # Get the corners for a 10,10  image rotated 90 degrees.
         # Angles increase in clockwise order if the origin is at the bottom left of a display and values increase going up and to the right.
         ydim, xdim = 10, 10
-        predictedArray = np.array([[ydim, 0],
-                                   [0, 0],
+        
+        # Input array from GetTransformedCornerPoints, verify before trusting if you come back to this years later:
+        # corners = np.array([[0, 0],
+        #                 [0, xmax],
+        #                 [ymax, 0],
+        #                 [ymax, xmax]])
+        
+        predictedArray = np.array([[0, xdim],
                                    [ydim, xdim],
-                                   [0, xdim]])
+                                   [0, 0],
+                                   [ydim, 0]])
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
        
 
@@ -101,10 +108,54 @@ class TestAlignmentRecord(unittest.TestCase):
         np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
                                    predictedArray)
 
-        transform = record.ToImageTransform([ydim, ydim], [ydim, ydim]) #The center of this image would be 4.5, 4.5 since indexing starts at 0 and ends at 9
+        transform = record.ToImageTransform([ydim, xdim], [ydim, xdim]) #The center of this image would be 4.5, 4.5 since indexing starts at 0 and ends at 9
         center = (ydim - 1) / 2.0, (xdim - 1) / 2.0 # The center, assuming this is an image, is 4.5, 4.5
-        TransformCheck(self, transform, [center], [center]) 
-        TransformCheck(self, transform, [[0, 0]], [[9, 0]])
+        TransformCheck(self, transform, [center], [center])
+        TransformCheck(self, transform, [[0, 0]], [[0, 9]])
+        
+        transform = record.ToSpatialTransform([0, 0], [0, 0])  
+        sourcePoints = RotateTransformPoints[:, 2:]
+        targetPoints = RotateTransformPoints[:, 0:2]
+
+        TransformCheck(self, transform, sourcePoints, targetPoints)
+        
+    def testRotationTranslate(self):
+        xp = nornir_imageregistration.GetComputationModule()
+        translate = (1,2)
+        record = nornir_imageregistration.AlignmentRecord(translate, 100, 90)
+        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
+
+        # Get the corners for a 10,10  image rotated 90 degrees.
+        # Angles increase in clockwise order if the origin is at the bottom left of a display and values increase going up and to the right.
+        ydim, xdim = 10, 10
+        
+        # Input array from GetTransformedCornerPoints, verify before trusting if you come back to this years later:
+        # corners = np.array([[0, 0],
+        #                 [0, xmax],
+        #                 [ymax, 0],
+        #                 [ymax, xmax]])
+        
+        predictedArray = np.array([[0, xdim],
+                                   [ydim, xdim],
+                                   [0, 0],
+                                   [ydim, 0]])
+        # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
+       
+
+        Corners = record.GetTransformedCornerPoints(np.array((ydim, xdim), int))
+        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+                                   predictedArray)
+
+        transform = record.ToImageTransform([ydim, xdim], [ydim, xdim]) #The center of this image would be 4.5, 4.5 since indexing starts at 0 and ends at 9
+        center = (ydim - 1) / 2.0, (xdim - 1) / 2.0 # The center, assuming this is an image, is 4.5, 4.5
+        TransformCheck(self, transform, [center], [center])
+        TransformCheck(self, transform, [[0, 0]], [[0, 9]])
+        
+        transform = record.ToSpatialTransform([0, 0], [0, 0])  
+        sourcePoints = TranslateRotateTransformPoints[:, 2:]
+        targetPoints = TranslateRotateTransformPoints[:, 0:2]
+
+        TransformCheck(self, transform, sourcePoints, targetPoints)
 
     def testRotationFlipped(self):
         xp = nornir_imageregistration.GetComputationModule()
@@ -112,6 +163,13 @@ class TestAlignmentRecord(unittest.TestCase):
 
         # Get the corners for a 10,10  image rotated 90 degrees
         ydim, xdim = 10, 10
+        
+        # Input array from GetTransformedCornerPoints, verify before trusting if you come back to this years later:
+        # corners = np.array([[0, 0],
+        #                 [0, xmax],
+        #                 [ymax, 0],
+        #                 [ymax, xmax]])
+        
         predictedArray = np.array([[ydim, 0],
                                    [0, 0],
                                    [ydim, xdim],
@@ -127,14 +185,14 @@ class TestAlignmentRecord(unittest.TestCase):
         np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
                                    predictedArray)
 
-        transform = record.ToImageTransform([10, 10], [10, 10])
+        transform = record.ToSpatialTransform([10, 10], [10, 10])
         TransformCheck(self, transform, [[5, 5]], [[5, 5]])
         TransformCheck(self, transform, [[0, 0]], [[10, 10]])
 
         sourcePoints = TranslateRotateFlippedTransformPoints[:, 2:]
         targetPoints = TranslateRotateFlippedTransformPoints[:, 0:2]
 
-        transform.TransformCheck(transform, sourcePoints, targetPoints)
+        TransformCheck(self, transform, sourcePoints, targetPoints)
 
     def testTranslate(self):
         xp = nornir_imageregistration.GetComputationModule()
@@ -161,7 +219,7 @@ class TestAlignmentRecord(unittest.TestCase):
         record = nornir_imageregistration.AlignmentRecord((2.5, 0), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
-        # Get the corners for a 10,10  image rotated 90 degrees
+        # Get the corners for a 10,10  image rotated -90 degrees
         predictedArray = np.array([[2.5, 10],
                                    [12.5, 10],
                                    [2.5, 0],
@@ -173,10 +231,10 @@ class TestAlignmentRecord(unittest.TestCase):
         np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
                                    predictedArray)
 
-        record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, 90)
-        self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
+        record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, -90)
+        self.assertEqual(round(record.rangle, 3), -round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
-        # Get the corners for a 10,10  image rotated 90 degrees
+        # Get the corners for a 10,10  image rotated -90 degrees
         predictedArray = xp.array([[-2.5, 12.5],
                                    [7.5, 12.5],
                                    [-2.5, 2.5],
@@ -209,7 +267,7 @@ class TestAlignmentRecord(unittest.TestCase):
         record = nornir_imageregistration.AlignmentRecord((0, 0), 100, 90)
         self.assertEqual(round(record.rangle, 3), round(pi / 2.0, 3), "Degrees angle not converting to radians")
 
-        transform = record.ToImageTransform([100, 100], [10, 10])
+        transform = record.ToSpatialTransform([100, 100], [10, 10])
 
         # OK, we should be able to map points
         TransformCheck(self, transform, [[2.5, 2.5]], [[52.5, 47.5]])

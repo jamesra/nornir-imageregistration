@@ -7,7 +7,18 @@ import os
 import unittest
 
 import numpy as np
-import cupy as cp
+#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+try:
+    import cupy as cp
+    import cupyx
+    init_context = cp.zeros((64,64)) #Attempt to initialize CUDA context if we get this far
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+
 import scipy
 
 import nornir_imageregistration
@@ -15,7 +26,6 @@ from nornir_imageregistration import AlignmentRecord
 import nornir_imageregistration.assemble as assemble
 import setup_imagetest
 
-init_context = cp.zeros((64,64))
 
 def ShowComparison(*args, **kwargs):
     return nornir_imageregistration.ShowGrayscale(*args, **kwargs)
@@ -34,6 +44,15 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         # Too small to require more than one tile
         self.CallTransformImage(imageDim=10)
+
+        # Large enough to require more than one tile
+        self.CallTransformImage(imageDim=4097)
+        
+    def test_TransformImageIdentity_GPU(self):
+        if nornir_imageregistration.HasCupy():
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            # Too small to require more than one tile
+            self.CallTransformImage(imageDim=10)
 
         # Large enough to require more than one tile
         self.CallTransformImage(imageDim=4097)
@@ -63,9 +82,10 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.SourceImageToTargetSpace_Translate()
         
-    def test_SourceImageToTargetSpace_Translate(self):
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.SourceImageToTargetSpace_Translate()
+    def test_SourceImageToTargetSpace_Translate_GPU(self):
+        if nornir_imageregistration.HasCupy():
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            self.SourceImageToTargetSpace_Translate()
 
     def SourceImageToTargetSpace_Translate(self): 
         angle = 0
@@ -88,8 +108,9 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.SourceImageToTargetSpace_RotateTransform()
         
     def test_SourceImageToTargetSpace_RotateTransform_GPU(self):
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.SourceImageToTargetSpace_RotateTransform()
+        if nornir_imageregistration.HasCupy():
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            self.SourceImageToTargetSpace_RotateTransform()
  
     def SourceImageToTargetSpace_RotateTransform(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
@@ -133,24 +154,25 @@ class TestAssemble(setup_imagetest.ImageTestBase):
         self.assertTrue((delta < 0.01).all())
 
     def test_SourceImageToTargetSpace_IdentityTransform_GPU(self):
-        '''Transform an image with the identity transform and ensure the output matches the input'''
-
-        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
-
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-
-        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
-                                                                                                 self.WarpedImagePath,
-                                                                                                 arecord,
-                                                                                                 (0, 0),
-                                                                                                 (64, 64))
-
-        # nornir_imageregistration.SaveImage("C:\\Temp\\17.png", transformedImage)
-
-        delta = fixedImage[0:64, 0:64] - transformedImage
-
-        # nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
-        self.assertTrue((delta < 0.01).all())
+        if nornir_imageregistration.HasCupy():
+            '''Transform an image with the identity transform and ensure the output matches the input'''
+    
+            arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
+    
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+    
+            (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.WarpedImagePath,
+                                                                                                     self.WarpedImagePath,
+                                                                                                     arecord,
+                                                                                                     (0, 0),
+                                                                                                     (64, 64))
+    
+            # nornir_imageregistration.SaveImage("C:\\Temp\\17.png", transformedImage)
+    
+            delta = fixedImage[0:64, 0:64] - transformedImage
+    
+            # nornir_imageregistration.ShowGrayscale([fixedImage[0:64, 0:64], transformedImage, delta])
+            self.assertTrue((delta < 0.01).all())
 
     def test_SourceImageToTargetSpace(self):
         arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
@@ -165,15 +187,16 @@ class TestAssemble(setup_imagetest.ImageTestBase):
                                            transformedImage, bpp=8)
 
     def test_SourceImageToTargetSpace_GPU(self):
-        arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
-
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-
-        (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.FixedImagePath,
-                                                                                                 self.WarpedImagePath,
-                                                                                                 arecord)
-        nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"),
-                                           transformedImage.get(), bpp=8)
+        if nornir_imageregistration.HasCupy():
+            arecord = AlignmentRecord(peak=(22, -4), weight=100, angle=-132.0)
+    
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+    
+            (fixedImage, warpedImage, transformedImage) = self.Run_SourceImageToTargetSpaceTransform(self.FixedImagePath,
+                                                                                                     self.WarpedImagePath,
+                                                                                                     arecord)
+            nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"),
+                                               transformedImage.get(), bpp=8)
 
     def Run_SourceImageToTargetSpaceTransform(self, FixedImagePath: str,
                                               WarpedImagePath: str,
@@ -227,9 +250,10 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.RunStosAssemble(stosFullPath)
 
     def test_GridStosAssemble_GPU(self):
-        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.RunStosAssemble(stosFullPath)
+        if nornir_imageregistration.HasCupy():
+            stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Grid.stos")
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            self.RunStosAssemble(stosFullPath)
 
     def test_MeshStosAssemble(self):
         stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
@@ -237,9 +261,10 @@ class TestStosFixedMovingAssemble(setup_imagetest.ImageTestBase):
         self.RunStosAssemble(stosFullPath)
 
     def test_MeshStosAssemble_GPU(self):
-        stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
-        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.RunStosAssemble(stosFullPath)
+        if nornir_imageregistration.HasCupy():
+            stosFullPath = os.path.join(self.ImportedDataPath, "..", "Transforms", "FixedMoving_Mesh.stos")
+            nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+            self.RunStosAssemble(stosFullPath)
 
 
 if __name__ == "__main__":

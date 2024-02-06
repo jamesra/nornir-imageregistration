@@ -86,7 +86,7 @@ class TestGridFitting(unittest.TestCase):
 
     @staticmethod
     def build_output_points(rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool,
-                            points: list[tuple[float, float]], hypothesis_test: bool) -> NDArray[float]:
+                            points: list[tuple[float, float]], hypothesis_test: bool) -> NDArray[np.floating]:
         xp = nornir_imageregistration.GetComputationModule()
         R = nornir_imageregistration.transforms.utils.RotationMatrix(rangle)
         # t = np.random.randint(1, 10, size=2)
