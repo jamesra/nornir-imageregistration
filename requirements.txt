@@ -5,6 +5,6 @@ matplotlib
 # Pillow>=5.3; sys_platform=="linux" or sys_platform=="darwin"
 Pillow
 six
-nornir_pools @ git+https://github.com/jamesra/nornir-pools@dev#egg=nornir_pools-1.5.0
-nornir_shared @ git+https://github.com/jamesra/nornir-shared@dev#egg=nornir_shared-1.5.0
+nornir_pools @ git+https://github.com/clementsan/nornir-pools@dev#egg=nornir_pools-1.5.0
+nornir_shared @ git+https://github.com/clementsan/nornir-shared@dev#egg=nornir_shared-1.5.0
 hypothesis
