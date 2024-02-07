@@ -184,11 +184,11 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
 
     ax.set_title('Overlaps')
     plt.tight_layout()
-    ax.set_xlim(bbox.MinX, bbox.MaxX)
-    ax.set_ylim(bbox.MinY, bbox.MaxY)
-    ax.invert_yaxis()
+    if bbox is not None:
+        ax.set_xlim(bbox.MinX, bbox.MaxX)
+        ax.set_ylim(bbox.MinY, bbox.MaxY)
 
-    # 
+    ax.invert_yaxis()
 
     if OutputFilename is not None:
         plt.savefig(OutputFilename)

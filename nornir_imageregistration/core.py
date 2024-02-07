@@ -338,7 +338,10 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
                         Bpp: int | None = None, Invert: bool = False,
                         MinMax: tuple[float, float] | None = None,
                         Gamma: float | None = None):
-    """Converts a single image according to the passed parameters using Numpy"""
+    """
+    Converts a single image according to the passed parameters using Numpy.
+    Image returned will match the dtype of the loaded image
+    """
 
     image = ImageParamToImageArray(input_image_param)
     original_dtype = image.dtype
@@ -351,7 +354,16 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     # After lots of pain it is simplest to ensure all images are represented by floats before operating on them
     if nornir_imageregistration.IsIntArray(original_dtype):
         max_possible_int_val = nornir_imageregistration.ImageMaxPixelValue(image)
-        image = image.astype(nornir_imageregistration.default_image_dtype(), copy=False) / max_possible_int_val
+        probable_bpp = nornir_imageregistration.ImageBpp(image)
+        working_dtype = np.float16
+        if probable_bpp < 16:
+            pass
+        elif probable_bpp < 32:
+            working_dtype = np.float32
+        else:
+            working_dtype = np.float64    
+         
+        image = image.astype(working_dtype) /  max_possible_int_val  # Always use float32 to prevent overflow errors.  We can downconvert later
 
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -455,9 +467,9 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
     num_threads = multiprocessing.cpu_count() * 2
     if num_threads > len(ImagesToConvertDict):
         num_threads = len(ImagesToConvertDict) + 1
-
-    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
-    # pool = nornir_pools.GetGlobalSerialPool()
+        
+    # pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
+    pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
 
     for (input_image, output_image) in ImagesToConvertDict.items():
@@ -479,6 +491,9 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
         try:
             t.wait()
         except Exception as e:
+            if __debug__:
+                raise 
+            
             prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
 
     if bDeleteOriginal:
