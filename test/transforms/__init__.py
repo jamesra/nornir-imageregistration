@@ -9,9 +9,9 @@ from numpy.typing import NDArray
 try:
     import cupy as cp
 except ModuleNotFoundError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    import cupy_thunk as cp
+    import nornir_imageregistration.cupy_thunk as cp
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransform
