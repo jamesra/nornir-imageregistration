@@ -249,7 +249,7 @@ class ITKGridDivision(GridDivisionBase):
         elif grid_dims is None:
             self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing) + 1
 
-        if self._cell_size is None:  # Estimate a reasonable cell_size with overlap if it has not been determined, (passed grid dimensions only perhaps)
+        if cell_size is None:  # Estimate a reasonable cell_size with overlap if it has not been determined, (passed grid dimensions only perhaps)
             self._cell_size = NearestPowerOfTwo(self._grid_dims)
 
         # Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
