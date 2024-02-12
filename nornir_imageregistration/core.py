@@ -786,7 +786,10 @@ def _Image_To_Uint8(image):
         if iMax > 255:
             image = image / (iMax / 255.0)
 
-    image = image.astype(np.uint8)
+    try:
+        image = image.astype(np.uint8)
+    except FloatingPointError as fe:
+        raise ValueError("Unable to cast image to uint8 due to floating point error.  This can be caused by NaN or infinite values") from fe 
 
     return image
 
