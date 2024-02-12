@@ -1185,6 +1185,9 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
         source_image_roi = nornir_imageregistration.RandomNoiseMask(source_image_roi,
                                                                     xp.logical_not(xp.isnan(source_image_roi)),
                                                                     imagestats=source_image_stats)
+    elif 'DEBUG' in os.environ and xp.any(xp.isnan(source_image_roi)):
+        raise ValueError("Not handling NaN values in assembled image")
+        
 
     nornir_imageregistration.close_shared_memory(targetImage_param)
     nornir_imageregistration.close_shared_memory(sourceImage_param)
