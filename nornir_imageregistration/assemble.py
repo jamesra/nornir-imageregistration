@@ -280,8 +280,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # TODO: Order appears to not matter so setting to zero may help
     # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
-    order = 1 if np.any(np.isnan(
-        subroi_warpedImage)) or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
+    any_nan_values = np.any(np.isnan(subroi_warpedImage))  # type: bool
+    order = 1 if any_nan_values or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
     outputValues = scipy.ndimage.map_coordinates(subroi_warpedImage, filtered_source_coords.transpose(),
                                                  mode='constant', order=order, cval=cval, prefilter=True).astype(original_dtype,
                                                                                                  copy=False)
@@ -307,7 +307,14 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # outputImage[fixed_coords] = outputValues
 
     # Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
-    np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
+    if any_nan_values:
+        # We need to check there are no NaN values to ensure that we don't get NaN as the min/max value in the clip operation
+        nan_mask = np.logical_not(np.isnan(subroi_warpedImage))
+        min_val = subroi_warpedImage[nan_mask].min()
+        max_val = subroi_warpedImage[nan_mask].max()
+        np.clip(outputImage, a_min=min_val, a_max=max_val, out=outputImage)
+    else:
+        np.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
 
     # outputImage = outputImage.reshape(area)
 
