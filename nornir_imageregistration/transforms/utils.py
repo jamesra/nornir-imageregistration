@@ -8,6 +8,7 @@ from collections.abc import Iterable
 
 import numpy as np
 from numpy.typing import NDArray
+from typing import Sequence
 
 try:
     import cupy as cp 
@@ -217,14 +218,16 @@ def BlendTransforms(transform: IControlPoints,
         return output
   
 
-def FixedOriginOffset(transforms):
+def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
     '''
     This is a fairly specific function to move a mosaic to have an origin at 0,0
     It handles both discrete and continuous functions the best it can.
     :return: tuple containing smallest origin offset
     '''
+    
+    xp = nornir_imageregistration.GetComputationModule()
 
-    mins = np.zeros((len(transforms), 2))
+    mins = xp.zeros((len(transforms), 2))
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
@@ -235,7 +238,7 @@ def FixedOriginOffset(transforms):
         else:
             raise ValueError(f"Unexpected transform type {t} at index {i}")
 
-    return np.min(mins, 0)
+    return xp.min(mins, 0)
 
 
 def FixedBoundingBox(transforms, images=None):
