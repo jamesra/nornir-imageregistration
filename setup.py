@@ -27,6 +27,8 @@ if __name__ == '__main__':
                         "six",
                         "hypothesis"]
 
+    optional_requires = ["cupy>=12.0"]
+
     dependency_links = ["git+https://github.com/nornir/nornir-pools#egg=nornir_pools-1.5.0",
                         "git+https://github.com/nornir/nornir-shared#egg=nornir_shared-1.5.0"]
 
