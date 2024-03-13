@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration.transforms
+import nornir_imageregistration.transforms.pointrelations
 from . import RotateTransformPoints, TranslateRotateTransformPoints, TranslateTransformPoints
 
 tau = np.pi * 2
@@ -153,8 +154,8 @@ class TestGridFitting(unittest.TestCase):
         num_pts = points_array.shape[0]
 
         # If points are colinear, then turn off flip_ud, it will cause the test to fail
-        if nornir_imageregistration.transforms.converters.are_points_colinear(
-                points_array) == nornir_imageregistration.transforms.converters.ControlPointRelation.COLINEAR:
+        if nornir_imageregistration.transforms.pointrelations.are_points_colinear(
+                points_array) == nornir_imageregistration.transforms.pointrelations.ControlPointRelation.COLINEAR:
             flip_ud = False
             return
 
