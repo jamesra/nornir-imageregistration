@@ -1,9 +1,9 @@
 import typing
 from typing import Sequence
 import numpy as np
-from numpy.typing import NDArray 
+from numpy.typing import NDArray
 
-#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
     import cupy as cp
     import cupyx
@@ -21,7 +21,7 @@ import nornir_imageregistration.transforms.defaulttransformchangeevents
 
 
 class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTranslation,
-                          DefaultTransformChangeEvents):
+                      DefaultTransformChangeEvents):
     '''This class is legacy and probably needs a deprecation warning'''
 
     @property
@@ -77,7 +77,8 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
         return 1.0
 
     def __init__(self, target_offset=tuple[float, float] | list[float] | NDArray[np.floating],
-                 source_rotation_center: tuple[float, float] | typing.Sequence[float] | NDArray[np.floating] | None = None,
+                 source_rotation_center: tuple[float, float] | typing.Sequence[float] | NDArray[
+                     np.floating] | None = None,
                  angle: float | None = None):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
@@ -101,30 +102,30 @@ class RigidNoRotation(base.ITransform, base.ITransformScaling, base.ITransformTr
         self._angle = angle  # type: float
 
     def __getstate__(self):
-        
+
         cp_arrays = cp.get_array_module(self._target_offset) == cp
         tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()
         sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()
-        
+
         odict = {'_angle': self._angle, '_target_offset': (tgt_offset[0], tgt_offset[1]),
                  '_source_space_center_of_rotation': (sscr[0],
-                                                     sscr[1])}
-        
+                                                      sscr[1])}
+
         return odict
 
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)
 
         xp = nornir_imageregistration.GetComputationModule()
-        
-        #Check for legacy .pickle data by looking for non-underscore attributes. 
-        #Legacy .pickle files  are used by TestMosaicTilesetTileOffsets.test_Alignment_RC3_0001 test
+
+        # Check for legacy .pickle data by looking for non-underscore attributes.
+        # Legacy .pickle files  are used by TestMosaicTilesetTileOffsets.test_Alignment_RC3_0001 test
         if 'target_offset' in dictionary:
             self._target_offset = dictionary['target_offset']
-            
+
         if 'source_space_center_of_rotation' in dictionary:
             self._source_space_center_of_rotation = dictionary['source_space_center_of_rotation']
-        
+
         self._target_offset = xp.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
         self._source_space_center_of_rotation = xp.asarray((self._source_space_center_of_rotation[0],
                                                             self._source_space_center_of_rotation[1]), dtype=np.float32)
@@ -187,7 +188,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         '''
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
-        :param tuple source_rotation_center: The (Y,X) center of rotation in mapped space
+        :param tuple source_rotation_center: The (Y,X) center of rotation in mapped (source) space
         :param float angle: The angle to rotate, in radians
         :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
@@ -252,7 +253,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         transformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return transformed
 
-    def InverseTransform(self, points,  **kwargs):
+    def InverseTransform(self, points, **kwargs):
 
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
@@ -300,6 +301,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
 
     def __repr__(self):
         return f"Offset: {self._target_offset[0]:03g}y,{self._target_offset[1]:03g}x Angle: {self.angle:03g}rad Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
+
 
 class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
     '''
@@ -391,14 +393,14 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         centered_rotated_points = centered_rotated_points[:, 0:2]
 
         rotated_points = centered_rotated_points + self.source_space_center_of_rotation
-        output_points = rotated_points + self._target_offset 
+        output_points = rotated_points + self._target_offset
         return output_points
 
     def InverseTransform(self, points, **kwargs):
 
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
-        
+
         if self.angle == 0 and self._scalar == 1.0:
             itransformed = points - self._target_offset
             return itransformed
@@ -420,7 +422,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         # rotated_points = np.transpose(rotated_points)
         rotated_points = rotated_points[:, 0:2]
 
-        output_points = rotated_points + self.source_space_center_of_rotation 
+        output_points = rotated_points + self.source_space_center_of_rotation
         return output_points
 
     def __repr__(self):

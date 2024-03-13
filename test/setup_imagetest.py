@@ -30,7 +30,7 @@ except ImportError:
 class PickleHelper(object):
 
     @property
-    def TestCachePath(self):
+    def TestCachePath(self) -> str:
         '''Contains cached files from previous test runs, such as database query results.
            Entries in this cache should have a low probablility of changing and breaking tests'''
         if 'TESTOUTPUTPATH' in os.environ:
@@ -48,7 +48,7 @@ class PickleHelper(object):
             path = os.path.join(path, '.pickle')
         return path
 
-    def SaveVariable(self, var, path):
+    def SaveVariable(self, var, path: str):
         path = PickleHelper._ensure_pickle_extension(path)
 
         fullpath = os.path.join(self.TestCachePath, path)
@@ -60,7 +60,7 @@ class PickleHelper(object):
             print("Saving: " + fullpath)
             pickle.dump(var, filehandle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def ReadOrCreateVariable(self, varname, createfunc=None, **kwargs):
+    def ReadOrCreateVariable(self, varname: str, createfunc=None, **kwargs):
         '''Reads variable from disk, call createfunc if it does not exist'''
 
         var = None
@@ -237,11 +237,11 @@ class TestBase(unittest.TestCase, ABC):
 
 class ImageTestBase(TestBase):
 
-    def GetImagePath(self, ImageFilename):
+    def GetImagePath(self, ImageFilename) -> str:
         return os.path.join(self.ImportedDataPath, ImageFilename)
 
     @property
-    def TestOutputPath(self):
+    def TestOutputPath(self) -> str:
         return os.path.join(super(ImageTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def setUp(self):
@@ -254,21 +254,21 @@ class TransformTestBase(TestBase):
 
     @property
     @abstractmethod
-    def TestName(self):
+    def TestName(self) -> str:
         raise NotImplementedError("Test should override TestName property")
 
     @property
-    def TestInputDataPath(self):
+    def TestInputDataPath(self) -> str:
         return os.path.join(self.TestInputPath, 'Transforms', self.TestName)
 
     @property
-    def TestOutputPath(self):
+    def TestOutputPath(self) -> str:
         return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def GetMosaicFiles(self) -> list[AnyStr]:
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
 
-    def GetMosaicFile(self, filenamebase):
+    def GetMosaicFile(self, filenamebase: str):
         (base, ext) = os.path.splitext(filenamebase)
         if ext is None or len(ext) == 0:
             filenamebase += '.mosaic'
@@ -278,7 +278,7 @@ class TransformTestBase(TestBase):
     def GetStosFiles(self, *args):
         return glob.glob(os.path.join(self.TestInputDataPath, *args, "*.stos"))
 
-    def GetStosFilePath(self, *args):
+    def GetStosFilePath(self, *args) -> str:
         '''Return a .stos file at a specific path'''
         filenamebase = args[-1]
         (base, ext) = os.path.splitext(filenamebase)
@@ -290,7 +290,7 @@ class TransformTestBase(TestBase):
 
         return path
 
-    def GetTileFullPath(self, downsamplePath=None):
+    def GetTileFullPath(self, downsamplePath=None) -> str:
         if downsamplePath is None:
             downsamplePath = "001"
 
