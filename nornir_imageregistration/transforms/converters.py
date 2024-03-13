@@ -1,6 +1,5 @@
 from typing import NamedTuple
 import enum
-from math import isclose
 import numpy as np
 from numpy.typing import NDArray
 
@@ -69,7 +68,7 @@ def _get_pointset_crossproduct(points: NDArray[np.floating]) -> float:
 
 def are_points_colinear(points: NDArray[np.floating]) -> ControlPointRelation:
     """
-    Returns true if the control points are flipped on an axis. False otherwise.
+    Returns true if the points are colinear. False otherwise.
     Assume source_points and target_points are numpy arrays of shape (n, 2)
     where n is the number of points and 2 corresponds to the x and y coordinates of each point
     """
@@ -77,9 +76,9 @@ def are_points_colinear(points: NDArray[np.floating]) -> ControlPointRelation:
     cross = _get_pointset_crossproduct(points)
     xp = cp.get_array_module(points)
 
-    # Check if flipped
+    # Check if flippednp.isclose(cross, 0)
     # If either cross product is close to zero the points are colinear.
-    cross = 0 if isclose(cross, 0) else cross
+    cross = 0 if np.isclose(cross, 0) else cross
 
     # Both point sets are colinear
     if cross == 0:
