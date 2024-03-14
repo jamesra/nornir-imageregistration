@@ -8,6 +8,7 @@ import os
 import unittest
 
 import numpy
+import numpy.typing
 
 import nornir_imageregistration
 import nornir_shared.images
@@ -18,23 +19,23 @@ class ImageProperties(object):
     '''Helper class describing properties of images we expect in tests'''
 
     @property
-    def bpp(self):
+    def bpp(self) -> int:
         return self._bpp
 
     @property
-    def dtype(self):
+    def dtype(self) -> numpy.typing.DTypeLike:
         return self._dtype
 
     @property
-    def ext(self):
+    def ext(self) -> str:
         return self._ext
 
-    def __init__(self, bpp, dtype, ext):
+    def __init__(self, bpp: int, dtype: numpy.typing.DTypeLike, ext: str):
         self._bpp = int(bpp)
         self._dtype = dtype
         self._ext = ext
 
-    def GenFilename(self, InputImageFullPath):
+    def GenFilename(self, InputImageFullPath: str):
         '''
         Generates a filename for an image by appending the expected image properties to the name
         :param str output_filename: A filename with no extension.
@@ -46,7 +47,7 @@ class ImageProperties(object):
 
 class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
 
-    def RunConvertImageTest(self, input_image_fullpath):
+    def RunConvertImageTest(self, input_image_fullpath: str):
         '''Tests converting an image using the min/max/gamma parameters.  Displays to user
         to ensure valid results'''
         original_image = nornir_imageregistration.ImageParamToImageArray(input_image_fullpath)
@@ -93,7 +94,10 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
 
         return leveled_image
 
-    def RunSaveLoadImageTest(self, input_image_fullpath, expected_input_properties, expected_output_properties):
+    def RunSaveLoadImageTest(self,
+                             input_image_fullpath: str,
+                             expected_input_properties: ImageProperties,
+                             expected_output_properties: ImageProperties):
         self.assertTrue(isinstance(expected_input_properties, ImageProperties))
         self.assertTrue(isinstance(expected_output_properties, ImageProperties))
 
@@ -116,7 +120,7 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         reloaded_bpp = nornir_imageregistration.ImageBpp(reloaded_image)
         self.assertEqual(reloaded_bpp, expected_output_properties.bpp, wrong_output_bpp_error_msg)
 
-    def RunSaveLoadImageTest_BppOnly(self, input_image, output_fullpath, expected_bpp):
+    def RunSaveLoadImageTest_BppOnly(self, input_image: numpy.typing.NDArray, output_fullpath: str, expected_bpp: int):
         wrong_input_bpp_error_msg = "Expected {0}-bit image".format(expected_bpp)
         wrong_output_bpp_error_msg = "Expected {0}-bit image".format(expected_bpp)
 
