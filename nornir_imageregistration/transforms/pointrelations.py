@@ -47,7 +47,7 @@ def _get_pointset_crossproduct(points: NDArray[np.floating]) -> float:
     return cross_products[i_max_cross]
 
 
-def are_points_colinear(points: NDArray[np.floating]) -> ControlPointRelation:
+def calculate_point_relation(points: NDArray[np.floating]) -> ControlPointRelation:
     """
     Returns true if the points are colinear. False otherwise.
     Assume source_points and target_points are numpy arrays of shape (n, 2)
@@ -68,8 +68,18 @@ def are_points_colinear(points: NDArray[np.floating]) -> ControlPointRelation:
     return ControlPointRelation.LINEAR if xp.sign(cross) >= 0 else ControlPointRelation.FLIPPED
 
 
-def get_control_point_relationship(source_points: NDArray[np.floating],
-                                   target_points: NDArray[np.floating]) -> ControlPointRelation:
+def are_points_colinear(points: NDArray[np.floating]) -> bool:
+    """
+    Returns true if the points are colinear. False otherwise.
+    Assume source_points and target_points are numpy arrays of shape (n, 2)
+    where n is the number of points and 2 corresponds to the x and y coordinates of each point
+    """
+    relation = calculate_point_relation(points)
+    return relation == ControlPointRelation.COLINEAR
+
+
+def calculate_control_points_relationship(source_points: NDArray[np.floating],
+                                          target_points: NDArray[np.floating]) -> ControlPointRelation:
     """
     Returns true if the control points are flipped on an axis. False otherwise.
     Assume source_points and target_points are numpy arrays of shape (n, 2)

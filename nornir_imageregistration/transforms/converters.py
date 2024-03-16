@@ -4,7 +4,8 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import IControlPoints, ITransform, TransformType
-from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, get_control_point_relationship
+from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, \
+    calculate_control_points_relationship
 
 try:
     import cupy as cp
@@ -50,7 +51,7 @@ def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[
     # VT = VT.T # The determinate approach to flip detection was not working according to hypothesis testing
     # d = np.sign(np.linalg.det(VT.T @ U))
     # reflected = d < 0
-    relation = get_control_point_relationship(source_points, target_points)
+    relation = calculate_control_points_relationship(source_points, target_points)
     reflected = relation == ControlPointRelation.FLIPPED
     d = -1 if reflected else 1
     if reflected:

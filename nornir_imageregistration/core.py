@@ -728,8 +728,11 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     xp = nornir_imageregistration.GetComputationModule()
     dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
 
-    image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
-    xp.clip(image, a_min=min_val, a_max=max_val, out=image) 
+    try:
+        image = ((xp.random.standard_normal((int(height), int(width))) * standardDev) + mean).astype(dtype, copy=False)
+        xp.clip(image, a_min=min_val, a_max=max_val, out=image)
+    except RuntimeWarning as rw:
+        raise
     return image
 
  

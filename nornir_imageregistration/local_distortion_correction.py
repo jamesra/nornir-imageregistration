@@ -7,6 +7,7 @@ This module performs local distortions of images to refine alignments of mosaics
 """
 import os
 from typing import Iterable, Sequence
+import math
 
 import numpy as np
 import scipy.spatial
@@ -26,7 +27,6 @@ except ModuleNotFoundError:
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
-
 
 # import nornir_imageregistration.views.grid_data
 
@@ -261,14 +261,14 @@ def SplitDisplacements(A, B, point_pairs):
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    OutputStosPath: str,
                    num_iterations: int | None = None,
-                   cell_size: NDArray[np.integer] | tuple[int, int] = None,
-                   grid_spacing: NDArray[np.integer] | tuple[int, int] = None,
-                   angles_to_search=None,
-                   final_pass_angles=None,
-                   max_travel_for_finalization=None,
-                   max_travel_for_finalization_improvement=None,
-                   min_alignment_overlap=None,
-                   min_unmasked_area: float = None,
+                   cell_size: NDArray[int] | tuple[int, int] = None,
+                   grid_spacing: NDArray[int] | tuple[int, int] = None,
+                   angles_to_search: NDArray[float] | Sequence[float] | None = None,
+                   final_pass_angles: NDArray[float] | Sequence[float] | None = None,
+                   max_travel_for_finalization: float | None = None,
+                   max_travel_for_finalization_improvement: float | None = None,
+                   min_alignment_overlap: float | None = None,
+                   min_unmasked_area: float | None = None,
                    SaveImages: bool = False,
                    SavePlots: bool = False,
                    **kwargs):
@@ -277,7 +277,7 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
 
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image.
-    :param final_pass_angles:
+
     :param max_travel_for_finalization:
     :param min_alignment_overlap:
     :param min_unmasked_area:
@@ -285,8 +285,9 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
     :param OutputStosPath: Path to save the refined stos file at.
 cell_size: (width, height) area of image around control points to use for registration
     :param grid_spacing: (width, height) of separation between control points on the grid
-    :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
+    :param angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
 r plots of each iteration in the output path for debugging purposes
+    :param final_pass_angles: Angles to check at the final pass
     """
 
     for k, v in kwargs.items():
@@ -431,7 +432,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # fraction = i / (settings.num_iterations - 1)
         # FirstPassFinalizeValue - (cutoff_range * fraction)
 
-        prettyoutput.Log(f'Finalize cutoff this pass: {finalize_percentile_this_pass * 100}% -> {finalize_cutoff_this_pass}')
+        prettyoutput.Log(
+            f'Finalize cutoff this pass: {finalize_percentile_this_pass * 100}% -> {finalize_cutoff_this_pass}')
 
         new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
                                                                      percentile=finalize_percentile_this_pass,
@@ -453,17 +455,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # remove finalized points from alignment_points
         non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
 
-        
         # Check previous finalizations to see if we can do better now
         (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
                                                                          finalized_points,
                                                                          settings)
 
         finalized_points = {**finalized_points, **new_finalized_alignments_dict}
-        
+
         prettyoutput.Log(
             f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
-
 
         # (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
         #                                                                         finalized_points,
@@ -483,7 +483,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                                                transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
                                                                finalize_cutoff=finalize_percentile_this_pass / 100.0,
                                                                line_pos_list=[finalize_cutoff_this_pass],
-                                                                       title=f"Histogram of Weights, pass #{i}")
+                                                               title=f"Histogram of Weights, pass #{i}")
 
             vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.png')
             nornir_imageregistration.views.PlotPeakList(non_final_alignment_points, list(finalized_points.values()),
@@ -515,7 +515,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                                                                  fixedImage=settings.target_image,
                                                                                  warpedImage=settings.source_image)
 
-            Delta = warpedToFixedImage - settings.target_image
+            Delta = warpedToFixedImage - settings.source_image
             ComparisonImage = np.abs(Delta)
             if ComparisonImage.max() != 0:
                 ComparisonImage = ComparisonImage / ComparisonImage.max()
@@ -671,7 +671,6 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     nPoints = len(keys)
 
-    
     pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
     # pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
@@ -1073,21 +1072,12 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
     # return output_transforms
 
 
-def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
-                                            source_points: NDArray,
-                                            cell_size: NDArray | None = None) -> list[
-    nornir_imageregistration.transforms.Rigid]:
-    """
-    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
-    """
-    
-
-    source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
+def calculate_offset(source_points: NDArray[np.floating],
+                     cell_size: NDArray | None = None) -> NDArray[np.floating]:
+    """Figure out how much to translate each point along the x-axis to estimate the angle of rotation at each point"""
+    # translate the target points a distance on the x-axis, and estimate the angle to determine the rotation
     xp = cp.get_array_module(source_points)
 
-    numPoints = source_points.shape[0]
-
-    # translate the target points a distance, and estimage the angle to determine the rotation
     offset = None
     if cell_size is None:
         # If we don't pass a cell_size, then make a reasonable guess by measuring how far away nearest points are from first point
@@ -1098,8 +1088,25 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
         else:
             offset = xp.array((0, 1))
     else:
-        offset = cell_size / 2.0
+        offset = xp.array((0, cell_size[1] / 2.0))
 
+    return offset
+
+
+def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
+                                            source_points: NDArray,
+                                            cell_size: NDArray | None = None) -> list[
+    nornir_imageregistration.transforms.Rigid]:
+    """
+    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
+    """
+
+    source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
+    xp = cp.get_array_module(source_points)
+
+    numPoints = source_points.shape[0]
+
+    offset = calculate_offset(source_points, cell_size)
     offset_source_points = source_points + xp.asarray(offset)
 
     offsets = np.tile(offset, (numPoints, 1))
@@ -1115,10 +1122,15 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     angles = np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
 
     target_offsets = target_points - source_points
-
+    point_relationship = nornir_imageregistration.transforms.calculate_control_points_relationship(source_points,
+                                                                                                   target_points)
+    flipped = point_relationship == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
+    # if flipped:
+    #    angles = -angles
     output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
                                                                    source_rotation_center=source_points[i],
-                                                                   angle=angles[i])
+                                                                   angle=angles[i],
+                                                                   flip_ud=flipped)
                          for i in range(0, len(angles))]
 
     return output_transforms
@@ -1144,7 +1156,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     :return:
     """
     xp = nornir_imageregistration.GetComputationModule()
-    
+
     targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param,
                                                                   dtype=nornir_imageregistration.default_image_dtype())
     sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param,
@@ -1187,7 +1199,6 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                                                                     imagestats=source_image_stats)
     elif 'DEBUG' in os.environ and xp.any(xp.isnan(source_image_roi)):
         raise ValueError("Not handling NaN values in assembled image")
-        
 
     nornir_imageregistration.close_shared_memory(targetImage_param)
     nornir_imageregistration.close_shared_memory(sourceImage_param)

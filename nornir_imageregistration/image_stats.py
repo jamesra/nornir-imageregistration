@@ -170,7 +170,11 @@ class ImageStats:
         use_cp = nornir_imageregistration.UsingCupy() 
 
         xp = cp if use_cp else numpy
-        data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
+        try:
+            data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
+        except RuntimeWarning as e:
+            if 'underflow' in e.msg:
+                pass #We are converting from random numbers, which are float64 at the time this was written, to float16, so an underflow is expected. 
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
   
         return data

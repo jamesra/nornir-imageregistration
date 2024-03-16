@@ -25,36 +25,37 @@ def TransformInverseCheck(test, transform: ITransform, warpedPoint: NDArray[np.f
     xp = nornir_imageregistration.GetComputationModule()
     fp = transform.Transform(warpedPoint)
     # np.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
-    wp = transform.InverseTransform(fp) 
-    #wp = wp.get() if nornir_imageregistration.UsingCupy() else wp
-    
+    wp = transform.InverseTransform(fp)
+    # wp = wp.get() if nornir_imageregistration.UsingCupy() else wp
+
     xp.testing.assert_allclose(wp, warpedPoint, atol=__transform_tolerance, rtol=0)
 
 
-def ForwardTransformCheck(test, transform: ITransform, warpedPoint: NDArray[np.floating], fixedPoint: NDArray[np.floating]):
+def ForwardTransformCheck(test, transform: ITransform, warpedPoint: NDArray[np.floating],
+                          fixedPoint: NDArray[np.floating]):
     '''Ensures that a point can map to its expected transformed position and back again'''
     xp = nornir_imageregistration.GetComputationModule()
     fp = transform.Transform(warpedPoint)
-    
-    fp = fp.get() if nornir_imageregistration.UsingCupy() else fp 
-    
+
+    fp = fp.get() if nornir_imageregistration.UsingCupy() else fp
+
     xp.testing.assert_allclose(fp, fixedPoint, atol=__transform_tolerance, rtol=0)
 
 
 def TransformCheck(test, transform: ITransform, source_point: NDArray[np.floating], target_point: NDArray[np.floating]):
     '''Ensures that a point can map to its expected transformed position and back again'''
     xp = nornir_imageregistration.GetComputationModule()
-    
+
     source_point = nornir_imageregistration.EnsureNumpyArray(source_point)
     target_point = nornir_imageregistration.EnsureNumpyArray(target_point)
-    
+
     fp = transform.Transform(source_point)
     wp = transform.InverseTransform(fp)
-    
-    #When Cupy was suppport was added, LinearNDInterpolator was not supported, so some transforms always returned numpy arrays even in Cupy mode
+
+    # When Cupy was suppport was added, LinearNDInterpolator was not supported, so some transforms always returned numpy arrays even in Cupy mode
     fp = fp.get() if nornir_imageregistration.UsingCupy() else fp
     wp = wp.get() if nornir_imageregistration.UsingCupy() else wp
-    
+
     xp.testing.assert_allclose(fp, target_point, atol=__transform_tolerance, rtol=0)
     xp.testing.assert_allclose(wp, source_point, atol=__transform_tolerance, rtol=0)
 
@@ -66,7 +67,8 @@ def NearestFixedCheck(test, transform: ITransform, fixedPoints: NDArray[np.float
     xp.testing.assert_allclose(transform.TargetPoints[index, :], fixedPoints, atol=__transform_tolerance, rtol=0)
 
 
-def NearestWarpedCheck(test, transform: ITransform, warpedPoints: NDArray[np.floating], testPoints: NDArray[np.floating]):
+def NearestWarpedCheck(test, transform: ITransform, warpedPoints: NDArray[np.floating],
+                       testPoints: NDArray[np.floating]):
     '''Ensures that the nearest warped point can be found for a test point'''
     xp = nornir_imageregistration.GetComputationModule()
     distance, index = transform.NearestWarpedPoint(testPoints)
@@ -84,10 +86,10 @@ def TransformAgreementCheck(t1: ITransform, t2: ITransform, points: NDArray[np.f
     r1 = t1.Transform(points)
     m1 = t2.Transform(points)
 
-    #When Cupy was suppport was added, LinearNDInterpolator was not supported, so some transforms always returned numpy arrays even in Cupy mode
-    #r1_compare = r1 if xp.get_array_module(r1) == np else r1.get()
-    #m1_compare = m1 if xp.get_array_module(m1) == np else m1.get()
-    
+    # When Cupy was suppport was added, LinearNDInterpolator was not supported, so some transforms always returned numpy arrays even in Cupy mode
+    # r1_compare = r1 if xp.get_array_module(r1) == np else r1.get()
+    # m1_compare = m1 if xp.get_array_module(m1) == np else m1.get()
+
     xp.testing.assert_allclose(r1, m1, err_msg="Pair of Transforms do not agree", atol=__transform_tolerance, rtol=0)
 
     ir1 = t1.InverseTransform(r1)
@@ -141,6 +143,11 @@ IdentityTransformPoints = np.array([[0, 0, 0, 0],
                                     [0, 1, 0, 1],
                                     [1, 1, 1, 1]])
 
+IdentityFlippedUDTransformPoints = np.array([[0, 0, 0, 0],
+                                             [1, 0, -1, 0],
+                                             [0, 1, 0, 1],
+                                             [1, 1, -1, 1]])
+
 ### TranslateTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###
 ###               Fixed Space (Target)                          WarpedSpace (Source)    ###
@@ -172,6 +179,37 @@ TranslateTransformPoints = np.array([[0, 0, 1, 2],
                                      [0, 1, 1, 3],
                                      [1, 1, 2, 3]])
 
+### TranslateFlippedUDTransformPoints###
+### A simple four control point mapping on two 20x20 grids centered on 0,0###
+###               Fixed Space (Target)                          WarpedSpace (Source)    ###
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . 2 4 . . . . . . .
+# . . . . . . . . . . 2 4 . . . . . . . . .      . . . . . . . . . . | . 1 3 . . . . . . .
+# .-.-.-.-.-.-.-.-.-.-1-3-.-.-.-.-.-.-.-.-.      .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . 1 3 . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . 2 4 . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+
+# Translate points by (-1,-2)
+TranslateFlippedUDTransformPoints = np.array([[0, 0, 1, 2],
+                                              [-1, 0, 2, 2],
+                                              [0, 1, 1, 3],
+                                              [-1, 1, 2, 3]])
+
 ### RotateTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###
 ###               Fixed Space (Target)                          WarpedSpace (Source)    ###
@@ -198,11 +236,11 @@ TranslateTransformPoints = np.array([[0, 0, 1, 2],
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 
 # Translate points by (0,0) and rotate about (0,0) by 90
-RotateTransformPoints = np.array([[ 2, -1, 1, 2 ],
-                                  [ 2, -2, 2, 2 ],
-                                  [ 3, -1, 1, 3 ],
-                                  [ 3, -2, 2, 3 ]])
-                                          
+RotateTransformPoints = np.array([[2, -1, 1, 2],
+                                  [2, -2, 2, 2],
+                                  [3, -1, 1, 3],
+                                  [3, -2, 2, 3]])
+
 ### TranslateRotateTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###
 ###               Fixed Space (Target)                          WarpedSpace (Source)    ###
@@ -217,10 +255,10 @@ RotateTransformPoints = np.array([[ 2, -1, 1, 2 ],
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . 4 3 . . | . . . . . . . . . .      
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . 2 1 . . | . . . . . . . . . .      
 # .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.      .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.      
-# . . . . . . . 3 1 . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
-# . . . . . . . 4 2 . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
-# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
-# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . 3 1 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . 4 2 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
@@ -229,12 +267,12 @@ RotateTransformPoints = np.array([[ 2, -1, 1, 2 ],
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .      
 
 # Translate points by (1,2) and rotate about (0,0) by 90
-TranslateRotateTransformPoints = np.array([[-1, -2, 1, -3],
-                                           [-2, -2, 1, -4],
-                                           [-1, -3, 2, -3],
-                                           [-2, -3, 2, -4]])
+TranslateRotateTransformPoints = np.array([[-2, 1, 1, -3],
+                                           [-3, 1, 1, -4],
+                                           [-2, 0, 2, -3],
+                                           [-3, 0, 2, -4]])
 
-### TranslateRotateTransformPoints###
+### TranslateRotateFlippedTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###
 ###               Fixed Space (Target)                          WarpedSpace (Source)    ###
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
@@ -245,13 +283,13 @@ TranslateRotateTransformPoints = np.array([[-1, -2, 1, -3],
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
-# . . . . . . 2 1 . . | . . . . . . . . . .      . . . . . . . . . . | . 2 4 . . . . . . .
-# . . . . . . 4 3 . . | . . . . . . . . . .      . . . . . . . . . . | . 1 3 . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . 2 4 . . . . . . .
+# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . 1 3 . . . . . . .
 # .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.      .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
-# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
-# . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . 2 1 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+# . . . . . . . . . . 4 3 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
@@ -260,10 +298,10 @@ TranslateRotateTransformPoints = np.array([[-1, -2, 1, -3],
 # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
 
 # Translate points by (1,2) and rotate about (0,0) by 90
-TranslateRotateFlippedTransformPoints = np.array([[2, -3, 1, 2],
-                                                  [2, -4, 2, 2],
-                                                  [1, -3, 1, 3],
-                                                  [1, -4, 2, 3]])
+TranslateRotateFlippedTransformPoints = np.array([[-3, 1, 1, 2],
+                                                  [-3, 0, 2, 2],
+                                                  [-4, 1, 1, 3],
+                                                  [-4, 0, 2, 3]])
 
 ### TranslateRotateScaleTransformPoints###
 ### A simple four control point mapping on two 20x20 grids centered on 0,0###

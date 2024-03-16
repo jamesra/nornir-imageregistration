@@ -1,4 +1,5 @@
-__all__ = ['base', 'triangulation', 'Triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid', "registrationtree", "utils",
+__all__ = ['base', 'triangulation', 'Triangulation', "meshwithrbffallback", "factory", 'metrics', 'rigid',
+           "registrationtree", "utils",
            "one_way_rbftransform", "two_way_rbftransform", "defaulttransformchangeevents", "controlpointbase",
            "transform_type", 'ITransform', 'ITransformChangeEvents', 'ITransformTranslation', 'IDiscreteTransform',
            'ITransformScaling', 'ITransformRelativeScaling', 'IControlPoints', 'ITransformTargetRotation',
@@ -32,11 +33,17 @@ def float_to_shortest_string(val: float, precision=6) -> str:
     format_spec = '''{0:0.''' + str(precision) + '''f}'''
     return format_spec.format(val).rstrip('0').rstrip('.')
 
+
 import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
+
+import nornir_imageregistration.transforms.pointrelations as pointrelations
+from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, are_points_colinear, \
+    calculate_point_relation, \
+    calculate_control_points_relationship
 
 import nornir_imageregistration.transforms.defaulttransformchangeevents as defaulttransformchangeevents
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
@@ -59,21 +66,27 @@ import nornir_imageregistration.transforms.factory as factory
 from nornir_imageregistration.transforms.factory import TransformToIRToolsString, LoadTransform
 
 import nornir_imageregistration.transforms.one_way_rbftransform as one_way_rbftransform
-from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, OneWayRBFWithLinearCorrection_GPUComponent
+from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
+    OneWayRBFWithLinearCorrection_GPUComponent
 
 import nornir_imageregistration.transforms.two_way_rbftransform as two_way_rbftransform
-from nornir_imageregistration.transforms.two_way_rbftransform import TwoWayRBFWithLinearCorrection, TwoWayRBFWithLinearCorrection_GPUComponent
+from nornir_imageregistration.transforms.two_way_rbftransform import TwoWayRBFWithLinearCorrection, \
+    TwoWayRBFWithLinearCorrection_GPUComponent
 
 import nornir_imageregistration.transforms.gridtransform as gridtransform
-from nornir_imageregistration.transforms.gridtransform import GridTransform, GridTransform_GPUComponent, GridTransform_GPU
+from nornir_imageregistration.transforms.gridtransform import GridTransform, GridTransform_GPUComponent, \
+    GridTransform_GPU
 
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
-from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback, MeshWithRBFFallback_GPUComponent, \
+from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback, \
+    MeshWithRBFFallback_GPUComponent, \
     MeshWithRBFInterpolator_GPU, MeshWithRBFInterpolator_CPU
 
 import nornir_imageregistration.transforms.gridwithrbffallback as gridwithrbffallback
-from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback, GridWithRBFFallback_GPUComponent, \
-    GridWithRBFInterpolator_Direct_GPU, GridWithRBFInterpolator_Direct_CPU, GridWithRBFInterpolator_GPU, GridWithRBFInterpolator_CPU
+from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback, \
+    GridWithRBFFallback_GPUComponent, \
+    GridWithRBFInterpolator_Direct_GPU, GridWithRBFInterpolator_Direct_CPU, GridWithRBFInterpolator_GPU, \
+    GridWithRBFInterpolator_CPU
 
 import nornir_imageregistration.transforms.discretewithcontinuousfallback as discretewithcontinuousfallback
 from nornir_imageregistration.transforms.discretewithcontinuousfallback import DiscreteWithContinuousFallback

@@ -1,5 +1,7 @@
 import numpy
+from numpy.typing import NDArray
 import scipy
+from imageutilities import create_tiny_image
 
 import nornir_imageregistration
 from nornir_imageregistration import AlignmentRecord, assemble as assemble, spatial as spatial
@@ -8,23 +10,7 @@ import setup_imagetest
 
 class TestTransformROI(setup_imagetest.ImageTestBase):
 
-    @classmethod
-    def create_tiny_image(cls, shape):
-        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, numpy.int32)
-        image = numpy.zeros(shape,
-                            dtype=numpy.float32)  # Needs to be float32 for numpy functions used in the test to support it
-        for x in range(0, shape[1]):
-            for y in range(0, shape[0]):
-                color_index = (((x % 4) + (y % 4)) % 4) / 4
-                image[y, x] = (color_index * 0.8) + 0.2
-
-        # Make origin bright white
-        image[0, 0] = 1.0
-
-        return image
-
     def test_identity(self):
-
         arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0)
 
         # Shape in numpy is (height, width)
@@ -42,6 +28,28 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
+
+    def test_identity_flipped(self):
+        """Flip the image upside down"""
+        arecord = AlignmentRecord(peak=(0, 0), weight=100, angle=0.0, flipped_ud=True)
+
+        # Shape in numpy is (height, width)
+        sourceShape = (2, 6)
+        targetShape = sourceShape
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
+
+        (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, (0, 0), targetShape)
+
+        self.show_test_image(transform, sourceShape, (numpy.max(points, 0) - numpy.min(points, 0)) + 1,
+                             "Flipped up/down transform, top left should be white")
+        # Transform ROI should return coordinates as
+        # ([Y1,X1],
+        # ([Y2,X2], ...
+
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 1, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
@@ -178,8 +186,12 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), -0.5, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5.5, delta=0.01)
 
-    def show_test_image(self, transform, image_shape, target_space_shape, title):
-        image = TestTransformROI.create_tiny_image(image_shape)
+    def show_test_image(self,
+                        transform: nornir_imageregistration.ITransform,
+                        image_shape: NDArray,
+                        target_space_shape: NDArray,
+                        title: str):
+        image = create_tiny_image(image_shape)
         transformedImage = assemble.SourceImageToTargetSpace(transform, image, output_area=target_space_shape)
         if transform.angle != 0:
             scipyImage = scipy.ndimage.rotate(image.astype(numpy.float32), -(transform.angle / (2 * numpy.pi)) * 360)

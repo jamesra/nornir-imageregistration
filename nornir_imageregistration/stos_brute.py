@@ -8,8 +8,9 @@ import multiprocessing.sharedctypes
 from time import sleep
 import numpy as np
 from numpy.typing import NDArray
+from typing import Sequence
 
-#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
     import cupy as cp
     import cupyx
@@ -20,18 +21,17 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
 
-
 import nornir_imageregistration
 import nornir_pools
 
 
 # from memory_profiler import profile
-def SliceToSliceBruteForce(FixedImageInput,
-                           WarpedImageInput,
-                           FixedImageMaskPath=None,
-                           WarpedImageMaskPath=None,
-                           LargestDimension=None,
-                           AngleSearchRange: list[float] | None = None,
+def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
+                           WarpedImageInput: nornir_imageregistration.ImageLike,
+                           FixedImageMaskPath: nornir_imageregistration.ImageLike | None = None,
+                           WarpedImageMaskPath: nornir_imageregistration.ImageLike | None = None,
+                           LargestDimension: int | None = None,
+                           AngleSearchRange: Sequence[float] | None = None,
                            MinOverlap: float = 0.75,
                            WarpedImageScaleFactors=None,
                            SingleThread: bool = False,
@@ -217,11 +217,15 @@ def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
         # This confused me for years, but the implementation of rotate calls affine_transform with
         # the rotation matrix.  However the docs for affine_transform state it needs to be called
         # with the inverse transform.  Hence negating the angle here.
-        if use_cp:
-            imWarped = rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
-        else:
-            imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle, cval=np.nan).astype(
-                imWarped.dtype, copy=False)  # Numpy cannot rotate float16 images
+        try:
+            if use_cp:
+                imWarped = rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
+            else:
+                imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle,
+                                  cval=np.nan).astype(
+                    imWarped.dtype, copy=False)  # Numpy cannot rotate float16 images
+        except RuntimeWarning as e:
+            pass
         imWarpedEmptyIndicies = xp.isnan(imWarped)
         imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
         OKToDelimWarped = True
