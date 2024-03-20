@@ -8,7 +8,7 @@ include = ["nornir_imageregistration"]
 
 [project]
 name = "nornir_imageregistration"
-version = "1.5.0"
+version = "1.6.0"
 authors = [
 	{ name="James Anderson", email="James.R.Anderson@utah.edu" },
 ]
