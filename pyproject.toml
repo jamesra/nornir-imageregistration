@@ -20,12 +20,12 @@ readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = [
-	"numpy",
-	"scipy",
-	"matplotlib",
-	"Pillow",
-	"six",
-	"hypothesis",
+	"numpy >= 1.26",
+	"scipy >= 1.11",
+	"matplotlib >= 3.8",
+	"Pillow >= 10.2",
+	"six >= 1.16",
+	"hypothesis >= 6.96",
 	"nornir_pools @ git+https://github.com/clementsan/nornir-pools.git@dev",
 	"nornir_shared @ git+https://github.com/clementsan/nornir-shared.git@dev",
 ]
