@@ -18,7 +18,7 @@ maintainers = [
 description = "Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
 	"numpy",
 	"scipy",
@@ -30,7 +30,7 @@ dependencies = [
 	"nornir_shared @ git+https://github.com/clementsan/nornir-shared@dev#egg=nornir_shared-1.5.0",
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
 ]
