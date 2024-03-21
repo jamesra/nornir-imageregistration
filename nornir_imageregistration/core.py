@@ -469,9 +469,9 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
     num_threads = multiprocessing.cpu_count() * 2
     if num_threads > len(ImagesToConvertDict):
         num_threads = len(ImagesToConvertDict) + 1
-
-    # pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
-    pool = nornir_pools.GetGlobalSerialPool()
+        
+    pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
+    #pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
 
     for (input_image, output_image) in ImagesToConvertDict.items():
