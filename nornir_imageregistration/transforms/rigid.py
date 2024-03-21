@@ -204,8 +204,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     def __setstate__(self, dictionary: dict):
         super(Rigid, self).__setstate__(dictionary)
         self.flip_ud = dictionary['flip_ud']
-        self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
-        self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
+        self.update_rotation_matrix()
 
     def __init__(self, target_offset: tuple[float, float] | list[float, float] | NDArray,
                  source_rotation_center: tuple[float, float] | list[float, float] | NDArray | None = None,
