@@ -40,8 +40,6 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 
-
-
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
 
@@ -50,7 +48,6 @@ import collections.abc
 import matplotlib.pyplot as plt
 
 plt.ioff()
-
 
 
 def default_image_dtype():
@@ -74,11 +71,14 @@ import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
 import nornir_imageregistration.computational_lib
-from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, SetActiveComputationLib, UsingCupy, TryInitCupyContext
+from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, \
+    SetActiveComputationLib, UsingCupy, TryInitCupyContext
+
 
 def GetComputationModule():
     """Return the computational module in use"""
     return cp if UsingCupy() else np
+
 
 def ParamToDtype(param: NDArray) -> DTypeLike:
     if param is None:
@@ -90,18 +90,19 @@ def ParamToDtype(param: NDArray) -> DTypeLike:
 
     return dtype
 
+
 def __DetermineDType(array: Sequence[Any] | NDArray) -> DTypeLike:
-    """Given a numpy/cupy array, or a sequence, determine an appropriate dtype""" 
+    """Given a numpy/cupy array, or a sequence, determine an appropriate dtype"""
     try:
         dtype = getattr(array, 'dtype')
         if not isinstance(dtype, np.dtype):
             raise AttributeError("dtype property on points object is not a numpy dtype")
-    except AttributeError: # The points object doesn't have a dtype attribute or the type is incorrect
+    except AttributeError:  # The points object doesn't have a dtype attribute or the type is incorrect
         if isinstance(array[0], int):
             dtype = np.int32
         else:
             dtype = np.float32
-    
+
     return dtype
 
 
@@ -161,7 +162,7 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
 
         if dtype is None:
             dtype = __DetermineDType(points)
-                
+
         if HasCupy() and isinstance(points, cp.ndarray):
             points = points.get()
             return points.astype(dtype, copy=False)
@@ -169,7 +170,7 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
         points = np.asarray(points, dtype=dtype)
     elif dtype is not None:
         points = points.astype(dtype, copy=False)
-  
+
     return points
 
 
@@ -180,11 +181,11 @@ def EnsureCupyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
 
         if dtype is None:
             dtype = __DetermineDType(points)
-                
+
         points = cp.asarray(points, dtype=dtype)
     elif dtype is not None:
         points = points.astype(dtype, copy=False)
-  
+
     return points
 
 
@@ -195,6 +196,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArr
         points = np.ravel(points)
 
     return points
+
 
 def EnsurePointsAre1DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
     points = EnsureCupyArray(points, dtype)
@@ -210,7 +212,6 @@ def EnsurePointsAre1DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
         return EnsurePointsAre1DCuPyArray(points, dtype)
     else:
         return EnsurePointsAre1DNumpyArray(points, dtype)
-
 
 
 def EnsurePointsAre2DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
@@ -238,7 +239,6 @@ def EnsurePointsAre2DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
         return EnsurePointsAre2DNumpyArray(points, dtype)
 
 
-
 def EnsurePointsAre4xN_NumpyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
     points = EnsureNumpyArray(points, dtype)
 
@@ -249,6 +249,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray[np.floating] | Sequence[float]
         raise ValueError("There are not 4 columns in the corrected array")
 
     return points
+
 
 def EnsurePointsAre4xN_CuPyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
     points = EnsureCupyArray(points, dtype)
@@ -303,7 +304,7 @@ import nornir_imageregistration.settings as settings
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
-    IGridTransform
+    IGridTransform, ITriangulatedSourceSpace, ITriangulatedTargetSpace, ITransformRelativeScaling
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms
@@ -354,5 +355,6 @@ from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
-__all__ = ['HasCupy', 'image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform', 'ITransformChangeEvents',
+__all__ = ['HasCupy', 'image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform',
+           'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']
