@@ -11,22 +11,22 @@ from typing import Sequence
 
 import numpy
 import numpy as np
+
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    # import cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    # import cupyx_thunk as cupyx
 
 from PIL import Image
 from numpy.typing import NDArray, DTypeLike
 from pylab import ceil, mod
 
 import nornir_shared.histogram
-import nornir_shared.images as images
 import nornir_shared.prettyoutput as PrettyOutput
 import nornir_pools
 import nornir_imageregistration
@@ -129,7 +129,7 @@ class ImageStats:
         else:
             # flatImage = image.ravel() if use_cp else image.flat
             flatImage = xp.ravel(image)
-            obj._median = float(xp.median(flatImage)) 
+            obj._median = float(xp.median(flatImage))
             obj._mean = float(xp.mean(flatImage))
             obj._std = float(xp.std(flatImage))
             obj._max = float(xp.max(flatImage))
@@ -144,7 +144,6 @@ class ImageStats:
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array 
         '''
-
 
         size = None
         height = 1
@@ -167,16 +166,16 @@ class ImageStats:
             width = shape[1] if not one_d_result else 1
             size = int(shape) if one_d_result else shape.shape
 
-        use_cp = nornir_imageregistration.UsingCupy() 
+        use_cp = nornir_imageregistration.UsingCupy()
 
         xp = cp if use_cp else numpy
         try:
             data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
         except RuntimeWarning as e:
             if 'underflow' in e.msg:
-                pass #We are converting from random numbers, which are float64 at the time this was written, to float16, so an underflow is expected. 
+                pass  # We are converting from random numbers, which are float64 at the time this was written, to float16, so an underflow is expected.
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
-  
+
         return data
 
 
@@ -544,34 +543,56 @@ def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
     raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
 
 
-def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Scale=None, MinVal=None, MaxVal=None):
+def __HistogramFileSciPy__(filename: str,
+                           Bpp: int | None = None,
+                           NumSamples: int | None = None,
+                           numBins: int | None = None,
+                           Scale: float | None = None,
+                           MinVal: float | None = None,
+                           MaxVal: float | None = None) -> nornir_shared.histogram.Histogram:
     '''Return the histogram of an image'''
 
-    Im = None
     with Image.open(filename, mode='r') as img:
         img_I = img.convert("I")
-        Im = numpy.asarray(img_I)
+        Im = np.asarray(img_I)
         # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
 
-    (Height, Width) = Im.shape
-    NumPixels = Width * Height
+    return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale, min_val=MinVal, max_val=MaxVal)
 
-    if MinVal is None:
-        MinVal = 0
 
-    if MaxVal is None:
-        if Bpp is None:
-            Bpp = images.GetImageBpp(filename)
+def HistogramOfArray(input: NDArray,
+                     bpp: int | None = None,
+                     num_samples: int | None = None,
+                     num_bins: int | None = None,
+                     scale: float | None = None,
+                     min_val: float | None = None,
+                     max_val: float | None = None) -> nornir_shared.histogram.Histogram:
+    """Generate a histogram of the passed image
+    :param bpp: The number of bits per pixel in the image
+    :param num_samples: The number of samples to use to generate the histogram, chosen randomly from the image.  If None, all pixels are used
+    :param num_bins: The number of bins to use in the histogram
+    :param scale: The percentage to scale the image before generating the histogram (Not currerntly supported, by the time the histogram is in memory it is faster to read it all, it has to be read to downsample it anyway.)
+    :param min_val: The minimum value to use in the histogram
+    :param max_val: The maximum value to use in the histogram
 
-        assert (isinstance(Bpp, int))
-        MaxVal = (1 << Bpp) - 1
+    """
+    (Height, Width) = input.shape
+    num_pixels = Width * Height
+    min_val = 0 if min_val is None else min_val
 
-    if numBins is None:
-        numBins = (MaxVal - MinVal) + 1
+    if max_val is None:
+        if bpp is None:
+            bpp = nornir_imageregistration.ImageBpp(input)
+
+        assert (isinstance(bpp, int))
+        max_val = (1 << bpp) - 1
+
+    if num_bins is None:
+        num_bins = (max_val - min_val) + 1
     else:
-        assert (isinstance(numBins, int))
-        if numBins > (MaxVal - MinVal) + 1:
-            numBins = (MaxVal - MinVal) + 1
+        assert (isinstance(num_bins, int))
+        if num_bins > (max_val - min_val) + 1:
+            num_bins = (max_val - min_val) + 1
 
     # if(not Scale is None):
     #    if(Scale != 1.0):
@@ -579,22 +600,22 @@ def __HistogramFileSciPy__(filename, Bpp=None, NumSamples=None, numBins=None, Sc
 
     # ImOneD = reshape(Im, Width * Height, 1)
 
-    ImOneD = Im.flat
+    ImOneD = input.flat
 
-    if NumSamples is None:
-        NumSamples = Height * Width
-    elif NumSamples > Height * Width:
-        NumSamples = Height * Width
+    if num_samples is None:
+        num_samples = Height * Width
+    elif num_samples > Height * Width:
+        num_samples = Height * Width
 
-    StepSize = int(float(NumPixels) / float(NumSamples))
+    step_size = int(float(num_pixels) / float(num_samples))
 
-    if StepSize > 1:
-        Samples = numpy.random.random_integers(0, NumPixels - 1, NumSamples)
+    if step_size > 1:
+        Samples = numpy.random.random_integers(0, num_pixels - 1, num_samples)
         ImOneD = ImOneD[Samples]
 
     # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     # In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=numBins, range=[MinVal, MaxVal + 1])
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=num_bins, range=(min_val, max_val + 1))
     binWidth = bin_edges[1] - bin_edges[0]  # (MaxVal - MinVal) / len(histogram_array)
     assert (binWidth > 0)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)

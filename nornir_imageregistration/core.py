@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 from PIL import Image
 
-#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
     import cupy as cp
     import cupyx
@@ -58,7 +58,7 @@ __known_shared_memory_allocations = {}  # type: dict[str, (shared_memory.SharedM
 
 # from memory_profiler import profile
 
-def ravel_index(idx: NDArray, shp: NDArray):
+def ravel_index(idx: NDArray[np.integer], shp: NDArray) -> NDArray[np.integer]:
     """
     Convert a nx2 numpy array of coordinates into array indicies
 
@@ -81,7 +81,7 @@ def ravel_index(idx: NDArray, shp: NDArray):
     # return np.transpose(np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1], [1])).dot(idx))
 
 
-def index_with_array(image, indicies):
+def index_with_array(image: NDArray, indicies: NDArray) -> NDArray:
     """
     Returns values from image at the coordinates
     :param ndarray image: Image to index into
@@ -92,7 +92,7 @@ def index_with_array(image, indicies):
     # return np.reshape(values, (len(values),1))
 
 
-def array_distance(array):
+def array_distance(array: NDArray) -> NDArray:
     """Convert an Mx2 array into a Mx1 array of euclidean distances"""
     if array.ndim == 1:
         return np.sqrt(np.sum(array ** 2))
@@ -114,7 +114,7 @@ def ApproxEqual(a, b, epsilon=None):
 def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None):
     if isinstance(imageparam, cp.ndarray):
         imageparam = nornir_imageregistration.EnsureNumpyArray(imageparam, dtype)
-        
+
     if isinstance(imageparam, np.ndarray):
         if dtype is None:
             image = imageparam
@@ -144,6 +144,7 @@ def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None):
         raise ValueError("Image param %s is not a numpy array or image file" % (str(imageparam)))
 
     return image
+
 
 def ImageParamToImageArray(imageparam: ImageLike, dtype=None):
     image = None
@@ -361,9 +362,10 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
         elif probable_bpp < 32:
             working_dtype = np.float32
         else:
-            working_dtype = np.float64    
-         
-        image = image.astype(working_dtype) /  max_possible_int_val  # Always use float32 to prevent overflow errors.  We can downconvert later
+            working_dtype = np.float64
+
+        image = image.astype(
+            working_dtype) / max_possible_int_val  # Always use float32 to prevent overflow errors.  We can downconvert later
 
     if Flip is not None and Flip:
         image = np.flipud(image)
@@ -434,8 +436,8 @@ def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: boo
 
 
 def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
-                        OutputBpp: int | None = None, Invert:bool = False,
-                        bDeleteOriginal: bool =False, RightLeftShift: int | None = None,
+                        OutputBpp: int | None = None, Invert: bool = False,
+                        bDeleteOriginal: bool = False, RightLeftShift: int | None = None,
                         AndValue: int | None = None, MinMax: tuple[float, float] | None = None,
                         Gamma: float | None = None):
     """
@@ -467,7 +469,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
     num_threads = multiprocessing.cpu_count() * 2
     if num_threads > len(ImagesToConvertDict):
         num_threads = len(ImagesToConvertDict) + 1
-        
+
     # pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
     pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
@@ -492,8 +494,8 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
             t.wait()
         except Exception as e:
             if __debug__:
-                raise 
-            
+                raise
+
             prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
 
     if bDeleteOriginal:
@@ -721,7 +723,8 @@ def create_shared_memory_array(shape: NDArray[np.integer], dtype: DTypeLike, rea
     return output, shared_array
 
 
-def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float, dtype: DTypeLike | None = None):
+def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float,
+                  dtype: DTypeLike | None = None):
     """
     Generate random data of shape with the specified mean and standard deviation
     """
@@ -735,7 +738,7 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
         raise
     return image
 
- 
+
 def GetImageSize(image_param: str | np.ndarray | Iterable) -> NDArray[np.integer]:
     """
     :param image_param: Either a path to an image file, an ndarray, or a list
@@ -780,7 +783,7 @@ def _Image_To_Uint8(image):
     elif nornir_imageregistration.IsFloatArray(image.dtype):
         iMax = image.max()
         if iMax <= 1.0:
-            image = image * 255.0 #Copy, because input may be read-only
+            image = image * 255.0  # Copy, because input may be read-only
         else:
             pass
             # image = #(255.0 / iMax)
@@ -792,7 +795,8 @@ def _Image_To_Uint8(image):
     try:
         image = image.astype(np.uint8)
     except FloatingPointError as fe:
-        raise ValueError("Unable to cast image to uint8 due to floating point error.  This can be caused by NaN or infinite values") from fe 
+        raise ValueError(
+            "Unable to cast image to uint8 due to floating point error.  This can be caused by NaN or infinite values") from fe
 
     return image
 
@@ -838,7 +842,6 @@ def uint16_img_from_float_array(image):
     return image.astype(np.uint16)
 
 
-
 def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwargs):
     """Saves the image as greyscale with no contrast-stretching
     :param str ImageFullPath: The filename to save
@@ -847,7 +850,7 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
     """
     dirname = os.path.dirname(ImageFullPath)
     may_need_to_create_dir = dirname is not None and len(dirname) > 0
-    
+
     image = nornir_imageregistration.EnsureNumpyArray(image)
 
     if bpp is None:
@@ -981,10 +984,10 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
                             # Converting to float with the same number of bytes as the integer type can produce infinite output.
                             # To handle this, increase precision of image during conversion. 
                             temp_dtype = np.dtype(f'f{image.dtype.itemsize * 2}')
-                            image = image.astype(temp_dtype) 
+                            image = image.astype(temp_dtype)
                         else:
                             image = image.astype(dtype)
-                            
+
                         max_val = image.max()
                         if max_val != 0:
                             image /= max_val
@@ -1202,7 +1205,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
     :param bool Copy: Returns a copy of input image if true, otherwise write noise to the input image
     :rtype: ndimage
     """
-    
+
     xp = nornir_imageregistration.GetComputationModule()
     image = ImageParamToImageArray(image)
     Mask = ImageParamToImageArray(Mask)
@@ -1216,7 +1219,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         iPixelsToReplace = xp.logical_not(Mask.flat)
     else:
         iPixelsToReplace = xp.logical_not(Mask.ravel())
-    
+
     numInvalidPixels = xp.sum(iPixelsToReplace)
 
     if numInvalidPixels == 0:
@@ -1227,7 +1230,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         Image1D = MaskedImage.ravel()
     else:
         Image1D = MaskedImage.flat
-    
+
     if imagestats is None:
         numValidPixels = np.prod(image.shape) - numInvalidPixels
         # Create masked array for accurate stats
@@ -1237,27 +1240,24 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         elif numValidPixels <= 2:
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
 
-        if xp == cp: #Cupy did not support masked arrays when this was written
+        if xp == cp:  # Cupy did not support masked arrays when this was written
             pixels_for_stats = Image1D[~iPixelsToReplace]
             imagestats = nornir_imageregistration.ImageStats.Create(pixels_for_stats)
             del pixels_for_stats
-        else: #The original numpy code
+        else:  # The original numpy code
             UnmaskedImage1D = xp.ma.masked_array(Image1D, iPixelsToReplace).compressed()
             imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
             del UnmaskedImage1D
-            
 
     NoiseData = imagestats.GenerateNoise(numInvalidPixels, dtype=image.dtype)
     Image1D[iPixelsToReplace] = NoiseData
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
-    if xp == cp: #If we used ravel() we may have copied the underlying data, so reshape Image1D and return that to ensure we get the mask
+    if xp == cp:  # If we used ravel() we may have copied the underlying data, so reshape Image1D and return that to ensure we get the mask
         output_image = Image1D.reshape(MaskedImage.shape)
         return output_image
-    else: #If using numpy, we did not risk a copy with ravel because we used the .flat iterator. 
-        return MaskedImage 
-
-        
+    else:  # If using numpy, we did not risk a copy with ravel because we used the .flat iterator.
+        return MaskedImage
 
 
 def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.001, minima=None, maxima=None):
@@ -1270,14 +1270,14 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
     :param size_cutoff: Determines how large a continuous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
     """
     # (minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(image) 
-    
+
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
     if mask is not None:
         image = xp.copy(image)
         image[mask] = np.nan
-        #image = xp.ma.masked_array(image, xp.logical_not(mask))
+        # image = xp.ma.masked_array(image, xp.logical_not(mask))
 
     if minima is None:
         minima = image.min()
@@ -1297,9 +1297,9 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
         if nLabels == 0:  # If there are no labels, do not mask anything
             return xp.ones(image.shape, extrema_mask.dtype)
 
-        label_sums = sp.ndimage.sum_labels(extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask, extrema_mask_label, xp.array(range(0, nLabels)))
-                                           
-                                           
+        label_sums = sp.ndimage.sum_labels(
+            extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask, extrema_mask_label,
+            xp.array(range(0, nLabels)))
 
         cutoff_value = None
         # if cutoff value is less than one treat it as a fraction of total area
@@ -1314,9 +1314,9 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
 
         labels_to_save = label_sums < cutoff_value
         if xp.any(labels_to_save):
-            cutoff_labels = xp.flatnonzero(labels_to_save) 
+            cutoff_labels = xp.flatnonzero(labels_to_save)
             extrema_mask_minus_small_features = xp.isin(extrema_mask_label, cutoff_labels)
-            
+
             # nornir_imageregistration.ShowGrayscale((image, extrema_mask, extrema_mask_minus_small_features))
 
             return extrema_mask_minus_small_features
@@ -1456,7 +1456,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
             ImageMedian = xp.median(Image1D)
         if ImageStdDev is None:
             ImageStdDev = xp.std(Image1D)
-        
+
         del Image1D
 
     desired_type = image.dtype
@@ -1498,7 +1498,7 @@ def PadImageForPhaseCorrelation(image, MinOverlap=.05, ImageMedian=None, ImageSt
 
         del TopBorder
         del BottomBorder
-  
+
     return PaddedImage
 
 
@@ -1672,14 +1672,14 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         #     return scaled_offset, Weight
 
         mean_pixel = xp.mean(image)
-        peak_pixel = sp.ndimage.maximum(ThresholdImage, LabelImage, int(PeakValueIndex+1))
+        peak_pixel = sp.ndimage.maximum(ThresholdImage, LabelImage, int(PeakValueIndex + 1))
         signal_to_noise = peak_pixel / mean_pixel
 
         ########################################################################
         # This was my original implementation to understand signal strength. 
         # Art Wetzel convinced me to use signal to noise by dividing the
         # peak pixel intensity by the median pixel intensity
-         
+
         # if use_cupy:
         #    OtherPeaks = LabelSums[LabelSums != PeakStrength]
         # else:
@@ -1688,9 +1688,9 @@ def FindPeak(image, OverlapMask=None, Cutoff=None):
         # FalsePeakStrength = xp.mean(OtherPeaks) if OtherPeaks.shape[0] > 0 else 1
         # FalsePeakStrength = OtherPeaks.max()
 
-        #if FalsePeakStrength == 0:
+        # if FalsePeakStrength == 0:
         #    Weight = PeakStrength
-        #else:
+        # else:
         #    Weight = PeakStrength / FalsePeakStrength
 
         # if PeakArea > 0:
