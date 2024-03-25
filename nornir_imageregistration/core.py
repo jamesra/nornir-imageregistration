@@ -956,7 +956,7 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 #     im.save(ImageFullPath, tile_offset=tile_coord, tile_size=tile_dim)
 #
 
-def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
+def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
     """
     Loads an image file and returns an ndarray of dtype
     :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide.
@@ -966,7 +966,9 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike):
     image = None
     try:
         if ext == '.npy':
-            image = np.load(ImageFullPath, 'c').astype(dtype, copy=False)
+            image = np.load(ImageFullPath, 'c')
+            if dtype is not None:
+                image = image.astype(dtype, copy=False)
         else:
             # image = plt.imread(ImageFullPath)
             with Image.open(ImageFullPath) as im:
