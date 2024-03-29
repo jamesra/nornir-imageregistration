@@ -1,10 +1,18 @@
 from typing import NamedTuple
-
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import IControlPoints, ITransform, TransformType
+from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, \
+    calculate_control_points_relationship
+
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
 
 tau = np.pi * 2
 
@@ -40,15 +48,22 @@ def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[
 
     H = (centered_A.T @ centered_B) / num_pts
     U, D, VT = np.linalg.svd(H)
-    # VT = VT.T
-    d = np.sign(np.linalg.det(VT.T @ U))
-    reflected = d < 0
+    # VT = VT.T # The determinate approach to flip detection was not working according to hypothesis testing
+    # d = np.sign(np.linalg.det(VT.T @ U))
+    # reflected = d < 0
+    relation = calculate_control_points_relationship(source_points, target_points)
+    reflected = relation == ControlPointRelation.FLIPPED
+    d = -1 if reflected else 1
     if reflected:
-        sp = source_points
+        sp = np.array(source_points)
         sp -= source_rotation_center  # Flip points across center
         sp[:, 0] = -sp[:, 0]
+        sp += source_rotation_center
         ignore_source_rotation_center, rotation_matrix, scale, translation, ignore_reflected = _kabsch_umeyama(
             target_points, sp)
+        if not np.allclose(ignore_source_rotation_center, source_rotation_center):
+            raise ArithmeticError("Flipping control points should not change the center of rotation")
+
         return source_rotation_center, rotation_matrix, scale, translation, True
 
     S = np.diag([1] * (num_dims - 1) + [d])
@@ -57,15 +72,10 @@ def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[
 
     rotation_matrix = U @ S @ VT
 
-    # OK, there are errors in the scale caluclation, to help it out I transform the points with the rotation, then re-run the algorithm with just scaling and translation
-    # sp = source_points if reflected == False else np.flipud(source_points)
     sp = source_points
-    source_points_B = (sp - source_rotation_center) @ rotation_matrix
 
-    scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points_B)
-    # translation = translation - source_rotation_center
+    scale = VarA / np.trace(np.diag(D) @ S)
 
-    #    scale = VarA / np.trace(np.diag(D) @ S)
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * rotation_matrix @ EB)
 
@@ -78,8 +88,9 @@ def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[
     return source_rotation_center, rotation_matrix, scale, translation, reflected
 
 
-def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], source_points: NDArray[np.floating]) -> tuple[
-    NDArray[np.floating], float, NDArray[np.floating]]:
+def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], source_points: NDArray[np.floating]) -> \
+        tuple[
+            NDArray[np.floating], float, NDArray[np.floating]]:
     '''
     This function is used to get the translation and scaling factors when aligning
     points in B on reference points in A.
@@ -119,14 +130,14 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
 
         # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then
         # performs the final translation into target space.
-        adjusted_translation = np.mean(target_points - source_points, axis=0)
+        adjusted_translation = np.mean(target_points - source_points, axis=0) + translation
         rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
         if rotate_angle <= -tau:
             rotate_angle += tau
         elif rotate_angle >= tau:
             rotate_angle -= tau
 
-        return RigidComponents(source_rotation_center=source_rotation_center, angle=rotate_angle,
+        return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=rotate_angle,
                                translation=translation, scale=scale, reflected=reflected)
 
     else:

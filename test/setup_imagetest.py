@@ -3,17 +3,17 @@ Created on Mar 21, 2013
 
 @author: u0490822
 '''
-from abc import ABC, abstractmethod, abstractstaticmethod
+from abc import ABC, abstractmethod
 import cProfile
 import glob
 import logging
 import os
-import pickle
 import shutil
 from typing import AnyStr
 import unittest
 
 import numpy as np
+from numpy.typing import NDArray
 import six
 
 import nornir_imageregistration
@@ -22,167 +22,43 @@ from nornir_shared.misc import SetupLogging
 
 try:
     import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
-    print("cupy module not present for tests, setting cp = None")
-    cp = None
-
-
-class PickleHelper(object):
-
-    @property
-    def TestCachePath(self):
-        '''Contains cached files from previous test runs, such as database query results.
-           Entries in this cache should have a low probablility of changing and breaking tests'''
-        if 'TESTOUTPUTPATH' in os.environ:
-            TestOutputDir = os.environ["TESTOUTPUTPATH"]
-            return os.path.join(TestOutputDir, "Cache", self.classname)
-        else:
-            self.fail("TESTOUTPUTPATH environment variable should specify test output directory")
-
-        return None
-
-    @staticmethod
-    def _ensure_pickle_extension(path):
-        (_, ext) = os.path.splitext(path)
-        if ext != '.pickle':
-            path = os.path.join(path, '.pickle')
-        return path
-
-    def SaveVariable(self, var, path):
-        path = PickleHelper._ensure_pickle_extension(path)
-
-        fullpath = os.path.join(self.TestCachePath, path)
-
-        if not os.path.exists(os.path.dirname(fullpath)):
-            os.makedirs(os.path.dirname(fullpath))
-
-        with open(fullpath, 'wb') as filehandle:
-            print("Saving: " + fullpath)
-            pickle.dump(var, filehandle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def ReadOrCreateVariable(self, varname, createfunc=None, **kwargs):
-        '''Reads variable from disk, call createfunc if it does not exist'''
-
-        var = None
-        if hasattr(self, varname):
-            var = getattr(self, varname)
-
-        if var is None:
-            path = os.path.join(self.TestCachePath, varname + ".pickle")
-            path = PickleHelper._ensure_pickle_extension(path)
-            if os.path.exists(path):
-                with open(path, 'rb') as filehandle:
-                    try:
-                        var = pickle.load(filehandle)
-                    except:
-                        var = None
-                        print("Unable to load graph from pickle file: " + path)
-
-            if var is None and not createfunc is None:
-                var = createfunc(**kwargs)
-                self.SaveVariable(var, path)
-
-        return var
+    import nornir_imageregistration.cupy_thunk as cp
 
 
 class TestBase(unittest.TestCase, ABC):
-    
+
     @staticmethod
-    def use_cp():
+    def use_cp() -> bool:
         return nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
-    @staticmethod
-    def create_gradient_image(shape, min_val=0.2, max_val=0.8, num_shades=8):
-        """
-
-        :param shape:
-        :param min: Minimum intensity of gradient
-        :param max: Maximum intensity of gradient
-        :param num_shades: Number of different shades in the output image
-        :return:
-        """
-        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
-        for x in range(0, shape[1]):
-            for y in range(0, shape[0]):
-                color_index = (((x % num_shades) + (y % num_shades)) % num_shades) / num_shades
-                image[y, x] = (color_index * max_val) + min_val
-                
-        if TestBase.use_cp():
-            image = cp.asarray(image)
-
-        return image
-
-    @staticmethod
-    def create_nested_squares_image(shape, min_val=0.2, max_val=0.8, num_shades=8):
-        """
-
-        :param shape:
-        :param min: Minimum intensity of gradient
-        :param max: Maximum intensity of gradient
-        :param num_shades: Number of different shades in the output image
-        :return:
-        """
-        shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(shape, np.int32)
-        image = np.zeros(shape, dtype=nornir_imageregistration.default_image_dtype())
-        half = shape / 2.0
-        half_shade_step = (1 / num_shades) / 3.0
-        for x in range(0, shape[1]):
-            for y in range(0, shape[0]):
-                quad = tuple(np.array((x, y)) >= half)
-                if quad == (True, True):
-                    color_index = min(shape[1] - x, shape[0] - y)
-                elif quad == (False, False):
-                    color_index = min(x, y)
-                elif quad == (True, False):
-                    color_index = min(shape[1] - x, y)
-                elif quad == (False, True):
-                    color_index = min(x, shape[0] - y)
-
-                color_index %= num_shades
-
-                # color_index = (((x % num_shades) + (y % num_shades)) % num_shades)
-                color_index /= num_shades
-
-                if (x + y) % 2 == 0:
-                    color_index += half_shade_step
-
-                image[y, x] = (color_index * max_val) + min_val
-                
-        if TestBase.use_cp():
-            image = cp.asarray(image)
-
-        return image
-
     @property
-    def classname(self):
+    def classname(self) -> str:
         clsstr = str(self.__class__.__name__)
         return clsstr
 
     @property
-    def TestInputPath(self):
+    def TestInputPath(self) -> str:
         if 'TESTINPUTPATH' in os.environ:
             TestInputDir = os.environ["TESTINPUTPATH"]
             self.assertTrue(os.path.exists(TestInputDir),
                             "Test input directory specified by TESTINPUTPATH environment variable does not exist")
             return TestInputDir
         else:
-            self.fail("TESTINPUTPATH environment variable should specfify input data directory")
-
-        return None
+            raise EnvironmentError("TESTINPUTPATH environment variable should specfify input data directory")
 
     @property
-    def TestOutputPath(self):
+    def TestOutputPath(self) -> str:
         if 'TESTOUTPUTPATH' in os.environ:
             TestOutputDir = os.environ["TESTOUTPUTPATH"]
             return os.path.join(TestOutputDir, self.classname, self._testMethodName)
         else:
-            self.fail("TESTOUTPUTPATH environment variable should specify output data directory")
-
-        return None
+            raise EnvironmentError("TESTOUTPUTPATH environment variable should specify output data directory")
 
     @property
-    def TestLogPath(self):
+    def TestLogPath(self) -> str:
         # if 'TESTOUTPUTPATH' in os.environ:
         # TestOutputDir = os.environ["TESTOUTPUTPATH"]
         return os.path.join(self.TestOutputPath, "Logs")
@@ -193,7 +69,7 @@ class TestBase(unittest.TestCase, ABC):
     # return None
 
     @property
-    def TestProfilerOutputPath(self):
+    def TestProfilerOutputPath(self) -> str:
         return os.path.join(self.TestOutputPath, self._testMethodName + '.profile')
 
     def setUp(self):
@@ -237,11 +113,11 @@ class TestBase(unittest.TestCase, ABC):
 
 class ImageTestBase(TestBase):
 
-    def GetImagePath(self, ImageFilename):
+    def GetImagePath(self, ImageFilename) -> str:
         return os.path.join(self.ImportedDataPath, ImageFilename)
 
     @property
-    def TestOutputPath(self):
+    def TestOutputPath(self) -> str:
         return os.path.join(super(ImageTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def setUp(self):
@@ -254,31 +130,31 @@ class TransformTestBase(TestBase):
 
     @property
     @abstractmethod
-    def TestName(self):
+    def TestName(self) -> str:
         raise NotImplementedError("Test should override TestName property")
 
     @property
-    def TestInputDataPath(self):
+    def TestInputDataPath(self) -> str:
         return os.path.join(self.TestInputPath, 'Transforms', self.TestName)
 
     @property
-    def TestOutputPath(self):
+    def TestOutputPath(self) -> str:
         return os.path.join(super(TransformTestBase, self).TestOutputPath, self.id().split('.')[-1])
 
     def GetMosaicFiles(self) -> list[AnyStr]:
         return glob.glob(os.path.join(self.ImportedDataPath, self.TestName, "*.mosaic"))
 
-    def GetMosaicFile(self, filenamebase):
+    def GetMosaicFile(self, filenamebase: str):
         (base, ext) = os.path.splitext(filenamebase)
         if ext is None or len(ext) == 0:
             filenamebase += '.mosaic'
 
         return glob.glob(os.path.join(self.TestInputDataPath, filenamebase + ".mosaic"))[0]
 
-    def GetStosFiles(self, *args):
+    def GetStosFiles(self, *args) -> list[AnyStr]:
         return glob.glob(os.path.join(self.TestInputDataPath, *args, "*.stos"))
 
-    def GetStosFilePath(self, *args):
+    def GetStosFilePath(self, *args) -> str:
         '''Return a .stos file at a specific path'''
         filenamebase = args[-1]
         (base, ext) = os.path.splitext(filenamebase)
@@ -290,7 +166,7 @@ class TransformTestBase(TestBase):
 
         return path
 
-    def GetTileFullPath(self, downsamplePath=None):
+    def GetTileFullPath(self, downsamplePath=None) -> str:
         if downsamplePath is None:
             downsamplePath = "001"
 
@@ -309,7 +185,7 @@ class TransformTestBase(TestBase):
         super(TransformTestBase, self).setUp()
 
 
-def array_distance(array):
+def array_distance(array: NDArray[np.floating]) -> NDArray[np.floating]:
     '''Convert an Mx2 array into a Mx1 array of euclidean distances'''
     if array.ndim == 1:
         return np.sqrt(np.sum(array ** 2))

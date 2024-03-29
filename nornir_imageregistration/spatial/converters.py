@@ -11,7 +11,8 @@ import nornir_imageregistration
 from nornir_imageregistration.spatial import BoundingBox, Rectangle, iPoint, iPoint3
 
 
-def ArcAngle(origin, A, B):
+def ArcAngle(origin: NDArray[numpy.floating], A: NDArray[numpy.floating], B: NDArray[numpy.floating]) -> NDArray[
+    numpy.floating]:
     '''
     :return: The angle, in radians, between A to B as observed from the origin 
     '''
@@ -20,10 +21,10 @@ def ArcAngle(origin, A, B):
     B = nornir_imageregistration.EnsurePointsAre2DNumpyArray(B)
     origin = nornir_imageregistration.EnsurePointsAre2DNumpyArray(origin)
 
-    A -= origin
-    B -= origin
-    AnglesA = numpy.arctan2(A[:, 0], A[:, 1])
-    AnglesB = numpy.arctan2(B[:, 0], B[:, 1])
+    translated_A = A - origin  # Do not use inplace operation, we do not want to modify input arrays
+    translated_B = B - origin
+    AnglesA = numpy.arctan2(translated_A[:, 0], translated_A[:, 1])
+    AnglesB = numpy.arctan2(translated_B[:, 0], translated_B[:, 1])
     angle = AnglesB - AnglesA
 
     lessthanpi = angle < -numpy.pi
@@ -78,9 +79,10 @@ def BoundingRectangleFromPoints(points: NDArray) -> Rectangle:
     if bounds.shape[0] == 4:
         return Rectangle.CreateFromBounds(bounds)
     if bounds.shape[0] == 7:
-        return BoundingBox.CreateFromBounds( numpy.hstack((bounds[1:3], bounds[4:6])))
+        return BoundingBox.CreateFromBounds(numpy.hstack((bounds[1:3], bounds[4:6])))
 
     raise ValueError("Expected either 4 or 6 bounding values")
+
 
 def BoundingBoxFromPoints(
         points: NDArray) -> BoundingBox:
@@ -92,7 +94,5 @@ def BoundingBoxFromPoints(
     bounds = BoundsArrayFromPoints(points)
     if bounds.shape[0] != 7:
         raise ValueError("Expected 7 bounding values")
-    
-    return BoundingBox.CreateFromBounds(bounds)
 
- 
+    return BoundingBox.CreateFromBounds(bounds)

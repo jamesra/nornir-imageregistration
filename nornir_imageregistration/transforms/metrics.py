@@ -5,8 +5,10 @@ Created on Aug 31, 2018
 '''
 
 import numpy
+from numpy.typing import NDArray
 
 from nornir_imageregistration.spatial import ArcAngle
+from nornir_imageregistration.transforms.base import IControlPoints, ITriangulatedTargetSpace, ITriangulatedSourceSpace
 from . import triangulation
 
 
@@ -45,7 +47,8 @@ def TriangleAngleDelta(transform):
     return numpy.abs(FixedTriAngles - WarpedTriAngles)
 
 
-def TriangleAngles(triangle_indicies, points):
+def TriangleAngles(triangle_indicies: NDArray[numpy.integer], points: NDArray[numpy.floating]) -> NDArray[
+    numpy.floating]:
     '''
     For each triangle in a triangulation transform measure the angles of the control triangle 
     and compare to the angles of the mapped triangle.  Report the differences as a structured 
@@ -72,7 +75,7 @@ def TriangleAngles(triangle_indicies, points):
     return numpy.swapaxes(numpy.vstack((OriginAAngles, OriginBAngles, calcAnglesC)), 0, 1)
 
 
-def TriangleVertexAngleDelta(transform):
+def TriangleVertexAngleDelta(transform: ITriangulatedTargetSpace) -> NDArray[numpy.floating]:
     '''
     For each vertex in a triangulation transform measure the angle differences of the control triangles 
     and subtract the equivalent angle found in the mapped triangles that the vertex is a part of.
@@ -81,8 +84,10 @@ def TriangleVertexAngleDelta(transform):
     :param triangulation transform: The transform to be analyzed
     :return: A nx3 array of the angle for each triangle
     '''
+    if not isinstance(transform, IControlPoints):
+        raise ValueError("transform must implement IControlPoints")
 
-    fixed_tri = transform.FixedTriangles
+    fixed_tri = transform.target_space_trianglulation.simplices
 
     FixedTriAngles = TriangleAngles(fixed_tri, transform.TargetPoints)
     WarpedTriAngles = TriangleAngles(fixed_tri, transform.SourcePoints)

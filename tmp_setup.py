@@ -28,6 +28,8 @@ if __name__ == '__main__':
                         "hypothesis",
                         ]
 
+    extras_require = {'gpu': ['cupy>=13.0']}
+
     dependency_links = ["git+https://github.com/jamesra/nornir-pools@dev#egg=nornir_pools-1.5.0",
                         "git+https://github.com/jamesra/nornir-shared@dev#egg=nornir_shared-1.5.0"]
 
@@ -51,8 +53,6 @@ if __name__ == '__main__':
     # named_scripts.append(entry)
 
     entry_points = {'console_scripts': scripts}
-
-    extras_require = {'gpu': ['cupy']}
 
     classifiers = ['Programming Language :: Python :: 3.7',
                    'Topic :: Scientific/Engineering']

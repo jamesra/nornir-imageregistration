@@ -24,7 +24,7 @@ class Mosaic(object):
     '''
 
     @classmethod
-    def LoadFromMosaicFile(cls, mosaicfile):
+    def LoadFromMosaicFile(cls, mosaicfile: str | MosaicFile):
         '''Return a dictionary mapping tiles to transform objects'''
 
         ImageToTransform = {}

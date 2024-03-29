@@ -10,26 +10,27 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 import nornir_imageregistration.transforms
-from test.setup_imagetest import ImageTestBase
-from test.transforms import OffsetTransformPoints, TransformAgreementCheck, TransformCheck, TransformInverseCheck, \
-    TranslateRotateTransformPoints
-    
+from setup_imagetest import ImageTestBase
+from transforms import OffsetTransformPoints, TransformAgreementCheck, TransformCheck, TransformInverseCheck, \
+    TranslateRotateTransformPoints, IdentityFlippedUDTransformPoints, TranslateFlippedUDTransformPoints, \
+    TranslateRotateFlippedTransformPoints
 
-def rotated_points(source_points, angle: float, source_rotation_center = None) -> NDArray[np.floating]:
+
+def rotated_points(source_points, angle: float, source_rotation_center=None) -> NDArray[np.floating]:
     '''Rotates points around a circle without a matrix (used to test matrix implementation'''
     if source_rotation_center is None:
-        source_rotation_center = (0,0)
+        source_rotation_center = (0, 0)
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
     source_rotation_center = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_rotation_center)
-    
+
     source_points = source_points - source_rotation_center
-    x_col = source_points[:,1]
-    y_col = source_points[:,0]
-    
+    x_col = source_points[:, 1]
+    y_col = source_points[:, 0]
+
     x = np.cos(angle) * x_col - np.sin(angle) * y_col
     y = np.sin(angle) * x_col + np.cos(angle) * y_col
-    
-    result = np.vstack((y,x)).T
+
+    result = np.vstack((y, x)).T
     result = result + source_rotation_center
     return result
 
@@ -40,7 +41,8 @@ def _testRotate_simple(self: unittest.TestCase, T: nornir_imageregistration.tran
     sourcePoint = [[0, 1],
                    [0, 2]]  # [y, x]
 
-    targetPoint = [[np.sin(angle), np.cos(angle)], #This is not a rotation transform.  It is a manual rotation to create Y, X point outputs for angles
+    targetPoint = [[np.sin(angle), np.cos(angle)],
+                   # This is not a rotation transform.  It is a manual rotation to create Y, X point outputs for angles
                    [np.sin(angle) * 2, np.cos(angle) * 2]]
 
     sourcePoint = np.asarray(sourcePoint)
@@ -68,21 +70,21 @@ class TestRigidTransforms(unittest.TestCase):
     #     np.testing.assert_array_equal(transform_A.FixedBoundingBox.BoundingBox, A_target_bbox.BoundingBox)
     #     np.testing.assert_array_equal(transform_B.FixedBoundingBox.BoundingBox, B_target_bbox.BoundingBox)
     #     return
-    
+
     def test_rotated_points(self, angle: float = None):
         if angle is None:
             angle = math.pi / 6
-            
+
         source_points = np.array([[0, 1],
                                   [0, 2]])  # [y, x])
-                                
-        expected_points = np.array([[np.sin(angle), np.cos(angle)], #This is not a rotation transform.  It is a manual rotation to create Y, X point outputs for angles
+
+        expected_points = np.array([[np.sin(angle), np.cos(angle)],
+                                    # This is not a rotation transform.  It is a manual rotation to create Y, X point outputs for angles
                                     [np.sin(angle) * 2, np.cos(angle) * 2]])
-        
+
         check_points = rotated_points(source_points, angle)
-        
+
         np.testing.assert_allclose(expected_points, check_points)
-         
 
     def testIdentity(self):
         T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], 0)
@@ -93,13 +95,27 @@ class TestRigidTransforms(unittest.TestCase):
                                 [-1, -1]])
         TransformCheck(self, T, warpedPoint, warpedPoint)
 
+    def testIdentityInverted(self):
+        T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], 0, flip_ud=True)
+
+        warpedPoint = IdentityFlippedUDTransformPoints[:, 2:4]
+        controlPoint = IdentityFlippedUDTransformPoints[:, 0:2]
+
+        TransformCheck(self, T, warpedPoint, controlPoint)
+
     def testTranslate(self):
         T = nornir_imageregistration.transforms.Rigid([1, 1], [0, 0], 0)
 
         warpedPoint = OffsetTransformPoints[:, 2:4]
-
         controlPoint = OffsetTransformPoints[:, 0:2]
 
+        TransformCheck(self, T, warpedPoint, controlPoint)
+
+    def testTranslateInverted(self):
+        T = nornir_imageregistration.transforms.Rigid([-1, -2], [0, 0], 0, flip_ud=True)
+
+        warpedPoint = TranslateFlippedUDTransformPoints[:, 2:4]
+        controlPoint = TranslateFlippedUDTransformPoints[:, 0:2]
         TransformCheck(self, T, warpedPoint, controlPoint)
 
     def testRotate_simple(self):
@@ -111,8 +127,8 @@ class TestRigidTransforms(unittest.TestCase):
         _testRotate_simple(self, T)
 
     def test_Rotate90_standard_points(self):
-        offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0
-        source_rotation_center = np.array((1.5, 2.5))
+        offset = np.array((1, 2))  # numpy.array(targetShape) / 2.0
+        source_rotation_center = np.array((0, 0))
 
         angle = np.pi / 2.0
         T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center, angle)
@@ -122,19 +138,34 @@ class TestRigidTransforms(unittest.TestCase):
         source_points = points[:, 2:]
 
         TransformCheck(self, T, source_points, target_points)
-        
+
+    def test_Rotate90_flipped_points(self):
+        offset = np.array((1, 2))
+        source_rotation_center = np.array((0, 0))
+
+        angle = np.pi / 2.0
+        T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center, angle, flip_ud=True)
+
+        points = TranslateRotateFlippedTransformPoints
+        target_points = points[:, 0:2]
+        source_points = points[:, 2:]
+
+        TransformCheck(self, T, source_points, target_points)
+
     def testOffsetRotate_Rigid(self):
         xp = nornir_imageregistration.GetComputationModule()
         offset = np.array((-2, 1))
         source_rotation_center = np.array([1, 0])
         angle = np.pi / 6.0
-        T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center=source_rotation_center, angle=angle)
+        T = nornir_imageregistration.transforms.Rigid(offset, source_rotation_center=source_rotation_center,
+                                                      angle=angle)
 
         sourcePoint = [[0, 0],
                        [0, 10]]
-        
-        targetPoint = rotated_points(source_points=sourcePoint, angle=angle, source_rotation_center=source_rotation_center) + offset
-        targetPoint = xp.array(targetPoint, dtype=float) 
+
+        targetPoint = rotated_points(source_points=sourcePoint, angle=angle,
+                                     source_rotation_center=source_rotation_center) + offset
+        targetPoint = xp.array(targetPoint, dtype=float)
         sourcePoint = xp.asarray(sourcePoint, dtype=float)
 
         TransformCheck(self, T, sourcePoint, targetPoint)
@@ -153,7 +184,6 @@ class TestRigidTransforms(unittest.TestCase):
 
 
 class TestTransforms_CenteredSimilarity(unittest.TestCase):
-    
 
     # def test_rigid_transform_boundingboxes(self):
     #     A_fixed_center = (0, 75)
@@ -225,7 +255,7 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         points = TranslateRotateTransformPoints
         target_points = points[:, 0:2]
         source_points = points[:, 2:]
-        
+
         TransformCheck(self, T, source_points, target_points)
 
     def testOffsetRotate(self):
@@ -313,7 +343,7 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
 
 class TestRigidFactory(ImageTestBase):
     __transform_tolerance = 1e-5
-      
+
     def testRigidvsMeshFactory(self):
         xp = nornir_imageregistration.GetComputationModule()
         r = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=[10, 10],
@@ -382,9 +412,10 @@ class TestRigidFactory(ImageTestBase):
     @hypothesis.given(shape=st.tuples(st.integers(min_value=1, max_value=15), st.integers(min_value=1, max_value=15)),
                       source_offset=st.tuples(st.floats(min_value=-15, max_value=15),
                                               st.floats(min_value=-15, max_value=15)),
-                      r_angle=st.floats(min_value=-np.pi, max_value=np.pi)) 
-    @hypothesis.settings(deadline=datetime.timedelta(seconds=20)) #Cupy Context takes a while to initialize
-    def testRigidvsMeshFactoryHypothesis(self, shape: tuple[int, int], source_offset: tuple[float, float], r_angle: float):
+                      r_angle=st.floats(min_value=-np.pi, max_value=np.pi))
+    @hypothesis.settings(deadline=datetime.timedelta(seconds=20))  # Cupy Context takes a while to initialize
+    def testRigidvsMeshFactoryHypothesis(self, shape: tuple[int, int], source_offset: tuple[float, float],
+                                         r_angle: float):
         self.runRigidvsMeshFactoryRotationTranslate(shape=shape, source_offset=source_offset, r_angle=r_angle)
 
     def runRigidvsMeshFactoryRotationTranslate(self, shape: tuple[int, int], source_offset: tuple[float, float],

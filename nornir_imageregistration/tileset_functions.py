@@ -60,7 +60,9 @@ def GetTempDirForLevelDir(fullpath: str):
     return os.path.join(tempfile.gettempdir(), os.path.basename(fullpath))
 
 
-def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft:str, TopRight:str, BottomLeft:str, BottomRight:str,
+def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
+                                              TopLeft: str, TopRight: str,
+                                              BottomLeft: str, BottomRight: str,
                                               OutputFileFullPath: str, input_level_temp_dir: str | None,
                                               output_level_temp_dir: str | None):
     '''Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots 
@@ -166,7 +168,8 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims, TopLeft:str, TopRight:st
 #    thread.run()       
 
 
-def CreateOneTilesetTileWithPillow(TileDims, TopLeft, TopRight, BottomLeft, BottomRight, OutputFileFullPath):
+def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight, BottomLeft, BottomRight,
+                                   OutputFileFullPath):
     '''Create a single tile by merging four tiles from a higher resolution and downsampling
     :param TopLeft:
     :param TopRight:

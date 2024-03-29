@@ -186,12 +186,14 @@ class IControlPoints(ABC):
 
 
 class ITriangulatedTargetSpace(ABC):
+    @property
     @abc.abstractmethod
     def target_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
 
 
 class ITriangulatedSourceSpace(ABC):
+    @property
     @abc.abstractmethod
     def source_space_trianglulation(self) -> scipy.spatial.Delaunay:
         raise NotImplementedError()
@@ -218,13 +220,16 @@ class ITargetSpaceControlPointEdit(ABC):
        Originally added for grid transforms where source points are unmovable"""
 
     @abc.abstractmethod
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | \
+                                                                                                           NDArray[
+                                                                                                               np.integer]:
         """:return: The new index of the points"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | NDArray[
-        int]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
+                                                                                                                  NDArray[
+                                                                                                                      int]:
         """Move the points closest to old_points to positions at new_points
         :return: The new index of the points
         """
@@ -235,13 +240,16 @@ class ISourceSpaceControlPointEdit(ABC):
     """Transforms where the source space side of control points can be moved"""
 
     @abc.abstractmethod
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | \
+                                                                                                           NDArray[
+                                                                                                               np.integer]:
         """:return: The new index of the points"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | NDArray[
-        int]:
+    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
+                                                                                                                  NDArray[
+                                                                                                                      int]:
         """Move the points closest to old_points to positions at new_points
         :return: The new index of the points
         """

@@ -83,7 +83,9 @@ class TransformWarpView:
         # interp_cubic_min_E = mtri.CubicTriInterpolator(plotTriangulation, measurement, kind='min_E')
         # zi_cubic_min_E = interp_cubic_min_E(xi, yi)
 
-        fig1, ax1 = plt.subplots(figsize=(8, 8), dpi=150)
+        dpi = 150
+        figsize, dpi = self.FigureSizeForResolution(resolution=1280, dpi=dpi)
+        fig1, ax1 = plt.subplots(figsize=(figsize, figsize), dpi=dpi, layout='tight')
         ax1.set_aspect('equal')
         ax1.axis('off')
         # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
@@ -99,11 +101,24 @@ class TransformWarpView:
         # ax1.invert_yaxis()
 
         if outputfullpath is not None:
+            # Calculate figure size for the desired resolution
             # plt.show()
-            plt.savefig(outputfullpath, bbox_inches='tight', figure=(1280, 1280))
+
+            plt.savefig(outputfullpath)
             plt.close()
         else:
             plt.show()
+
+    @staticmethod
+    def FigureSizeForResolution(resolution: int, dpi: int | None = None):
+        """
+        return: The figure size and dpi in a tuple required to call savefig and get an output image of the desired dimensions
+        """
+
+        if dpi is None:
+            dpi = 300
+
+        return resolution / dpi, dpi
 
     def GenerateWarpHistogram(self, outputfullpath=None):
         '''

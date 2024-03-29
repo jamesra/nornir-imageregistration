@@ -8,7 +8,7 @@ The factory is focused on the loading and saving of transforms
 
 from collections.abc import Iterable
 from typing import Sequence
-
+import math
 import numpy as np
 
 try:
@@ -198,6 +198,12 @@ def LoadTransform(Transform: str, pixelSpacing: float | None = None):
 
     raise ValueError(f"LoadTransform was passed an unknown transform type: {transformType}")
 
+def _verify_grid_dimension_and_variable_parameters_match(grid_dim: tuple[int, int], variable_parameters: list[float]):
+    num_grid_points = math.prod(grid_dim)
+    num_vp_points = len(variable_parameters) / 2
+    if  num_grid_points != num_vp_points:
+        raise ValueError("The grid transform has {num_vp_points} points but declares a grid of {gridWidth}x{gridHeight} = {num_grid_points} points")
+
 
 def ParseGridTransform(parts, pixelSpacing: float | None = None):
     if pixelSpacing is None:
@@ -209,7 +215,9 @@ def ParseGridTransform(parts, pixelSpacing: float | None = None):
 
     gridWidth = int(FixedParameters[2]) + 1
     gridHeight = int(FixedParameters[1]) + 1
-
+    
+    _verify_grid_dimension_and_variable_parameters_match((gridWidth, gridHeight), VariableParameters)
+    
     ImageWidth = float(FixedParameters[5]) * pixelSpacing
     ImageHeight = float(FixedParameters[6]) * pixelSpacing
 

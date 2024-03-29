@@ -8,15 +8,16 @@ from collections.abc import Iterable
 
 import numpy as np
 from numpy.typing import NDArray
+from typing import Sequence
 
 try:
-    import cupy as cp 
+    import cupy as cp
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints
@@ -27,10 +28,10 @@ def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating],
     '''Removes rows with a NAN value.
      :return: A flat array with NaN containing rows removed and set of row indicies that were removed
     '''
-    
+
     if points is None:
         raise ValueError("points must not be None")
-    
+
     xp = cp.get_array_module(points)
 
     numPoints = points.shape[0]
@@ -39,8 +40,8 @@ def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating],
 
     invalidIndicies = xp.flatnonzero(nan1D)
     validIndicies = xp.flatnonzero(~nan1D)
-    
-    if xp == np: #If we are using numpy
+
+    if xp == np:  # If we are using numpy
         points = xp.delete(points, invalidIndicies, axis=0)
     else:
         points = points[validIndicies, :]
@@ -48,7 +49,6 @@ def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating],
     assert (points.shape[0] + invalidIndicies.shape[0] == numPoints)
 
     return points, invalidIndicies, validIndicies
-
 
 
 def RotationMatrix(rangle: float) -> NDArray[np.floating]:
@@ -60,9 +60,9 @@ def RotationMatrix(rangle: float) -> NDArray[np.floating]:
 
     xp = nornir_imageregistration.GetComputationModule()
 
-    #The columns of this rotation matrix are swapped because we swap the input from X,Y to Y,X
+    # The columns of this rotation matrix are swapped because we swap the input from X,Y to Y,X
     rot_mat = xp.array([[np.cos(rangle), np.sin(rangle), 0],
-                        [-np.sin(rangle), np.cos(rangle), 0], 
+                        [-np.sin(rangle), np.cos(rangle), 0],
                         [0, 0, 1]])
 
     return rot_mat
@@ -117,6 +117,7 @@ def FlipMatrixY() -> NDArray[np.floating]:
     xp = nornir_imageregistration.GetComputationModule()
     return xp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
+
 def FlipMatrixX() -> NDArray[np.floating]:
     '''
     Flip the Y axis
@@ -147,7 +148,9 @@ def BlendWithLinear(transform: IControlPoints,
     if linear_factor == 1.0:
         return linear_transform
 
-    return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor, travel_limit=travel_limit)
+    return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor,
+                           travel_limit=travel_limit)
+
 
 def BlendTransforms(transform: IControlPoints,
                     linear_transform: ITransform,
@@ -173,9 +176,8 @@ def BlendTransforms(transform: IControlPoints,
         raise ValueError(f"travel_limit must be positive {travel_limit}")
 
     if linear_factor == 0 and travel_limit is None:
-        #Why are we calling this?  Should I throw?
+        # Why are we calling this?  Should I throw?
         return transform
-
 
     source_points = transform.SourcePoints
     target_points = transform.TargetPoints
@@ -188,15 +190,15 @@ def BlendTransforms(transform: IControlPoints,
         hyp = np.sum(dist_squared, axis=1)
         distances = np.sqrt(hyp)
 
-        #Arbitrary, but for a first pass points less than half of the travel distance use the transform
-        #points more than halfway to the travel_limit have progressively more rigid tranfsorm blended in
+        # Arbitrary, but for a first pass points less than half of the travel distance use the transform
+        # points more than halfway to the travel_limit have progressively more rigid tranfsorm blended in
         travel_blend_start_distance = travel_limit / 2
         travel_blend_range = travel_limit - travel_blend_start_distance
         linear_factors = (distances - travel_blend_start_distance) / travel_blend_range
         linear_factors.clip(0, 1.0, out=linear_factors)
         linear_factors = linear_factors.squeeze()
-        blended_target_points = (target_points.swapaxes(0,1) * (1.0 - linear_factors)).swapaxes(0,1)
-        blended_linear_points = (linear_points.swapaxes(0,1) *  linear_factors).swapaxes(0,1)
+        blended_target_points = (target_points.swapaxes(0, 1) * (1.0 - linear_factors)).swapaxes(0, 1)
+        blended_linear_points = (linear_points.swapaxes(0, 1) * linear_factors).swapaxes(0, 1)
         output_target_points = blended_target_points + blended_linear_points
     else:
         blended_target_points = target_points * (1.0 - linear_factor)
@@ -215,16 +217,18 @@ def BlendTransforms(transform: IControlPoints,
         output_points = np.append(output_target_points, source_points, 1)
         output = nornir_imageregistration.transforms.MeshWithRBFFallback(output_points)
         return output
-  
 
-def FixedOriginOffset(transforms):
+
+def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
     '''
     This is a fairly specific function to move a mosaic to have an origin at 0,0
     It handles both discrete and continuous functions the best it can.
     :return: tuple containing smallest origin offset
     '''
 
-    mins = np.zeros((len(transforms), 2))
+    xp = nornir_imageregistration.GetComputationModule()
+
+    mins = xp.zeros((len(transforms), 2))
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
@@ -235,7 +239,7 @@ def FixedOriginOffset(transforms):
         else:
             raise ValueError(f"Unexpected transform type {t} at index {i}")
 
-    return np.min(mins, 0)
+    return xp.min(mins, 0)
 
 
 def FixedBoundingBox(transforms, images=None):

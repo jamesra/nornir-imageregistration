@@ -1,13 +1,13 @@
 import numpy as np
 
+from . import create_gradient_image, create_nested_squares_image
 import nornir_imageregistration
 from nornir_imageregistration import assemble as assemble
 import setup_imagetest
 
-
-#Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
-    import cupy as cp 
+    import cupy as cp
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
@@ -15,15 +15,15 @@ except ImportError:
 
 
 class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
-    
+
     def test_write_to_target_image_coord_generation(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.write_to_target_image_coord_generation()
-        
+
     def test_write_to_target_image_coord_generation_gpu(self):
         if not nornir_imageregistration.HasCupy():
-            return 
-        
+            return
+
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.write_to_target_image_coord_generation()
 
@@ -45,24 +45,24 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.assertTrue(np.array_equal(target_coords, roi_write_coords))
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
-        
-        read_area = read_area.get() if xp == cp else read_area 
+
+        read_area = read_area.get() if xp == cp else read_area
         read_bottom_left = read_bottom_left.get() if xp == cp else read_bottom_left
-        
+
         self.assertTrue(np.array_equal(target_area, read_area))
         self.assertTrue(np.array_equal(read_bottom_left, target_bottom_left - source_to_target_offset))
-        
+
     def test_write_to_source_image_coord_generation(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.write_to_source_image_coord_generation()
-        
+
     def test_write_to_source_image_coord_generation_gpu(self):
         if not nornir_imageregistration.HasCupy():
-            return 
-        
+            return
+
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
-        self.write_to_source_image_coord_generation() 
-        
+        self.write_to_source_image_coord_generation()
+
     def write_to_source_image_coord_generation(self):
         """
         Transform uniform coordinates from target_space
@@ -81,20 +81,20 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         self.assertTrue(xp.array_equal(source_coords, roi_write_coords))
         read_bottom_left = roi_read_coords.min(0)
         read_area = (roi_read_coords.max(0) - read_bottom_left) + 1
-        
-        read_area = read_area.get() if xp is cp else read_area 
+
+        read_area = read_area.get() if xp is cp else read_area
         read_bottom_left = read_bottom_left.get() if xp is cp else read_bottom_left
-         
+
         self.assertTrue(xp.array_equal(source_area, read_area))
         self.assertTrue(xp.array_equal(read_bottom_left, source_bottom_left + source_to_target_offset))
-        
+
     def test_grid_division_identity(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.grid_division_identity()
-        
+
     def test_grid_division_identity_gpu(self):
         if not nornir_imageregistration.HasCupy():
-            return 
+            return
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.grid_division_identity()
 
@@ -104,8 +104,8 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         :return:
         """
 
-        source_image = self.create_gradient_image((9, 10))
-        target_image = self.create_gradient_image((9, 10))
+        source_image = create_gradient_image((9, 10))
+        target_image = create_gradient_image((9, 10))
         source_to_target_offset = np.array((0, 0))
         cell_size = np.array((3, 3))
         grid_dims = np.array((3, 3))
@@ -114,14 +114,14 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
                                source_to_target_offset=source_to_target_offset,
                                cell_size=cell_size,
                                grid_dims=grid_dims)
-        
+
     def test_grid_division_offset(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.grid_division_offset()
-        
+
     def test_grid_division_offset_gpu(self):
         if not nornir_imageregistration.HasCupy():
-            return 
+            return
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.grid_division_offset()
 
@@ -131,8 +131,8 @@ class TestAssembleImageRegion(setup_imagetest.ImageTestBase):
         :return:
         """
 
-        source_image = self.create_nested_squares_image((9, 10))
-        target_image = self.create_nested_squares_image((9, 10))
+        source_image = create_nested_squares_image((9, 10))
+        target_image = create_nested_squares_image((9, 10))
 
         source_to_target_offset = np.array((1, -2))
 

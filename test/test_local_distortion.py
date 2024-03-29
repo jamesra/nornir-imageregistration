@@ -9,10 +9,13 @@ import unittest
 
 import numpy as np
 
+import picklehelper
+
 try:
     import cupy as cp
     import cupyx
-    init_context = cp.zeros((64,64)) #Attempt to initialize CUDA context if we get this far 
+
+    init_context = cp.zeros((64, 64))  # Attempt to initialize CUDA context if we get this far
     init_context = init_context.mean()
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
@@ -30,7 +33,6 @@ from nornir_imageregistration.local_distortion_correction import AlignRecordsToC
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 import nornir_pools
 import setup_imagetest
-
 
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):
@@ -60,7 +62,7 @@ import setup_imagetest
 #         pass
 
 
-class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imagetest.PickleHelper):
+class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper.PickleHelper):
 
     def __init__(self, methodName='runTest'):
         self._TestName = 'SliceToSliceRefinement'
@@ -100,21 +102,21 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #         stosFile = self.GetStosFile("0164-0162_brute_32")
     #         self.RunStosRefinement(stosFile, self.ImageDir, SaveImages=False, SavePlots=True)
     #
-    def testStosRefinementRC2_617(self):
-        # self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
-        # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
-        RefineStosFile(InputStos=stosFilePath,
-                       OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
-                       num_iterations=5,
-                       cell_size=(256, 256),
-                       grid_spacing=(128, 128),
-                       angles_to_search=[-5, 0, 5],
-                       max_travel_for_finalization=1,
-                       max_travel_for_finalization_improvement=256,
-                       min_alignment_overlap=0.5,
-                       SaveImages=False,
-                       SavePlots=True)
+    # def testStosRefinementRC2_617(self):
+    #     # self.TestName = "StosRefinementRC2_617"
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRC2_617", "0617-0618_brute_32_pyre")
+    #     # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=5,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[-5, 0, 5],
+    #                    max_travel_for_finalization=1,
+    #                    max_travel_for_finalization_improvement=256,
+    #                    min_alignment_overlap=0.5,
+    #                    SaveImages=False,
+    #                    SavePlots=True)
 
     #     def testStosRefinementRC2_1034(self):
     #         #self.TestName = "StosRefinementRC2_1034"
@@ -150,9 +152,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     # def test_StosRefinementCPED_3_2(self):
     #     # self.TestName = "StosRefinementRC2_1034_Mini"
     #     try:
-    #         os.remove(self.TestCachePath)
+    #         os.remove(self.CachePath)
     #     except Exception as e:
-    #         print(f"Exception cleaning cache directory: {self.TestCachePath}\n{e}")
+    #         print(f"Exception cleaning cache directory: {self.CachePath}\n{e}")
     #         pass
     #
     #     stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13", "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
@@ -169,7 +171,33 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
     #                    SavePlots=True)
     #     return
 
-    def testStosRefinementRPC3_13_14_Incorrect_Brute_Alignment(self):
+    # def testStosRefinementRPC3_13_14_Incorrect_Brute_Alignment(self):
+    #     """
+    #     This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
+    #     """
+    #
+    #     # Do not stress about this test until you verify the input transform was
+    #     # not affected by the grid transform saving bug and that it is a valid
+    #     # starting point
+    #
+    #     # self.TestName = "StosRefinementRC2_617"
+    #     stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
+    #                                         "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+    #     # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+    #     RefineStosFile(InputStos=stosFilePath,
+    #                    OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
+    #                    num_iterations=5,
+    #                    cell_size=(256, 256),
+    #                    grid_spacing=(128, 128),
+    #                    angles_to_search=[0],
+    #                    max_travel_for_finalization=None,
+    #                    max_travel_for_finalization_improvement=None,
+    #                    min_alignment_overlap=0.5,
+    #                    min_unmasked_area=0.49,
+    #                    SaveImages=False,
+    #                    SavePlots=False)
+
+    def testStosRefinementRPC2_1156_1155_Grid16_to_Grid8(self):
         """
         This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
         """
@@ -179,9 +207,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
         # starting point
 
         # self.TestName = "StosRefinementRC2_617"
-        stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
-                                            "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+        # stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
+        #                                     "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
         # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
+        stosFilePath = os.path.join("D:", "Data", "RPC2", "TEM", "Grid8", "Automatic",
+                                    "1156-1155_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
         RefineStosFile(InputStos=stosFilePath,
                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
                        num_iterations=5,
@@ -192,8 +222,8 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, setup_imaget
                        max_travel_for_finalization_improvement=None,
                        min_alignment_overlap=0.5,
                        min_unmasked_area=0.49,
-                       SaveImages=False,
-                       SavePlots=False)
+                       SaveImages=True,
+                       SavePlots=True)
 
     # def testStosRefinementRPC3_449_450(self):
     #     """

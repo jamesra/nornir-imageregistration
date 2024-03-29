@@ -12,7 +12,6 @@ import matplotlib
 import matplotlib.pyplot
 import numpy as np
 
-
 import nornir_shared.histogram
 import nornir_shared.plot
 from nornir_shared.tasktimer import TaskTimer
@@ -28,6 +27,7 @@ import nornir_imageregistration.layout
 # from nornir_imageregistration.mosaic_tileset import MosaicTileset
 import nornir_imageregistration.mosaic
 import nornir_imageregistration.transforms.factory as tfactory
+import picklehelper
 
 import setup_imagetest
 
@@ -167,7 +167,7 @@ def CreateSaveShowMosaic(test, name, layout_obj, tileset, output_dir,
     return updated_tileset.ToMosaic()
 
 
-class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.PickleHelper):
+class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHelper):
     '''
     Test layouts of entire mosaics
     See test_TileToTileAlignment to explore individual tile to tile registration when debugging
@@ -222,13 +222,13 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
 
     def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True, title: str = None,
                     target_space_scale: float = None, image_to_source_space_scale: float = None):
- 
+
         if isinstance(mosaic, nornir_imageregistration.mosaic_tileset.MosaicTileset):
             mosaicTileset = mosaic
         else:
             mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic,
-                                                                                 image_folder=None,
-                                                                                 image_to_source_space_scale=image_to_source_space_scale)
+                                                                                     image_folder=None,
+                                                                                     image_to_source_space_scale=image_to_source_space_scale)
 
         return ShowMosaicSet(self, mosaicTileset, path=mosaic_path,
                              openwindow=openwindow, usecluster=usecluster,
@@ -717,7 +717,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
     #                              config=config)
     #
     #     print("All done")
-    
+
     def test_RPC2_0989_Mosaic_CPU(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RPC2_0989_Mosaic_CPU()
@@ -726,7 +726,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, setup_imagetest.Pickl
         if nornir_imageregistration.HasCupy():
             nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
             self.RPC2_0989_Mosaic_CPU()
-        
+
     def RPC2_0989_Mosaic_CPU(self):
         config = self.GetStandardTranslateSettings()
         self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",

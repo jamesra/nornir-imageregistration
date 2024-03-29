@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 
 
-class ImagePermutationHelper(object):
+class ImagePermutationHelper:
     """
     A helper class that takes an image and optional mask.  It exposes the image, mask, a version
      of the image with random noise where the mask is over the image.  It also exposes a version
