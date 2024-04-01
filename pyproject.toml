@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = 'setuptools.build_meta'
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nornir_imageregistration*"]
+
+[project]
+name = "nornir_imageregistration"
+version = "1.5.1"
+authors = [
+  { name="James Anderson", email="James.R.Anderson@utah.edu" },
+]
+description = "Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = [
+	"numpy >= 1.26",
+	"scipy >= 1.11",
+	"matplotlib >= 3.8",
+	"Pillow >= 10.2",
+	"six >= 1.16",
+	"hypothesis >= 6.96",
+	"nornir_pools @ git+https://github.com/clementsan/nornir-pools.git@dev",
+	"nornir_shared @ git+https://github.com/clementsan/nornir-shared.git@dev",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.scripts]
+nornir-addtransforms = "nornir_imageregistration.scripts.nornir_addtransforms:Execute"
+nornir-assemble-tiles = "nornir_imageregistration.scripts.nornir_assemble_tiles:Execute"
+nornir-assemble = "nornir_imageregistration.scripts.nornir_assemble:Execute"
+nornir-rotate-transalate = "nornir_imageregistration.scripts.nornir_rotate_translate:Execute"
+nornir-slice-to-mosaic = "nornir_imageregistration.scripts.nornir_slicetomosaic:Execute"
+nornir-translatemosaic = "nornir_imageregistration.scripts.nornir_translatemosaic:Execute"
+nornir-scaletransform = "nornir_imageregistration.scripts.nornir_scaletransform:Execute"
+nornir-stos-grid-refinement = "nornir_imageregistration.scripts.nornir_stos_grid_refinement:Execute"
+nornir-show-mosaic-layout = "nornir_imageregistration.scripts.nornir_show_mosaic_layout:Execute"
+
+[project.urls]
+Homepage = "https://github.com/jamesra/nornir-imageregistration"
+Issues = "https://github.com/jamesra/nornir-imageregistration/issues"
