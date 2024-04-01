@@ -12,9 +12,6 @@ version = "1.5.1"
 authors = [
   { name="James Anderson", email="James.R.Anderson@utah.edu" },
 ]
-maintainers = [
-  { name="Clement Vachet", email="cvachet@sci.utah.edu" },
-]
 description = "Contains the core image registration algorithms for aligning 2d images into larger mosaics and 3D volumes"
 readme = "README.md"
 license = {file = "LICENSE"}
