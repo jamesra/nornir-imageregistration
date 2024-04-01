@@ -44,5 +44,5 @@ nornir-stos-grid-refinement = "nornir_imageregistration.scripts.nornir_stos_grid
 nornir-show-mosaic-layout = "nornir_imageregistration.scripts.nornir_show_mosaic_layout:Execute"
 
 [project.urls]
-Homepage = "https://github.com/clementsan/nornir-imageregistration"
-Issues = "https://github.com/clementsan/nornir-imageregistration/issues"
+Homepage = "https://github.com/jamesra/nornir-imageregistration"
+Issues = "https://github.com/jamesra/nornir-imageregistration/issues"
