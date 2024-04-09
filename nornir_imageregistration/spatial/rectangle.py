@@ -14,7 +14,8 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration.spatial
 from nornir_imageregistration.spatial import iPoint, iRect, iArea
-from nornir_imageregistration.spatial.typing import PointLike, RectLike
+from nornir_imageregistration import PointLike, AreaLike
+from nornir_imageregistration.spatial.typing import RectLike
 
 
 def RaiseValueErrorOnInvalidBounds(bounds):
@@ -476,7 +477,7 @@ class Rectangle(object):
         return rect
 
     @staticmethod
-    def CreateFromCenterPointAndArea(point: PointLike | NDArray, area: PointLike) -> Rectangle:
+    def CreateFromCenterPointAndArea(point: PointLike | NDArray, area: AreaLike) -> Rectangle:
         """
         Create a rectangle whose center is point and the requested area
         :param tuple point: (Y,X)
@@ -485,6 +486,8 @@ class Rectangle(object):
         """
         if not isinstance(area, np.ndarray):
             area = np.asarray(area)
+
+        point = nornir_imageregistration.EnsurePointsAre1DArray(point)
 
         half_area = area / 2.0
 
@@ -552,7 +555,7 @@ class Rectangle(object):
             if len(B) == 2:
                 y, x = B
                 return \
-                    A.BoundingBox[nornir_imageregistration.iRect.MinX] <= x <= A.BoundingBox[
+                        A.BoundingBox[nornir_imageregistration.iRect.MinX] <= x <= A.BoundingBox[
                         nornir_imageregistration.iRect.MaxX] and \
                         A.BoundingBox[nornir_imageregistration.iRect.MinY] <= y <= A.BoundingBox[
                         nornir_imageregistration.iRect.MaxY]

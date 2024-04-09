@@ -1,4 +1,4 @@
-'''
+"""
 
 alignment_record
 ----------------
@@ -10,19 +10,19 @@ core
 
 .. automodule:: nornir_imageregistration.core
    :members:
-   
+
 assemble
 --------
 
 .. automodule:: nornir_imageregistration.assemble
-   :members: 
+   :members:
 
 assemble_tiles
 --------------
 
 .. automodule:: nornir_imageregistration.assemble_tiles
 
-'''
+"""
 from typing import Iterable, Sequence, Any
 
 from PIL import Image
@@ -44,25 +44,27 @@ except ImportError:
 Image.MAX_IMAGE_PIXELS = None
 
 import collections.abc
-
 import matplotlib.pyplot as plt
 
 plt.ioff()
 
 
 def default_image_dtype():
-    '''
+    """
     :return: The default dtype for image data
-    '''
+    """
     return np.float16
 
 
 def default_depth_image_dtype():
-    '''
+    """
     :return: The default dtype for image data
-    '''
+    """
     return np.float32
 
+
+import nornir_imageregistration.type_info as typing
+from nornir_imageregistration.type_info import *
 
 import nornir_imageregistration.mmap_metadata as mmap_metadata
 from nornir_imageregistration.mmap_metadata import *
@@ -121,7 +123,7 @@ def IsIntArray(param: NDArray) -> bool:
 
 
 def ImageMaxPixelValue(image: NDArray) -> int:
-    '''The maximum value that can be stored in an image represented by integers'''
+    """The maximum value that can be stored in an image represented by integers"""
     probable_bpp = int(image.itemsize * 8)
     if probable_bpp > 8:
         if 'i' == image.dtype.kind:  # Signed integers we use a smaller probable_bpp
@@ -138,11 +140,11 @@ def ImageBpp(image: NDArray) -> int:
 
 
 def IndexOfValues(A, values) -> numpy.typing.NDArray:
-    '''
+    """
     :param array A: Array of length N that we want to return indicies into
     :param array values: Array of length M containing values we need to find in A
     :returns: An array of length M containing the first index in A where the Values occur, or None
-    '''
+    """
 
     sorter = np.argsort(A)
     return np.searchsorted(A, values, side='left', sorter=sorter)
@@ -304,7 +306,8 @@ import nornir_imageregistration.settings as settings
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
-    IGridTransform, ITriangulatedSourceSpace, ITriangulatedTargetSpace, ITransformRelativeScaling
+    IGridTransform, ITriangulatedSourceSpace, ITriangulatedTargetSpace, ITransformRelativeScaling, \
+    IRigidTransform
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms

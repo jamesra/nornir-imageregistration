@@ -9,12 +9,18 @@ import hypothesis
 import numpy as np
 
 import nornir_imageregistration.transforms
-from nornir_imageregistration.transforms import *
 from nornir_imageregistration.transforms import MeshWithRBFFallback, OneWayRBFWithLinearCorrection, Triangulation
-from test.transforms import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
-    IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
-    __transform_tolerance, TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
-    CompressedTransformPoints
+
+try:
+    from transforms import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+        IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
+        TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
+        CompressedTransformPoints
+except ImportError:
+    from test.transforms import TransformCheck, ForwardTransformCheck, NearestFixedCheck, NearestWarpedCheck, \
+        IdentityTransformPoints, TranslateTransformPoints, MirrorTransformPoints, OffsetTransformPoints, \
+        TranslateRotateTransformPoints, TranslateRotateScaleTransformPoints, \
+        CompressedTransformPoints
 
 
 class TestTransforms(unittest.TestCase):
@@ -44,7 +50,7 @@ class TestTransforms(unittest.TestCase):
         TransformCheck(self, T, warpedPoint, controlPoint)
 
     def testRBFLinearFallbackWithTranslate(self):
-        target_translation = np.array([1, -5])
+        target_translation = np.array([1, 2])
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
                                 [2, 3],
@@ -53,7 +59,7 @@ class TestTransforms(unittest.TestCase):
 
         T = OneWayRBFWithLinearCorrection(warpedPoint, fixedPoint)
 
-        nPoints = TranslateRotateTransformPoints.shape[0]
+        nPoints = TranslateTransformPoints.shape[0]
         rotate_x_component = T.Weights[nPoints]
         scale_x_component = T.Weights[nPoints + 1]
         translate_x_component = T.Weights[nPoints + 2]
@@ -80,15 +86,42 @@ class TestTransforms(unittest.TestCase):
         np.testing.assert_allclose(fp2, fixedPoint, atol=1e-5, rtol=0)
 
     def testRBFLinearFallbackWithRotation(self):
+        ### TranslateRotateTransformPoints###
+        ### A simple four control point mapping on two 20x20 grids centered on 0,0###
+        ###               Fixed Space (Target)                          WarpedSpace (Source)    ###
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . B . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | A . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . C . . . . . . . .      . . . . . . 4 3 . . | . . b . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . 2 1 . . | . a . . . . . . . .
+        # .-.-.-.-.-.-.-.-.-.-+-.-.-.-.-.-.-.-.-.-.      .-.-.-.-.-.-.-.-.-.-+-c-.-.-.-.-.-.-.-.-.
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . 3 1 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . 4 2 . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+        # . . . . . . . . . . | . . . . . . . . . .      . . . . . . . . . . | . . . . . . . . . .
+
         T = OneWayRBFWithLinearCorrection(TranslateRotateTransformPoints[:, 2:], TranslateRotateTransformPoints[:, 0:2])
+        # Warped point is marked abcd
         warpedPoint = np.array([[1, 2],
                                 [1.25, 2.25],
                                 [2, 3],
                                 [0, 1]])
-        fixedPoint = np.array([[1, -3],
-                               [1.25, -3.25],
-                               [2, -4],
-                               [0, -2]])
+        # fixed points are marked ABCD in graph above
+        fixedPoint = np.array([[3, 1],
+                               [3.25, .75],
+                               [4, 0],
+                               [2, 2]])
 
         nPoints = TranslateRotateTransformPoints.shape[0]
         rotate_x_component = T.Weights[nPoints]
@@ -209,7 +242,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
- 
+
         T = Triangulation(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
@@ -268,7 +301,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
- 
+
         T = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(MirrorTransformPoints[:, 2:4],
                                                                               MirrorTransformPoints[:, 0:2])
         self.assertEqual(len(T.FixedTriangles), 2)
@@ -343,7 +376,7 @@ class TestTransforms(unittest.TestCase):
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
         #        MToVStos.Save("27-25.stos")
- 
+
         T = nornir_imageregistration.transforms.MeshWithRBFFallback(MirrorTransformPoints)
         self.assertEqual(len(T.FixedTriangles), 2)
         self.assertEqual(len(T.WarpedTriangles), 2)
@@ -403,10 +436,12 @@ class TestTransforms(unittest.TestCase):
 
         IdentityTransform = Triangulation(IdentityTransformPoints)
         OffsetTransform = Triangulation(OffsetTransformPoints)
-        self.assertTrue(utils.IsOriginAtZero([IdentityTransform]), "Origin of identity transform is at zero")
-        self.assertFalse(utils.IsOriginAtZero([OffsetTransform]), "Origin of Offset Transform is not at zero")
+        self.assertTrue(nornir_imageregistration.transforms.utils.IsOriginAtZero([IdentityTransform]),
+                        "Origin of identity transform is at zero")
+        self.assertFalse(nornir_imageregistration.transforms.utils.IsOriginAtZero([OffsetTransform]),
+                         "Origin of Offset Transform is not at zero")
 
-        self.assertTrue(utils.IsOriginAtZero([IdentityTransform, OffsetTransform]),
+        self.assertTrue(nornir_imageregistration.transforms.utils.IsOriginAtZero([IdentityTransform, OffsetTransform]),
                         "Origin of identity transform and offset transform is at zero")
 
     @hypothesis.given(x=hypothesis.strategies.integers(-5, 15), y=hypothesis.strategies.integers(-5, 15))
@@ -462,8 +497,8 @@ class TestTransforms(unittest.TestCase):
                                                                               source_rotation_center=source_rotation_center,
                                                                               angle=0,
                                                                               scalar=1,
-                                                                              #MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea(
-                                                                                  #(0, 0), (10, 10))
+                                                                              # MappedBoundingBox=nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+                                                                              # (0, 0), (10, 10))
                                                                               )
 
         point = np.array((y, x), dtype=np.float32)

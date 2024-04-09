@@ -17,7 +17,7 @@ from nornir_imageregistration.transforms.base import IControlPoints, \
     IDiscreteTransform
 import nornir_imageregistration.transforms.factory as factory
 from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation
-import test.setup_imagetest
+import setup_imagetest
 
 tau = math.pi * 2.0
 
@@ -74,7 +74,7 @@ class TestMath(unittest.TestCase):
         return
 
 
-class TestIO(test.setup_imagetest.TransformTestBase):
+class TestIO(setup_imagetest.TransformTestBase):
 
     @property
     def TestName(self):

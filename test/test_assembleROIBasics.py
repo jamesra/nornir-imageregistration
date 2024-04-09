@@ -1,5 +1,6 @@
 import numpy
-from . import create_gradient_image
+
+from imageutilities import create_gradient_image
 
 import nornir_imageregistration
 from nornir_imageregistration import assemble as assemble

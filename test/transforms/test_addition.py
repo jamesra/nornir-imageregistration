@@ -10,9 +10,9 @@ import unittest
 
 import numpy
 
+from .checks import TransformCheck
 import nornir_imageregistration
-from test.setup_imagetest import TransformTestBase
-from . import TransformCheck
+from setup_imagetest import TransformTestBase
 
 
 class TestTranslationTransformAddition(TransformTestBase):

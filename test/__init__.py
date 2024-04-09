@@ -7,3 +7,6 @@ import spatial as spatial
 import views as views
 import test_local_distortion
 import test_transform_roi
+import test_local_distortion
+import test_grid_division
+import test_assemble_image_region_transform

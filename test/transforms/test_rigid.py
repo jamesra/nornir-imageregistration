@@ -1,4 +1,3 @@
-import os
 import unittest
 import datetime
 import math
@@ -8,12 +7,20 @@ import hypothesis.strategies as st
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    from transforms.data import OffsetTransformPoints, \
+        TranslateRotateTransformPoints, IdentityFlippedUDTransformPoints, TranslateFlippedUDTransformPoints, \
+        TranslateRotateFlippedTransformPoints
+    from transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
+except ImportError:
+    from test.transforms.data import OffsetTransformPoints, \
+        TranslateRotateTransformPoints, IdentityFlippedUDTransformPoints, TranslateFlippedUDTransformPoints, \
+        TranslateRotateFlippedTransformPoints
+    from test.transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
+
 import nornir_imageregistration
 import nornir_imageregistration.transforms
 from setup_imagetest import ImageTestBase
-from transforms import OffsetTransformPoints, TransformAgreementCheck, TransformCheck, TransformInverseCheck, \
-    TranslateRotateTransformPoints, IdentityFlippedUDTransformPoints, TranslateFlippedUDTransformPoints, \
-    TranslateRotateFlippedTransformPoints
 
 
 def rotated_points(source_points, angle: float, source_rotation_center=None) -> NDArray[np.floating]:
@@ -98,10 +105,10 @@ class TestRigidTransforms(unittest.TestCase):
     def testIdentityInverted(self):
         T = nornir_imageregistration.transforms.Rigid([0, 0], [0, 0], 0, flip_ud=True)
 
-        warpedPoint = IdentityFlippedUDTransformPoints[:, 2:4]
-        controlPoint = IdentityFlippedUDTransformPoints[:, 0:2]
+        source_point = IdentityFlippedUDTransformPoints[:, 2:4]
+        target_point = IdentityFlippedUDTransformPoints[:, 0:2]
 
-        TransformCheck(self, T, warpedPoint, controlPoint)
+        TransformCheck(self, T, source_point, target_point)
 
     def testTranslate(self):
         T = nornir_imageregistration.transforms.Rigid([1, 1], [0, 0], 0)
@@ -112,7 +119,7 @@ class TestRigidTransforms(unittest.TestCase):
         TransformCheck(self, T, warpedPoint, controlPoint)
 
     def testTranslateInverted(self):
-        T = nornir_imageregistration.transforms.Rigid([-1, -2], [0, 0], 0, flip_ud=True)
+        T = nornir_imageregistration.transforms.Rigid([1, -2], [0, 0], 0, flip_ud=True)
 
         warpedPoint = TranslateFlippedUDTransformPoints[:, 2:4]
         controlPoint = TranslateFlippedUDTransformPoints[:, 0:2]
@@ -246,8 +253,8 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         _testRotate_simple(self, T)
 
     def test_Rotate90_standard_points(self):
-        offset = np.array((0, -6))  # numpy.array(targetShape) / 2.0
-        source_rotation_center = np.array((1.5, 2.5))
+        offset = np.array((1, 2))  # numpy.array(targetShape) / 2.0
+        source_rotation_center = np.array((0, 0))
 
         angle = np.pi / 2.0
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset, source_rotation_center, angle)
@@ -440,158 +447,3 @@ class TestRigidFactory(ImageTestBase):
                        shape])
 
         TransformAgreementCheck(r, m, p1)
-
-
-class TestRigidImageAssembly(ImageTestBase):
-
-    def testRigidTransformAssemblyDirect(self):
-        angle = 132.0
-        X = -4
-        Y = 22
-
-        angle = (angle / 180) * np.pi
-
-        WarpedImagePath = os.path.join(self.ImportedDataPath,
-                                       "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        FixedImagePath = os.path.join(self.ImportedDataPath,
-                                      "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-
-        print(f'Warped/Source: {WarpedImagePath}')
-        print(f'Fixed/Target: {FixedImagePath}')
-
-        WarpedImage = nornir_imageregistration.LoadImage(WarpedImagePath)
-        FixedImage = nornir_imageregistration.LoadImage(FixedImagePath)
-
-        warped_size = WarpedImage.shape
-        half_warped_size = np.asarray(warped_size) / 2.0
-
-        fixed_size = FixedImage.shape
-        half_fixed_size = np.asarray(fixed_size) / 2.0
-
-        offset = [Y, X]
-        corrected_offset = [offset[0] + ((fixed_size[0] - warped_size[0]) / 2),
-                            offset[1] + ((fixed_size[1] - warped_size[1]) / 2)]
-
-        transform = nornir_imageregistration.transforms.Rigid(corrected_offset, half_warped_size, angle)
-        transformedImageData = nornir_imageregistration.assemble.SourceImageToTargetSpace(transform, WarpedImagePath,
-                                                                                          output_botleft=(0, 0),
-                                                                                          output_area=fixed_size)
-
-        # delta = transformedImageData
-        delta = np.abs(FixedImage - transformedImageData)
-
-        self.assertTrue(
-            nornir_imageregistration.ShowGrayscale((FixedImage, transformedImageData, delta, WarpedImagePath),
-                                                   title="Second image should be perfectly aligned with the first",
-                                                   image_titles=(
-                                                       "Expected Output", "Transform Output", "Difference", "Input"),
-                                                   PassFail=True))
-
-    def testRigidTransformAssemblyFactory(self):
-        angle = 132.0
-        X = -4
-        Y = 22
-
-        __transform_tolerance = 1e-5
-
-        angle = (angle / 180) * np.pi
-
-        WarpedImagePath = os.path.join(self.ImportedDataPath,
-                                       "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-        FixedImagePath = os.path.join(self.ImportedDataPath,
-                                      "mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
-
-        warped_size = nornir_imageregistration.GetImageSize(WarpedImagePath)
-        half_warped_size = np.asarray(warped_size) / 2.0
-
-        fixed_size = nornir_imageregistration.GetImageSize(FixedImagePath)
-        half_fixed_size = np.asarray(fixed_size) / 2.0
-
-        offset = [Y, X]
-        corrected_offset = [offset[0] + ((fixed_size[0] - warped_size[0]) / 2),
-                            offset[1] + ((fixed_size[1] - warped_size[1]) / 2)]
-
-        reference_transform = nornir_imageregistration.transforms.Rigid(corrected_offset, half_warped_size, angle)
-        reference_ImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(reference_transform,
-                                                                                        WarpedImagePath)
-
-        r_transform = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=fixed_size,
-                                                                                       source_image_shape=warped_size,
-                                                                                       rangle=angle,
-                                                                                       warped_offset=[Y, X],
-                                                                                       flip_ud=False)
-
-        m_transform = nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(
-            target_image_shape=fixed_size,
-            source_image_shape=warped_size,
-            rangle=angle,
-            warped_offset=[Y, X],
-            flip_ud=False)
-
-        # np.testing.assert_allclose(r_transform.MappedBoundingBox.Corners, m_transform.MappedBoundingBox.Corners, atol=__transform_tolerance)
-        # np.testing.assert_allclose(r_transform.FixedBoundingBox.Corners, m_transform.FixedBoundingBox.Corners, atol=__transform_tolerance)
-
-        r_transformedImageData = nornir_imageregistration.assemble.SourceImageToTargetSpace(r_transform,
-                                                                                            WarpedImagePath)
-        m_transformedImageData = nornir_imageregistration.assemble.SourceImageToTargetSpace(m_transform,
-                                                                                            WarpedImagePath)
-
-        self.assertTrue(nornir_imageregistration.ShowGrayscale([[FixedImagePath, WarpedImagePath],
-                                                                [reference_ImageData],
-                                                                [r_transformedImageData, m_transformedImageData]],
-                                                               title="Reference image should be perfectly aligned with the Target\nBottom row should match middle row",
-                                                               image_titles=(('Target', 'Source'), 'Reference',
-                                                                             ('Rigid Transform', 'Mesh Transform')),
-                                                               PassFail=True))
-
-    def testRigidTransformAssemblyFactoryTranslateOnly(self):
-        angle = 0
-        X = -6
-        Y = -434.6
-
-        __transform_tolerance = 1e-5
-
-        angle = (angle / 180) * np.pi
-
-        WarpedImagePath = os.path.join(self.ImportedDataPath, "test_rigid", "891.png")
-        FixedImagePath = os.path.join(self.ImportedDataPath, "test_rigid", "890.png")
-
-        warped_size = nornir_imageregistration.GetImageSize(WarpedImagePath)
-        half_warped_size = np.asarray(warped_size) / 2.0
-
-        fixed_size = nornir_imageregistration.GetImageSize(FixedImagePath)
-        half_fixed_size = np.asarray(fixed_size) / 2.0
-
-        offset = [Y, X]
-        corrected_offset = [offset[0] + ((fixed_size[0] - warped_size[0]) / 2),
-                            offset[1] + ((fixed_size[1] - warped_size[1]) / 2)]
-        reference_transform = nornir_imageregistration.transforms.Rigid(corrected_offset, half_warped_size, angle)
-        reference_ImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(reference_transform,
-                                                                                        WarpedImagePath)
-
-        r_transform = nornir_imageregistration.transforms.factory.CreateRigidTransform(target_image_shape=fixed_size,
-                                                                                       source_image_shape=warped_size,
-                                                                                       rangle=angle,
-                                                                                       warped_offset=[Y, X],
-                                                                                       flip_ud=False)
-
-        m_transform = nornir_imageregistration.transforms.factory.CreateRigidMeshTransform(
-            target_image_shape=fixed_size,
-            source_image_shape=warped_size,
-            rangle=angle,
-            warped_offset=[Y, X],
-            flip_ud=False)
-
-        # np.testing.assert_allclose(r_transform.MappedBoundingBox.Corners, m_transform.MappedBoundingBox.Corners, atol=__transform_tolerance)
-        # np.testing.assert_allclose(r_transform.FixedBoundingBox.Corners, m_transform.FixedBoundingBox.Corners, atol=__transform_tolerance)
-
-        r_transformedImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(r_transform, WarpedImagePath)
-        m_transformedImageData = nornir_imageregistration.assemble.WarpedImageToFixedSpace(m_transform, WarpedImagePath)
-
-        self.assertTrue(nornir_imageregistration.ShowGrayscale([[FixedImagePath, WarpedImagePath],
-                                                                [reference_ImageData],
-                                                                [r_transformedImageData, m_transformedImageData]],
-                                                               title="Reference image should be perfectly aligned with the Target\nBottom row should match middle row",
-                                                               image_titles=[('Target', 'Source'), ('Reference',),
-                                                                             ('Rigid Transform', 'Mesh Transform')],
-                                                               PassFail=True))

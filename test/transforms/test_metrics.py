@@ -11,15 +11,14 @@ import matplotlib.tri as mtri
 import numpy
 import scipy.interpolate
 
-
 import nornir_shared.histogram
 import nornir_shared.plot
 import nornir_imageregistration.files
-from nornir_imageregistration.transforms import *
-import test.setup_imagetest
+from nornir_imageregistration.transforms import factory, metrics
+import setup_imagetest
 
 
-class TestTransformMetrics(test.setup_imagetest.TestBase):
+class TestTransformMetrics(setup_imagetest.TestBase):
 
     def setUp(self):
         super(TestTransformMetrics, self).setUp()
@@ -102,14 +101,13 @@ class TestTransformMetrics(test.setup_imagetest.TestBase):
         ax1.set_title(
             'Normalized mean difference in internal triangle angles for each vertex from control to warped space')
         # ax1.invert_yaxis()
-        
 
         h = nornir_shared.histogram.Histogram.Init(0, maxVal, int(numpy.sqrt(transform.NumControlPoints) * numpy.log(
             transform.NumControlPoints)))
         h.Add(measurement)
 
         nornir_shared.plot.Histogram(h, axes=axes[1])
-        
+
         plt.show()
 
         pass
