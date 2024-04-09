@@ -90,7 +90,7 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.float
     if offset is None:
         raise ValueError("Angle must not be none")
     elif hasattr(offset, "__iter__"):
-        return np.array([[1, 0, 0], [0, 1, 0], [offset[0], offset[1], 1]])
+        return np.array([[1, 0, offset[0]], [0, 1, offset[1]], [0, 0, 1]])
 
     raise NotImplementedError("Unexpected argument")
 
