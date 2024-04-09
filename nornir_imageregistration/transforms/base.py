@@ -264,6 +264,46 @@ class IControlPointEdit(ITargetSpaceControlPointEdit, ISourceSpaceControlPointEd
         raise NotImplementedError()
 
 
+class IRigidTransform(ITransform, ABC):
+    """A transform that encodes a rigid transformation:
+    The order of operations should be:
+    1. Scaling
+    2. Rotation
+    3. Translation
+    4. Flip
+    """
+
+    @property
+    @abc.abstractmethod
+    def angle(self) -> float:
+        """Angle of rotation in radians"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def target_offset(self) -> NDArray[np.floating]:
+        """Translation from source to target space"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def source_space_center_of_rotation(self) -> NDArray[np.floating]:
+        """Center of rotation in source space"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def flip_ud(self) -> bool:
+        """Whether to flip the Y axis"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def scalar(self) -> float:
+        """Scaling factor"""
+        raise NotImplementedError()
+
+
 class Base(ITransform, ITransformTranslation, ABC):
     """Base class of all transforms"""
     pass

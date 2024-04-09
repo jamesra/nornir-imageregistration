@@ -8,7 +8,7 @@ __all__ = ['base', 'triangulation', 'Triangulation', "meshwithrbffallback", "fac
            'ITriangulatedTargetSpace', 'ITriangulatedSourceSpace', 'IControlPointEdit', 'IControlPointAddRemove',
            'ISourceSpaceControlPointEdit', 'ITargetSpaceControlPointEdit', 'BlendWithLinear', 'RotationMatrix',
            'ScaleMatrixXY', 'TranslateMatrixXY', 'IdentityMatrix', 'ConvertRigidTransformToCenteredSimilarityTransform',
-           'OneWayRBFWithLinearCorrection']
+           'OneWayRBFWithLinearCorrection', 'IRigidTransform']
 
 import numpy as np
 from numpy.typing import NDArray
@@ -38,7 +38,8 @@ import nornir_imageregistration.transforms.base as base
 from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
-    IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit
+    IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit, \
+    IRigidTransform
 
 import nornir_imageregistration.transforms.pointrelations as pointrelations
 from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, are_points_colinear, \
