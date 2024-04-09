@@ -2,16 +2,18 @@ import collections.abc
 import math
 from typing import Iterable, Sequence
 
+import matplotlib.colors
+import matplotlib.gridspec
+import matplotlib.pyplot as plt
+import numpy as np
+from numpy.typing import NDArray
+
 try:
     import cupy as cp
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-import matplotlib.colors
-import matplotlib.gridspec
-import matplotlib.pyplot as plt
-import numpy as np
 
 import nornir_imageregistration
 
@@ -25,7 +27,8 @@ def add_rectangle(ax: plt.Axes, roi: nornir_imageregistration.Rectangle):
     return rect
 
 
-def ShowGrayscale(input_params, title: str | None = None, image_titles: Sequence[str] | str | None = None,
+def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None = None,
+                  image_titles: Sequence[str] | str | None = None,
                   rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None,
                   PassFail: bool = False):
     '''
@@ -147,7 +150,7 @@ def _ConvertParamsToImageList(param):
     elif isinstance(param, np.ndarray):
         output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, cp.ndarray):
-        param = nornir_imageregistration.EnsureNumpyArray(param) #Ensure it is not a Cupy array
+        param = nornir_imageregistration.EnsureNumpyArray(param)  # Ensure it is not a Cupy array
         output = nornir_imageregistration.core._Image_To_Uint8(param)
     elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
