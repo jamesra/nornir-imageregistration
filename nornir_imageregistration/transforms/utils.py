@@ -1,8 +1,8 @@
-'''
+"""
 Created on Apr 4, 2013
 
 @author: u0490822
-'''
+"""
 
 from collections.abc import Iterable
 
@@ -25,9 +25,9 @@ from nornir_shared import prettyoutput
 
 
 def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer]]:
-    '''Removes rows with a NAN value.
+    """Removes rows with a NAN value.
      :return: A flat array with NaN containing rows removed and set of row indicies that were removed
-    '''
+    """
 
     if points is None:
         raise ValueError("points must not be None")
@@ -52,9 +52,9 @@ def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating],
 
 
 def RotationMatrix(rangle: float) -> NDArray[np.floating]:
-    '''
+    """
     :param float rangle: Angle in radians
-    '''
+    """
     if rangle is None:
         raise ValueError("Angle must not be none")
 
@@ -77,15 +77,16 @@ def RotationMatrix(rangle: float) -> NDArray[np.floating]:
 
 
 def IdentityMatrix() -> NDArray[np.floating]:
-    '''
-    '''
-    return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    """
+    :return: 3x3 identity matrix
+    """
+    return np.identity(3)
 
 
 def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.floating]:
-    '''
+    """
     :param offset: An offset to translate by, either tuple of (Y,X) or an array
-    '''
+    """
 
     if offset is None:
         raise ValueError("Angle must not be none")
@@ -95,15 +96,18 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.float
     raise NotImplementedError("Unexpected argument")
 
 
-def ScaleMatrixXY(scale: float) -> NDArray[np.floating]:
-    '''
-    :param float scale: scale in radians, either a single value for all dimensions or a tuple of (Y,X) scale values
-    '''
+def ScaleMatrixXY(scale: float | Sequence[float]) -> NDArray[np.floating]:
+    """
+    :param scale: scale factor, either a single value for all dimensions or a tuple of (Y,X) scale values
+    :return: 3x3 scale matrix
+    """
     xp = nornir_imageregistration.GetComputationModule()
     if scale is None:
         raise ValueError("Angle must not be none")
     elif isinstance(scale, float):
         return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+    elif isinstance(scale, int):
+        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], np.floating)
     elif hasattr(scale, "__iter__"):
         return xp.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
 
@@ -111,17 +115,17 @@ def ScaleMatrixXY(scale: float) -> NDArray[np.floating]:
 
 
 def FlipMatrixY() -> NDArray[np.floating]:
-    '''
-    Flip the Y axis
-    '''
+    """
+    :return: 3x3 matrix that flips the Y axis
+    """
     xp = nornir_imageregistration.GetComputationModule()
     return xp.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
 def FlipMatrixX() -> NDArray[np.floating]:
-    '''
-    Flip the Y axis
-    '''
+    """
+    :return: 3x3 matrix that flips the X axis
+    """
     xp = nornir_imageregistration.GetComputationModule()
     return xp.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
 
@@ -156,7 +160,7 @@ def BlendTransforms(transform: IControlPoints,
                     linear_transform: ITransform,
                     linear_factor: float | None = None,
                     travel_limit: float | None = None):
-    '''
+    """
     Transfrom the control points from transform through both transform and linear_transform.
     Blend the results according to parameters and return a new transform with the blended
     point positions as the target space control points.
@@ -164,7 +168,7 @@ def BlendTransforms(transform: IControlPoints,
     :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
     :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
     match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
-    '''
+    """
 
     if linear_factor is not None and (linear_factor < 0 or linear_factor > 1.0):
         raise ValueError(f"linear_factor must be between 0 and 1.0, got {linear_factor}")
@@ -220,11 +224,11 @@ def BlendTransforms(transform: IControlPoints,
 
 
 def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
-    '''
+    """
     This is a fairly specific function to move a mosaic to have an origin at 0,0
     It handles both discrete and continuous functions the best it can.
     :return: tuple containing smallest origin offset
-    '''
+    """
 
     xp = nornir_imageregistration.GetComputationModule()
 
@@ -243,14 +247,14 @@ def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
 
 
 def FixedBoundingBox(transforms, images=None):
-    '''Calculate the bounding box of the warped position for a set of transforms
+    """Calculate the bounding box of the warped position for a set of transforms
     :param list transforms: A list of transforms
-    :param list images: A list of image parameters (strings, ndarrays, or 1x2 
+    :param list images: A list of image parameters (strings, ndarrays, or 1x2
                         ndarray.shape arrays, of the size of the image.  Only
                         required for continuous transforms so a bounding box can
                         be calculated
     :return: A rectangle describing the bounding box
-    '''
+    """
 
     if len(transforms) == 1:
         # Copy the data instead of passing the transforms object
@@ -297,7 +301,7 @@ def FixedBoundingBox(transforms, images=None):
 
 
 def MappedBoundingBox(transforms):
-    '''Calculate the bounding box of the original source space positions for a set of transforms'''
+    """Calculate the bounding box of the original source space positions for a set of transforms"""
 
     if len(transforms) == 1:
         # Copy the data instead of passing the transforms object
@@ -324,7 +328,7 @@ def MappedBoundingBox(transforms):
 
 
 def IsOriginAtZero(transforms):
-    ''':return: True if transform bounding box has origin at 0,0 otherise false'''
+    """:return: True if transform bounding box has origin at 0,0 otherise false"""
     try:
         origin = FixedOriginOffset(transforms)
         (minY, minX) = (origin[0], origin[1])
@@ -335,10 +339,10 @@ def IsOriginAtZero(transforms):
 
 
 def TranslateToZeroOrigin(transforms):
-    '''
+    """
     Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.
     :return: The offset the mosaic was translated by
-    '''
+    """
 
     try:
         origin = FixedOriginOffset(transforms)
