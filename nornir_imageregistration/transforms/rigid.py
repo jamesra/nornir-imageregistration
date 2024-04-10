@@ -1,9 +1,11 @@
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+from __future__ import annotations
+
 import typing
 from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
     import cupy as cp
     import cupyx
@@ -19,6 +21,9 @@ from nornir_imageregistration.spatial import Rectangle
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import DefaultTransformChangeEvents, TransformType, base
 import nornir_imageregistration.transforms.defaulttransformchangeevents
+
+from nornir_imageregistration.transforms.utils import IdentityMatrix, RotationMatrix, TranslateMatrixXY, ScaleMatrixXY, \
+    FlipMatrixY, FlipMatrixX
 
 
 class RigidNoRotation(base.ITransformScaling, base.ITransformTranslation,
@@ -190,20 +195,65 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     """
 
     @property
-    def flip_ud(self):
+    def flip_ud(self) -> bool:
         return self._flip_ud
 
     _flip_ud: bool  # True if the transform should flip the Y axis
-    _target_space_center_of_rotation: NDArray[np.floating]  # The center of rotation in the target space
+    _scalar: float = 1  # The relative scale difference between source and target space
+    source_space_center_of_rotation: NDArray[np.floating]  # The center of rotation in the source space
 
-    forward_rotation_matrix: NDArray[np.floating]
-    inverse_rotation_matrix: NDArray[np.floating]
+    @property
+    def scalar(self) -> float:
+        """The relative scale difference between source and target space"""
+        return self._scalar
 
-    forward_translation_matrix: NDArray[np.floating]
-    inverse_translation_matrix: NDArray[np.floating]
+    @property
+    def _forward_rotation_matrix(self) -> NDArray[np.floating]:
+        """rotation matrix to move points to the target space"""
+        return RotationMatrix(self.angle)
 
-    forward_matrix: NDArray[np.floating]
-    inverse_matrix: NDArray[np.floating]
+    @property
+    def _inverse_rotation_matrix(self) -> NDArray[np.floating]:
+        """inverse rotation to move points to the source space"""
+        return RotationMatrix(-self.angle)
+
+    @property
+    def _forward_translation_matrix(self) -> NDArray[np.floating]:
+        """translation matrix to move points to the target space"""
+        return TranslateMatrixXY(self._target_offset)
+
+    @property
+    def _inverse_translation_matrix(self) -> NDArray[np.floating]:
+        """inverse translation to move points to the source space"""
+        return TranslateMatrixXY(-self._target_offset)
+
+    @property
+    def _forward_center_of_rotation_translation(self) -> NDArray[np.floating]:
+        """Matrix to translate the center of rotation to 0,0 origin in the source space"""
+        return TranslateMatrixXY(self.source_space_center_of_rotation)
+
+    @property
+    def _inverse_center_of_rotation_translation(self) -> NDArray[np.floating]:
+        """Matrix to translate the center of rotation to original position in the source space"""
+        return TranslateMatrixXY(-self.source_space_center_of_rotation)
+
+    @property
+    def _flip_y_matrix(self) -> NDArray[np.floating]:
+        """Matrix to flip the Y axis, identity if matrix is not flipped"""
+        return FlipMatrixY() if self._flip_ud else IdentityMatrix()
+
+    @property
+    def _forward_scale_matrix(self) -> NDArray[np.floating]:
+        """Matrix to scale the points"""
+        return ScaleMatrixXY(self._scalar)
+
+    @property
+    def _inverse_scale_matrix(self) -> NDArray[np.floating]:
+        """Matrix to scale the points"""
+        return ScaleMatrixXY(1.0 / self._scalar)
+
+    forward_matrix: NDArray[np.floating]  # The composite matrix to perform the transform in a single step
+    inverse_matrix: NDArray[np.floating]  # The composite matrix to perform the inverse transform in a single step
 
     def __getstate__(self):
         data = super(Rigid, self).__getstate__()
@@ -213,7 +263,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     def __setstate__(self, dictionary: dict):
         super(Rigid, self).__setstate__(dictionary)
         self._flip_ud = dictionary['flip_ud']
-        self.update_rotation_matrix()
+        self._update_transform_matrix()
 
     def __init__(self, target_offset: VectorLike,
                  source_rotation_center: VectorLike | None = None,
@@ -229,63 +279,20 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         super(Rigid, self).__init__(target_offset, source_rotation_center, angle)
 
         self._flip_ud = flip_ud
-        self.update_rotation_matrix()
-        self._determine_target_space_center_of_rotation()
+        self._update_transform_matrix()
 
-    def _determine_target_space_center_of_rotation(self):
-        # source_center = self.source_space_center_of_rotation
-        # source_center_adjustment = np.remainder(source_center, 1)
-        # centered_points = np.hstack((source_center_adjustment, 1))
-        #
-        # target_soace_center = np.transpose(np.matmul(self.forward_rotation_matrix, np.transpose(centered_points)))
-        # target_space_center_adjustment = target_soace_center[0:2]
-        # self._target_space_center_of_rotation = self.source_space_center_of_rotation + target_space_center_adjustment
-        self._target_space_center_of_rotation = self.source_space_center_of_rotation
-
-    def update_rotation_matrix(self):
-
-        xp = nornir_imageregistration.GetComputationModule()
-
-        # forward_matrix = nornir_imageregistration.transforms.utils.IdentityMatrix()
-        # inverse_matrix = nornir_imageregistration.transforms.utils.IdentityMatrix()
-        #
-
-        if self.flip_ud:
-            flip_y_matrix = nornir_imageregistration.transforms.utils.FlipMatrixY()
-        else:
-            flip_y_matrix = nornir_imageregistration.transforms.utils.IdentityMatrix()
-
-        self.forward_translation_matrix = nornir_imageregistration.transforms.utils.TranslateMatrixXY(
-            self._target_offset)
-        self.inverse_translation_matrix = nornir_imageregistration.transforms.utils.TranslateMatrixXY(
-            -self._target_offset)
-
-        self.forward_center_of_rotation_translation = nornir_imageregistration.transforms.utils.TranslateMatrixXY(
-            self.source_space_center_of_rotation)
-        self.inverse_center_of_rotation_translation = nornir_imageregistration.transforms.utils.TranslateMatrixXY(
-            -self.source_space_center_of_rotation)
-
-        self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
-        self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
-
-        # self.forward_matrix = self.forward_center_of_rotation_translation @ flip_y_matrix @ \
-        #                       self.forward_translation_matrix @ self.forward_rotation_matrix @ \
-        #                       self.inverse_center_of_rotation_translation
-        # self.inverse_matrix = self.inverse_center_of_rotation_translation @ flip_y_matrix @ \
-        #                       self.inverse_translation_matrix @ self.inverse_rotation_matrix @ \
-        #                       self.forward_center_of_rotation_translation
-
-        self.forward_matrix = self.forward_translation_matrix @ self.forward_center_of_rotation_translation @ \
-                              flip_y_matrix @ self.forward_rotation_matrix @ \
-                              self.inverse_center_of_rotation_translation
-        self.inverse_matrix = self.forward_center_of_rotation_translation @ \
-                              self.inverse_rotation_matrix @ flip_y_matrix @ \
-                              self.inverse_center_of_rotation_translation @ self.inverse_translation_matrix
-        #
+    def _update_transform_matrix(self):
+        """Update the forward and inverse matrices"""
+        self.forward_matrix = self._forward_translation_matrix @ self._forward_center_of_rotation_translation @ \
+                              self._flip_y_matrix @ self._forward_rotation_matrix @ \
+                              self._inverse_center_of_rotation_translation @ self._forward_scale_matrix
+        self.inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
+                              self._inverse_rotation_matrix @ self._flip_y_matrix @ \
+                              self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
 
     @staticmethod
-    def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -302,71 +309,32 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
-        if self.angle == 0 and not self.flip_ud:
+        if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
             transformed = points + self._target_offset
             return transformed
 
-        numPoints = points.shape[0]
-        centered_points = xp.hstack((points, xp.ones((numPoints, 1))))
+        num_points = points.shape[0]
+        centered_points = xp.hstack((points, xp.ones((num_points, 1))))
         output_points = xp.transpose(xp.matmul(self.forward_matrix, xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
-
-        # centered_points = points - self.source_space_center_of_rotation
-        # # centered_points = np.transpose(centered_points)
-        # centered_points = xp.hstack((centered_points, xp.ones((numPoints, 1))))
-        #
-        # # centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
-        # centered_rotated_points = xp.transpose(xp.matmul(self.forward_rotation_matrix, xp.transpose(centered_points)))
-        # # centered_rotated_points = np.transpose(centered_rotated_points)
-        # centered_rotated_points = centered_rotated_points[:, 0:2]
-        #
-        # output_points = centered_rotated_points + self._target_offset
-        #
-        # if self.flip_ud:
-        #     output_points[:, 0] = -output_points[:, 0]
-        #
-        # output_points = output_points + self._target_space_center_of_rotation
-        #
-        # transformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
-        # return transformed
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
 
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
-        if self.angle == 0 and not self.flip_ud:
+        if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
             itransformed = points - self._target_offset
             return itransformed
 
-        numPoints = points.shape[0]
-        centered_points = xp.hstack((points, xp.ones((numPoints, 1))))
+        num_points = points.shape[0]
+        centered_points = xp.hstack((points, xp.ones((num_points, 1))))
         output_points = xp.transpose(xp.matmul(self.inverse_matrix, xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
-        # input_points = np.copy(points)
-        #
-        # centered_points = input_points - self._target_space_center_of_rotation
-        #
-        # if self.flip_ud:
-        #     centered_points[:, 0] = -centered_points[:, 0]
-        #
-        # centered_points = centered_points - self._target_offset
-        #
-        # # centered_points = np.transpose(centered_points)
-        # centered_points = xp.hstack((centered_points, xp.zeros((numPoints, 1))))
-        # # rotated_points = centered_points @ self.inverse_rotation_matrix
-        # # rotated_points = (self.inverse_rotation_matrix @ centered_points.T).T
-        # rotated_points = xp.transpose(xp.matmul(self.inverse_rotation_matrix, xp.transpose(centered_points)))
-        # # rotated_points = np.transpose(rotated_points)
-        # rotated_points = rotated_points[:, 0:2]
-        #
-        # output_points = rotated_points + self.source_space_center_of_rotation
-        # itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
-        # return itransformed
 
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         """Rotate all warped points by the specified amount"""
@@ -376,16 +344,16 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         if rotation_center is not None:
             self.source_space_center_of_rotation = xp.array(rotation_center)
 
-        self.update_rotation_matrix()
+        self._update_transform_matrix()
         self.OnTransformChanged()
 
-    def Scale(self, scalar: float):
+    def Scale(self, value: float):
 
         # We aren't changing the relative scale of either space compared to the other
         # We are changing the scale of both spaces, so simply adjust the target and source space offsets
         # Do not call super, this method is a replacement
-        self._target_offset *= scalar
-        self._source_space_center_of_rotation *= scalar
+        self._scalar *= value
+        self._update_transform_matrix()
         self.OnTransformChanged()
 
     def __repr__(self):
@@ -410,13 +378,8 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         return odict
 
     def __setstate__(self, dictionary: dict):
-        super(CenteredSimilarity2DTransform, self).__setstate__(dictionary)
         self._scalar = dictionary['_scalar']
-
-    @property
-    def scalar(self):
-        """The relative scale difference between source and target space"""
-        return self._scalar
+        super(CenteredSimilarity2DTransform, self).__setstate__(dictionary)
 
     def __init__(self, target_offset: VectorLike,
                  source_rotation_center: VectorLike | None = None,
@@ -429,17 +392,14 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         """
+        self._scalar = 1.0 if scalar is None else scalar
         super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, flip_ud)
 
-        self._scalar = 1.0 if scalar is None else scalar
-
     @staticmethod
-    def Load(transform_string: str):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(transform_string)
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
 
     def ToITKString(self) -> str:
-        # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        # This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
                                                                                                    self.angle,
                                                                                                    self.source_space_center_of_rotation[
@@ -453,77 +413,15 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
 
     def ScaleWarped(self, scalar: float):
         """Scale source space control points by scalar"""
-        self.source_space_center_of_rotation *= scalar
         self._scalar /= scalar
+        self._update_transform_matrix()
         self.OnTransformChanged()
 
     def ScaleFixed(self, scalar: float):
         """Scale target space control points by scalar"""
-        self._target_offset *= scalar
         self._scalar *= scalar
+        self._update_transform_matrix()
         self.OnTransformChanged()
-
-    def Transform(self, points: NDArray[np.floating], **kwargs):
-
-        xp = cp.get_array_module(points)
-        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
-
-        if self.angle == 0 and self._scalar == 1.0 and not self.flip_ud:
-            transformed = points + self._target_offset
-            return transformed
-
-        numPoints = points.shape[0]
-        centered_points = points - self.source_space_center_of_rotation
-
-        if self._scalar != 1.0:
-            centered_points = centered_points * self._scalar
-
-        # centered_points = np.transpose(centered_points)
-        centered_points = xp.hstack(
-            (centered_points, xp.ones((numPoints, 1))))  # Add a row so we can multiply the matrix
-
-        # centered_rotated_points = centered_points @ self.forward_rotation_matrix
-        # centered_rotated_points = (self.forward_rotation_matrix @ centered_points.T).T
-        centered_rotated_points = xp.transpose(xp.matmul(self.forward_rotation_matrix, xp.transpose(centered_points)))
-        # centered_rotated_points = np.transpose(centered_rotated_points)
-        centered_rotated_points = centered_rotated_points[:, 0:2]
-
-        output_points = centered_rotated_points + self._target_offset
-
-        if self.flip_ud:
-            output_points[:, 0] = -output_points[:, 0]
-
-        output_points = output_points + self._target_space_center_of_rotation
-
-        return output_points
-
-    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
-
-        xp = cp.get_array_module(points)
-        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
-
-        if self.angle == 0 and self._scalar == 1.0 and not self.flip_ud:
-            itransformed = points - self._target_offset
-            return itransformed
-
-        centered_points = points - self._target_space_center_of_rotation
-
-        if self.flip_ud:
-            centered_points[:, 0] = -points[:, 0]
-
-        offset_points = centered_points - self._target_offset
-
-        numPoints = offset_points.shape[0]
-        centered_points = xp.hstack((offset_points, xp.ones((numPoints, 1))))
-        rotated_points = xp.transpose(xp.matmul(self.inverse_rotation_matrix, xp.transpose(centered_points)))
-        # rotated_points = np.transpose(rotated_points)
-        rotated_points = rotated_points[:, 0:2]
-
-        if self._scalar != 1.0:
-            rotated_points = rotated_points / self._scalar
-
-        output_points = rotated_points + self.source_space_center_of_rotation
-        return output_points
 
     def __repr__(self):
         return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}:04g".format(self.scalar)
