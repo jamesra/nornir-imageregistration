@@ -52,17 +52,20 @@ class GridDivisionBase(IGrid):
     _SourcePoints: NDArray[np.floating]
     _source_shape: NDArray[np.integer]
     _axis_points: list[NDArray[np.floating]]
-  
+
     @property
     def cell_size(self) -> NDArray[np.integer]:
+        """Area we sample around each point in the grid.  3x3 samples 1.5 pixels in each direction from the center point"""
         return self._cell_size
 
     @property
     def grid_dims(self) -> NDArray[np.integer]:
+        """Shape of the gride in rows, columns"""
         return self._grid_dims
 
     @property
     def grid_spacing(self) -> NDArray[np.integer]:
+        """Spacing of the grid"""
         return self._grid_spacing
 
     @property
@@ -71,22 +74,26 @@ class GridDivisionBase(IGrid):
 
     @property
     def TargetPoints(self) -> NDArray[np.floating]:
+        """Location of center of each cell in target space"""
         return self._TargetPoints
 
     @TargetPoints.setter
     def TargetPoints(self, value: NDArray[np.floating]):
         if value.shape[0] != self.grid_dims.prod():
-            raise ValueError(f"Number of points must match grid dimensions, got {value.shape[0]} expected {self.grid_dims.prod()}")
+            raise ValueError(
+                f"Number of points must match grid dimensions, got {value.shape[0]} expected {self.grid_dims.prod()}")
         self._TargetPoints = value
 
     @property
     def SourcePoints(self) -> NDArray[np.floating]:
+        """Location of center of each cell in source space"""
         return self._SourcePoints
 
     @property
     def source_shape(self) -> NDArray[np.integer]:
+        """(Rows, Columns) of image we are dividing"""
         return self._source_shape
-  
+
     def __str__(self):
         return "grid_dims:{0},{1} grid_spacing:{2},{3} cell_size:{4},{5}".format(self._grid_dims[0],
                                                                                  self._grid_dims[1],
@@ -137,7 +144,7 @@ class GridDivisionBase(IGrid):
         """
 
         xp = cp.get_array_module(points)
-        
+
         if points.shape[0] == 0:
             raise ValueError("points must have non-zero length")
 
@@ -194,9 +201,9 @@ class GridDivisionBase(IGrid):
                                         np.all(self._TargetPoints < target_shape, 1))
         self.RemoveMaskedPoints(valid_inbounds)
 
-    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray): 
+    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray):
         xp = cp.get_array_module(self._SourcePoints)
-        
+
         if source_shape is None:
             source_shape = xp.asarray(self._source_shape)
 
@@ -254,7 +261,7 @@ class ITKGridDivision(GridDivisionBase):
 
         # Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
         self._grid_spacing = source_shape / (
-                    self._grid_dims - 1)  # - 1 on grid_dims because we want the points at the edges of the image
+                self._grid_dims - 1)  # - 1 on grid_dims because we want the points at the edges of the image
 
         self._axis_points = [range(n) * self._grid_spacing[i] for i, n in enumerate(self._grid_dims)]
 
@@ -291,7 +298,7 @@ class CenteredGridDivision(GridDivisionBase):
         :param grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
         """
         super(CenteredGridDivision, self).__init__()
-          
+
         self._cell_size = np.asarray(cell_size, np.int32)
         source_shape = np.asarray(source_shape, np.int64)
 
@@ -325,11 +332,11 @@ class CenteredGridDivision(GridDivisionBase):
         self._SourcePoints -= overage_adjustment
         # self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
 
-        self._source_shape = source_shape 
+        self._source_shape = source_shape
 
         if self._SourcePoints.shape[0] == 0:
             raise ValueError(
                 "No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
 
-        #self._SourcePoints = cp.asarray(self._SourcePoints) if nornir_imageregistration.UsingCupy() else self._SourcePoints
+        # self._SourcePoints = cp.asarray(self._SourcePoints) if nornir_imageregistration.UsingCupy() else self._SourcePoints
         self._TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None
