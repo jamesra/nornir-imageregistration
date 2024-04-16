@@ -1,8 +1,9 @@
-'''
-'''
+"""
+"""
 
 from math import pi
 import os
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,31 +13,31 @@ from nornir_imageregistration.transforms import ITransform
 
 
 class AlignmentRecord(object):
-    '''
+    """
     Records basic registration information as an angle and offset between a fixed and moving image
-    If the offset is zero the center of both images occupy the same point.  
+    If the offset is zero the center of both images occupy the same point.
     The offset determines the translation of the moving image over the fixed image.
     There is no support for scale, and there should not be unless added as another variable to the alignment record
-    
+
     :param array peak: Translation vector for moving image
     :param float weight: The strength of the alignment
     :param float angle: Angle to rotate moving image in degrees
-    
-    '''
+
+    """
 
     @property
     def angle(self) -> float:
-        '''Rotation in degrees'''
+        """Rotation in degrees"""
         return self._angle
 
     @property
     def rangle(self) -> float:
-        '''Rotation in radians'''
+        """Rotation in radians"""
         return self._angle * (pi / 180.0)
 
     @property
     def weight(self) -> float:
-        '''Quantifies the quality of the alignment'''
+        """Quantifies the quality of the alignment"""
         return self._weight
 
     @weight.setter
@@ -45,7 +46,7 @@ class AlignmentRecord(object):
 
     @property
     def flippedud(self) -> bool:
-        '''True if the warped image was flipped vertically for the alignment'''
+        """True if the warped image was flipped vertically for the alignment"""
         return self._flippedud
 
     @flippedud.setter
@@ -54,7 +55,7 @@ class AlignmentRecord(object):
 
     @property
     def peak(self) -> NDArray[np.floating]:
-        '''Translation vector for the alignment'''
+        """Translation vector for the alignment"""
         return self._peak
 
     def WeightKey(self) -> float:
@@ -66,18 +67,18 @@ class AlignmentRecord(object):
 
     @scale.setter
     def scale(self, value: float):
-        '''Scales the source space to target space, including peak'''
+        """Scales the source space to target space, including peak"""
         self._scale = value
 
     def translate(self, value: NDArray[np.floating]):
-        '''Translates the peak position using tuple (Y,X)'''
+        """Translates the peak position using tuple (Y,X)"""
         self._peak += value
 
     def Invert(self):
-        '''
+        """
         Returns a new alignment record with the coordinates of the peak reversed
         Used to change the frame of reference of the alignment from one tile to another
-        '''
+        """
         return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
 
     def __repr__(self):
@@ -98,9 +99,9 @@ class AlignmentRecord(object):
     def __init__(self, peak: NDArray[np.floating] | tuple[float, float], weight: float, angle: float = 0.0,
                  flipped_ud: bool = False,
                  scale: float = 1.0):
-        '''
+        """
         :param float scale: Scales source space by this factor to map into target space
-        '''
+        """
         if not isinstance(angle, float):
             angle = float(angle)
 
@@ -125,17 +126,27 @@ class AlignmentRecord(object):
                                                                                                   target_image_shape=TargetImageShape,
                                                                                                   source_image_shape=SourceImageShape)
 
+    # def GetTransformedCornerPointsForImage(self, warpedImageSize: NDArray[np.integer]) -> NDArray[np.floating]:
+    #     """
+    #     Return the corners of a bounding box in the target space after the transform is applied.
+    #     """
+    #     return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPointsForImage(warpedImageSize,
+    #                                                                                                self.rangle,
+    #                                                                                                self.peak,
+    #                                                                                                self.flippedud)
+
     def GetTransformedCornerPoints(self, warpedImageSize: NDArray[np.integer]) -> NDArray[np.floating]:
-        '''
-        '''
-        # Adjust image size by 1 since the images are indexed by 0
+        """
+        Return the corners of a bounding box in the target space after the transform is applied.
+        """
         return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize,
                                                                                            self.rangle,
-                                                                                           self.peak, self.flippedud)
+                                                                                           self.peak,
+                                                                                           self.flippedud)
 
     def ToImageTransform(self, target_image_shape: NDArray[np.integer] | tuple[int, int],
                          source_image_shape: NDArray[np.integer] | tuple[int, int] | None = None) -> ITransform:
-        '''
+        """
         Generates a rigid transform for the alignment record in the context of two images of the specified size.  Because
         images are indexed starting at zero, the center of a 10x10 image is 4.5,4.5.  The center of a 9x9 image is 4,4.
 
@@ -143,7 +154,7 @@ class AlignmentRecord(object):
         :param (Height, Width) target_image_shape: Size of translated image in fixed space
         :param (Height, Width) source_image_shape: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
         :return: A rigid rotation+translation transform described by the alignment record
-        '''
+        """
 
         if source_image_shape is None:
             source_image_shape = target_image_shape
@@ -151,13 +162,28 @@ class AlignmentRecord(object):
         source_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_image_shape)
         target_image_shape = nornir_imageregistration.EnsurePointsAre1DNumpyArray(target_image_shape)
 
-        source_center_of_rotation = (
-                                            source_image_shape - 1) / 2.0  # Subtract 1 because images are indexed starting at zero, so an image of size 10,10 has a center of 4.5,4.5
+        # Subtract 1 from rotation center.
+        # Images are indexed starting at zero, so an image of size 10,10 has a center of 4.5,4.5
+        source_center_of_rotation = (source_image_shape - 1) / 2.0
+
         # Adjust the center of rotation by 0.5 if there is an even dimension
         # source_center_of_rotation[np.mod(warpedImageSize, 2) == 0] -= 0.5
         target_center = (target_image_shape - 1) / 2.0
 
-        target_translation = (target_center - source_center_of_rotation) + self.peak
+        # If there is a 0.5 in this offset, pixels will be interpolated between
+        # the two adjacent pixels on that axis... This is technically correct.
+        # It expands the output image by one pixel and essentially blurs 
+        # the output.  Peak is most likely also a fraction which will blur the 
+        # image as well.  
+        
+        # If we don't want to blur, one idea is to nudge the peak at a sub-pixel 
+        # distance to make source_to_target_offset a whole number.  However, 
+        # this adjustment is pointless if a rotation is present since that will
+        # also blur the output 
+        
+        source_to_target_offset = target_center - source_center_of_rotation
+
+        target_translation = source_to_target_offset + self.peak
 
         return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
                                                          source_rotation_center=source_center_of_rotation,
@@ -166,15 +192,15 @@ class AlignmentRecord(object):
 
     def ToSpatialTransform(self, target_shape: NDArray[np.integer] | tuple[int, int],
                            source_shape: NDArray[np.integer] | tuple[int, int] | None = None) -> ITransform:
-        '''
-        Generates a rigid transform for the alignment record in the context of two images of the specified size.  Because
-        images are indexed starting at zero, the center of a 10x10 image is 4.5,4.5.  The center of a 9x9 image is 4,4.
+        """
+        Generates a rigid transform for the alignment record in the context of two images of the specified size.
+        The center is not adjusted as it would be for an image transform.
 
 
         :param (Height, Width) target_image_shape: Size of translated image in fixed space
         :param (Height, Width) source_image_shape: Size of translated image in warped space.   If unspecified defaults to fixedImageSize
         :return: A rigid rotation+translation transform described by the alignment record
-        '''
+        """
 
         if source_shape is None:
             source_shape = target_shape
@@ -261,9 +287,9 @@ class AlignmentRecord(object):
 
 
 class EnhancedAlignmentRecord(AlignmentRecord):
-    '''
+    """
     An extension of the AlignmentRecord class that also records the Fixed and Warped Points
-    '''
+    """
 
     @property
     def ID(self):
@@ -283,7 +309,7 @@ class EnhancedAlignmentRecord(AlignmentRecord):
 
     @property
     def AdjustedSourcePoint(self):
-        '''Note if there is rotation involved this point is not reliable'''
+        """Note if there is rotation involved this point is not reliable"""
         return self._SourcePoint - self.peak
 
     def __init__(self, ID, TargetPoint: NDArray[np.floating], SourcePoint, peak, weight, angle=0.0, flipped_ud=False):

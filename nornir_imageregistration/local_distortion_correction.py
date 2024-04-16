@@ -1093,6 +1093,21 @@ def calculate_offset(source_points: NDArray[np.floating],
     return offset
 
 
+def AdjustSourcePointsToIndexImage(source_points: NDArray,
+                                   source_image_shape: NDArray[np.integer]) -> NDArray[np.floating]:
+    """
+    This function adjusts the source points to pixel coordinates on the image.  Images are 0-based indexed, and so to get the 10th pixel in the x direction you would use 9.
+    """
+
+    source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
+    xp = cp.get_array_module(source_points)
+
+    source_points_fraction = source_points / source_image_shape
+
+    adjusted_source_points = source_points_fraction * (source_image_shape - 1)
+    return adjusted_source_points
+
+
 def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
                                             source_points: NDArray,
                                             cell_size: NDArray | None = None) -> list[
@@ -1172,24 +1187,26 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                target_controlpoint[1] - (alignmentArea[1] / 2.0)),
         area=alignmentArea)
 
-    target_rectangle = nornir_imageregistration.Rectangle.SnapRound(target_rectangle)
+    # Crop requires an integer for origin and area
+    rounded_target_rectangle = nornir_imageregistration.Rectangle.SnapRound(target_rectangle)
 
     # Make sure the rectangle is the correct size, with an origin on an integer boundary
-    target_rectangle = nornir_imageregistration.Rectangle.change_area(target_rectangle, alignmentArea,
-                                                                      integer_origin=True)
+    rounded_target_rectangle = nornir_imageregistration.Rectangle.change_area(rounded_target_rectangle, alignmentArea,
+                                                                              integer_origin=True)
 
     target_image_roi = nornir_imageregistration.CropImage(targetImage,
-                                                          target_rectangle.BottomLeft[1],
-                                                          target_rectangle.BottomLeft[0],
-                                                          int(target_rectangle.Size[1]), int(target_rectangle.Size[0]),
+                                                          rounded_target_rectangle.BottomLeft[1],
+                                                          rounded_target_rectangle.BottomLeft[0],
+                                                          int(rounded_target_rectangle.Size[1]),
+                                                          int(rounded_target_rectangle.Size[0]),
                                                           cval=False if target_image_stats is None else "random",
                                                           image_stats=target_image_stats)
 
     # Pull image subregions
     source_image_roi = nornir_imageregistration.assemble.SourceImageToTargetSpace(transform,
                                                                                   DataToTransform=sourceImage,
-                                                                                  output_botleft=target_rectangle.BottomLeft,
-                                                                                  output_area=target_rectangle.Size,
+                                                                                  output_botleft=rounded_target_rectangle.BottomLeft,
+                                                                                  output_area=rounded_target_rectangle.Size,
                                                                                   extrapolate=True,
                                                                                   cval=False if source_image_stats is None else np.nan)
 
