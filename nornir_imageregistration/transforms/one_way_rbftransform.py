@@ -8,16 +8,17 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
+
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
     import cupyx.scipy.spatial as cuspatial
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 import scipy.interpolate
 import scipy.linalg
 import scipy.spatial
@@ -94,7 +95,8 @@ class OneWayRBFWithLinearCorrection(Triangulation):
     def Load(TransformString: str, pixelSpacing: float | None = None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
-    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating], MaxChunkSize: int = 65536):
+    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating],
+                             MaxChunkSize: int = 65536):
         NumCtrlPts = len(WarpedPoints)
         NumPts = Points.shape[0]
 
@@ -155,9 +157,10 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         NumCtrlPts = len(self.TargetPoints)
 
         if self.UseRigidTransform:
-            NumPts = Points.shape[0]
-            MatrixWeightSumX = np.zeros((1, NumPts))
-            MatrixWeightSumY = np.zeros((1, NumPts))
+            return self._rigid_transform.Transform(Points)
+            # NumPts = Points.shape[0]
+            # MatrixWeightSumX = np.zeros((1, NumPts))
+            # MatrixWeightSumY = np.zeros((1, NumPts))
         else:
             (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
 
@@ -276,7 +279,8 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
-                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[NDArray, bool]:
+                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[
+        NDArray, bool]:
         '''
         For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
         
@@ -312,11 +316,12 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         except np.linalg.LinAlgError as e:
             if e.args[0] == 'Matrix is singular.':
                 # This is a distraction for now, but I should be able to fill in these weights correctly
+                # rigid_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(ControlPoints,WarpedPoints)
                 source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
                     ControlPoints, WarpedPoints)
 
                 WeightsY = np.zeros(SolutionMatrix_Y.shape)
-                WeightsY[-3] = rotation_matrix[1, 0]
+                WeightsY[-3] = rotation_matrix[0, 1]
                 WeightsY[-2] = scale
                 WeightsY[-1] = translation[0]
 
@@ -324,6 +329,16 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 WeightsX[-3] = rotation_matrix[0, 0]
                 WeightsX[-2] = scale
                 WeightsX[-1] = translation[1]
+
+                # WeightsY = np.zeros(SolutionMatrix_Y.shape)
+                # WeightsY[-3] = rotation_matrix[1, 0]
+                # WeightsY[-2] = scale
+                # WeightsY[-1] = translation[0]
+                #
+                # WeightsX = np.zeros(SolutionMatrix_X.shape)
+                # WeightsX[-3] = rotation_matrix[0, 0]
+                # WeightsX[-2] = scale
+                # WeightsX[-1] = translation[1]
 
                 return np.hstack([WeightsX, WeightsY]), True
             else:
@@ -458,7 +473,8 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
     def Load(TransformString: str, pixelSpacing: float | None = None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
-    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating], MaxChunkSize: int = 65536):
+    def _GetMatrixWeightSums(self, Points: NDArray[np.floating], WarpedPoints: NDArray[np.floating],
+                             MaxChunkSize: int = 65536):
         NumCtrlPts = len(WarpedPoints)
         NumPts = Points.shape[0]
 
@@ -644,7 +660,8 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
-                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[NDArray, bool]:
+                            BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]]) -> tuple[
+        NDArray, bool]:
         '''
         For each axis this function fits a rigid transformation (with rotation) to the points and then assigns weights to the remaining errors in the fit.
 
@@ -659,7 +676,8 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         use_rigid_transform = False
 
         BetaMatrix = OneWayRBFWithLinearCorrection_GPUComponent.CreateBetaMatrix(WarpedPoints, BasisFunction)
-        (SolutionMatrix_X, SolutionMatrix_Y) = OneWayRBFWithLinearCorrection_GPUComponent.CreateSolutionMatricies(ControlPoints)
+        (SolutionMatrix_X, SolutionMatrix_Y) = OneWayRBFWithLinearCorrection_GPUComponent.CreateSolutionMatricies(
+            ControlPoints)
 
         # thread_pool = nornir_pools.GetGlobalThreadPool()
 
@@ -672,7 +690,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
             WeightsX = cp.linalg.solve(BetaMatrix, SolutionMatrix_X)
             WeightsY = cp.linalg.solve(BetaMatrix, SolutionMatrix_Y)
 
-            #WeightsY = Y_Task.wait_return()
+            # WeightsY = Y_Task.wait_return()
 
             if cp.allclose(WeightsX[0:-3], 0) and cp.allclose(WeightsY[0:-3], 0):
                 # prettyoutput.Log("RBF transform is approximately Rigid")
@@ -762,7 +780,6 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         super(OneWayRBFWithLinearCorrection_GPUComponent, self).ClearDataStructures()
         self._weights = None
         self._rigid_transform = None
-
 
 #
 # class RBFTransform(triangulation.Triangulation):
