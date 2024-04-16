@@ -27,7 +27,7 @@ import os
 import unittest
 
 import numpy as np
-from scipy import pi
+from math import pi
 
 import nornir_imageregistration
 from nornir_imageregistration.files.stosfile import StosFile

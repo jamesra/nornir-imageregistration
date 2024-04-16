@@ -23,7 +23,7 @@ class testITKGridDivision(unittest.TestCase):
         grid = ITKGridDivision(source_shape=(1000, 1000), cell_size=cell_size,
                                grid_spacing=grid_spacing, transform=transform)
 
-        self.assertTrue(np.alltrue(grid.grid_spacing <= grid_spacing))
+        self.assertTrue(np.all(grid.grid_spacing <= grid_spacing))
 
         inverted_target_points = transform.InverseTransform(grid.TargetPoints)
 
@@ -39,8 +39,8 @@ class testITKGridDivision(unittest.TestCase):
         """Ensure the grid_spacing is always equal or less than the passed parameter"""
         grid = ITKGridDivision(source_shape=source_shape, cell_size=cell_size,
                                grid_spacing=grid_spacing)
-        self.assertTrue(np.alltrue(grid.grid_spacing <= grid_spacing))
-        self.assertTrue(np.alltrue(grid.cell_size == cell_size))
+        self.assertTrue(np.all(grid.grid_spacing <= grid_spacing))
+        self.assertTrue(np.all(grid.cell_size == cell_size))
 
         return grid
 
@@ -48,7 +48,7 @@ class testITKGridDivision(unittest.TestCase):
         grid_spacing = (100, 66)
         grid = self.check_grid_spacing(grid_spacing=grid_spacing, cell_size=(100, 66), source_shape=(500, 500))
 
-        self.assertTrue(np.alltrue(grid.grid_spacing[0] == grid_spacing[0]),
+        self.assertTrue(np.all(grid.grid_spacing[0] == grid_spacing[0]),
                         "Grid spacing should not be changed for a perfect fit")
 
     def test_axis_points(self):
