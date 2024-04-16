@@ -112,8 +112,8 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((ydim, xdim), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
-                                   predictedArray)
+        self.assertTrue(np.isclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+                                   predictedArray).all())
 
         transform = record.ToImageTransform([ydim, xdim], [ydim,
                                                            xdim])  # The center of this image would be 4.5, 4.5 since indexing starts at 0 and ends at 9
@@ -256,7 +256,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        self.assertTrue((Corners == predictedArray).all())
+        self.assertTrue(np.isclose(Corners, predictedArray).all())
 
     def testAlignmentTransformSizeMismatch(self):
         '''An alignment record where the fixed and warped images are differenct sizes.  No scaling occurs'''

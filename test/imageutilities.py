@@ -55,8 +55,8 @@ def create_gradient_image(shape: nornir_imageregistration.ShapeLike, min_val: fl
     return image
 
 
-def create_nested_squares_image(shape: nornir_imageregistration.ShapeLike, min_val: float = 0.2,
-                                max_val: float = 0.8, num_shades: int = 8):
+def create_nested_squares_image(shape: nornir_imageregistration.ShapeLike, min_val: float = 0.1,
+                                max_val: float = 0.9, num_shades: int = 6):
     """
 
     :param shape:

@@ -455,7 +455,7 @@ class TestTransforms(unittest.TestCase):
         InverseT = nornir_imageregistration.transforms.OneWayRBFWithLinearCorrection(CompressedTransformPoints[:, 0:2],
                                                                                      CompressedTransformPoints[:, 2:])
 
-        point = np.array((y, x), dtype=np.float32)
+        point = np.array((y, x), dtype=np.float64)
 
         t_point = T.Transform(point)
         inverse_point = InverseT.Transform(t_point)

@@ -48,8 +48,8 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         # ([Y1,X1],
         # ([Y2,X2], ...
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 1, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
 
@@ -92,14 +92,14 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
 
     def test_Rotate180_odd_offset(self):
         sourceShape = (2, 6)
-        targetShape = (3, 7)
-        offset = (1, 1)  # numpy.array(canvasShape) / 2.0
+        targetShape = (2, 9)
+        offset = (0, -.5)  # numpy.array(canvasShape) / 2.0
         arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
         transform = arecord.ToImageTransform(targetShape, sourceShape)
 
         (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
 
-        self.show_test_image(transform, sourceShape, targetShape, "Rotate 180 degrees, offset by 1,1")
+        self.show_test_image(transform, sourceShape, targetShape, f"Rotate 180 degrees, offset by {offset}")
 
         self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
@@ -124,7 +124,7 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), targetShape[1] - 1, delta=0.01)
 
-    def test_Rotate90_square(self):
+    def test_Rotate90_square_odd(self):
 
         sourceShape = (5, 5)
         targetShape = (5, 5)
@@ -141,6 +141,25 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), targetShape[0] - 1, delta=0.01)
         self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
         self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), targetShape[1] - 1, delta=0.01)
+
+    def test_Rotate90_square_even(self):
+
+        sourceShape = (5, 5)
+        targetShape = (5, 5)
+        offset = (0, 0)  # numpy.array(targetShape) / 2.0
+        arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
+        transform = arecord.ToImageTransform(targetShape, sourceShape)
+
+        (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
+
+        self.show_test_image(transform, sourceShape, targetShape,
+                             "Rotate 90 degrees.  An increase in angle should rotate counter-clockwise (RHS)")
+
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), targetShape[0] - 1, delta=0.01)
+        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), targetShape[1] - 1, delta=0.01)
+
 
     def test_Rotate90_expandedCanvas_even(self):
         sourceShape = numpy.array((3, 6))
