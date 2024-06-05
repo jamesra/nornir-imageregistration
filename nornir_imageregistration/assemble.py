@@ -586,7 +586,7 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
         stostransform = factory.LoadTransform(stos.Transform)
     elif isinstance(transformData, nornir_imageregistration.StosFile):
         stos = transformData.Transform
-        stostransform = factory.LoadTransform(stos.Transform)
+        stostransform = factory.LoadTransform(stos.transform)
     elif isinstance(transformData, ITransform):
         stostransform = transformData
 

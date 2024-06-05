@@ -195,6 +195,25 @@ def ScalarForMaxDimension(max_dim: float, shapes):
     return max_dim / maxVal
 
 
+def remove_duplicate_points(points: NDArray, columns=list[int]) -> tuple[NDArray, NDArray[np.integer]]:
+    """Remove rows who have equal values in the specified columns.  Result will be sorted
+       using the column order provided.  Lexsort is used, so the last column entry is the primary sort key."""
+    sort_values = tuple(points[:, i] for i in columns)
+    sorted_indicies = np.lexsort(sort_values)
+    sorted_point_pairs = points[sorted_indicies, :]
+    i = 0
+
+    c = np.array(columns, dtype=int)
+    # Remove duplicates
+    while i < sorted_point_pairs.shape[0] - 1:
+        if np.all(np.isclose(sorted_point_pairs[i, c], sorted_point_pairs[i + 1, c])):
+            sorted_point_pairs = np.delete(sorted_point_pairs, i, axis=0)
+        else:
+            i += 1
+
+    return sorted_point_pairs
+
+
 def ReduceImage(image: NDArray, scalar: float) -> NDArray:
     """
     Returns a zoomed array using spline interpolation (CPU/GPU agnostic function)
@@ -469,9 +488,9 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
     num_threads = multiprocessing.cpu_count() * 2
     if num_threads > len(ImagesToConvertDict):
         num_threads = len(ImagesToConvertDict) + 1
-        
+
     pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
-    #pool = nornir_pools.GetGlobalSerialPool()
+    # pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
 
     for (input_image, output_image) in ImagesToConvertDict.items():

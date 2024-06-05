@@ -258,7 +258,7 @@ class AlignmentRecord(object):
 
         # transformTemplate = "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 %(cos)g %(negsin)g %(sin)g %(cos)g %(x)g %(y)g 1 1 fp 2 %(mapwidth)d %(mapheight)d"
 
-        # stos.Transform = transformTemplate % {'cos' : cos(Match.angle * numpy.pi / 180),
+        # stos.transform = transformTemplate % {'cos' : cos(Match.angle * numpy.pi / 180),
         #                                 'sin' : sin(Match.angle * numpy.pi / 180),
         #                                 'negsin' : -sin(Match.angle * numpy.pi / 180),
         #                                 'x' : Match.peak[0],
@@ -270,7 +270,7 @@ class AlignmentRecord(object):
 
         # I have checked the dimensions that should be written for Grid transform against the original SCI code.  The image dimensions should be the actual dimensions and not
         # have a -1 to account for the zero origin
-        # stos.Transform = transformTemplate % {'coordString': coordString,
+        # stos.transform = transformTemplate % {'coordString': coordString,
         # 'width': stos.MappedImageDim[0],
         # 'height': stos.MappedImageDim[1]}
 

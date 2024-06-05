@@ -14,7 +14,7 @@ from nornir_imageregistration.transforms.base import IDiscreteTransform
 from nornir_shared import prettyoutput
 
 
-class Tile(object):
+class Tile:
     '''
     A combination of a transform and a path to an image on disk.  Image will be loaded on demand.
     When serialized with __getstate__ the image and any large data objects will not be serialized
@@ -22,7 +22,17 @@ class Tile(object):
      
     '''
 
-    __nextID = 0
+    __nextID: int = 0  # Next generated unique ID for a tile
+    _ID: int  # Unique identifier for the tile
+    _source_bounding_box: nornir_imageregistration.Rectangle | None
+    _target_bounding_box: nornir_imageregistration.Rectangle | None
+    _transform: nornir_imageregistration.ITransform  # The transform for the tile
+    _image: NDArray | None  # The image data
+    _paddedimage: NDArray[np.floating] | None  # The padded image data used for registration
+    _image_size: NDArray[
+                     np.floating] | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
+    _fftimage: NDArray[np.floating] | None  # The FFT of the padded image data
+    _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
 
     def TryEstimateImageToSourceSpaceScalar(self):
         '''
@@ -129,6 +139,7 @@ class Tile(object):
 
     @property
     def PaddedImage(self) -> NDArray:
+        """The padded version of the image that can be used for phase correlation"""
         if self._paddedimage is None:
             self._paddedimage = nornir_imageregistration.PadImageForPhaseCorrelation(self.Image)
 

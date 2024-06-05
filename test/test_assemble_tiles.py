@@ -130,7 +130,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         ### Find a tile that intersects our region of interest.
         intersecting_tile = mosaicTileset.TargetSpaceIntersections(FixedRegion)[0]
         imageKey = intersecting_tile.ImagePath
-        transform = intersecting_tile.Transform
+        transform = intersecting_tile.transform
   
         (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
                                                             target_space_scale=1.0 / downsample)
@@ -205,7 +205,7 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         ### Find a tile that intersects our region of interest.
         intersecting_tile = mosaicTileset.TargetSpaceIntersections(FixedRegion)[0]
         imageKey = intersecting_tile.ImagePath
-        transform = intersecting_tile.Transform
+        transform = intersecting_tile.transform
 
         (tileImage, tileMask) = mosaicTileset.AssembleImage(FixedRegion=FixedRegion, usecluster=False,
                                                             target_space_scale=1.0 / downsample)

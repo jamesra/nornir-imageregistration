@@ -227,17 +227,17 @@ class TestTransforms(unittest.TestCase):
         #        CToVStos = IrTools.IO.stosfile.StosFile.Load('26-25.stos')
         #
         #        # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
-        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.Transform)
-        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.Transform)
+        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.transform)
+        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.transform)
         #
         #        MToV = CToV.AddTransform(MToC)
         #
-        #        MToCStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
+        #        MToCStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
         #        MToCStos.Save("27-26_Test.stos")
         #
         #        MToVStos = copy.deepcopy(MToCStos)
         #        MToVStos.ControlImageFullPath = CToVStos.ControlImageFullPath
-        #        MToVStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
+        #        MToVStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
         #        MToVStos.ControlImageDim = CToVStos.ControlImageDim
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
@@ -286,17 +286,17 @@ class TestTransforms(unittest.TestCase):
         #        CToVStos = IrTools.IO.stosfile.StosFile.Load('26-25.stos')
         #
         #        # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
-        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.Transform)
-        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.Transform)
+        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.transform)
+        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.transform)
         #
         #        MToV = CToV.AddTransform(MToC)
         #
-        #        MToCStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
+        #        MToCStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
         #        MToCStos.Save("27-26_Test.stos")
         #
         #        MToVStos = copy.deepcopy(MToCStos)
         #        MToVStos.ControlImageFullPath = CToVStos.ControlImageFullPath
-        #        MToVStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
+        #        MToVStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
         #        MToVStos.ControlImageDim = CToVStos.ControlImageDim
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #
@@ -361,17 +361,17 @@ class TestTransforms(unittest.TestCase):
         #        CToVStos = IrTools.IO.stosfile.StosFile.Load('26-25.stos')
         #
         #        # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
-        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.Transform)
-        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.Transform)
+        #        (CToV, cw, ch) = IrTools.Transforms.factory.TransformFactory.LoadTransform(CToVStos.transform)
+        #        (MToC, mw, mh) = IrTools.Transforms.factory.TransformFactory.LoadTransform(MToCStos.transform)
         #
         #        MToV = CToV.AddTransform(MToC)
         #
-        #        MToCStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
+        #        MToCStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToC, mw, mh)
         #        MToCStos.Save("27-26_Test.stos")
         #
         #        MToVStos = copy.deepcopy(MToCStos)
         #        MToVStos.ControlImageFullPath = CToVStos.ControlImageFullPath
-        #        MToVStos.Transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
+        #        MToVStos.transform = IrTools.Transforms.factory.TransformFactory.TransformToIRToolsGridString(MToV, mw, mh)
         #        MToVStos.ControlImageDim = CToVStos.ControlImageDim
         #        MToVStos.MappedImageDim = MToCStos.MappedImageDim
         #

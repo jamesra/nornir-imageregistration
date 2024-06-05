@@ -1,17 +1,18 @@
 import logging
 
 import numpy as np
+
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
     from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
     from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 from numpy.typing import NDArray
 import scipy
 from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
@@ -88,7 +89,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         YDim = int(self.grid.grid_dims[0]) - 1  # For whatever reason ITK subtracts one from the dimensions
         XDim = int(self.grid.grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
-        
+
         if self.points.shape[0] != self.grid.grid_dims.prod():
             raise ValueError("Grid transform number of points does not match grid dimensions")
 
@@ -185,19 +186,19 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating],
+                            bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
 
+        included_rows = []
         for iPoint in range(0, points.shape[0]):
             y, x = points[iPoint, :]
             if nornir_imageregistration.Rectangle.contains(bounds, (y, x)):
-                PointPair = self._points[iPoint, :]
-                if OutputPoints is None:
-                    OutputPoints = PointPair
-                else:
-                    OutputPoints = np.vstack((OutputPoints, PointPair))
+                included_rows.append(iPoint)
+
+        OutputPoints = self._points[included_rows, :]
 
         if OutputPoints is not None:
             if OutputPoints.ndim == 1:
@@ -234,7 +235,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = RegularGridInterpolator(self._grid.axis_points,
                                                                 np.reshape(self.TargetPoints, (
-                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                    self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                    2)),
                                                                 bounds_error=False)
 
         return self._ForwardInterpolator
@@ -295,12 +297,15 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
+        np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
+                                                                                                              NDArray[
+                                                                                                                  np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
@@ -328,8 +333,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
 
 class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
-                    ITransformTargetRotation, ITargetSpaceControlPointEdit,
-                    IGridTransform, ITriangulatedTargetSpace, ControlPointBase):
+                                 ITransformTargetRotation, ITargetSpaceControlPointEdit,
+                                 IGridTransform, ITriangulatedTargetSpace, ControlPointBase):
 
     @property
     def type(self) -> TransformType:
@@ -482,7 +487,8 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating],
+                            bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -530,7 +536,9 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = cuRegularGridInterpolator(cp.array(self._grid.axis_points),
-                                                                  cp.reshape(self.TargetPoints, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                                  cp.reshape(self.TargetPoints, (
+                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                      2)),
                                                                   bounds_error=False)
 
         return self._ForwardInterpolator
@@ -542,7 +550,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return self._InverseInterpolator
 
-    def Transform(self, points,  **kwargs):
+    def Transform(self, points, **kwargs):
         '''Map points from the warped space to fixed space'''
         transPoints = None
 
@@ -591,12 +599,15 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
+        np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
+                                                                                                              NDArray[
+                                                                                                                  np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
@@ -624,8 +635,8 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
 
 class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
-                    ITransformTargetRotation, ITargetSpaceControlPointEdit,
-                    IGridTransform, ControlPointBase_GPUComponent):
+                        ITransformTargetRotation, ITargetSpaceControlPointEdit,
+                        IGridTransform, ControlPointBase_GPUComponent):
 
     @property
     def type(self) -> TransformType:
@@ -735,7 +746,8 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         self._points[:, 2:4] = self._points[:, 2:4] + cp.asarray(offset)
         self.OnWarpedPointChanged()
 
-    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating],
+                            bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -783,9 +795,10 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
             self._ForwardInterpolator = cuRegularGridInterpolator(self._grid.axis_points,
-                                                                cp.reshape(self.TargetPoints, (
-                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
-                                                                bounds_error=False)
+                                                                  cp.reshape(self.TargetPoints, (
+                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                      2)),
+                                                                  bounds_error=False)
 
         return self._ForwardInterpolator
 
@@ -817,12 +830,15 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
+        np.integer]:
         self._points[index, 0:2] = point
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
+                                                                                                              NDArray[
+                                                                                                                  np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)

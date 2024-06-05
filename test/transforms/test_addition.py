@@ -95,7 +95,7 @@ class TestTranslationTransformAddition(TransformTestBase):
 
         addedStos = transforms_stos[0]
 
-        # self.assertEqual(addedStos.Transform, originalStos.Transform)
+        # self.assertEqual(addedStos.transform, originalStos.transform)
         self.assertEqual(addedStos.ControlSectionNumber, 0)
         self.assertEqual(addedStos.MappedSectionNumber, 10)
 

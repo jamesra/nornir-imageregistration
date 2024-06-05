@@ -2,15 +2,16 @@ from abc import ABCMeta, abstractmethod
 import operator
 
 import numpy as np
+
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 from numpy.typing import NDArray
 
 import nornir_imageregistration
@@ -28,7 +29,6 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     def __getstate__(self):
         odict = {'_points': self._points}
-
         return odict
 
     def __setstate__(self, dictionary):
@@ -88,6 +88,8 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         # that behavior because the change in index was breaking the existing
         # triangulations the transform was caching.
 
+        # raise DeprecationWarning("RemoveDuplicateControlPoints needs more testing.")
+
         points = np.around(points, 3)
         indicies = sorted(range(len(points)), key=lambda k: points[k, 1])
         sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
@@ -130,7 +132,8 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         # return self.GetPointPairsInRect(self.TargetPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
 
-    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating],
+                            bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -290,8 +293,8 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         # return rotatedtemp
 
 
-
-class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents, metaclass=ABCMeta):
+class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents,
+                                    metaclass=ABCMeta):
     def __init__(self, pointpairs: NDArray[np.floating]):
         super(ControlPointBase_GPUComponent, self).__init__()
         self._points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(pointpairs, dtype=np.float32)
@@ -307,7 +310,6 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         self.__dict__.update(dictionary)
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
- 
 
     @staticmethod
     def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
@@ -403,7 +405,8 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         # return self.GetPointPairsInRect(self.TargetPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
 
-    def GetPointPairsInRect(self, points: NDArray[np.floating], bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
+    def GetPointPairsInRect(self, points: NDArray[np.floating],
+                            bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         OutputPoints = None
 
         bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
@@ -547,9 +550,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[np.floating]):
         '''Rotate all points about a center by a given angle'''
 
-        rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0,0),
-                                                       source_rotation_center=rotationCenter,
-                                                       angle=rangle)
+        rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0, 0),
+                                                           source_rotation_center=rotationCenter,
+                                                           angle=rangle)
         rotated = rt.Transform(points)
         return rotated
         # temp = points - rotationCenter

@@ -59,7 +59,7 @@ class Volume(object):
     ##############################
 
     def SectionToVolume2D(self, SectionID, Points):
-        return self._SectionToVolumeTransforms[SectionID].Transform(Points)
+        return self._SectionToVolumeTransforms[SectionID].transform(Points)
 
     def VolumeToSection2D(self, SectionID, Points):
         self._SectionToVolumeTransforms[SectionID].InverseTransform(Points)

@@ -133,7 +133,7 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
 
         A_Centroids = A_To_B_Transform.GetWarpedCentroids()
 
-        #   B_Centroids = A_To_B_Transform.Transform(A_Centroids)
+        #   B_Centroids = A_To_B_Transform.transform(A_Centroids)
         # Get the centroids from B using A-B transform that correspond to A_Centroids
         B_Centroids = A_To_B_Transform.GetFixedCentroids(A_To_B_Transform.WarpedTriangles)
 
