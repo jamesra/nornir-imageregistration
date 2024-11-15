@@ -5,6 +5,7 @@ import logging
 import os
 
 import nornir_imageregistration
+from nornir_imageregistration import ITransform
 import nornir_shared.checksum
 import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
@@ -273,7 +274,11 @@ class StosFile(object):
         return mappedSection, controlSection, Channel, Filter, Source, Downsample
 
     @staticmethod
-    def Create(controlImageFullPath, mappedImageFullPath, Transform, controlMaskFullPath=None, mappedMaskFullPath=None):
+    def Create(controlImageFullPath: str,
+               mappedImageFullPath: str,
+               Transform: ITransform,
+               controlMaskFullPath: str | None = None,
+               mappedMaskFullPath: str | None = None) -> StosFile:
         stosObj = StosFile()
         stosObj.ControlImageFullPath = controlImageFullPath
         stosObj.MappedImageFullPath = mappedImageFullPath

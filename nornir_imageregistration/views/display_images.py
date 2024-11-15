@@ -146,12 +146,12 @@ def _ConvertParamsToImageList(param):
     output = None
     if isinstance(param, str):
         loaded_image = nornir_imageregistration.ImageParamToNumpyImageArray(param)
-        output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
+        output = nornir_imageregistration.core.image_to_uint8(loaded_image)
     elif isinstance(param, np.ndarray):
-        output = nornir_imageregistration.core._Image_To_Uint8(param)
+        output = nornir_imageregistration.core.image_to_uint8(param)
     elif isinstance(param, cp.ndarray):
         param = nornir_imageregistration.EnsureNumpyArray(param)  # Ensure it is not a Cupy array
-        output = nornir_imageregistration.core._Image_To_Uint8(param)
+        output = nornir_imageregistration.core.image_to_uint8(param)
     elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
         if len(output) == 1:

@@ -111,7 +111,8 @@ def ApproxEqual(a, b, epsilon=None):
     return np.abs(a - b) < epsilon
 
 
-def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None):
+def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None) -> NDArray | np.memmap:
+    image = None
     if isinstance(imageparam, cp.ndarray):
         imageparam = nornir_imageregistration.EnsureNumpyArray(imageparam, dtype)
 
@@ -791,7 +792,7 @@ def ForceGrayscale(image: np.ndarray):
     return image
 
 
-def _Image_To_Uint8(image):
+def image_to_uint8(image):
     """Converts image to uint8.  If input image uses floating point the image is scaled to the range 0-255"""
     if image.dtype == np.uint8:
         return image
@@ -912,7 +913,7 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
             # im = Image.fromarray(image.astype(np.uint8) * 255, mode='L').convert('1')
             im = OneBit_img_from_bool_array(image)
         elif bpp == 8:
-            Uint8_image = _Image_To_Uint8(image)
+            Uint8_image = image_to_uint8(image)
             del image
             im = Image.fromarray(Uint8_image, mode="L")
         elif nornir_imageregistration.IsFloatArray(image):
@@ -949,7 +950,7 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     if tile_dim is None:
         tile_dim = (512, 512)
 
-    Uint8_image = _Image_To_Uint8(image)
+    Uint8_image = image_to_uint8(image)
     del image
 
     im = Image.fromarray(Uint8_image)

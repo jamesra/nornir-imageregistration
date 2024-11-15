@@ -5,6 +5,7 @@ Created on Oct 18, 2012
 """
 import abc
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import numpy as np
 from numpy.typing import *
@@ -41,14 +42,14 @@ class ITransform(ABC):
 
 class ITransformChangeEvents(ABC):
     @abstractmethod
-    def AddOnChangeEventListener(self, func):
+    def AddOnChangeEventListener(self, func: Callable):
         """
         Call func whenever the transform changes
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def RemoveOnChangeEventListener(self, func):
+    def RemoveOnChangeEventListener(self, func: Callable):
         """
         Stop calling func whenever the transform changes
         """
@@ -131,16 +132,20 @@ class IControlPoints(ABC):
     @property
     @abc.abstractmethod
     def SourcePoints(self) -> NDArray:
+        """The source points of the transform.  Order matches the results of SourcePoints and points"""
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def TargetPoints(self) -> NDArray:
+        """The target points of the transform.  Order matches the results of SourcePoints and points"""
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def points(self) -> NDArray:
+        """Points is a 4xN array of corresponding control points in this format [[TargetY, TargetX, SourceY, SourceX],].
+        Order matches the results of SourcePoints and TargetPoints"""
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -261,6 +266,10 @@ class IControlPointEdit(ITargetSpaceControlPointEdit, ISourceSpaceControlPointEd
 
     @abc.abstractmethod
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def RemovePoint(self, index: int | NDArray[np.integer]):
         raise NotImplementedError()
 
 
