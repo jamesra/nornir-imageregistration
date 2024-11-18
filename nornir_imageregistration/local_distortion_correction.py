@@ -1238,6 +1238,8 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                            min_alignment_overlap: float = 0.5) -> nornir_pools.Task | None:
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
+        # Ensure we check a non-rotated alignment
+        anglesToSearch = np.union1d(anglesToSearch, [0])
 
     # target_mask_roi, source_mask_roi = BuildAlignmentROIs(transform=transform,
     #                                                         targetImage=targetMask,

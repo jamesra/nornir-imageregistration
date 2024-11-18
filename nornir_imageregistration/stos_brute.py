@@ -9,6 +9,7 @@ from time import sleep
 import numpy as np
 from numpy.typing import NDArray
 from typing import Sequence
+import logging
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
@@ -55,12 +56,15 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     if AngleSearchRange is not None:
-        if isinstance(AngleSearchRange, np.ndarray):
-            AngleSearchRange = list(AngleSearchRange)
+        if not isinstance(AngleSearchRange, set):
+            AngleSearchRange = set(AngleSearchRange)
+        # if isinstance(AngleSearchRange, np.ndarray):
+
+    if 0 not in AngleSearchRange:
+        logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
+        logger.warning("AngleSearchRange should contain 0 degrees to ensure the best match is found")
 
     SingleThread = True if use_cp else SingleThread
-
-    # logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
 
     WarpedImageScalingRequired = False
     if WarpedImageScaleFactors is not None:
@@ -330,7 +334,7 @@ def _find_best_angle(imFixed: NDArray[np.floating],
                      imWarped: NDArray[np.floating],
                      fixed_stats: nornir_imageregistration.ImageStats,
                      warped_stats: nornir_imageregistration.ImageStats,
-                     AngleList: list[float] | None,
+                     AngleList: set[float] | None,
                      MinOverlap: float = 0.75,
                      SingleThread: bool = False,
                      use_cluster: bool = False):
