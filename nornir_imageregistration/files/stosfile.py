@@ -292,7 +292,6 @@ class StosFile(object):
 
     @staticmethod
     def Load(filename: str) -> StosFile:
-
         obj = StosFile()
 
         try:
@@ -421,9 +420,8 @@ class StosFile(object):
                 # print str(val) + '\n'
                 OutLines[i] = val + '\n'
 
-        OutFile = open(filename, "w")
-        OutFile.writelines(OutLines)
-        OutFile.close()
+        with open(filename, "w") as OutFile:
+            OutFile.writelines(OutLines)
 
     @staticmethod
     def CompressedTransformString(transform: str) -> str:
