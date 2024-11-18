@@ -356,6 +356,18 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         self._update_transform_matrix()
         self.OnTransformChanged()
 
+    def TranslateFixed(self, offset: NDArray[np.floating]):
+        """Translate all fixed points by the specified amount"""
+        self._target_offset = self._target_offset + nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def TranslateWarped(self, offset: NDArray[np.floating]):
+        """Translate all warped points by the specified amount"""
+        self._target_offset = self._target_offset - nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
     def __repr__(self):
         return f"Offset: {self._target_offset[0]:03g}y,{self._target_offset[1]:03g}x Flip: {self.flip_ud} Angle: {self.angle:03g}r Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
 
