@@ -221,10 +221,15 @@ def ScaleImage(image: NDArray, scalar: float) -> NDArray:
     Returns a scaled array using spline interpolation (CPU/GPU agnostic function)
     """
     xp = cupyx.scipy.get_array_module(image)
+    if scalar == 1.0:
+        return np.copy(image)
+
+    order = 1 if scalar < 1.0 else 3
+    order = 0 if scalar < 0.5 else order
     if nornir_imageregistration.UsingCupy():
         return xp.ndimage.zoom(image, scalar)
     else:
-        return xp.ndimage.zoom(image.astype(np.float32), scalar)
+        return xp.ndimage.zoom(image.astype(np.float32), zoom=scalar, order=order)
 
 
 def ExtractROI(image: NDArray, center, area) -> NDArray:

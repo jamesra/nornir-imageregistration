@@ -106,13 +106,14 @@ def SliceToSliceBruteForceWithPreprocessedImages(source_image_data: nornir_image
     if settings.larget_dimension is not None:
         scalar = nornir_imageregistration.ScalarForMaxDimension(settings.larget_dimension,
                                                                 [target_image.shape, source_image.shape])
+        if scalar > 1.0:
+            scalar = 1.0
 
     if scalar != 1.0:
         target_image = nornir_imageregistration.ScaleImage(target_image, scalar)
         source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
 
     # Replace extrema with noise
-
     best_match = _find_best_angle(source_image=source_image, target_image=target_image,
                                   source_stats=source_stats, target_stats=target_stats,
                                   angle_range=settings.angle_range,
@@ -283,9 +284,9 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                                                                                  ImageMedian=target_stats.median,
                                                                                  ImageStdDev=target_stats.std,
                                                                                  MinOverlap=1.0)
-            print(f"{angle}: Padding target image to {padded_target.shape}")
-        else:
-            print(f"{angle}: No additional padding   {padded_target.shape}")
+            # print(f"{angle}: Padding target image to {padded_target.shape}")
+        # else:
+        #     print(f"{angle}: No additional padding   {padded_target.shape}")
 
         if np.array_equal(rotated_source.shape, np.array((TargetHeight, TargetWidth))):
             rotated_padded_source = rotated_source
