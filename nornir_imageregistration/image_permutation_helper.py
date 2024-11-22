@@ -91,7 +91,7 @@ class ImagePermutationHelper:
 
         self._extrema_size_cutoff_in_pixels = None
         if extrema_mask_size_cuttoff is None:
-            extrema_mask_size_cuttoff = np.array((128, 128))
+            extrema_mask_size_cuttoff = 0.01
 
         if isinstance(extrema_mask_size_cuttoff, np.ndarray):
             self.extrema_size_cutoff_in_pixels = int(np.prod(extrema_mask_size_cuttoff))

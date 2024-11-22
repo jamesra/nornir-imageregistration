@@ -3,6 +3,7 @@ Created on Oct 4, 2012
 
 @author: u0490822
 '''
+from typing import NamedTuple
 import multiprocessing
 import multiprocessing.sharedctypes
 from time import sleep
@@ -10,6 +11,9 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Sequence
 import logging
+
+from nornir_imageregistration import AlignmentRecord
+from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
@@ -60,24 +64,31 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
             AngleSearchRange = set(AngleSearchRange)
         # if isinstance(AngleSearchRange, np.ndarray):
 
-    if 0 not in AngleSearchRange:
-        logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
-        logger.warning("AngleSearchRange should contain 0 degrees to ensure the best match is found")
+        if 0 not in set(AngleSearchRange):
+            logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
+            logger.warning("AngleSearchRange should contain 0 degrees to ensure the best match is found")
 
     SingleThread = True if use_cp else SingleThread
 
-    WarpedImageScalingRequired = False
-    if WarpedImageScaleFactors is not None:
-        if hasattr(WarpedImageScaleFactors, '__iter__'):
-            WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray(WarpedImageScaleFactors)
-            WarpedImageScalingRequired = any(WarpedImageScaleFactors != 1)
-        else:
-            WarpedImageScalingRequired = WarpedImageScaleFactors != 1
-            WarpedImageScaleFactors = nornir_imageregistration.EnsurePointsAre1DNumpyArray(
-                [WarpedImageScaleFactors, WarpedImageScaleFactors])
-
     target_image_data = nornir_imageregistration.ImagePermutationHelper(FixedImageInput, FixedImageMaskPath)
     source_image_data = nornir_imageregistration.ImagePermutationHelper(WarpedImageInput, WarpedImageMaskPath)
+
+    settings = StosBruteSettings(angles=AngleSearchRange,
+                                 min_overlap=MinOverlap,
+                                 source_image_scale_factors=WarpedImageScaleFactors,
+                                 larget_dimension=LargestDimension,
+                                 try_flipped=TestFlip)
+
+    return SliceToSliceBruteForceWithPreprocessedImages(source_image_data, target_image_data, settings,
+                                                        SingleThread=SingleThread, Cluster=Cluster)
+
+
+def SliceToSliceBruteForceWithPreprocessedImages(source_image_data: nornir_imageregistration.ImagePermutationHelper,
+                                                 target_image_data: nornir_imageregistration.ImagePermutationHelper,
+                                                 settings: StosBruteSettings,
+                                                 SingleThread: bool = False,
+                                                 Cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     target_image = target_image_data.ImageWithMaskAsNoise
     source_image = source_image_data.ImageWithMaskAsNoise
@@ -88,71 +99,72 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
     del target_image_data
     del source_image_data
 
-    target_image = cp.asarray(target_image) if use_cp and not isinstance(target_image, cp.ndarray) else target_image
+    target_image = cp.asarraye(target_image) if use_cp and not isinstance(target_image, cp.ndarray) else target_image
     source_image = cp.asarray(source_image) if use_cp and not isinstance(source_image, cp.ndarray) else source_image
 
     scalar = 1.0
-    if LargestDimension is not None:
-        scalar = nornir_imageregistration.ScalarForMaxDimension(LargestDimension,
+    if settings.larget_dimension is not None:
+        scalar = nornir_imageregistration.ScalarForMaxDimension(settings.larget_dimension,
                                                                 [target_image.shape, source_image.shape])
 
-    if scalar < 1.0:
-        target_image = nornir_imageregistration.ReduceImage(target_image, scalar)
-        source_image = nornir_imageregistration.ReduceImage(source_image, scalar)
+    if scalar != 1.0:
+        target_image = nornir_imageregistration.ScaleImage(target_image, scalar)
+        source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
 
     # Replace extrema with noise
-    UserDefinedAngleSearchRange = AngleSearchRange is not None
-    if not UserDefinedAngleSearchRange:
-        AngleSearchRange = list(range(-178, 182, 2))
 
-    BestMatch = _find_best_angle(target_image, source_image,
-                                 target_stats, source_stats,
-                                 AngleSearchRange, MinOverlap=MinOverlap, SingleThread=SingleThread,
-                                 use_cluster=Cluster)
+    best_match = _find_best_angle(source_image=source_image, target_image=target_image,
+                                  source_stats=source_stats, target_stats=target_stats,
+                                  angle_range=settings.angle_range,
+                                  min_overlap=settings.min_overlap,
+                                  SingleThread=SingleThread,
+                                  use_cluster=Cluster)
 
-    IsFlipped = False
-    if TestFlip:
-        # imWarpedFlipped = np.copy(source_image)
-        imWarpedFlipped = np.flipud(source_image)
+    is_flipped = False
+    if settings.try_flipped:
+        # source_flipped = np.copy(source_image)
+        source_flipped = np.flipud(source_image)
 
-        BestMatchFlipped = _find_best_angle(target_image, imWarpedFlipped,
-                                            target_stats, source_stats,
-                                            AngleSearchRange, MinOverlap=MinOverlap,
-                                            SingleThread=SingleThread, use_cluster=Cluster)
-        BestMatchFlipped.flippedud = True
+        best_match_flipped = _find_best_angle(source_image=source_flipped, target_image=target_image,
+                                              source_stats=source_stats, target_stats=target_stats,
+                                              angle_range=settings.angle_range,
+                                              min_overlap=settings.min_overlap,
+                                              SingleThread=SingleThread, use_cluster=Cluster)
+        best_match_flipped.flippedud = True
 
         # Determine if the best match is flipped or not
-        IsFlipped = BestMatchFlipped.weight > BestMatch.weight
+        is_flipped = best_match_flipped.weight > best_match.weight
 
-    if IsFlipped:
-        imWarped = imWarpedFlipped
-        BestMatch = BestMatchFlipped
+    if is_flipped:
+        source_image = source_flipped
+        best_match = best_match_flipped
     else:
-        imWarped = source_image
+        source_image = source_image
 
     # Note Clement - the RefinedAngleSearch list below is not centered around the current best angle
     # Default angle search range every 2 degrees
-    # Old RefinedAngleSearch list: [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)]
-    # New RefinedAngleSearch list (length 39): [(x * 0.1 + BestMatch.angle) for x in range(-19, 20)]
-    # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + BestMatch.angle) for x in range(-9, 10)]
-    if not UserDefinedAngleSearchRange:
-        BestRefinedMatch = _find_best_angle(target_image, imWarped,
-                                            target_stats, source_stats,
-                                            # [(x * 0.1) + BestMatch.angle - 1.9 for x in range(0, 18)],
-                                            [(x * 0.1 + BestMatch.angle) for x in range(-19, 20)],
-                                            MinOverlap=MinOverlap, SingleThread=SingleThread)
-        BestRefinedMatch.flippedud = IsFlipped
+    # Old RefinedAngleSearch list: [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)]
+    # New RefinedAngleSearch list (length 39): [(x * 0.1 + best_match.angle) for x in range(-19, 20)]
+    # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + best_match.angle) for x in range(-9, 10)]
+    if not settings.angle_range_defined():
+        best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
+                                              source_stats=source_stats, target_stats=target_stats,
+                                              # [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)],
+                                              angle_range=[(x * 0.2 + best_match.angle) for x in range(-9, 10)],
+                                              min_overlap=settings.min_overlap, SingleThread=SingleThread)
+        best_refined_match.flippedud = is_flipped
     else:
         min_step_size = 0.25
-        if len(AngleSearchRange) > 2:
-            iMatch = AngleSearchRange.index(BestMatch.angle)
-            iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(AngleSearchRange) - 1
-            iAbove = iMatch + 1 if iMatch + 1 < len(AngleSearchRange) else 0
-            below = AngleSearchRange[iMatch - 1] if iMatch - 1 >= 0 else AngleSearchRange[0] - np.abs(
-                AngleSearchRange[1] - AngleSearchRange[0])
-            above = AngleSearchRange[iMatch + 1] if iMatch + 1 < len(AngleSearchRange) else AngleSearchRange[
-                                                                                                iMatch] + np.abs(
-                AngleSearchRange[iMatch] - AngleSearchRange[iMatch - 1])
+        if len(settings.angle_range) > 2:
+            sorted_angles = sorted(settings.angle_range)
+            iMatch = sorted_angles.index(best_match.angle)
+            iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(sorted_angles) - 1
+            iAbove = iMatch + 1 if iMatch + 1 < len(sorted_angles) else 0
+            below = sorted_angles[iMatch - 1] if iMatch - 1 >= 0 else sorted_angles[0] - np.abs(
+                sorted_angles[1] - sorted_angles[0])
+            above = sorted_angles[iMatch + 1] if iMatch + 1 < len(sorted_angles) else sorted_angles[
+                                                                                          iMatch] + np.abs(
+                sorted_angles[iMatch] - sorted_angles[iMatch - 1])
             refine_search_range = above - below
             nSteps = 20
             stepsize = refine_search_range / nSteps
@@ -161,162 +173,178 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
                 nSteps = int(refine_search_range / min_step_size)
                 stepsize = refine_search_range / nSteps
 
-            BestRefinedMatch = _find_best_angle(target_image, imWarped,
-                                                target_stats, source_stats,
-                                                [(x * stepsize) + below for x in range(1, nSteps)],
-                                                MinOverlap=MinOverlap, SingleThread=SingleThread)
-            BestRefinedMatch.flippedud = IsFlipped
+            refined_angle_search_range = {(x * stepsize) + below for x in range(1, nSteps)}
+
+            # Ensure we include the best match angle
+            refined_angle_search_range.add(best_match.angle)
+
+            best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
+                                                  source_stats=source_stats, target_stats=target_stats,
+                                                  angle_range=np.array(list(refined_angle_search_range), float),
+                                                  min_overlap=settings.min_overlap, SingleThread=SingleThread)
+            best_refined_match.flippedud = is_flipped
         else:
-            BestRefinedMatch = BestMatch
-            BestRefinedMatch.flippedud = IsFlipped
+            best_refined_match = best_match
+            best_refined_match.flippedud = is_flipped
 
     if scalar > 1.0:
-        AdjustedPeak = (BestRefinedMatch.peak[0] * scalar, BestRefinedMatch.peak[1] * scalar)
-        BestRefinedMatch = nornir_imageregistration.AlignmentRecord(AdjustedPeak, BestRefinedMatch.weight,
-                                                                    BestRefinedMatch.angle, IsFlipped)
+        AdjustedPeak = (best_refined_match.peak[0] * scalar, best_refined_match.peak[1] * scalar)
+        best_refined_match = nornir_imageregistration.AlignmentRecord(AdjustedPeak, best_refined_match.weight,
+                                                                      best_refined_match.angle, is_flipped)
 
-    if WarpedImageScalingRequired:
-        # AdjustedPeak = BestRefinedMatch.peak * (1.0 / WarpedImageScaleFactors)
-        BestRefinedMatch = nornir_imageregistration.AlignmentRecord(BestRefinedMatch.peak, BestRefinedMatch.weight,
-                                                                    BestRefinedMatch.angle, IsFlipped,
-                                                                    WarpedImageScaleFactors)
+    if settings.source_image_scaling_required:
+        # AdjustedPeak = best_refined_match.peak * (1.0 / WarpedImageScaleFactors)
+        best_refined_match = nornir_imageregistration.AlignmentRecord(best_refined_match.peak,
+                                                                      best_refined_match.weight,
+                                                                      best_refined_match.angle, is_flipped,
+                                                                      settings.source_image_scale_factors)
 
-    # BestRefinedMatch.CorrectPeakForOriginalImageSize(imFixed.shape, imWarped.shape)
+    # best_refined_match.CorrectPeakForOriginalImageSize(imFixed.shape, source_image.shape)
 
-    return BestRefinedMatch
+    return best_refined_match
 
 
-def ScoreOneAngle(imFixed_original: NDArray, imWarped_original: NDArray,
-                  FixedImageShape: tuple[int, int], WarpedImageShape: tuple[int, int],
+def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
+                  target_image_shape: tuple[int, int], source_image_shape: tuple[int, int],
                   angle: float,
-                  fixedStats: nornir_imageregistration.ImageStats | None = None,
-                  warpedStats: nornir_imageregistration.ImageStats | None = None,
-                  FixedImagePrePadded: bool = True, MinOverlap: float = 0.75):
+                  target_stats: nornir_imageregistration.ImageStats | None = None,
+                  source_stats: nornir_imageregistration.ImageStats | None = None,
+                  target_image_prepadded: bool = True, min_overlap: float = 0.75):
     '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
 
-    imFixed = nornir_imageregistration.ImageParamToImageArray(imFixed_original,
-                                                              dtype=nornir_imageregistration.default_image_dtype())
-    imWarped = nornir_imageregistration.ImageParamToImageArray(imWarped_original,
-                                                               dtype=nornir_imageregistration.default_image_dtype())
-
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
-    # Use of cupy or numpy
-    xp = cp.get_array_module(imFixed_original)
-    # Use of cupyx.scipy.fft or scipy.fft
-    xp_scipy = cupyx.scipy.get_array_module(imFixed_original)
-    rotate = xp_scipy.ndimage.rotate
-
-    # imFixed = cp.asarray(imFixed) if use_cp and not isinstance(imFixed, cp.ndarray) else imFixed
-    # imWarped = cp.asarray(imWarped) if use_cp  and not isinstance(imWarped, cp.ndarray)  else imWarped
-
-    # gc.set_debug(gc.DEBUG_LEAK)
-    if fixedStats is None:
-        fixedStats = nornir_imageregistration.ImageStats.CalcStats(imFixed)
-
-    if warpedStats is None:
-        warpedStats = nornir_imageregistration.ImageStats.CalcStats(imWarped)
-
-    OKToDelimWarped = False
-    if angle != 0:
-        # This confused me for years, but the implementation of rotate calls affine_transform with
-        # the rotation matrix.  However the docs for affine_transform state it needs to be called
-        # with the inverse transform.  Hence negating the angle here.
-        try:
-            if use_cp:
-                imWarped = rotate(imWarped, axes=(0, 1), angle=-angle, cval=np.nan)
-            else:
-                imWarped = rotate(imWarped.astype(np.float32, copy=False), axes=(0, 1), angle=-angle,
-                                  cval=np.nan).astype(
-                    imWarped.dtype, copy=False)  # Numpy cannot rotate float16 images
-        except RuntimeWarning as e:
-            pass
-        imWarpedEmptyIndicies = xp.isnan(imWarped)
-        imWarped[imWarpedEmptyIndicies] = warpedStats.GenerateNoise(xp.sum(imWarpedEmptyIndicies), dtype=imWarped.dtype)
-        OKToDelimWarped = True
-
-    RotatedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(imWarped, ImageMedian=warpedStats.median,
-                                                                         ImageStdDev=warpedStats.std,
-                                                                         MinOverlap=MinOverlap)
-
-    assert (RotatedWarped.shape[0] > 0)
-    assert (RotatedWarped.shape[1] > 0)
-
-    if not FixedImagePrePadded:
-        PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, ImageMedian=fixedStats.median,
-                                                                           ImageStdDev=fixedStats.std,
-                                                                           MinOverlap=MinOverlap)
-    else:
-        PaddedFixed = imFixed
-
-    # print str(PaddedFixed.shape) + ' ' +  str(RotatedPaddedWarped.shape)
-
-    TargetHeight = max([PaddedFixed.shape[0], RotatedWarped.shape[0]])
-    TargetWidth = max([PaddedFixed.shape[1], RotatedWarped.shape[1]])
-
-    # Why is MinOverlap hard-coded to 1.0?
-    # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
-    if not np.array_equal(imFixed.shape, np.array((TargetHeight, TargetWidth))):
-        PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed, NewWidth=TargetWidth,
-                                                                           NewHeight=TargetHeight,
-                                                                           ImageMedian=fixedStats.median,
-                                                                           ImageStdDev=fixedStats.std, MinOverlap=1.0)
-
-    if np.array_equal(RotatedWarped.shape, np.array((TargetHeight, TargetWidth))):
-        RotatedPaddedWarped = RotatedWarped
-    else:
-        RotatedPaddedWarped = nornir_imageregistration.PadImageForPhaseCorrelation(RotatedWarped, NewWidth=TargetWidth,
-                                                                                   NewHeight=TargetHeight,
-                                                                                   ImageMedian=warpedStats.median,
-                                                                                   ImageStdDev=warpedStats.std,
-                                                                                   MinOverlap=1.0)
-
-    assert (np.array_equal(PaddedFixed.shape, RotatedPaddedWarped.shape))
-
-    # if OKToDelimWarped:
-    del imWarped
-    del imFixed
-
-    del RotatedWarped
-
-    # if use_cp and not isinstance(PaddedFixed, cp.ndarray):
-    #     PaddedFixed = cp.asarray(PaddedFixed)
-    #
-    # if use_cp and not isinstance(RotatedPaddedWarped, cp.ndarray):
-    #     RotatedPaddedWarped = cp.asarray(RotatedPaddedWarped)
-
-    CorrelationImage = nornir_imageregistration.ImagePhaseCorrelation(PaddedFixed, RotatedPaddedWarped, fixedStats.mean,
-                                                                      warpedStats.mean)
-
-    del PaddedFixed
-    del RotatedPaddedWarped
-
-    CorrelationImage = xp_scipy.fft.fftshift(CorrelationImage)
     try:
-        CorrelationImage -= CorrelationImage.min()
-        CorrelationImage /= CorrelationImage.max()
-    except FloatingPointError as e:
-        print(f"Floating point error: {e} for {CorrelationImage.min()} or {CorrelationImage.max()}")
-        record = nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
+        im_target = nornir_imageregistration.ImageParamToImageArray(target_original,
+                                                                    dtype=nornir_imageregistration.default_image_dtype())
+        im_source = nornir_imageregistration.ImageParamToImageArray(source_original,
+                                                                    dtype=nornir_imageregistration.default_image_dtype())
+
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+        # Use of cupy or numpy
+        xp = cp.get_array_module(target_original)
+        # Use of cupyx.scipy.fft or scipy.fft
+        xp_scipy = cupyx.scipy.get_array_module(target_original)
+        rotate = xp_scipy.ndimage.rotate
+
+        # im_target = cp.asarray(im_target) if use_cp and not isinstance(im_target, cp.ndarray) else im_target
+        # im_source = cp.asarray(im_source) if use_cp  and not isinstance(im_source, cp.ndarray)  else im_source
+
+        # gc.set_debug(gc.DEBUG_LEAK)
+        if target_stats is None:
+            target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
+
+        if source_stats is None:
+            source_stats = nornir_imageregistration.ImageStats.CalcStats(im_source)
+
+        OKToDelimWarped = False
+        if angle != 0:
+            # This confused me for years, but the implementation of rotate calls affine_transform with
+            # the rotation matrix.  However the docs for affine_transform state it needs to be called
+            # with the inverse transform.  Hence negating the angle here.
+            try:
+                if use_cp:
+                    im_source = rotate(im_source, axes=(0, 1), angle=-angle, cval=np.nan)
+                else:
+                    im_source = rotate(im_source.astype(np.float32, copy=False), axes=(0, 1), angle=-angle,
+                                       cval=np.nan).astype(
+                        im_source.dtype, copy=False)  # Numpy cannot rotate float16 images
+            except RuntimeWarning as e:
+                pass
+            im_source_empty_entries = xp.isnan(im_source)
+            im_source[im_source_empty_entries] = source_stats.GenerateNoise(xp.sum(im_source_empty_entries),
+                                                                            dtype=im_source.dtype)
+            OKToDelimWarped = True
+
+        rotated_source = nornir_imageregistration.PadImageForPhaseCorrelation(im_source,
+                                                                              ImageMedian=source_stats.median,
+                                                                              ImageStdDev=source_stats.std,
+                                                                              MinOverlap=min_overlap)
+
+        assert (rotated_source.shape[0] > 0)
+        assert (rotated_source.shape[1] > 0)
+
+        if not target_image_prepadded:
+            padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(im_target,
+                                                                                 ImageMedian=target_stats.median,
+                                                                                 ImageStdDev=target_stats.std,
+                                                                                 MinOverlap=min_overlap)
+        else:
+            padded_target = im_target
+
+        # print str(padded_target.shape) + ' ' +  str(rotated_padded_source.shape)
+
+        TargetHeight = max([padded_target.shape[0], rotated_source.shape[0]])
+        TargetWidth = max([padded_target.shape[1], rotated_source.shape[1]])
+
+        # Why is MinOverlap hard-coded to 1.0?
+        # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
+        if not np.array_equal(im_target.shape, np.array((TargetHeight, TargetWidth))):
+            padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(im_target, NewWidth=TargetWidth,
+                                                                                 NewHeight=TargetHeight,
+                                                                                 ImageMedian=target_stats.median,
+                                                                                 ImageStdDev=target_stats.std,
+                                                                                 MinOverlap=1.0)
+            print(f"{angle}: Padding target image to {padded_target.shape}")
+        else:
+            print(f"{angle}: No additional padding   {padded_target.shape}")
+
+        if np.array_equal(rotated_source.shape, np.array((TargetHeight, TargetWidth))):
+            rotated_padded_source = rotated_source
+        else:
+            rotated_padded_source = nornir_imageregistration.PadImageForPhaseCorrelation(rotated_source,
+                                                                                         NewWidth=TargetWidth,
+                                                                                         NewHeight=TargetHeight,
+                                                                                         ImageMedian=source_stats.median,
+                                                                                         ImageStdDev=source_stats.std,
+                                                                                         MinOverlap=1.0)
+
+        assert (np.array_equal(padded_target.shape, rotated_padded_source.shape))
+
+        # if OKToDelimWarped:
+        del im_source
+        del im_target
+
+        del rotated_source
+
+        # if use_cp and not isinstance(padded_target, cp.ndarray):
+        #     padded_target = cp.asarray(padded_target)
+        #
+        # if use_cp and not isinstance(rotated_padded_source, cp.ndarray):
+        #     rotated_padded_source = cp.asarray(rotated_padded_source)
+
+        correlation_image = nornir_imageregistration.ImagePhaseCorrelation(padded_target, rotated_padded_source,
+                                                                           target_stats.mean,
+                                                                           source_stats.mean)
+
+        del padded_target
+        del rotated_padded_source
+
+        correlation_image = xp_scipy.fft.fftshift(correlation_image)
+        try:
+            correlation_image -= correlation_image.min()
+            correlation_image /= correlation_image.max()
+        except FloatingPointError as e:
+            print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
+            record = nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
+            return record
+
+        # Timer.Start('Find Peak')
+
+        # Note - Clement: overlap_mask still uses numpy (and not cupy)
+        overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMask(target_image_shape, source_image_shape,
+                                                                              correlation_image.shape, min_overlap,
+                                                                              MaxOverlap=1.0)
+        if use_cp and not isinstance(overlap_mask, cp.ndarray):
+            overlap_mask = cp.asarray(overlap_mask)
+
+        (peak, weight) = nornir_imageregistration.FindPeak(correlation_image, overlap_mask)
+        del overlap_mask
+        del correlation_image
+
+        record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
         return record
-
-    # Timer.Start('Find Peak')
-
-    # Note - Clement: OverlapMask still uses numpy (and not cupy)
-    OverlapMask = nornir_imageregistration.overlapmasking.GetOverlapMask(FixedImageShape, WarpedImageShape,
-                                                                         CorrelationImage.shape, MinOverlap,
-                                                                         MaxOverlap=1.0)
-    if use_cp and not isinstance(OverlapMask, cp.ndarray):
-        OverlapMask = cp.asarray(OverlapMask)
-
-    (peak, weight) = nornir_imageregistration.FindPeak(CorrelationImage, OverlapMask)
-    del OverlapMask
-    del CorrelationImage
-
-    nornir_imageregistration.close_shared_memory(imFixed_original)
-    nornir_imageregistration.close_shared_memory(imWarped_original)
-
-    record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
-    return record
+    finally:
+        nornir_imageregistration.close_shared_memory(target_original)
+        nornir_imageregistration.close_shared_memory(source_original)
 
 
 def GetFixedAndWarpedImageStats(imFixed, imWarped):
@@ -330,142 +358,155 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return fixedStats, warpedStats
 
 
-def _find_best_angle(imFixed: NDArray[np.floating],
-                     imWarped: NDArray[np.floating],
-                     fixed_stats: nornir_imageregistration.ImageStats,
-                     warped_stats: nornir_imageregistration.ImageStats,
-                     AngleList: set[float] | None,
-                     MinOverlap: float = 0.75,
+def _find_best_angle(source_image: NDArray[np.floating],
+                     target_image: NDArray[np.floating],
+                     source_stats: nornir_imageregistration.ImageStats,
+                     target_stats: nornir_imageregistration.ImageStats,
+                     angle_range: NDArray[float],
+                     min_overlap: float = 0.75,
                      SingleThread: bool = False,
                      use_cluster: bool = False):
     '''Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier'''
 
-    Debug = False
-    pool = None
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+    try:
+        Debug = False
+        pool = None
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
-    # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
-    use_cluster = False
+        # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
+        use_cluster = False
 
-    if len(AngleList) <= 1:
-        SingleThread = True
+        if len(angle_range) <= 1:
+            SingleThread = True
 
-    if not SingleThread:
-        if Debug:
-            pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
-        elif use_cluster:
-            pool = nornir_pools.GetGlobalClusterPool()
+        if not SingleThread:
+            if Debug:
+                pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
+            elif use_cluster:
+                pool = nornir_pools.GetGlobalClusterPool()
+            else:
+                pool = nornir_pools.GetGlobalMultithreadingPool()
+
+        # Preallocate lists to store results of each angle
+        AngleMatchValues = list()  # type:  list[AlignmentRecord | None]
+        taskList = list()  # type:  list[nornir_pools.Task | None]
+
+        #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
+        #    MinRotatedDimension = max(min(imFixed), min(imWarped))
+        #
+        #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
+        #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
+
+        padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(target_image,
+                                                                             MinOverlap=min_overlap,
+                                                                             ImageMedian=target_stats.median,
+                                                                             ImageStdDev=target_stats.std)
+
+        # Create a shared read-only memory map for the Padded fixed image
+
+        if not (use_cluster or SingleThread):
+            # temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(padded_target)
+            # temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
+
+            # temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+            # temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+
+            shared_target_metadata, shared_padded_target = nornir_imageregistration.npArrayToSharedArray(padded_target)
+            shared_source_metadata, shared_source = nornir_imageregistration.npArrayToSharedArray(source_image
+                                                                                                  )
+            # shared_padded_target = np.save(padded_target, )
         else:
-            pool = nornir_pools.GetGlobalMultithreadingPool()
+            shared_target_metadata = None
+            shared_source_metadata = None
+            shared_padded_target = padded_target.astype(nornir_imageregistration.default_image_dtype(),
+                                                        copy=False) if not use_cp else cp.array(padded_target,
+                                                                                                nornir_imageregistration.default_image_dtype())
+            shared_source = source_image.astype(nornir_imageregistration.default_image_dtype(),
+                                                copy=False) if not use_cp else cp.array(source_image,
+                                                                                        nornir_imageregistration.default_image_dtype())
 
-    AngleMatchValues = list()
-    taskList = list()
+        CheckTaskInterval = 16
 
-    #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
-    #    MinRotatedDimension = max(min(imFixed), min(imWarped))
-    #
-    #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
-    #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
+        source_shape = source_image.shape
+        target_shape = target_image.shape
+        max_task_count = multiprocessing.cpu_count() * 1.5
 
-    PaddedFixed = nornir_imageregistration.PadImageForPhaseCorrelation(imFixed,
-                                                                       MinOverlap=MinOverlap,
-                                                                       ImageMedian=fixed_stats.median,
-                                                                       ImageStdDev=fixed_stats.std)
+        for i, theta in enumerate(angle_range):
+            if SingleThread:
+                record = ScoreOneAngle(target_original=shared_padded_target, source_original=shared_source,
+                                       target_image_shape=target_shape, source_image_shape=source_shape,
+                                       angle=theta,
+                                       target_stats=target_stats, source_stats=source_stats,
+                                       min_overlap=min_overlap)
+                AngleMatchValues.append(record)
+            elif use_cluster:
+                task = pool.add_task(str(theta), ScoreOneAngle,
+                                     target_original=shared_padded_target, source_original=shared_source,
+                                     target_image_shape=target_shape, source_image_shape=source_shape,
+                                     angle=theta,
+                                     target_stats=target_stats, source_stats=source_stats,
+                                     min_overlap=min_overlap)
+                taskList.append(task)
+            else:
+                task = pool.add_task(str(theta), ScoreOneAngle,
+                                     target_original=shared_target_metadata, source_original=shared_source_metadata,
+                                     target_image_shape=target_shape, source_image_shape=source_shape,
+                                     angle=theta,
+                                     target_stats=target_stats, source_stats=source_stats,
+                                     min_overlap=min_overlap)
+                taskList.append(task)
 
-    # Create a shared read-only memory map for the Padded fixed image
+            if not i % CheckTaskInterval == 0:
+                continue
 
-    if not (use_cluster or SingleThread):
-        # temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(PaddedFixed)
-        # temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
+            # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
+            # No sense checking unless we've already filled the queue though
+            if len(taskList) > max_task_count:
+                for iTask in range(len(taskList) - 1, -1, -1):
+                    if taskList[iTask].iscompleted:
+                        record = taskList[iTask].wait_return()
+                        AngleMatchValues.append(record)
+                        del taskList[iTask]
 
-        # temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
-        # temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
+            # TestOneAngle(shared_padded_target, shared_source, angle, None, MinOverlap)
 
-        shared_fixed_metadata, SharedPaddedFixed = nornir_imageregistration.npArrayToSharedArray(PaddedFixed)
-        shared_warped_metadata, SharedWarped = nornir_imageregistration.npArrayToSharedArray(imWarped)
-        # SharedPaddedFixed = np.save(PaddedFixed, )
-    else:
-        SharedPaddedFixed = PaddedFixed.astype(nornir_imageregistration.default_image_dtype(),
-                                               copy=False) if not use_cp else cp.array(PaddedFixed,
-                                                                                       nornir_imageregistration.default_image_dtype())
-        SharedWarped = imWarped.astype(nornir_imageregistration.default_image_dtype(),
-                                       copy=False) if not use_cp else cp.array(imWarped,
-                                                                               nornir_imageregistration.default_image_dtype())
+        # taskList.sort(key=tpool.Task.name)
 
-    CheckTaskInterval = 16
-
-    fixed_shape = imFixed.shape
-    warped_shape = imWarped.shape
-    max_task_count = multiprocessing.cpu_count() * 1.5
-
-    for i, theta in enumerate(AngleList):
-        if SingleThread:
-            record = ScoreOneAngle(SharedPaddedFixed, SharedWarped, fixed_shape,
-                                   warped_shape, theta, fixedStats=fixed_stats,
-                                   warpedStats=warped_stats,
-                                   MinOverlap=MinOverlap)
-            AngleMatchValues.append(record)
-        elif use_cluster:
-            task = pool.add_task(str(theta), ScoreOneAngle, SharedPaddedFixed, SharedWarped,
-                                 fixed_shape, warped_shape, theta, fixedStats=fixed_stats, warpedStats=warped_stats,
-                                 MinOverlap=MinOverlap)
-            taskList.append(task)
-        else:
-            task = pool.add_task(str(theta), ScoreOneAngle, shared_fixed_metadata, shared_warped_metadata,
-                                 fixed_shape, warped_shape,
-                                 theta,
-                                 fixedStats=fixed_stats, warpedStats=warped_stats, MinOverlap=MinOverlap)
-            taskList.append(task)
-
-        if not i % CheckTaskInterval == 0:
-            continue
-
-        # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
-        # No sense checking unless we've already filled the queue though
-        if len(taskList) > max_task_count:
+        while len(taskList) > 0:
             for iTask in range(len(taskList) - 1, -1, -1):
                 if taskList[iTask].iscompleted:
                     record = taskList[iTask].wait_return()
                     AngleMatchValues.append(record)
                     del taskList[iTask]
 
-        # TestOneAngle(SharedPaddedFixed, SharedWarped, angle, None, MinOverlap)
+            if len(taskList) > 0:
+                # Wait a bit before checking the task list
+                sleep(0.5)
 
-    # taskList.sort(key=tpool.Task.name)
+            # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
 
-    while len(taskList) > 0:
-        for iTask in range(len(taskList) - 1, -1, -1):
-            if taskList[iTask].iscompleted:
-                record = taskList[iTask].wait_return()
-                AngleMatchValues.append(record)
-                del taskList[iTask]
+            # ShowGrayscale(NormCorrelationImage)
 
-        if len(taskList) > 0:
-            # Wait a bit before checking the task list
-            sleep(0.5)
+        # print(str(AngleMatchValues))
 
-        # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
+        # Delete the pool to ensure extra python threads do not stick around
+        # if pool is not None:
+        #    pool.shutdown()
 
-        # ShowGrayscale(NormCorrelationImage)
+        del padded_target
 
-    # print(str(AngleMatchValues))
+        BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
+        return BestMatch
+    finally:
 
-    # Delete the pool to ensure extra python threads do not stick around
-    # if pool is not None:
-    #    pool.shutdown()
+        if shared_target_metadata is not None:
+            nornir_imageregistration.unlink_shared_memory(shared_target_metadata)
+        if shared_source_metadata is not None:
+            nornir_imageregistration.unlink_shared_memory(shared_source_metadata)
 
-    del PaddedFixed
-
-    BestMatch = max(AngleMatchValues, key=nornir_imageregistration.AlignmentRecord.WeightKey)
-
-    if not (use_cluster or SingleThread):
-        nornir_imageregistration.unlink_shared_memory(shared_fixed_metadata)
-        nornir_imageregistration.unlink_shared_memory(shared_warped_metadata)
-        # os.remove(temp_shared_warp_memmap.path)
-        # os.remove(temp_padded_fixed_memmap.path)
-
-    return BestMatch
+            # os.remove(temp_shared_warp_memmap.path)
+            # os.remove(temp_padded_fixed_memmap.path)
 
 
 def __ExecuteProfiler():

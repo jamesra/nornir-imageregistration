@@ -3,6 +3,7 @@ scipy image arrays are indexed [y,x]
 """
 
 from collections.abc import Iterable
+from logging import exception
 import math
 from multiprocessing import shared_memory
 from multiprocessing.shared_memory import SharedMemory
@@ -215,12 +216,15 @@ def remove_duplicate_points(points: NDArray, columns=list[int]) -> tuple[NDArray
     return sorted_point_pairs
 
 
-def ReduceImage(image: NDArray, scalar: float) -> NDArray:
+def ScaleImage(image: NDArray, scalar: float) -> NDArray:
     """
-    Returns a zoomed array using spline interpolation (CPU/GPU agnostic function)
+    Returns a scaled array using spline interpolation (CPU/GPU agnostic function)
     """
     xp = cupyx.scipy.get_array_module(image)
-    return xp.ndimage.zoom(image, scalar)
+    if nornir_imageregistration.UsingCupy():
+        return xp.ndimage.zoom(image, scalar)
+    else:
+        return xp.ndimage.zoom(image.astype(np.float32), scalar)
 
 
 def ExtractROI(image: NDArray, center, area) -> NDArray:
@@ -666,7 +670,11 @@ def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | Sh
         if input.shared_memory is not None:
             input.shared_memory.close()
     elif isinstance(input, SharedMemory):
-        input.close()
+        try:
+            input.close()
+        except Exception as e:
+            prettyoutput.LogErr(f"Error closing shared memory {input.name}\n{e}")
+            return
 
         # if input.name in __known_shared_memory_allocations:
         #    shared_mem, finalizer = __known_shared_memory_allocations[input.name]
@@ -1078,7 +1086,7 @@ def LoadImage(ImageFullPath: str,
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)
         if scalar < 1.0:
-            image = ReduceImage(image, scalar)
+            image = ScaleImage(image, scalar)
 
     image_mask = None
 
@@ -1094,7 +1102,7 @@ def LoadImage(ImageFullPath: str,
             if MaxDimension is not None:
                 scalar = ScalarForMaxDimension(MaxDimension, image_mask.shape)
                 if scalar < 1.0:
-                    image_mask = ReduceImage(image_mask, scalar)
+                    image_mask = ScaleImage(image_mask, scalar)
 
             assert (image.shape == image_mask.shape)
             image = RandomNoiseMask(image, image_mask)
@@ -1286,10 +1294,12 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
     """
     Returns a mask for features above a set size that are at max or min pixel value
     :param image:
+    :param mask: Masked regions are excluded from the analysis, the min/max values are calculated from unmasked pixels only
     :param minima:
     :param maxima:
     :param numpy.ndarray mask: Pixels we wish to not include in the analysis
     :param size_cutoff: Determines how large a continuous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
+    :returns: Mask of extrema pixels, pixels that are FALSE are extrema to be excluded
     """
     # (minima, maxima, iMin, iMax) = scipy.ndimage.measurements.extrema(image) 
 
@@ -1307,6 +1317,9 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
     if maxima is None:
         maxima = image.max()
 
+    # Pixels that are TRUE will be excluded, exclude pixels equal to the min or max.
+    # However, the ndimage.label function finds features that are TRUE.  So we start with an
+    # inverted mask
     extrema_mask = xp.logical_or(image == maxima, image == minima)
 
     if mask is not None:
@@ -1318,6 +1331,8 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
         (extrema_mask_label, nLabels) = sp.ndimage.label(extrema_mask)
         if nLabels == 0:  # If there are no labels, do not mask anything
             return xp.ones(image.shape, extrema_mask.dtype)
+
+        # Identify the label of non-extrema pixels
 
         label_sums = sp.ndimage.sum_labels(
             extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask, extrema_mask_label,
@@ -1334,16 +1349,16 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray = None, size_cutoff=0.
         else:
             cutoff_value = size_cutoff
 
-        labels_to_save = label_sums < cutoff_value
-        if xp.any(labels_to_save):
-            cutoff_labels = xp.flatnonzero(labels_to_save)
+        small_regions = label_sums < cutoff_value
+        if xp.any(small_regions):
+            cutoff_labels = xp.flatnonzero(small_regions)
             extrema_mask_minus_small_features = xp.isin(extrema_mask_label, cutoff_labels)
 
             # nornir_imageregistration.ShowGrayscale((image, extrema_mask, extrema_mask_minus_small_features))
 
             return extrema_mask_minus_small_features
         else:
-            raise NotImplemented()
+            return np.ones(image.shape, bool)  # No features large enough to exclude, retain the entire image
 
 
 def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray = None,

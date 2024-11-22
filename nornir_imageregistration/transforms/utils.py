@@ -107,7 +107,7 @@ def ScaleMatrixXY(scale: float | Sequence[float]) -> NDArray[np.floating]:
     elif isinstance(scale, float):
         return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
     elif isinstance(scale, int):
-        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], np.floating)
+        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], float)
     elif hasattr(scale, "__iter__"):
         return xp.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
 

@@ -4,6 +4,7 @@ Created on Apr 26, 2022
 @author: u0490822
 """
 from __future__ import annotations
+from typing import Iterable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,7 +12,7 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 
 
-class GridRefinement(object):
+class GridRefinement:
     """
     Settings for grid refinement
     """
@@ -81,10 +82,10 @@ class GridRefinement(object):
                  target_mask: NDArray[np.bool_] | None = None,
                  source_mask: NDArray[np.bool_] | None = None,
                  num_iterations: int = None,
-                 cell_size=None,
-                 grid_spacing=None,
-                 angles_to_search=None,
-                 final_pass_angles=None,
+                 cell_size: int | NDArray[int] | Iterable[int] | None = None,
+                 grid_spacing: int | NDArray[int] | Iterable[int] | None = None,
+                 angles_to_search: Iterable[float] | NDArray[float] | None = None,
+                 final_pass_angles: Iterable[float] | NDArray[float] | None = None,
                  max_travel_for_finalization: float = None,
                  max_travel_for_finalization_improvement: float = None,
                  min_alignment_overlap: float = None,
@@ -112,7 +113,7 @@ class GridRefinement(object):
         :param bool cupy_processing: True if the refinement will be done on the GPU.  When set, arrays are created as cupy arrays instead of NDArrays
         """
 
-        self._single_thread_processing = single_thread_processing or nornir_imageregistration.UsingCupy()  
+        self._single_thread_processing = single_thread_processing or nornir_imageregistration.UsingCupy()
 
         if target_image is None:
             raise ValueError("target_image must be specified")
@@ -177,10 +178,10 @@ class GridRefinement(object):
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
                                      source_img_data: nornir_imageregistration.ImagePermutationHelper,
                                      num_iterations: int = None,
-                                     cell_size=None,
-                                     grid_spacing=None,
-                                     angles_to_search=None,
-                                     final_pass_angles=None,
+                                     cell_size: int | NDArray[int] | Iterable[int] | None = None,
+                                     grid_spacing: int | NDArray[int] | Iterable[int] | None = None,
+                                     angles_to_search: Iterable[float] | NDArray[float] | None = None,
+                                     final_pass_angles: Iterable[float] | NDArray[float] | None = None,
                                      max_travel_for_finalization: float = None,
                                      max_travel_for_finalization_improvement: float = None,
                                      min_alignment_overlap: float = None,

@@ -3,7 +3,7 @@ Created on Oct 18, 2012
 
 @author: Jamesan
 '''
-
+from collections.abc import Iterable
 import logging
 from multiprocessing.managers import Value
 
@@ -244,7 +244,11 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return self.UpdateSourcePointsByIndex(index, new_points)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
-        if self._points.shape[0] - len(index) <= 3:
+        nToRemove = 1
+        if isinstance(index, Iterable):
+            nToRemove = len(index)
+
+        if self._points.shape[0] - nToRemove < 3:
             raise ValueError("Cannot remove points, must have at least three points")
 
         self._points = np.delete(self._points, index, 0)

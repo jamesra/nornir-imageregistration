@@ -342,7 +342,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         xp = nornir_imageregistration.GetComputationModule()
 
         if rotation_center is not None:
-            self.source_space_center_of_rotation = xp.array(rotation_center)
+            self._source_space_center_of_rotation = xp.array(rotation_center)
 
         self._update_transform_matrix()
         self.OnTransformChanged()
