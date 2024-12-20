@@ -22,16 +22,19 @@ from PIL import Image
 try:
     import cupy as cp
     import cupyx
+    import cp.fft.fftpack as fftpack
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
+    import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested.
 
 from numpy.typing import DTypeLike, NDArray
 # import numpy.fft.fftpack as fftpack
-import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested.
+
+
 import scipy.misc
 import scipy.ndimage.measurements
 
