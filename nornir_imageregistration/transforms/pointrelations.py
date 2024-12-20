@@ -102,6 +102,9 @@ def calculate_control_points_relationship(source_points: NDArray[np.floating],
     # Check how many cross products have matching signs
     sign_comparisons = source_cross_signs == target_cross_signs
     num_matching_signs = xp.sum(sign_comparisons)
+    if num_matching_signs == 0:
+        return ControlPointRelation.COLINEAR
+
     if num_matching_signs < sign_comparisons.shape[0] / 2:
         return ControlPointRelation.FLIPPED
 
