@@ -347,6 +347,114 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
 
         TransformCheck(self, T, sourcePoint, targetPoint)
 
+    @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
+                      target_offset=st.tuples(st.floats(min_value=-15, max_value=15),
+                                              st.floats(min_value=-15, max_value=15)),
+                      source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+                                                       st.floats(min_value=-15, max_value=15)),
+                      scale=st.floats(min_value=0.1, max_value=10),
+                      flip_ud=st.booleans(),
+                      source_points=st.lists(
+                          st.tuples(st.floats(min_value=-15, max_value=15),
+                                    st.floats(min_value=-15, max_value=15)),
+                          min_size=1, max_size=12))
+    @hypothesis.settings(deadline=datetime.timedelta(seconds=20))  # Cupy Context takes a while to initialize
+    def testCenteredSimilarityTransform(self,
+                                        r_angle: float,
+                                        target_offset: np.ndarray,
+                                        source_rotation_center: np.ndarray,
+                                        source_points: list[tuple[float, float]],
+                                        scale: float,
+                                        flip_ud: bool):
+        source_point_array = np.array(source_points, dtype=float)
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
+                                                                                      source_rotation_center=source_rotation_center,
+                                                                                      angle=r_angle, scalar=scale,
+                                                                                      flip_ud=flip_ud)
+        TransformInverseCheck(self, transform, source_point_array)
+
+    #
+    # @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
+    #                   target_offset=st.tuples(st.floats(min_value=-15, max_value=15),
+    #                                           st.floats(min_value=-15, max_value=15)),
+    #                   source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+    #                                                    st.floats(min_value=-15, max_value=15)),
+    #                   scale=st.floats(min_value=0.1, max_value=10),
+    #                   flip_ud=st.booleans(),
+    #                   source_points=st.lists(
+    #                       st.tuples(st.floats(min_value=-15, max_value=15),
+    #                                 st.floats(min_value=-15, max_value=15)),
+    #                       min_size=1, max_size=12))
+    # @hypothesis.settings(deadline=datetime.timedelta(seconds=20))  # Cupy Context takes a while to initialize
+    # def testCenteredSimilarityTransform_manual_inverse(self,
+    #                                                    r_angle: float,
+    #                                                    target_offset: np.ndarray,
+    #                                                    source_rotation_center: np.ndarray,
+    #                                                    source_points: list[tuple[float, float]],
+    #                                                    scale: float,
+    #                                                    flip_ud: bool):
+    # """
+    # This doesn't work yet, to make an inverse transform the scale, flip, and translate need to be calculated in the correct order from the initial transform inputs.
+    # """
+    #     flip_ud = False
+    #     source_point_array = np.array(source_points, dtype=float)
+    #     target_offset = np.array(target_offset, dtype=float)
+    #     source_rotation_center = np.array(source_rotation_center, dtype=float)
+    #
+    #     transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=target_offset,
+    #                                                                                   source_rotation_center=source_rotation_center,
+    #                                                                                   angle=r_angle, scalar=scale,
+    #                                                                                   flip_ud=flip_ud)
+    #     inverse_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+    #         target_offset=-target_offset * (1 / scale),
+    #         source_rotation_center=source_rotation_center,
+    #         angle=-r_angle, scalar=1 / scale,
+    #         flip_ud=flip_ud)
+    #     TransformInverseCheck(self, transform, source_point_array)
+    #     TransformInverseCheck(self, inverse_transform, source_point_array)
+    #
+    #     transformed_target_point_array = transform.Transform(source_point_array)
+    #     transformed_source_point_array = inverse_transform.Transform(transformed_target_point_array)
+    #     inverse_transformed_target_point_array = inverse_transform.InverseTransform(source_point_array)
+    #
+    #     np.testing.assert_allclose(source_point_array, transformed_source_point_array, atol=1e-3)
+    #     np.testing.assert_allclose(transformed_target_point_array, inverse_transformed_target_point_array, atol=1e-3)
+
+    @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
+                      target_offset=st.tuples(st.floats(min_value=-15, max_value=15),
+                                              st.floats(min_value=-15, max_value=15)),
+                      source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+                                                       st.floats(min_value=-15, max_value=15)),
+                      flip_ud=st.booleans(),
+                      source_points=st.lists(
+                          st.tuples(st.floats(min_value=-15, max_value=15),
+                                    st.floats(min_value=-15, max_value=15)),
+                          min_size=1, max_size=12))
+    @hypothesis.settings(deadline=datetime.timedelta(seconds=20))  # Cupy Context takes a while to initialize
+    def testRigidTransform(self,
+                           r_angle: float,
+                           target_offset: np.ndarray,
+                           source_rotation_center: np.ndarray,
+                           flip_ud: bool,
+                           source_points: list[tuple[float, float]]):
+        source_point_array = np.array(source_points, dtype=float)
+        transform = nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
+                                                              source_rotation_center=source_rotation_center,
+                                                              angle=r_angle,
+                                                              flip_ud=flip_ud)
+
+        TransformInverseCheck(self, transform, source_point_array)
+
+        target_point_array = transform.Transform(source_point_array)
+
+        transform_similar = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=target_offset,
+            source_rotation_center=source_rotation_center,
+            angle=r_angle,
+            flip_ud=flip_ud)
+
+        TransformCheck(self, transform_similar, source_point_array, target_point_array)
+
 
 class TestRigidFactory(ImageTestBase):
     __transform_tolerance = 1e-5

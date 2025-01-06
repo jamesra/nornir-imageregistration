@@ -431,6 +431,7 @@ class TestLinearFit(unittest.TestCase):
         # This is a rigid transform, so transform points to the origin to reduce floating point error
         source_points -= np.mean(source_points, axis=0)
 
+        print("Num Points: ", num_pts)
         print("Translate: ", translate)
         print("Rotate ", angle)
         print('Scaling by: ', scale)
@@ -473,11 +474,9 @@ class TestLinearFit(unittest.TestCase):
         euler_angles = rotation[0].as_euler('zyx')
         estimated_angle = euler_angles[2]
 
-        # my_rotation = nornir_imageregistration.transforms.converters._kabsch_umeyama(source_points=source_points,
-        #                                                                              target_points=unscaled_target_points)
-        my_rotation = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
-            source_points=source_points,
-            target_points=unscaled_target_points)
+        # Ensure the angle is in the range of -pi to pi
+        if estimated_angle <= -np.pi:
+            estimated_angle += np.pi * 2
 
         self.assertAlmostEqual(angle, estimated_angle, places=3)
 
@@ -506,18 +505,14 @@ class TestLinearFit(unittest.TestCase):
             scalar=scale_estimate,
             flip_ud=reflected)
 
-        untranslated_target_points = transform_without_translate.Transform(source_points)
-        untranslated_center = np.mean(untranslated_target_points, axis=0)
-        translation_estimate = np.mean(untranslated_target_points - source_points, axis=0)
-
-        translation_estimate_2 = np.hstack((0, target_center)) - (
-                scale * rotation_matrix @ np.hstack((0, source_center)))
+        translation_estimate = np.hstack((0, target_center)) - (
+                scale_estimate * rotation_matrix @ np.hstack((0, source_center)))
 
         ################################################################################################
         # Past this point the reflection is known, we next remove the reflection from the target points
 
         estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=translation_estimate_2[1:],
+            target_offset=translation_estimate[1:],
             source_rotation_center=np.zeros((2,)),
             angle=estimated_angle,
             scalar=scale_estimate,
@@ -527,7 +522,90 @@ class TestLinearFit(unittest.TestCase):
         np.testing.assert_allclose(target_points, test_target_points, atol=1e-5)
 
         return
- 
+
+    @hypothesis.given(source_points=arrays(np.float64, (10, 2), elements=st.floats(-10, 10), unique=True),
+                      translate=st.tuples(st.floats(min_value=-10, max_value=10),
+                                          st.floats(min_value=-10, max_value=10)),
+                      angle=st.floats(min_value=-np.pi + 0.0001, max_value=np.pi),
+                      scale=st.floats(min_value=0.1, max_value=10),
+                      source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+                                                       st.floats(min_value=-15, max_value=15)),
+                      flip_ud=st.booleans())
+    @hypothesis.settings(verbosity=hypothesis.Verbosity.verbose, )
+    def test_linearFit_improved_nornir_library_implementation(self, source_points: NDArray[float],
+                                                              translate: NDArray[float],
+                                                              angle: float,
+                                                              scale: float,
+                                                              source_rotation_center: NDArray[float],
+                                                              flip_ud: bool):
+        """
+        This should run the version of code copied into EstimateRigidComponentsFromControlPoints3
+        from test_linearfit_improved.
+
+        A set of initial random points is created along with random rigid transform parameters.  The input
+        points are then transformed to the target space.
+
+        We attempt to reverse engineer the rigid transform using source and target point pairs.
+
+        1. Determine the scale
+        2. Determine the translation to the center of rotation
+        3. Determine the rotation matrix
+        4. Determine if the points are inverted
+        5. Determine the translation
+        """
+
+        if angle <= -math.pi:
+            angle += math.pi * 2
+
+        # grid = np.hstack((xx.reshape(-1,1),yy.reshape(-1,1)))
+        # print(grid)
+        source_points = np.array(source_points)
+        # print("\n\nSource points: ", source_points)
+        # n,m = grid.shape
+        num_pts, m = source_points.shape
+
+        # This is a rigid transform, so transform points to the origin to reduce floating point error
+        source_points -= np.mean(source_points, axis=0)
+
+        print("Num Points: ", num_pts)
+        print("Translate: ", translate)
+        print("Rotate ", angle)
+        print('Scaling by: ', scale)
+        print("Center of rotation: ", source_rotation_center)
+        print(f"Flip Up/Down: {flip_ud}")
+
+        forward_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=translate,
+            source_rotation_center=source_rotation_center,
+            angle=angle,
+            scalar=scale,
+            flip_ud=flip_ud)
+
+        target_points = forward_transform.Transform(source_points)
+
+        try:
+            estimated_transform_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints3(
+                target_points=target_points, source_points=source_points)
+        except ValueError as e:
+            if 'colinear' in str(e).lower():
+                hypothesis.note("Colinear points detected")
+                return
+            raise
+
+        estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=estimated_transform_components.translation,
+            source_rotation_center=estimated_transform_components.source_rotation_center,
+            angle=estimated_transform_components.angle,
+            scalar=estimated_transform_components.scale,
+            flip_ud=estimated_transform_components.reflected)
+
+        self.assertAlmostEqual(angle, estimated_transform_components.angle, places=3)
+        self.assertAlmostEqual(scale, estimated_transform_components.scale, places=3)
+        self.assertEqual(flip_ud, estimated_transform_components.reflected)
+
+        test_target_points = estimated_transform.Transform(source_points)
+        np.testing.assert_allclose(target_points, test_target_points, atol=1e-5)
+
     @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
                       target_offset=st.tuples(st.floats(min_value=-15, max_value=15),
                                               st.floats(min_value=-15, max_value=15)),

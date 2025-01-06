@@ -286,9 +286,11 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         self.forward_matrix = self._forward_translation_matrix @ self._forward_center_of_rotation_translation @ \
                               self._flip_y_matrix @ self._forward_rotation_matrix @ \
                               self._inverse_center_of_rotation_translation @ self._forward_scale_matrix
-        self.inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
-                              self._inverse_rotation_matrix @ self._flip_y_matrix @ \
-                              self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
+        self.inverse_matrix = np.linalg.inv(self.forward_matrix)
+        self.alt_inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
+                                  self._inverse_rotation_matrix @ self._flip_y_matrix @ \
+                                  self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
+        np.testing.assert_allclose(self.inverse_matrix, self.alt_inverse_matrix, rtol=1e-5, atol=1e-5)
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
@@ -353,6 +355,7 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
         # We are changing the scale of both spaces, so simply adjust the target and source space offsets
         # Do not call super, this method is a replacement
         self._scalar *= value
+        # self._source_space_center_of_rotation = self._source_space_center_of_rotation * value
         self._update_transform_matrix()
         self.OnTransformChanged()
 
@@ -401,8 +404,8 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
         :param tuple source_rotation_center: The (Y,X) center of rotation in mapped space
         :param float angle: The angle to rotate, in radians
-        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
-        :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
+        :param float scalar: The relative scale difference between source and target space
+        :param flip_ud: True if the transform should flip the Y axis
         """
         self._scalar = 1.0 if scalar is None else scalar
         super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, flip_ud)

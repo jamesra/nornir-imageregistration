@@ -1,6 +1,7 @@
 from typing import NamedTuple
 import numpy as np
 from numpy.typing import NDArray
+import scipy
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import IControlPoints, ITransform, TransformType
@@ -27,12 +28,18 @@ class RigidComponents(NamedTuple):
 
 def _kabsch_umeyama(target_points: NDArray[np.floating], source_points: NDArray[np.floating]) -> tuple[
     NDArray[np.floating], float, NDArray[np.floating]]:
-    '''
+    """
     This function is used to get the translation, rotation and scaling factors when aligning
     points in B on reference points in A.
 
     The R,c,t componenets once return can be used to obtain B'
-    '''
+
+    To be compatible with Rigid transforms used by nornir the order of operations must be
+    1. Scaling
+    2. Rotation
+    3. Translation
+    4. Flip
+    """
     A = target_points.astype(np.float64, copy=False)
     B = source_points.astype(np.float64, copy=False)
     assert A.shape == B.shape
@@ -119,32 +126,91 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], sou
     return scale, translation
 
 
+def EstimateScale(source_points: NDArray[np.floating],
+                  target_points: NDArray[np.floating]) -> float:
+    """
+    Given a set of two points, estimate the scale factor to achieve the same root mean square distance to the origin.
+    Assumes the points in the transform have been centered around the origin and not translated.
+    :param source_points: 
+    :param target_points: 
+    :return: 
+    """
+
+    mean_source_points = np.mean(source_points, axis=0)
+    mean_target_points = np.mean(target_points, axis=0)
+
+    centered_source_points = source_points - mean_source_points
+    centered_target_points = target_points - mean_target_points
+
+    target_rms = np.sum(np.sqrt(np.sum(centered_target_points ** 2, axis=1)))
+    source_rms = np.sum(np.sqrt(np.sum(centered_source_points ** 2, axis=1)))
+
+    scale = target_rms / source_rms
+    return scale
+
+
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
-                                             source_points: NDArray[np.floating],
-                                             ignore_rotation: bool = False) -> RigidComponents:
-    source_rotation_center = np.zeros((1, 2))
+                                             source_points: NDArray[np.floating]) -> RigidComponents:
+    num_pts, m = source_points.shape
 
-    if not ignore_rotation:
-        source_rotation_center, rotation_matrix, scale, translation, reflected = _kabsch_umeyama(target_points,
-                                                                                                 source_points)
+    source_center = np.mean(source_points, axis=0)
+    target_center = np.mean(target_points, axis=0)
+    centered_source_points = source_points - source_center
+    centered_target_points = target_points - source_center
 
-        # My rigid transform is probably written in a weird way.  It translates source points to the center of rotation, translates them back, and then
-        # performs the final translation into target space.
-        adjusted_translation = np.mean(target_points - source_points, axis=0) + translation
-        rotate_angle = np.arctan2(rotation_matrix[0, 1], rotation_matrix[0, 0])
-        if rotate_angle <= -tau:
-            rotate_angle += tau
-        elif rotate_angle >= tau:
-            rotate_angle -= tau
+    scale_estimate = nornir_imageregistration.transforms.converters.EstimateScale(centered_source_points,
+                                                                                  centered_target_points)
 
-        return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=rotate_angle,
-                               translation=translation, scale=scale, reflected=reflected)
+    ###################################################################################
+    # We know the scale now, remove the scalar from the target_points, and
+    # determine the rotation
+    ###################################################################################
 
-    else:
-        adjusted_translation = np.mean(target_points - source_points, axis=0)
-        scale, translation = _kabsch_umeyama_translation_scaling(target_points, source_points)
-        return RigidComponents(source_rotation_center=np.zeros((1, 2), float), angle=0,
-                               translation=translation, scale=scale, reflected=False)
+    unscaled_target_points = target_points / scale_estimate
+    unscaled_target_center = np.mean(unscaled_target_points, axis=0)
+    unscaled_centered_target_points = unscaled_target_points - unscaled_target_center
+
+    zeros_z_column = np.zeros((num_pts, 1))
+    rotation = scipy.spatial.transform.Rotation.align_vectors(
+        np.hstack((zeros_z_column, centered_source_points)),
+        np.hstack(
+            (zeros_z_column, unscaled_centered_target_points))
+    )
+    euler_angles = rotation[0].as_euler('zyx')
+    estimated_angle = euler_angles[2]
+
+    # Ensure the angle is in the range of -pi to pi
+    if estimated_angle <= -np.pi:
+        estimated_angle += np.pi * 2
+
+    ###################################################################################
+    # Determine if the transform is reflected
+    relation = nornir_imageregistration.transforms.converters.calculate_control_points_relationship(source_points,
+                                                                                                    target_points)
+    reflected = relation == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
+
+    if relation == nornir_imageregistration.transforms.ControlPointRelation.COLINEAR:
+        raise ValueError("Colinear points detected")
+
+    ###################################################################################
+    # The angle and reflection is estimated.  We remove the angle and reflection from the target
+    # points and determine translation
+    ###################################################################################
+
+    rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(estimated_angle)
+
+    transform_without_translate = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        target_offset=np.zeros((2,)),
+        source_rotation_center=np.zeros((2,)),
+        angle=estimated_angle,
+        scalar=scale_estimate,
+        flip_ud=reflected)
+
+    translation_estimate = np.hstack((0, target_center)) - (
+            scale_estimate * rotation_matrix @ np.hstack((0, source_center)))
+
+    return RigidComponents(source_rotation_center=np.zeros((2, 1)), angle=estimated_angle,
+                           translation=translation_estimate[1:], scale=scale_estimate, reflected=reflected)
 
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
