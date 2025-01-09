@@ -106,12 +106,14 @@ def ScaleMatrixXY(scale: float | Sequence[float]) -> NDArray[np.floating]:
         raise ValueError("Angle must not be none")
     elif isinstance(scale, float):
         return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
+    elif isinstance(scale, np.floating):
+        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
     elif isinstance(scale, int):
         return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], float)
     elif hasattr(scale, "__iter__"):
         return xp.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
 
-    raise NotImplementedError("Unexpected argument")
+    raise NotImplementedError(f"Unexpected argument: {scale} is a {type(scale)}")
 
 
 def FlipMatrixY() -> NDArray[np.floating]:
