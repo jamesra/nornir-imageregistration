@@ -24,7 +24,7 @@ def _get_pointset_crossproducts(points: NDArray[np.floating]) -> NDArray[np.floa
         raise ValueError("Need at least 3 control points to determine if flipped")
 
     # Calculate vectors
-    vectors = xp.diff(points, axis=0)  # Only need 2 vectors for speed
+    vectors = xp.diff(points, axis=0)  # Only need 2 vectors for crossproduct
 
     # Grid transforms in particular have may colinear points.  So we start our search for a non-zero cross product
     # at the end of the list, and continue until we have two non-zero cross products

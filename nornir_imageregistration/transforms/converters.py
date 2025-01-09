@@ -151,12 +151,14 @@ def EstimateScale(source_points: NDArray[np.floating],
 
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
                                              source_points: NDArray[np.floating]) -> RigidComponents:
+    xp = cp.get_array_module(source_points)
+
     num_pts, m = source_points.shape
 
-    source_center = np.mean(source_points, axis=0)
-    target_center = np.mean(target_points, axis=0)
+    source_center = xp.mean(source_points, axis=0)
+    target_center = xp.mean(target_points, axis=0)
     centered_source_points = source_points - source_center
-    centered_target_points = target_points - source_center
+    centered_target_points = target_points - target_center
 
     scale_estimate = nornir_imageregistration.transforms.converters.EstimateScale(centered_source_points,
                                                                                   centered_target_points)
@@ -167,21 +169,21 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     ###################################################################################
 
     unscaled_target_points = target_points / scale_estimate
-    unscaled_target_center = np.mean(unscaled_target_points, axis=0)
+    unscaled_target_center = xp.mean(unscaled_target_points, axis=0)
     unscaled_centered_target_points = unscaled_target_points - unscaled_target_center
 
-    zeros_z_column = np.zeros((num_pts, 1))
+    zeros_z_column = xp.zeros((num_pts, 1))
     rotation = scipy.spatial.transform.Rotation.align_vectors(
-        np.hstack((zeros_z_column, centered_source_points)),
-        np.hstack(
+        xp.hstack((zeros_z_column, centered_source_points)),
+        xp.hstack(
             (zeros_z_column, unscaled_centered_target_points))
     )
     euler_angles = rotation[0].as_euler('zyx')
     estimated_angle = euler_angles[2]
 
     # Ensure the angle is in the range of -pi to pi
-    if estimated_angle <= -np.pi:
-        estimated_angle += np.pi * 2
+    if estimated_angle <= -xp.pi:
+        estimated_angle += xp.pi * 2
 
     ###################################################################################
     # Determine if the transform is reflected
@@ -199,18 +201,19 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
 
     rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(estimated_angle)
 
-    transform_without_translate = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-        target_offset=np.zeros((2,)),
-        source_rotation_center=np.zeros((2,)),
+    estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        target_offset=xp.zeros((2,)),
+        source_rotation_center=source_center,
         angle=estimated_angle,
         scalar=scale_estimate,
         flip_ud=reflected)
 
-    translation_estimate = np.hstack((0, target_center)) - (
-            scale_estimate * rotation_matrix @ np.hstack((0, source_center)))
+    test_target_points = estimated_transform.Transform(source_points)
+    test_target_center = test_target_points.mean(axis=0)
+    tranlsation_estimate = target_center - test_target_center
 
-    return RigidComponents(source_rotation_center=np.zeros((2, 1)), angle=estimated_angle,
-                           translation=translation_estimate[1:], scale=scale_estimate, reflected=reflected)
+    return RigidComponents(source_rotation_center=source_center, angle=estimated_angle,
+                           translation=tranlsation_estimate, scale=scale_estimate, reflected=reflected)
 
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
@@ -264,9 +267,10 @@ def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransfo
 
 def ConvertTransformToRigidTransform(input_transform: ITransform, ignore_rotation: bool = False, **kwargs):
     if isinstance(input_transform, IControlPoints):
+        if ignore_rotation:
+            raise ValueError("Ignore rotation is no longer supported for control points")
         components = EstimateRigidComponentsFromControlPoints(input_transform.TargetPoints,
-                                                              input_transform.SourcePoints,
-                                                              ignore_rotation)
+                                                              input_transform.SourcePoints)
 
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(target_offset=components.translation,
                                                                                  source_rotation_center=components.source_rotation_center,

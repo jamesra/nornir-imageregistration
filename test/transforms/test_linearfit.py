@@ -429,7 +429,7 @@ class TestLinearFit(unittest.TestCase):
         num_pts, m = source_points.shape
 
         # This is a rigid transform, so transform points to the origin to reduce floating point error
-        source_points -= np.mean(source_points, axis=0)
+        # source_points -= np.mean(source_points, axis=0)
 
         print("Num Points: ", num_pts)
         print("Translate: ", translate)
@@ -452,7 +452,7 @@ class TestLinearFit(unittest.TestCase):
         source_center = np.mean(source_points, axis=0)
         target_center = np.mean(target_points, axis=0)
         centered_source_points = source_points - source_center
-        centered_target_points = target_points - source_center
+        centered_target_points = target_points - target_center
 
         scale_estimate = nornir_imageregistration.transforms.converters.EstimateScale(centered_source_points,
                                                                                       centered_target_points)
@@ -491,36 +491,34 @@ class TestLinearFit(unittest.TestCase):
             return
 
         self.assertEqual(flip_ud, reflected)
-
-        ###################################################################################
-        # Past this point the angle is estimated.  We next remove the angle from the target
-        # points and continue with the rest of the algorithm
-
-        rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(estimated_angle)
-
-        transform_without_translate = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=np.zeros((2,)),
-            source_rotation_center=np.zeros((2,)),
-            angle=estimated_angle,
-            scalar=scale_estimate,
-            flip_ud=reflected)
-
-        translation_estimate = np.hstack((0, target_center)) - (
-                scale_estimate * rotation_matrix @ np.hstack((0, source_center)))
-
         ################################################################################################
-        # Past this point the reflection is known, we next remove the reflection from the target points
 
+        #####################################################
+        # Determine the translation to the center of rotation
         estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=translation_estimate[1:],
-            source_rotation_center=np.zeros((2,)),
+            target_offset=np.zeros((2,)),
+            source_rotation_center=source_center,
             angle=estimated_angle,
             scalar=scale_estimate,
             flip_ud=reflected)
 
         test_target_points = estimated_transform.Transform(source_points)
-        np.testing.assert_allclose(target_points, test_target_points, atol=1e-5)
+        test_target_center = test_target_points.mean(axis=0)
+        tranlsation_estimate = target_center - test_target_center
+        translated_target_points = np.add(test_target_points, tranlsation_estimate)
+        np.testing.assert_allclose(target_points, translated_target_points, atol=1e-5)
 
+        ################################################################################################
+
+        estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=tranlsation_estimate,
+            source_rotation_center=source_center,
+            angle=estimated_angle,
+            scalar=scale_estimate,
+            flip_ud=reflected)
+
+        final_target_points = estimated_transform.Transform(source_points)
+        np.testing.assert_allclose(target_points, final_target_points, atol=1e-5)
         return
 
     @hypothesis.given(source_points=arrays(np.float64, (10, 2), elements=st.floats(-10, 10), unique=True),
@@ -565,7 +563,7 @@ class TestLinearFit(unittest.TestCase):
         num_pts, m = source_points.shape
 
         # This is a rigid transform, so transform points to the origin to reduce floating point error
-        source_points -= np.mean(source_points, axis=0)
+        centered_source_points = source_points - np.mean(source_points, axis=0)
 
         print("Num Points: ", num_pts)
         print("Translate: ", translate)
@@ -584,7 +582,7 @@ class TestLinearFit(unittest.TestCase):
         target_points = forward_transform.Transform(source_points)
 
         try:
-            estimated_transform_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints3(
+            estimated_transform_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
                 target_points=target_points, source_points=source_points)
         except ValueError as e:
             if 'colinear' in str(e).lower():

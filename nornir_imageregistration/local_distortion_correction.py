@@ -1041,6 +1041,9 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
 
+    if isinstance(input_transform, nornir_imageregistration.transforms.IRigidTransform):
+        return [input_transform] * target_points.shape[0]
+
     target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
 
     numPoints = target_points.shape[0]
@@ -1093,6 +1096,25 @@ def calculate_offset(source_points: NDArray[np.floating],
     return offset
 
 
+def _calculate_offset_ring(source_point: NDArray[np.floating],
+                           offset: float,
+                           nPoints: int = 8) -> NDArray[np.floating]:
+    """
+    Create a set of points in a circle around a source point that will be transformed to estimate a rigid transform
+    :param source_point:
+    :param offset:
+    :param nPoints:
+    :return:
+    """
+    xp = cp.get_array_module(source_point)
+
+    angles = xp.linspace(0, 2 * xp.pi, nPoints, endpoint=False)
+    offsets = xp.vstack((xp.cos(angles), xp.sin(angles))).T * offset
+    offsets = offsets + source_point
+    offsets = xp.vstack((source_point, offsets))
+    return offsets
+
+
 def AdjustSourcePointsToIndexImage(source_points: NDArray,
                                    source_image_shape: NDArray[np.integer]) -> NDArray[np.floating]:
     """
@@ -1111,43 +1133,55 @@ def AdjustSourcePointsToIndexImage(source_points: NDArray,
 def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
                                             source_points: NDArray,
                                             cell_size: NDArray | None = None) -> list[
-    nornir_imageregistration.transforms.Rigid]:
+    nornir_imageregistration.transforms.IRigidTransform]:
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
+    We treat each point in source_points individually.  We create a field of eight points around a circle centered on the source point.
+    We then transform these points to the target space and calculate the angle of rotation to align the points.
     """
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
     xp = cp.get_array_module(source_points)
 
-    numPoints = source_points.shape[0]
+    numPoints = int(source_points.shape[0])  # type: int
 
-    offset = calculate_offset(source_points, cell_size)
-    offset_source_points = source_points + xp.asarray(offset)
+    # If the input transform is rigid, then we simply return that
+    if isinstance(input_transform, nornir_imageregistration.transforms.IRigidTransform):
+        return [input_transform] * numPoints
 
-    offsets = np.tile(offset, (numPoints, 1))
-    origins = np.tile(np.array([0, 0]), (numPoints, 1))
+    output_transforms = []
 
-    target_points = input_transform.Transform(source_points)
-    target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
-    offset_target_points = input_transform.Transform(offset_source_points)
-    offset_target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(offset_target_points)
+    for iPoint in range(0, numPoints):
+        source_point = source_points[iPoint, :]
 
-    target_delta = offset_target_points - target_points
+        offset = calculate_offset(source_points, cell_size)
+        offset_distance = xp.linalg.norm(offset)
 
-    angles = np.round(nornir_imageregistration.ArcAngle(origins, offsets, target_delta), 3)
+        source_point_ring = _calculate_offset_ring(source_point, offset_distance)
 
-    target_offsets = target_points - source_points
-    point_relationship = nornir_imageregistration.transforms.calculate_control_points_relationship(source_points,
-                                                                                                   target_points)
-    flipped = point_relationship == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
-    # if flipped:
-    #    angles = -angles
-    output_transforms = [nornir_imageregistration.transforms.Rigid(target_offset=target_offsets[i],
-                                                                   source_rotation_center=source_points[i],
-                                                                   angle=angles[i],
-                                                                   flip_ud=flipped)
-                         for i in range(0, len(angles))]
+        target_points = input_transform.Transform(source_point_ring)
+        target_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(target_points)
 
+        rigid_transform_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
+            source_points=source_point_ring,
+            target_points=target_points)
+
+        rigid_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=rigid_transform_components.translation,
+            source_rotation_center=rigid_transform_components.source_rotation_center,
+            angle=rigid_transform_components.angle,
+            flip_ud=rigid_transform_components.reflected,
+            scalar=rigid_transform_components.scale)
+
+        # This debug check is here to warn if the rigid transform is not working correctly.  It can be removed,
+        # but verify that the rigid transform returned is returning the correct ROI if used for alignment
+        # test_target_point = rigid_transform.Transform(source_point)
+        # if not np.allclose(test_target_point, target_points[0], atol=1):
+        #     raise ValueError(
+        #         f"Rigid transform failed to align point: Expected {target_points[0]} got {test_target_point}")
+
+        output_transforms.append(rigid_transform)
+  
     return output_transforms
 
 
@@ -1160,6 +1194,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                        alignmentArea: NDArray | tuple[float, float],
                        description: str | None = None) -> tuple[NDArray, NDArray]:
     """
+    Crops out a small region from both images of alignmentArea size centered on target_controlpoint.
+    The source image is transformed to the target image space using the transform.  Used as input to registration functions.
     :param transform:
     :param targetImage:
     :param sourceImage:
@@ -1260,7 +1296,10 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
     # if source_mask_nonzero / cell_area < 0.25:
     #     raise ValueError("This mask should have been found earlier")
 
-    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
+    rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
+                                                              target_points=target_controlpoint)
+
+    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
                                                             targetImage_param=targetImage,
                                                             sourceImage_param=sourceImage,
                                                             target_image_stats=target_image_stats,
@@ -1307,6 +1346,7 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
 
     task.TargetROI = target_image_roi
     task.SourceROI = source_image_roi
+    task.RigidTransform = rigid_transform
 
     return task
 
@@ -1325,7 +1365,10 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
-    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=transform,
+    rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
+                                                              target_points=target_controlpoint)
+
+    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
                                                             targetImage_param=targetImage,
                                                             sourceImage_param=sourceImage,
                                                             target_image_stats=target_image_stats,
