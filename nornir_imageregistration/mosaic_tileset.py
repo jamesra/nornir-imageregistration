@@ -10,6 +10,8 @@ import numpy as np
 import nornir_imageregistration
 import nornir_shared.tasktimer
 
+from nornir_imageregistration import Rectangle, RectLike
+
 
 def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
                      image_to_source_space_scale: float) -> MosaicTileset:
@@ -174,7 +176,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     def MappedBoundingBoxHeight(self) -> float:
         return self.SourceBoundingBox.Height
 
-    def TargetSpaceIntersections(self, rect):
+    def TargetSpaceIntersections(self, rect: RectLike | Rectangle):
         """
         :returns: tiles that intersect the provided rectangle in target space
         """
@@ -184,7 +186,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
         return [tile_bbox_list[i][0] for i in intersections]
 
-    def SourceSpaceIntersections(self, rect):
+    def SourceSpaceIntersections(self, rect: RectLike | Rectangle):
         """
         :returns: tiles that intersect the provided rectangle in source space
         """
@@ -194,7 +196,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
         return [tile_bbox_list[i][0] for i in intersections]
 
-    def CalculateGridDimensions(self, tile_dims, expected_scale=1):
+    def CalculateGridDimensions(self, tile_dims: tuple[int, int], expected_scale=1):
         """
         :param tuple tile_dims: (Height, Width) of tiles we are dividing the mosaic into
         :param float expected_scale: The scale factor applied to the mosaic before dividing it into tiles, default is 1
