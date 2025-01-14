@@ -89,6 +89,10 @@ class ImagePermutationHelper:
         img = nornir_imageregistration.ImageParamToImageArray(img, dtype=dtype)
         mask = nornir_imageregistration.ImageParamToImageArray(mask, dtype=bool) if mask is not None else None
 
+        # Check if mask is multi-channel, if it is, take the first channel as the mask
+        if mask is not None and len(mask.shape) > 2:
+            mask = np.any(mask, axis=2)
+
         self._extrema_size_cutoff_in_pixels = None
         if extrema_mask_size_cuttoff is None:
             extrema_mask_size_cuttoff = 0.01
@@ -108,4 +112,7 @@ class ImagePermutationHelper:
                                                                         size_cutoff=self.extrema_size_cutoff_in_pixels)
         self._blended_mask = np.logical_and(self._mask,
                                             self._extrema_mask) if self._mask is not None else self._extrema_mask
-        self._stats = nornir_imageregistration.ImageStats.Create(self._image[self._blended_mask])
+        try:
+            self._stats = nornir_imageregistration.ImageStats.Create(self._image[self._blended_mask])
+        except (FloatingPointError, ValueError) as e:
+            raise
