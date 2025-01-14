@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 
 from nornir_imageregistration.transforms import *
-import volume
+from nornir_imageregistration import volume
 
 IdentityTransformPoints = np.array([[0, 0, 0, 0],
                                     [0, 10, 0, 10],

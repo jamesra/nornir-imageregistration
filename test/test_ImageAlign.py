@@ -9,7 +9,11 @@ import os
 from pylab import *
 
 import nornir_imageregistration.core as core
-from . import setup_imagetest
+
+try:
+    import setup_imagetest
+except (ImportError, ModuleNotFoundError):
+    from . import setup_imagetest
 
 
 class TestImageAlign(setup_imagetest.ImageTestBase):

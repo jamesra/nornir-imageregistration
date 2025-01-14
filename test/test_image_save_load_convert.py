@@ -12,7 +12,11 @@ import numpy.typing
 
 import nornir_imageregistration
 import nornir_shared.images
-from . import setup_imagetest
+
+try:
+    import setup_imagetest
+except (ImportError, ModuleNotFoundError):
+    from . import setup_imagetest
 
 
 class ImageProperties(object):

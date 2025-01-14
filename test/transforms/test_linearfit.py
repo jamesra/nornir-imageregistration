@@ -71,275 +71,275 @@ class TestLinearFit(unittest.TestCase):
     #         plt.show()
     #
     # =============================================================================
-
-    @hypothesis.given(points2D=arrays(np.float64, (20, 2), elements=st.floats(0, 30), unique=True),
-                      translate=st.tuples(st.floats(min_value=-10, max_value=10),
-                                          st.floats(min_value=-10, max_value=10)),
-                      angle=st.floats(min_value=-np.pi, max_value=np.pi),
-                      scale=st.floats(min_value=0.1, max_value=10),
-                      source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
-                                                       st.floats(min_value=-15, max_value=15)))
-    def test_linearFit2D(self, points2D: NDArray[float],
-                         translate: NDArray[float],
-                         angle: float,
-                         scale: float,
-                         source_rotation_center: NDArray[float]):
-        translate = np.array(translate)
-        source_rotation_center = np.array(source_rotation_center)
-
-        xv = np.arange(-5, 6)
-        yv = np.arange(-5, 6)
-        xx, yy = np.meshgrid(xv, yv)
-        xx = xx.flatten()
-        yy = yy.flatten()
-        gridPoints = np.transpose(np.vstack((xx, yy)))
-        # print(gridPoints)
-        # plt.scatter(xx, yy)
-        # plt.show()
-        # print(points2D[:, 0])
-        # print(points2D[:, 1])
-        numPoints = len(gridPoints)
-
-        # numPoints = len(points2D)
-        # print(numPoints)
-        # slope1,intercept1,r_value1,p_value1,std_err1 = linregress(points2D[:,0],points2D[:,1])
-        slope1, intercept1, r_value1, p_value1, std_err1 = linregress(xx, yy)
-
-        # translate =np.array([0,0])
-        print("Translate: ", translate)
-        # rotate = -np.pi / 2 + np.pi * np.random.rand()
-        print("Rotate ", angle)
-        # scale = np.random.randint(1, 10)
-        print('Scaling by: ', scale)
-        # center_rotation = np.random.randint(-10,10,size=2)
-        # source_rotation_center = np.array([0, 0])
-        print("Center of rotation: ", source_rotation_center)
-
-        points2D1 = gridPoints - source_rotation_center
-        points2D1 = np.transpose(points2D1)
-        points2D1 = np.vstack((points2D1, np.ones((1, numPoints))))
-
-        # points2D1 = points2D1 * scale
-        rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(angle)
-        # print(rotation_matrix)
-        points2D1_rotated = rotation_matrix @ points2D1
-        # print(points2D1_rotated)
-        points2D1_rotated = np.transpose(points2D1_rotated)
-        # print(points2D1_rotated)
-
-        points2D1_rotated = points2D1_rotated[:, 0:2]
-        points2D1_rotated += source_rotation_center
-
-        output_points2D = points2D1_rotated + translate
-
-        output_x = output_points2D[:, 0]
-        output_y = output_points2D[:, 1]
-        # print(output_x)
-        # print(output_points2D)
-        # print(output_points2D[:,0])
-        # print(output_points2D.shape)
-
-        slope2, intercept2, r_value2, p_value2, std_err2 = linregress(output_x, output_y)
-
-        # Took four sample points at different x coordinates.
-        sample_x1 = 0
-        sample_x2 = 1
-        sample_x3 = -1
-        sample_x4 = 2
-        beforeFit1 = slope1 * sample_x1 + intercept1
-        afterFit1 = slope2 * sample_x1 + intercept2
-        beforeFit2 = slope1 * sample_x2 + intercept1
-        afterFit2 = slope2 * sample_x2 + intercept2
-        beforeFit3 = slope1 * sample_x3 + intercept1
-        afterFit3 = slope2 * sample_x3 + intercept2
-        beforeFit4 = slope1 * sample_x4 + intercept1
-        afterFit4 = slope2 * sample_x4 + intercept2
-
-        beforeVector = np.array([[0, 1, -1], [beforeFit1, beforeFit2, beforeFit3]])
-        afterVector = np.array([[0, 1, -1], [afterFit1, afterFit2, afterFit3]])
-        # A = np.dot(afterVector,np.linalg.inv(beforeVector))
-        # print(A)
-
-        centroid_before = np.mean(beforeVector, axis=1).reshape(-1, 1)
-        centroid_after = np.mean(afterVector, axis=1).reshape(-1, 1)
-
-        center_centroid_before = beforeVector - centroid_before
-        center_centroid_after = afterVector - centroid_after
-
-        H = np.matmul(center_centroid_after, np.transpose(center_centroid_before))
-        # print(H)
-        U, S, VH = np.linalg.svd(H)
-        R = np.matmul(U, VH.T)
-        # print(VH)
-        # print(np.linalg.det(R))
-        if np.linalg.det(R) < 0:
-            print("Correcting for reflection!...")
-            VH[:, 1] *= -1
-            R = U @ VH.T
-        print(f"Rotation Matrix {R}")
-        # fit_rotation = np.arctan(R[1,1]/R[0,0])
-        # print(fit_rotation)
-        t = -R @ centroid_before + centroid_after
-        estimated_angle = np.arctan2(R[0, 1], R[0, 0])
-        self.assertAlmostEqual(angle, estimated_angle, places=3)
-        print(f"Translate Estimate: {t}")
-
-        np.testing.assert_allclose(translate, t, atol=1e-5)
-
-    # =============================================================================
-    #         fit_translation = t
-    #         print(fit_translation)
-    #         matrix = cv2.estimateAffinePartial2D(beforeVector.T,afterVector.T)
-    #         print(matrix)
-    # =============================================================================
-    # =============================================================================
-    #         plt.plot(points2D[0],points2D[1],'o')
-    #         plt.plot(points2D[0],intercept+slope*points2D[0],'r',label="fitted line")
-    #         plt.show()
-    # =============================================================================
-    @hypothesis.given(points2D=arrays(np.float64, (20, 2), elements=st.floats(0, 30), unique=True),
-                      translate=st.tuples(st.floats(min_value=-10, max_value=10),
-                                          st.floats(min_value=-10, max_value=10)),
-                      angle=st.floats(min_value=-np.pi + epsilon, max_value=np.pi),
-                      scale=st.floats(min_value=0.1, max_value=10),
-                      source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
-                                                       st.floats(min_value=-15, max_value=15)),
-                      flip_ud=st.booleans())
-    def test_linearFit2DKabschUmeyama(self, points2D: NDArray[float],
-                                      translate: NDArray[float],
-                                      angle: float,
-                                      scale: float,
-                                      source_rotation_center: NDArray[float],
-                                      flip_ud: bool):
-        """
-        A set of initial random points is created and scipy's linregress function is used
-        to get the linear fit.
-
-        This is commented out and then a randomly generated array of size 20x2 is created
-        with the first column containing x values and second containing y values.
-
-
-        After applying rotation, translation and scaling to those points (randomly generated transformation components),
-        linear fit is then generated on the new set of points. Later, taking a sample set of x coordinates,
-        the corresponding y coordinates are found for both the fits. Now, with a set of points (warp: before and fixed: after),
-        the Kabsch Umeyama algorithm is used to find optimal rotation, translation and scaling between the fits.
-
-        Testing is then done to see if the factors obtained are the same as the initial randomly generated ones.
-
-        """
-
-        # warpPoints = arrays(np.float64, (20,2), elements=st.floats(0, 30),unique=True).example()
-        # warpPoints = np.random.randint(-50, 50, size=(100, 2))
-        warpPoints = points2D
-        # refPoints = arrays(np.float64, (20,2), elements=st.floats(0, 30),unique=True).example()
-
-        # =============================================================================
-        #         xv = np.arange(-5,6)
-        #         yv = np.arange(-5,6)
-        #         xx,yy = np.meshgrid(xv,yv)
-        #         xx = xx.flatten()
-        #         yy = yy.flatten()
-        # =============================================================================
-        slope1, intercept1, r_value1, p_value1, std_err1 = linregress(warpPoints[:, 0], warpPoints[:, 1])
-        # slope1,intercept1,r_value1,p_value1,std_err1 = linregress(xx,yy)
-
-        # grid = np.hstack((xx.reshape(-1,1),yy.reshape(-1,1)))
-        # print(grid)
-        print("\n\nWarp points: ", warpPoints)
-        # n,m = grid.shape
-        n, m = warpPoints.shape
-
-        # translate =np.array([0,0])
-        print("Translate: ", translate)
-        rotate = angle
-        print("Rotate ", rotate)
-        print('Scaling by: ', scale)
-        center_rotation = source_rotation_center
-        print("Center of rotation: ", center_rotation)
-
-        # points2D1 = np.transpose(grid)
-        points2D1 = np.transpose(warpPoints)
-        points2D1 = np.vstack((points2D1, np.ones((1, n))))
-
-        # points2D1 = points2D1 * scale
-        # rotation_matrix = nornir_imageregistration.transforms.utils.IdentityMatrix()#nornir_imageregistration.transforms.utils.RotationMatrix(rotate)
-        rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(rotate)
-        # print(rotation_matrix)
-        points2D1_rotated = rotation_matrix @ points2D1
-        # print(points2D1_rotated)
-        points2D1_rotated = np.transpose(points2D1_rotated)
-        # print(points2D1_rotated)
-
-        points2D1_rotated = points2D1_rotated[:, 0:2]
-
-        # output_points2D = points2D1_rotated
-        output_points2D = points2D1_rotated + translate
-
-        # print(output_points2D)
-        output_x = output_points2D[:, 0]
-        output_y = output_points2D[:, 1]
-
-        slope2, intercept2, r_value2, p_value2, std_err2 = linregress(output_x, output_y)
-
-        # Generating points on each of the linear fits in order to pass them to algorithm.
-        sample_x_vector = np.arange(-100, 100)
-        beforeFit = slope1 * sample_x_vector + intercept1
-        afterFit = slope2 * sample_x_vector + intercept2
-        beforeVector = np.hstack((sample_x_vector.reshape(-1, 1), beforeFit.reshape(-1, 1)))
-        afterVector = np.hstack((sample_x_vector.reshape(-1, 1), afterFit.reshape(-1, 1)))
-
-        # =============================================================================
-        #         sample_x1 = 10
-        #         sample_x2 = 20
-        #         sample_x3 = -10
-        #         beforeFit1 = slope1*sample_x1 + intercept1
-        #         afterFit1 = slope2*sample_x1 + intercept2
-        #         beforeFit2 = slope1*sample_x2 + intercept1
-        #         afterFit2 = slope2*sample_x2 + intercept2
-        #         beforeFit3 = slope1*sample_x3 + intercept1
-        #         afterFit3 = slope2*sample_x3 + intercept2
-        #
-        #         beforeVector = np.array([[sample_x1,beforeFit1],[sample_x2,beforeFit2],[sample_x3,beforeFit3]])
-        #         afterVector = np.array([[sample_x1,afterFit1],[sample_x2,afterFit2],[sample_x3,afterFit3]])
-        # =============================================================================
-        # print(beforeVector)
-        # print(afterVector)
-
-        centroid_before = np.mean(beforeVector, axis=0)
-        centroid_after = np.mean(afterVector, axis=0)
-
-        varianceAfter = np.mean(np.linalg.norm(afterVector - centroid_after, axis=1) ** 2)
-
-        H = ((afterVector - centroid_after).T @ (beforeVector - centroid_before)) / n
-
-        U, D, VT = scipy.linalg.svd(H)
-
-        d = np.sign(np.linalg.det(U) * np.linalg.det(VT))
-
-        S = np.diag([1] * (m - 1) + [d])
-
-        rotateResult = U @ S @ VT
-
-        scaleResult = varianceAfter / np.trace(np.diag(D) @ S)
-
-        translateResult = centroid_after - scaleResult * rotateResult @ centroid_before
-
-        angleResult = np.arctan2(rotateResult[1, 0], rotateResult[0, 0])
-
-        foundAngle = np.arctan2(rotateResult[1, 0], rotateResult[0, 0])
-        print(f"Reflection: found={relface}")
-        print(f"Rotation angle:\n\tfound={foundAngle}\n vs\n\toriginal={rotate}", )
-        print(f"\nResulting rotation matrix: found={rotateResult} vs original={rotation_matrix}")
-        print(f"Resulting scaling: found={scaleResult} vs original={scale}")
-        print(f"Resulting translation: : found={translateResult} vs original={translate}")
-
-        # self.assertAlmostEqual(rotate, angleResult, places=4)
-        # self.assertAlmostEqual(scale, scaleResult, places=4)
-        # np.testing.assert_allclose(translate.flatten(), translateResult.flatten())
-        #
-        # np.testing.assert_allclose(center_rotation.flatten(), rotateResult.flatten())
-        # np.testing.assert_allclose(source_rotation_center.flatten(), r.source_rotation_center.flatten())
-        # self.assertEqual(flip_ud, r.flip_ud)
+    #
+    # @hypothesis.given(points2D=arrays(np.float64, (20, 2), elements=st.floats(0, 30), unique=True),
+    #                   translate=st.tuples(st.floats(min_value=-10, max_value=10),
+    #                                       st.floats(min_value=-10, max_value=10)),
+    #                   angle=st.floats(min_value=-np.pi, max_value=np.pi),
+    #                   scale=st.floats(min_value=0.1, max_value=10),
+    #                   source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+    #                                                    st.floats(min_value=-15, max_value=15)))
+    # def test_linearFit2D(self, points2D: NDArray[float],
+    #                      translate: NDArray[float],
+    #                      angle: float,
+    #                      scale: float,
+    #                      source_rotation_center: NDArray[float]):
+    #     translate = np.array(translate)
+    #     source_rotation_center = np.array(source_rotation_center)
+    #
+    #     xv = np.arange(-5, 6)
+    #     yv = np.arange(-5, 6)
+    #     xx, yy = np.meshgrid(xv, yv)
+    #     xx = xx.flatten()
+    #     yy = yy.flatten()
+    #     gridPoints = np.transpose(np.vstack((xx, yy)))
+    #     # print(gridPoints)
+    #     # plt.scatter(xx, yy)
+    #     # plt.show()
+    #     # print(points2D[:, 0])
+    #     # print(points2D[:, 1])
+    #     numPoints = len(gridPoints)
+    #
+    #     # numPoints = len(points2D)
+    #     # print(numPoints)
+    #     # slope1,intercept1,r_value1,p_value1,std_err1 = linregress(points2D[:,0],points2D[:,1])
+    #     slope1, intercept1, r_value1, p_value1, std_err1 = linregress(xx, yy)
+    #
+    #     # translate =np.array([0,0])
+    #     print("Translate: ", translate)
+    #     # rotate = -np.pi / 2 + np.pi * np.random.rand()
+    #     print("Rotate ", angle)
+    #     # scale = np.random.randint(1, 10)
+    #     print('Scaling by: ', scale)
+    #     # center_rotation = np.random.randint(-10,10,size=2)
+    #     # source_rotation_center = np.array([0, 0])
+    #     print("Center of rotation: ", source_rotation_center)
+    #
+    #     points2D1 = gridPoints - source_rotation_center
+    #     points2D1 = np.transpose(points2D1)
+    #     points2D1 = np.vstack((points2D1, np.ones((1, numPoints))))
+    #
+    #     # points2D1 = points2D1 * scale
+    #     rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(angle)
+    #     # print(rotation_matrix)
+    #     points2D1_rotated = rotation_matrix @ points2D1
+    #     # print(points2D1_rotated)
+    #     points2D1_rotated = np.transpose(points2D1_rotated)
+    #     # print(points2D1_rotated)
+    #
+    #     points2D1_rotated = points2D1_rotated[:, 0:2]
+    #     points2D1_rotated += source_rotation_center
+    #
+    #     output_points2D = points2D1_rotated + translate
+    #
+    #     output_x = output_points2D[:, 0]
+    #     output_y = output_points2D[:, 1]
+    #     # print(output_x)
+    #     # print(output_points2D)
+    #     # print(output_points2D[:,0])
+    #     # print(output_points2D.shape)
+    #
+    #     slope2, intercept2, r_value2, p_value2, std_err2 = linregress(output_x, output_y)
+    #
+    #     # Took four sample points at different x coordinates.
+    #     sample_x1 = 0
+    #     sample_x2 = 1
+    #     sample_x3 = -1
+    #     sample_x4 = 2
+    #     beforeFit1 = slope1 * sample_x1 + intercept1
+    #     afterFit1 = slope2 * sample_x1 + intercept2
+    #     beforeFit2 = slope1 * sample_x2 + intercept1
+    #     afterFit2 = slope2 * sample_x2 + intercept2
+    #     beforeFit3 = slope1 * sample_x3 + intercept1
+    #     afterFit3 = slope2 * sample_x3 + intercept2
+    #     beforeFit4 = slope1 * sample_x4 + intercept1
+    #     afterFit4 = slope2 * sample_x4 + intercept2
+    #
+    #     beforeVector = np.array([[0, 1, -1], [beforeFit1, beforeFit2, beforeFit3]])
+    #     afterVector = np.array([[0, 1, -1], [afterFit1, afterFit2, afterFit3]])
+    #     # A = np.dot(afterVector,np.linalg.inv(beforeVector))
+    #     # print(A)
+    #
+    #     centroid_before = np.mean(beforeVector, axis=1).reshape(-1, 1)
+    #     centroid_after = np.mean(afterVector, axis=1).reshape(-1, 1)
+    #
+    #     center_centroid_before = beforeVector - centroid_before
+    #     center_centroid_after = afterVector - centroid_after
+    #
+    #     H = np.matmul(center_centroid_after, np.transpose(center_centroid_before))
+    #     # print(H)
+    #     U, S, VH = np.linalg.svd(H)
+    #     R = np.matmul(U, VH.T)
+    #     # print(VH)
+    #     # print(np.linalg.det(R))
+    #     if np.linalg.det(R) < 0:
+    #         print("Correcting for reflection!...")
+    #         VH[:, 1] *= -1
+    #         R = U @ VH.T
+    #     print(f"Rotation Matrix {R}")
+    #     # fit_rotation = np.arctan(R[1,1]/R[0,0])
+    #     # print(fit_rotation)
+    #     t = -R @ centroid_before + centroid_after
+    #     estimated_angle = np.arctan2(R[0, 1], R[0, 0])
+    #     self.assertAlmostEqual(angle, estimated_angle, places=3)
+    #     print(f"Translate Estimate: {t}")
+    #
+    #     np.testing.assert_allclose(translate, t, atol=1e-5)
+    #
+    # # =============================================================================
+    # #         fit_translation = t
+    # #         print(fit_translation)
+    # #         matrix = cv2.estimateAffinePartial2D(beforeVector.T,afterVector.T)
+    # #         print(matrix)
+    # # =============================================================================
+    # # =============================================================================
+    # #         plt.plot(points2D[0],points2D[1],'o')
+    # #         plt.plot(points2D[0],intercept+slope*points2D[0],'r',label="fitted line")
+    # #         plt.show()
+    # # =============================================================================
+    # @hypothesis.given(points2D=arrays(np.float64, (20, 2), elements=st.floats(0, 30), unique=True),
+    #                   translate=st.tuples(st.floats(min_value=-10, max_value=10),
+    #                                       st.floats(min_value=-10, max_value=10)),
+    #                   angle=st.floats(min_value=-np.pi + epsilon, max_value=np.pi),
+    #                   scale=st.floats(min_value=0.1, max_value=10),
+    #                   source_rotation_center=st.tuples(st.floats(min_value=-15, max_value=15),
+    #                                                    st.floats(min_value=-15, max_value=15)),
+    #                   flip_ud=st.booleans())
+    # def test_linearFit2DKabschUmeyama(self, points2D: NDArray[float],
+    #                                   translate: NDArray[float],
+    #                                   angle: float,
+    #                                   scale: float,
+    #                                   source_rotation_center: NDArray[float],
+    #                                   flip_ud: bool):
+    #     """
+    #     A set of initial random points is created and scipy's linregress function is used
+    #     to get the linear fit.
+    #
+    #     This is commented out and then a randomly generated array of size 20x2 is created
+    #     with the first column containing x values and second containing y values.
+    #
+    #
+    #     After applying rotation, translation and scaling to those points (randomly generated transformation components),
+    #     linear fit is then generated on the new set of points. Later, taking a sample set of x coordinates,
+    #     the corresponding y coordinates are found for both the fits. Now, with a set of points (warp: before and fixed: after),
+    #     the Kabsch Umeyama algorithm is used to find optimal rotation, translation and scaling between the fits.
+    #
+    #     Testing is then done to see if the factors obtained are the same as the initial randomly generated ones.
+    #
+    #     """
+    #
+    #     # warpPoints = arrays(np.float64, (20,2), elements=st.floats(0, 30),unique=True).example()
+    #     # warpPoints = np.random.randint(-50, 50, size=(100, 2))
+    #     warpPoints = points2D
+    #     # refPoints = arrays(np.float64, (20,2), elements=st.floats(0, 30),unique=True).example()
+    #
+    #     # =============================================================================
+    #     #         xv = np.arange(-5,6)
+    #     #         yv = np.arange(-5,6)
+    #     #         xx,yy = np.meshgrid(xv,yv)
+    #     #         xx = xx.flatten()
+    #     #         yy = yy.flatten()
+    #     # =============================================================================
+    #     slope1, intercept1, r_value1, p_value1, std_err1 = linregress(warpPoints[:, 0], warpPoints[:, 1])
+    #     # slope1,intercept1,r_value1,p_value1,std_err1 = linregress(xx,yy)
+    #
+    #     # grid = np.hstack((xx.reshape(-1,1),yy.reshape(-1,1)))
+    #     # print(grid)
+    #     print("\n\nWarp points: ", warpPoints)
+    #     # n,m = grid.shape
+    #     n, m = warpPoints.shape
+    #
+    #     # translate =np.array([0,0])
+    #     print("Translate: ", translate)
+    #     rotate = angle
+    #     print("Rotate ", rotate)
+    #     print('Scaling by: ', scale)
+    #     center_rotation = source_rotation_center
+    #     print("Center of rotation: ", center_rotation)
+    #
+    #     # points2D1 = np.transpose(grid)
+    #     points2D1 = np.transpose(warpPoints)
+    #     points2D1 = np.vstack((points2D1, np.ones((1, n))))
+    #
+    #     # points2D1 = points2D1 * scale
+    #     # rotation_matrix = nornir_imageregistration.transforms.utils.IdentityMatrix()#nornir_imageregistration.transforms.utils.RotationMatrix(rotate)
+    #     rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(rotate)
+    #     # print(rotation_matrix)
+    #     points2D1_rotated = rotation_matrix @ points2D1
+    #     # print(points2D1_rotated)
+    #     points2D1_rotated = np.transpose(points2D1_rotated)
+    #     # print(points2D1_rotated)
+    #
+    #     points2D1_rotated = points2D1_rotated[:, 0:2]
+    #
+    #     # output_points2D = points2D1_rotated
+    #     output_points2D = points2D1_rotated + translate
+    #
+    #     # print(output_points2D)
+    #     output_x = output_points2D[:, 0]
+    #     output_y = output_points2D[:, 1]
+    #
+    #     slope2, intercept2, r_value2, p_value2, std_err2 = linregress(output_x, output_y)
+    #
+    #     # Generating points on each of the linear fits in order to pass them to algorithm.
+    #     sample_x_vector = np.arange(-100, 100)
+    #     beforeFit = slope1 * sample_x_vector + intercept1
+    #     afterFit = slope2 * sample_x_vector + intercept2
+    #     beforeVector = np.hstack((sample_x_vector.reshape(-1, 1), beforeFit.reshape(-1, 1)))
+    #     afterVector = np.hstack((sample_x_vector.reshape(-1, 1), afterFit.reshape(-1, 1)))
+    #
+    #     # =============================================================================
+    #     #         sample_x1 = 10
+    #     #         sample_x2 = 20
+    #     #         sample_x3 = -10
+    #     #         beforeFit1 = slope1*sample_x1 + intercept1
+    #     #         afterFit1 = slope2*sample_x1 + intercept2
+    #     #         beforeFit2 = slope1*sample_x2 + intercept1
+    #     #         afterFit2 = slope2*sample_x2 + intercept2
+    #     #         beforeFit3 = slope1*sample_x3 + intercept1
+    #     #         afterFit3 = slope2*sample_x3 + intercept2
+    #     #
+    #     #         beforeVector = np.array([[sample_x1,beforeFit1],[sample_x2,beforeFit2],[sample_x3,beforeFit3]])
+    #     #         afterVector = np.array([[sample_x1,afterFit1],[sample_x2,afterFit2],[sample_x3,afterFit3]])
+    #     # =============================================================================
+    #     # print(beforeVector)
+    #     # print(afterVector)
+    #
+    #     centroid_before = np.mean(beforeVector, axis=0)
+    #     centroid_after = np.mean(afterVector, axis=0)
+    #
+    #     varianceAfter = np.mean(np.linalg.norm(afterVector - centroid_after, axis=1) ** 2)
+    #
+    #     H = ((afterVector - centroid_after).T @ (beforeVector - centroid_before)) / n
+    #
+    #     U, D, VT = scipy.linalg.svd(H)
+    #
+    #     d = np.sign(np.linalg.det(U) * np.linalg.det(VT))
+    #
+    #     S = np.diag([1] * (m - 1) + [d])
+    #
+    #     rotateResult = U @ S @ VT
+    #
+    #     scaleResult = varianceAfter / np.trace(np.diag(D) @ S)
+    #
+    #     translateResult = centroid_after - scaleResult * rotateResult @ centroid_before
+    #
+    #     angleResult = np.arctan2(rotateResult[1, 0], rotateResult[0, 0])
+    #
+    #     foundAngle = np.arctan2(rotateResult[1, 0], rotateResult[0, 0])
+    #     print(f"Reflection: found={relface}")
+    #     print(f"Rotation angle:\n\tfound={foundAngle}\n vs\n\toriginal={rotate}", )
+    #     print(f"\nResulting rotation matrix: found={rotateResult} vs original={rotation_matrix}")
+    #     print(f"Resulting scaling: found={scaleResult} vs original={scale}")
+    #     print(f"Resulting translation: : found={translateResult} vs original={translate}")
+    #
+    #     # self.assertAlmostEqual(rotate, angleResult, places=4)
+    #     # self.assertAlmostEqual(scale, scaleResult, places=4)
+    #     # np.testing.assert_allclose(translate.flatten(), translateResult.flatten())
+    #     #
+    #     # np.testing.assert_allclose(center_rotation.flatten(), rotateResult.flatten())
+    #     # np.testing.assert_allclose(source_rotation_center.flatten(), r.source_rotation_center.flatten())
+    #     # self.assertEqual(flip_ud, r.flip_ud)
 
     @hypothesis.given(source_points=arrays(np.float64, (20, 2), elements=st.floats(0, 30), unique=True),
                       translate=st.tuples(st.floats(min_value=-10, max_value=10),

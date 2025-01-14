@@ -169,17 +169,23 @@ class TestGridFitting(unittest.TestCase):
         # print(output_points2D_OneLine)
         # =============================================================================
         # Obtaining the rotation, scaling and translation factors back from the new grid and our original grid.
-        calc_source_rotate_center, calc_rotate, calc_scale, calc_translate, calc_flipped = nornir_imageregistration.transforms.converters._kabsch_umeyama(
+        components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
             output_points2D, points_array)
 
-        calc_rotate_angle = np.arctan2(calc_rotate[0, 1], calc_rotate[0, 0])
-        calc_rotate_angle = np.mod(calc_rotate_angle, tau)
-        # calc_rotate_angle = np.arcsin(calc_rotate[0, 1])
+        calc_source_rotate_center = components.source_rotation_center
+        calc_rotate_angle = components.angle
+        calc_scale = components.scale
+        calc_translate = components.translation
+        calc_flipped = components.reflected
+        #
         # calc_rotate_angle = np.arctan2(calc_rotate[0, 1], calc_rotate[0, 0])
-        if calc_rotate_angle < np.pi:
-            calc_rotate_angle += tau
-        if calc_rotate_angle > np.pi:
-            calc_rotate_angle -= tau
+        # calc_rotate_angle = np.mod(calc_rotate_angle, tau)
+        # # calc_rotate_angle = np.arcsin(calc_rotate[0, 1])
+        # # calc_rotate_angle = np.arctan2(calc_rotate[0, 1], calc_rotate[0, 0])
+        # if calc_rotate_angle < np.pi:
+        #     calc_rotate_angle += tau
+        # if calc_rotate_angle > np.pi:
+        #     calc_rotate_angle -= tau
 
         translate_output = np.squeeze(calc_translate)
 
@@ -199,12 +205,12 @@ class TestGridFitting(unittest.TestCase):
                 hypothesis.event('more than 25 points')
 
             hypothesis.note(f'Flipped U/D: {flip_ud} -> {calc_flipped}')
-            hypothesis.note(f'Rotation Angle {rangle} -> {calc_rotate} -> {calc_rotate_angle}')
+            hypothesis.note(f'Rotation Angle {rangle} -> {calc_rotate_angle}')
             hypothesis.note(f'Scale: {scale} -> {calc_scale}')
             hypothesis.note(f'Translation: {t} -> {translate_output}')
             hypothesis.note(f'Src Rot Center: {np.mean(points_array, 0)} -> {calc_source_rotate_center}')
         else:
-            print(f'Rotation Angle {rangle} -> {calc_rotate} -> {calc_rotate_angle}')
+            print(f'Rotation Angle {rangle} -> {calc_rotate_angle}')
             print(f'Scale: {scale} -> {calc_scale}')
             print(f'Translation: {t} -> {translate_output}')
 

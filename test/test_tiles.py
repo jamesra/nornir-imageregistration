@@ -8,7 +8,11 @@ import unittest
 
 import nornir_imageregistration as nir
 import nornir_imageregistration.tileset as tiles
-from . import setup_imagetest
+
+try:
+    import setup_imagetest
+except (ImportError, ModuleNotFoundError):
+    from . import setup_imagetest
 
 
 class TestTiles(setup_imagetest.ImageTestBase):
