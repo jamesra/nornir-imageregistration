@@ -26,6 +26,7 @@ try:
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
+    import scipy.fftpack as fftpack  # Cursory internet research suggested Scipy was faster at this time.  Untested.
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
