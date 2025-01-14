@@ -7,7 +7,6 @@ This module performs local distortions of images to refine alignments of mosaics
 """
 import os
 from typing import Iterable, Sequence
-import math
 
 import numpy as np
 import scipy.spatial
@@ -503,10 +502,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             for item in finalized_points.items():
                 combined_records_this_pass[item[0]] = item[1]
 
-            print(
-                f'Building transform for next round with {len(included_alignment_records)} points and {len(finalized_points)} finalized points')
-            updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                AlignRecordsToControlPoints(combined_records_this_pass.values()))
+            if len(combined_records_this_pass) > 2:
+                print(
+                    f'Building transform for next round with {len(included_alignment_records)} points and {len(finalized_points)} finalized points')
+                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                    AlignRecordsToControlPoints(combined_records_this_pass.values()))
 
         if SaveImages:
             # InputStos.Save(os.path.join(outputDir, "UpdatedTransform_pass{0}.stos".format(i)))
@@ -671,8 +671,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     nPoints = len(keys)
 
-    pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
-    # pool = nornir_pools.GetGlobalThreadPool()
+    # pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
+    pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
 
@@ -1181,7 +1181,7 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
         #         f"Rigid transform failed to align point: Expected {target_points[0]} got {test_target_point}")
 
         output_transforms.append(rigid_transform)
-  
+
     return output_transforms
 
 
