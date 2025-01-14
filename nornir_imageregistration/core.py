@@ -656,7 +656,8 @@ def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: i
         cropped = xp.ones((Height, Width), dtype=image.dtype)
     else:
         cropped = xp.ones((Height, Width), dtype=image.dtype) * cval
-        if cropped.dtype != image.dtype:
+        cropped = cropped.astype(image.dtype, copy=False)
+        if not (cropped.dtype == image.dtype):  # For some reason != operator returns an incorrect answer, but == works
             raise ValueError(f"cval (={cval}) changed the dtype of the input")
 
     cropped[out_startY:out_endY, out_startX:out_endX] = image[in_startY:in_endY, in_startX:in_endX]
