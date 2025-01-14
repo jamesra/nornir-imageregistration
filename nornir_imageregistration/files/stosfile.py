@@ -47,11 +47,11 @@ class StosFile(object):
         return stosObj.Checksum
 
     @property
-    def transform(self):
+    def Transform(self):
         return self._Transform
 
-    @transform.setter
-    def transform(self, val: str | nornir_imageregistration.transforms.ITransform | None):
+    @Transform.setter
+    def Transform(self, val: str | nornir_imageregistration.transforms.ITransform | None):
         if val is None:
             self._Transform = None
             return
