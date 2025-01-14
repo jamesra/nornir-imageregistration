@@ -115,6 +115,10 @@ class ImageStats:
 
         obj = ImageStats()
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
+
+        if image.shape[0] == 0:
+            raise ValueError("Image has no data")
+
         # if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results
         #    image = image.astype(dtype=numpy.float64)
 
@@ -557,7 +561,8 @@ def __HistogramFileSciPy__(filename: str,
         Im = np.asarray(img_I)
         # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
 
-    return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale, min_val=MinVal, max_val=MaxVal)
+    return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale, min_val=MinVal,
+                            max_val=MaxVal)
 
 
 def HistogramOfArray(input: NDArray,
