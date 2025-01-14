@@ -1,8 +1,8 @@
-'''
+"""
 Created on Feb 21, 2014
 
 @author: u0490822
-'''
+"""
 
 from typing import Tuple
 
@@ -15,15 +15,16 @@ from nornir_shared import prettyoutput
 
 
 class Tile:
-    '''
+    """
     A combination of a transform and a path to an image on disk.  Image will be loaded on demand.
     When serialized with __getstate__ the image and any large data objects will not be serialized
     to facilitate marshaling the object to another processs in an efficient manner.
-     
-    '''
+
+    """
 
     __nextID: int = 0  # Next generated unique ID for a tile
     _ID: int  # Unique identifier for the tile
+    _transform: nornir_imageregistration.ITransformTranslation  # The transform for the tile
     _source_bounding_box: nornir_imageregistration.Rectangle | None
     _target_bounding_box: nornir_imageregistration.Rectangle | None
     _transform: nornir_imageregistration.ITransform  # The transform for the tile
@@ -35,12 +36,12 @@ class Tile:
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
 
     def TryEstimateImageToSourceSpaceScalar(self):
-        '''
+        """
         Calculate image_to_source_space_scale if it was not passed.
-        TODO: This may be a function that is no longer needed or should 
+        TODO: This may be a function that is no longer needed or should
         not exist with the refactor of tile and mosaic_tileset.  Probably
         better to require passing image_to_source_space in constructor
-        '''
+        """
         t_dim = self.SourceSpaceBoundingBox.Dimensions
         i_dim = self.ImageSize
 
@@ -56,10 +57,10 @@ class Tile:
 
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        '''
+        """
         The bounding rectangle of the source space mapped area.
         Limited to the full-resolution image dimensions if it is a continuous transform
-        '''
+        """
         if self._source_bounding_box is None:
             self._source_bounding_box = self._GetOrCalculateSourceBoundingBox()
 
@@ -67,10 +68,10 @@ class Tile:
 
     @property
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        '''
+        """
         The bounding rectangle of the target space mapped area.
         Limited to the full-resolution image dimensions if it is a continuous transform
-        '''
+        """
         if self._target_bounding_box is None:
             self._target_bounding_box = self._GetOrCalculateTargetBoundingBox()
 
@@ -97,13 +98,13 @@ class Tile:
                 dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
 
     @property
-    def Transform(self) -> nornir_imageregistration.ITransform:
-        '''A string encoding our tile's transform'''
+    def Transform(self) -> nornir_imageregistration.ITransformTranslation:
+        """A string encoding our tile's transform"""
         return self._transform
 
     @Transform.setter
-    def Transform(self, val: nornir_imageregistration.ITransform):
-        '''A string encoding our tile's transform'''
+    def Transform(self, val: nornir_imageregistration.ITransformTranslation):
+        """A string encoding our tile's transform"""
         self._transform = val
         # Reset the bounding box of the target and source space
         self._target_bounding_box = None
@@ -123,10 +124,10 @@ class Tile:
 
     @property
     def ImageSize(self) -> NDArray[np.floating]:
-        '''
+        """
         Size of the image.  It may not match the dimensions of the Source Space
         if the image is downsampled.  Use image_to_source_space_scale to correct.
-        '''
+        """
 
         if self._image_size is None:
             if self._image is None:
@@ -147,10 +148,10 @@ class Tile:
 
     @property
     def ImagePath(self) -> str:
-        '''
+        """
         Path to the image data on disk.  This should be populated, but is rarely
         None for some unit tests if an image array is passed to the constructor
-        '''
+        """
         return self._imagepath
 
     @property
@@ -164,7 +165,7 @@ class Tile:
         raise NotImplementedError()
 
     def Assemble(self, distanceImage=None, target_space_scale=None, TargetRegion=None, SingleThreadedInvoke=False):
-        '''Returns the source image tranformed into the target space'''
+        """Returns the source image tranformed into the target space"""
         if TargetRegion is None:
             TargetRegion = self.TargetSpaceBoundingBox
 
@@ -181,12 +182,12 @@ class Tile:
     def __str__(self):
         return f"{self.ID} : {self.ImagePath}"
 
-    def TranslateTargetSpace(self, offset):
-        '''
+    def TranslateTargetSpace(self, offset: NDArray):
+        """
         Adjust our target space coordinates by the provided offset.
         Often used to adjust a set of tiles so the target space bounding box has
         an origin at (0,0) for image generation
-        '''
+        """
 
         self.Transform.TranslateFixed(offset)
         if self._target_bounding_box is not None:
@@ -194,15 +195,15 @@ class Tile:
 
     def Get_Overlapping_Source_Rect(self,
                                     overlapping_target_rect: nornir_imageregistration.Rectangle) -> nornir_imageregistration.Rectangle:
-        ''':return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space'''
+        """:return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space"""
         source_space_points = self.Transform.InverseTransform(overlapping_target_rect.Corners)
         return nornir_imageregistration.BoundingPrimitiveFromPoints(source_space_points)
 
     def _GetOrCalculateSourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        '''
+        """
         Returns the bounding rectangle of the source space mapped area.
         Limited to the full-resolution image dimensions if it is a continuous transform
-        '''
+        """
         if isinstance(self.Transform, IDiscreteTransform):
             return self._transform.MappedBoundingBox
 
@@ -211,10 +212,10 @@ class Tile:
         return nornir_imageregistration.Rectangle.CreateFromPointAndArea((0, 0), adjusted_image_size)
 
     def _GetOrCalculateTargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        '''
+        """
         Returns the bounding rectangle of the target space mapped area.
         Limited to the full-resolution image dimensions if it is a continuous transform
-        '''
+        """
         if isinstance(self.Transform, IDiscreteTransform):
             return self._transform.FixedBoundingBox
 
@@ -247,13 +248,13 @@ class Tile:
                  imagepath: str | NDArray,
                  image_to_source_space_scale: float,
                  ID: int | None):
-        '''
+        """
         :param transform: The transform object
         :param imagepath: Full path to the image to be transformed.  This can also be an ndarray for testing purposes, but the tile will not marshall across process boundaries.
         :param float image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
         4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
-        '''
+        """
 
         if transform is None:
             raise ValueError("transform is None")
