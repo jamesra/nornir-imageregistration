@@ -9,7 +9,11 @@ import numpy as np
 
 import nornir_imageregistration
 import nornir_imageregistration.overlapmasking
-from . import setup_imagetest
+
+try:
+    from . import setup_imagetest
+except (ImportError, ModuleNotFoundError):
+    import setup_imagetest
 
 
 class TestOverlapMask(setup_imagetest.ImageTestBase):

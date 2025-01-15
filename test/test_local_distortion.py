@@ -1,8 +1,8 @@
-'''
+"""
 Created on Sep 26, 2018
 
 @author: u0490822
-'''
+"""
 import os
 import os.path
 import unittest
@@ -229,11 +229,11 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
         """
         This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
         """
-    
+
         # Do not stress about this test until you verify the input transform was
         # not affected by the grid transform saving bug and that it is a valid
         # starting point
-    
+
         # self.TestName = "StosRefinementRC2_617"
         # stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
         #                                     "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
@@ -292,9 +292,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
     def RunStosRefinement(self, stosFilePath: str, ImageDir: str | None = None, SaveImages: bool = False,
                           SavePlots: bool = True):
-        '''
+        """
         This is a test for the refine mosaic feature which is not fully implemented
-        '''
+        """
         use_cache = False
 
         # stosFile = self.GetStosFile("0164-0162_brute_32")
@@ -628,9 +628,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
         return t.Transform(points)
 
     def testTransformReductionToRigidTransform(self):
-        '''
+        """
         Takes the control points of a transform and converts each point to a rigid transform that approximates the offset and angle centered at that point
-        '''
+        """
 
         # A set of control points offset by (10,10)
         InitialTargetPoints = np.asarray([[0, 0],
@@ -668,9 +668,9 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
         return
 
     def testAlignmentRecordsToTransforms(self):
-        '''
+        """
         Converts a set of alignment records into a transform
-        '''
+        """
 
         # A set of control points offset by (10,10)
         InitialTransformPoints = [[0, 0, 10, 10],

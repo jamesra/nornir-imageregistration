@@ -1,9 +1,9 @@
 import numpy as np
 
 try:
-    from . import create_gradient_image, create_nested_squares_image
+    from imageutilities import create_gradient_image, create_nested_squares_image
 except ImportError:
-    from test import create_gradient_image, create_nested_squares_image
+    from .imageutilities import create_gradient_image, create_nested_squares_image
 
 import nornir_imageregistration
 from nornir_imageregistration import assemble as assemble

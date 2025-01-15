@@ -15,7 +15,7 @@ import numpy as np
 import nornir_shared.histogram
 import nornir_shared.plot
 from nornir_shared.tasktimer import TaskTimer
-import mosaic_tileset
+from nornir_imageregistration import mosaic_tileset
 import nornir_pools
 import nornir_imageregistration
 from nornir_imageregistration import Mosaic

@@ -648,9 +648,15 @@ class TestLinearFit(unittest.TestCase):
 
         TransformCheck(self, transform_similar, source_point_array, target_point_array)
 
-        r = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
-            source_points=source_point_array,
-            target_points=target_point_array)
+        try:
+            r = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
+                source_points=source_point_array,
+                target_points=target_point_array)
+        except ValueError as e:
+            if 'colinear' in str(e).lower():
+                hypothesis.note("Colinear points detected")
+                return
+            raise
 
         self.assertAlmostEqual(r_angle, r.angle, places=4)
         np.testing.assert_allclose(target_offset.flatten(), r.translation.flatten())

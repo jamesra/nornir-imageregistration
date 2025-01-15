@@ -2,7 +2,11 @@ import os
 import unittest
 
 import nornir_imageregistration
-from test.setup_imagetest import TestBase
+
+try:
+    from test.setup_imagetest import TestBase
+except (ImportError, ModuleNotFoundError):
+    from .setup_imagetest import TestBase
 
 import nornir_imageregistration
 
