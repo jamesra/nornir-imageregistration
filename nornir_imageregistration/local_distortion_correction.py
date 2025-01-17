@@ -671,8 +671,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     nPoints = len(keys)
 
-    # pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
-    pool = nornir_pools.GetGlobalThreadPool()
+    pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
+    # pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
 
