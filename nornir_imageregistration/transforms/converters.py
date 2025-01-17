@@ -182,7 +182,7 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     estimated_angle = euler_angles[2]
 
     # Ensure the angle is in the range of -pi to pi
-    if estimated_angle <= -xp.pi:
+    if estimated_angle <= -xp.pi or xp.isclose(estimated_angle, -xp.pi, atol=1e-10):
         estimated_angle += xp.pi * 2
 
     ###################################################################################
@@ -199,7 +199,7 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     # points and determine translation
     ###################################################################################
 
-    rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(estimated_angle)
+    # rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(estimated_angle)
 
     estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
         target_offset=xp.zeros((2,)),
