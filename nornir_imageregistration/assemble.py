@@ -338,7 +338,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     try:
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,
                                                   filtered_source_coords.transpose(),
-                                                  mode='grid-constant',
+                                                  mode='constant',
                                                   order=order,
                                                   cval=cval,
                                                   prefilter=True).astype(original_dtype, copy=False)
