@@ -561,8 +561,8 @@ class Layout(object):
         :return: A tuple with the (min,max) weight values of offsets in the layout
         """
 
-        maxWeight = np.NaN
-        minWeight = np.NaN
+        maxWeight = np.nan
+        minWeight = np.nan
 
         first = True
         for node in self._nodes.values():
@@ -958,8 +958,8 @@ def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_we
 
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] = node.OffsetArray[:,
                                                             LayoutPosition.iOffsetWeight] / maxWeight
-        assert (np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= 0))
-        assert (np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= 1.0))
+        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= 0))
+        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= 1.0))
 
     return
 

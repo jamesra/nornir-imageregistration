@@ -24,11 +24,12 @@ def _get_pointset_crossproducts(points: NDArray[np.floating]) -> NDArray[np.floa
         raise ValueError("Need at least 3 control points to determine if flipped")
 
     # Calculate vectors
-    vectors = xp.diff(points, axis=0)  # Only need 2 vectors for crossproduct
-
+    # vectors = xp.diff(points, axis=0, append=np.array([points[0, :]]))  # need 2 vectors for crossproduct
+    vectors = xp.diff(points, axis=0)
     # Grid transforms in particular have may colinear points.  So we start our search for a non-zero cross product
     # at the end of the list, and continue until we have two non-zero cross products
-    cross_products = xp.cross(vectors[0], vectors[1:])
+    vectors_3d = np.hstack((vectors, np.zeros((vectors.shape[0], 1))))
+    cross_products = xp.cross(vectors_3d[0], vectors_3d[1:])
 
     return cross_products
 
@@ -94,6 +95,9 @@ def calculate_control_points_relationship(source_points: NDArray[np.floating],
     source_crosses[xp.isclose(source_crosses, 0)] = 0
     target_crosses[xp.isclose(target_crosses, 0)] = 0
 
+    if xp.allclose(source_crosses, 0, atol=1e-10) or xp.allclose(target_crosses, 0, atol=1e-10):
+        return ControlPointRelation.COLINEAR
+
     non_zero_crosses = xp.logical_and(source_crosses != 0, target_crosses != 0)
 
     source_cross_signs = xp.sign(source_crosses[non_zero_crosses])
@@ -102,8 +106,8 @@ def calculate_control_points_relationship(source_points: NDArray[np.floating],
     # Check how many cross products have matching signs
     sign_comparisons = source_cross_signs == target_cross_signs
     num_matching_signs = xp.sum(sign_comparisons)
-    if num_matching_signs == 0:
-        return ControlPointRelation.COLINEAR
+    # if num_matching_signs == 0:
+    #    return ControlPointRelation.COLINEAR
 
     if num_matching_signs < sign_comparisons.shape[0] / 2:
         return ControlPointRelation.FLIPPED
