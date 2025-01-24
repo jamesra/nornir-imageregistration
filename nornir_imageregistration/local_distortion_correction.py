@@ -257,6 +257,32 @@ def SplitDisplacements(A, B, point_pairs):
     raise NotImplementedError()
 
 
+def estimate_cutoff(records: NDArray[float]) -> tuple[int, float]:
+    """
+    :param records: A list of records to estimate the cutoff for.  Finds the inflection point with the highest x
+    value.  Then finds the percentile higher than that with the largest cross product, which is the furthest point
+    from a line drawn from the min to max values.  This is where the values tend to begin increasing rapidly
+    indicating that registrations are successful.
+    :return: The index of the cutoff and the value at the cutoff
+    """
+    percentile = np.linspace(0, 100, 101)
+    percentile_values = np.percentile(records, percentile)
+
+    # Add a polyfit to the linear line
+    degree = 5
+    coefficients = np.polyfit(percentile, percentile_values, degree)
+    # Generate the polynomial function from the coefficients
+    polynomial = np.poly1d(coefficients)
+    y_fit = polynomial(percentile)
+
+    inflection_points = nornir_imageregistration.views.alignment_records.find_inflection_points(percentile, y_fit)
+    highest_inflection_point = int(inflection_points[-1])
+    cross_products = nornir_imageregistration.views.alignment_records.find_maximum_deviation(records=percentile_values)
+    cutoff_percentile_index = np.argmin(cross_products[highest_inflection_point:, 1]) + highest_inflection_point
+
+    return cutoff_percentile_index, percentile_values[cutoff_percentile_index], y_fit
+
+
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    OutputStosPath: str,
                    num_iterations: int | None = None,
@@ -368,20 +394,27 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
     FirstPassWeightScoreCutoff = None
     FirstPassCompositeScoreCutoff = None
-    FirstPassFinalizeValue = None  # The score required to finalize a control point on the first pass.
+    # FirstPassFinalizeValue = None  # The score required to finalize a control point on the first pass.
     # The first score is recorded to prevent the best scores from being finalized and then later
     # groups of poor scores looking falsely good because the correct registrations are all finalized
     first_pass_weight_distance_composite_scores = None
 
-    transform_inclusion_percentile = 33.3  # - (CutoffPercentilePerIteration * i)
-    transform_inclusion_range = 20.0
-    finalize_percentile = 66.6
-    finalize_range = 46.6
+    # transform_inclusion_percentile = 66  # - (CutoffPercentilePerIteration * i)
+    # transform_inclusion_range = 20.0
+    # finalize_percentile = 80
+    # finalize_range = 46.6
     updatedTransform = None  # type: nornir_imageregistration.ITransform | None
 
     i = 1
 
+    finalize_ema = nornir_imageregistration.mathfuncs.EMA(3, 2)  # Track the cutoff values over the last three passes
+    cutoff_ema = nornir_imageregistration.mathfuncs.EMA(3, 2)
+    first_cutoff = None  # The first cutoff value, we use this to decide which points make it into the final transform
+
     while i <= settings.num_iterations:
+        if i == settings.num_iterations:
+            final_pass = True
+
         alignment_points = _RefineGridPointsForTwoImages(stosTransform,
                                                          settings=settings,
                                                          finalized=finalized_points)
@@ -395,32 +428,50 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # What fraction of the maximum number of iterations have been completed?
         adjustment_scalar = (i - 1) / settings.num_iterations
 
-        transform_inclusion_percentile_this_pass = transform_inclusion_percentile
-        if adjustment_scalar != 0:
-            transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
+        # transform_inclusion_percentile_this_pass = transform_inclusion_percentile
+        # if adjustment_scalar != 0:
+        #     transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
+        #
+        # transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0,
+        #                                                          100.0))  # This is a float, so don't bother with out parameter
+        #
+        # transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],
+        #                                            # Do not include finalize points because they have a distance of zero which throws off the composite scores
+        #                                            transform_inclusion_percentile_this_pass)
 
-        transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0,
-                                                                 100.0))  # This is a float, so don't bother with out parameter
+        # finalize_percentile_this_pass = finalize_percentile
+        # if adjustment_scalar != 0:
+        #     finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
+        #
+        # finalize_percentile_this_pass = float(
+        #     np.clip(finalize_percentile_this_pass, 10.0, 100.0))  # This is a float, so don't bother with out parameter
+        #
+        # finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
+        #                                           finalize_percentile_this_pass)
 
-        transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],
-                                                   # Do not include finalize points because they have a distance of zero which throws off the composite scores
-                                                   100.0 - transform_inclusion_percentile_this_pass)
+        cutoff_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
+            updated_and_finalized_weights_distance[:, 0])
+        cutoff_ema.add(cutoff_value_this_pass)
+        cutoff_value = cutoff_ema.ema_value
 
-        finalize_percentile_this_pass = finalize_percentile
-        if adjustment_scalar != 0:
-            finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
+        if first_cutoff is None:
+            first_cutoff = cutoff_value_this_pass
 
-        finalize_percentile_this_pass = float(
-            np.clip(finalize_percentile_this_pass, 10.0, 100.0))  # This is a float, so don't bother with out parameter
+        prettyoutput.Log(
+            f'#######\n' +
+            f'Transform inclusion cutoff this pass: {cutoff_percentile}% -> {cutoff_value_this_pass}\n' +
+            f'Exponential Moving Average transform inclusion cutoff: {cutoff_value}\n')
 
-        finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
-                                                  finalize_percentile_this_pass)
+        # finalize_percentile_this_pass = ((100 - cutoff_percentile) / 2.0) + cutoff_percentile
+
+        if final_pass:
+            cutoff_value = first_cutoff
 
         (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
             alignment_points,
             AlignRecordsToControlPoints(finalized_points.values()),
-            percentile=transform_inclusion_percentile_this_pass,
-            cutoff=transform_cutoff_this_pass)
+            percentile=cutoff_percentile,
+            cutoff=cutoff_value)
 
         # if FirstPassCompositeScoreCutoff is None:
         #    FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2], 100.0 - percentile)
@@ -431,23 +482,36 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # fraction = i / (settings.num_iterations - 1)
         # FirstPassFinalizeValue - (cutoff_range * fraction)
 
-        prettyoutput.Log(
-            f'Finalize cutoff this pass: {finalize_percentile_this_pass * 100}% -> {finalize_cutoff_this_pass}')
+        finalize_percentile_this_pass = ((100 - cutoff_percentile) / 2.0) + cutoff_percentile
+        finalize_cutoff_this_pass = np.percentile(polyfit_weights,
+                                                  finalize_percentile_this_pass)
+        finalize_ema.add(finalize_cutoff_this_pass)
+        # finalize_cutoff = finalize_ema.ema_value
+        # finalize_cutoff = finalize_cutoff_this_pass
+        finalize_cutoff = cutoff_value_this_pass
 
-        new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
-                                                                     percentile=finalize_percentile_this_pass,
-                                                                     max_travel_distance=settings.max_travel_for_finalization,
-                                                                     weight_cutoff=finalize_cutoff_this_pass)
+        if i != 0:
+            prettyoutput.Log(
+                f'Finalize cutoff this pass: {finalize_percentile_this_pass}% -> {finalize_cutoff_this_pass}\n' +
+                f'Finalize Exponential Moving Average Cutoff calculated: {finalize_cutoff}\n#####\n')
 
-        if FirstPassFinalizeValue is None:
-            FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0],
-                                                   finalize_percentile_this_pass)
+            new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
+                                                                         percentile=finalize_percentile_this_pass / 100.0,
+                                                                         max_travel_distance=settings.max_travel_for_finalization,
+                                                                         weight_cutoff=finalize_cutoff)
+            new_finalized_alignments_list = list(
+                filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+        else:
+            new_finalized_points = np.empty(())
+            new_finalized_alignments_list = []
+
+        # if FirstPassFinalizeValue is None:
+        #     FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0],
+        #                                            finalize_percentile_this_pass)
 
         if first_pass_weight_distance_composite_scores is None:
             first_pass_weight_distance_composite_scores = weight_distance_composite_scores
 
-        new_finalized_alignments_list = list(
-            filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
         new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
         new_finalization_count = len(new_finalized_alignments_dict)
 
@@ -475,16 +539,23 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             f"  Improved {len(improved_alignments)} finalized points using latest transform")
 
         if SavePlots:
-            # plot_percentile_estimates(weight_distance_composite_scores[:,0])
+            percentile_filename = os.path.join(outputDir, f'percentile_pass{i}.svg')
+            nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
+                                                            percentile_filename,
+                                                            title=f"Value at percentile",
+                                                            horz_line_pos_list=[cutoff_value_this_pass,
+                                                                                finalize_cutoff_this_pass, cutoff_value,
+                                                                                finalize_cutoff])
 
-            histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.png')
+            histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.svg')
             nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
-                                                               transform_cutoff=transform_inclusion_percentile_this_pass / 100.0,
+                                                               transform_cutoff=cutoff_percentile / 100.0,
                                                                finalize_cutoff=finalize_percentile_this_pass / 100.0,
-                                                               line_pos_list=[finalize_cutoff_this_pass],
+                                                               line_pos_list=[cutoff_value_this_pass,
+                                                                              finalize_cutoff_this_pass],
                                                                title=f"Histogram of Weights, pass #{i}")
 
-            vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.png')
+            vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.svg')
             nornir_imageregistration.views.PlotPeakList(non_final_alignment_points, list(finalized_points.values()),
                                                         vector_field_filename,
                                                         ylim=(0, settings.target_image.shape[1]),
@@ -862,7 +933,7 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
     if cutoff is None:
         cutoff = np.max(composite_score)
         if percentile is not None:
-            cutoff = np.percentile(composite_score, 100.0 - percentile)
+            cutoff = np.percentile(composite_score, percentile)
 
     valid_indicies = composite_score <= cutoff
 
@@ -957,41 +1028,6 @@ def AlignmentRecordsToDict(alignment_records: AlignmentRecordList):
     return lookup
 
 
-def plot_percentile_estimates(input_data: np.typing.NDArray, output_path: str | None, dpi: int | None):
-    import matplotlib.pyplot as plt
-
-    p = np.linspace(0, 100, 6001)
-    ax = plt.gca()
-    lines = [
-        ('linear', '-', 'C0'),
-        ('inverted_cdf', ':', 'C1'),
-        # Almost the same as `inverted_cdf`:
-        ('averaged_inverted_cdf', '-.', 'C1'),
-        ('closest_observation', ':', 'C2'),
-        ('interpolated_inverted_cdf', '--', 'C1'),
-        ('hazen', '--', 'C3'),
-        ('weibull', '-.', 'C4'),
-        ('median_unbiased', '--', 'C5'),
-        ('normal_unbiased', '-.', 'C6'),
-    ]
-    for method, style, color in lines:
-        ax.plot(
-            p, np.percentile(input_data, p, method=method),
-            label=method, linestyle=style, color=color)
-    ax.set(
-        title='Percentiles for different methods and data',
-        xlabel='Percentile',
-        ylabel='Estimated percentile value')
-    ax.legend()
-
-    if output_path is not None:
-        # plt.show() 
-        plt.savefig(output_path, bbox_inches='tight', dpi=dpi)
-        plt.close()
-    else:
-        plt.show()
-
-
 def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList,
                                           percentile: float = 0.5, max_travel_distance: float = 1.0,
                                           weight_cutoff: float | None = None) -> NDArray[np.bool_]:
@@ -1027,8 +1063,6 @@ an be offset before it is not eligible for finalization
 
     valid_weight = weights_distance[:, 0] >= weight_cutoff
     valid_distance = weights_distance[:, 1] <= max_travel_distance
-
-    # plot_percentile_estimates(weights_distance[:,0])
 
     finalize_mask = np.logical_and(valid_weight, valid_distance)
 

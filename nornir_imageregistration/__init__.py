@@ -63,6 +63,8 @@ def default_depth_image_dtype():
     return np.float32
 
 
+import nornir_imageregistration.mathfuncs as math
+
 import nornir_imageregistration.type_info as typing
 from nornir_imageregistration.type_info import *
 
@@ -120,6 +122,13 @@ def IsIntArray(param: NDArray) -> bool:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.integer)
+
+
+def IsBoolArray(param: NDArray) -> bool:
+    if param is None:
+        return False
+
+    return np.issubdtype(ParamToDtype(param), bool)
 
 
 def ImageMaxPixelValue(image: NDArray) -> int:

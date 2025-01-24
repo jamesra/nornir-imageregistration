@@ -16,7 +16,7 @@ import nornir_shared.plot
 
 def PlotWeightHistogram(alignment_records: list[nornir_imageregistration.EnhancedAlignmentRecord],
                         filename: str, transform_cutoff: float, finalize_cutoff: float,
-                        line_pos_list: list[float] | None, title:str | None = None):
+                        line_pos_list: list[float] | None, title: str | None = None):
     '''
     Plots the weights on the alignment records as a histogram
     :param list alignment_records: A list of EnhancedAlignmentRecords to render, uses a square to represent alignments in progress
@@ -111,3 +111,142 @@ def plot_aligned_images(alignment_record, image_A: NDArray, image_B: NDArray):
     plt.show()
 
     return
+
+
+def find_inflection_points(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    # Calculate the first derivative
+    dy = np.gradient(y, x)
+
+    # Calculate the second derivative
+    d2y = np.gradient(dy, x)
+
+    # Find where the second derivative changes sign
+    inflection_point_candidates = np.where(np.diff(np.sign(d2y)))[0]
+
+    dNy = np.gradient(d2y, x)
+    is_odd_derivative = True
+    verified_inflection_points = np.array([], dtype=int)
+    while len(inflection_point_candidates) > 0:
+        # Check if the next derivative is non-zero.  If it is an odd derivative and non-zero it is an inflection point.#
+        # Otherwise it is an undulation point
+        if is_odd_derivative:
+            new_inflection_points = np.where(np.logical_not(
+                np.isclose(dNy[inflection_point_candidates], 0)))[0]
+            verified_inflection_points = np.union1d(inflection_point_candidates,
+                                                    inflection_point_candidates[new_inflection_points])
+            inflection_point_candidates = np.setdiff1d(inflection_point_candidates, verified_inflection_points,
+                                                       assume_unique=True)
+        else:
+            undulation_points = np.where(np.isclose(dNy[inflection_point_candidates], 0))[0]
+            undulation_indicies = inflection_point_candidates[undulation_points]
+            inflection_point_candidates = np.setdiff1d(inflection_point_candidates,
+                                                       undulation_indicies,
+                                                       assume_unique=True)
+
+        dNy = np.gradient(dNy, x)
+        is_odd_derivative = not is_odd_derivative
+
+    return x[verified_inflection_points]
+
+
+def plot_percentiles(records: NDArray[np.floating],
+                     filename: str | None = None,
+                     title: str | None = None,
+                     horz_line_pos_list: list[float] | None = None):
+    '''
+    Plot the percentiles of the records
+    '''
+    if title is None:
+        title = "Percentiles"
+
+    a = records
+    p = np.linspace(0, 100, 101)
+    plt.clf()
+    ax = plt.gca()
+    lines = [
+        ('linear', '-', 'C0'),
+        ('inverted_cdf', ':', 'C1'),
+        # Almost the same as `inverted_cdf`:
+        ('averaged_inverted_cdf', '-.', 'C1'),
+        ('closest_observation', ':', 'C2'),
+        ('interpolated_inverted_cdf', '--', 'C1'),
+        ('hazen', '--', 'C3'),
+        ('weibull', '-.', 'C4'),
+        ('median_unbiased', '--', 'C5'),
+        ('normal_unbiased', '-.', 'C6'),
+    ]
+
+    percentile_values = np.percentile(a, p, method='linear')
+
+    for method, style, color in lines:
+        ax.plot(
+            p, np.percentile(a, p, method=method),
+            label=method, linestyle=style, color=color)
+    ax.set(
+        title='Percentiles for different methods',
+        xlabel='Percentile',
+        ylabel='Estimated percentile value')
+
+    # Add a polyfit to the linear line
+    degree = 5
+    coefficients = np.polyfit(p, percentile_values, degree)
+    # Generate the polynomial function from the coefficients
+    polynomial = np.poly1d(coefficients)
+    y_fit = polynomial(p)
+    ax.plot(p, y_fit, 'k--')
+
+    min_a = min(a)
+    max_a = max(a)
+    inflections = find_inflection_points(x=p, y=y_fit)
+    for inflection in inflections:
+        ax.plot([inflection, inflection], [min_a, max_a], 'b--')
+
+    max_rate_of_change = np.gradient(y_fit, p)
+    max_accel_of_rate = np.gradient(max_rate_of_change, p)
+    max_rate_of_change_index = np.argmax(abs(max_accel_of_rate))
+    max_rate_of_change_percentile = p[max_rate_of_change_index]
+
+    ax.plot([max_rate_of_change_percentile, max_rate_of_change_percentile], [min_a, max_a], 'r--')
+
+    if horz_line_pos_list is not None:
+        for line in horz_line_pos_list:
+            ax.plot([0, 100], [line, line], 'g--')
+
+    ax.legend(bbox_to_anchor=(1.03, 1))
+    ax.set_ylim(min(a), max(a))
+    plt.tight_layout()
+    if filename is not None:
+        plt.savefig(filename, dpi=300)
+    else:
+        nornir_imageregistration.ShowWithPassFail(plt.gcf())
+
+    return
+
+
+def find_maximum_deviation(records: NDArray[np.floating], filename: str | None = None):
+    """
+    Take a set of values and plot them accoring to their percentile.
+    Then project the plot onto a line that runs from min(a) to max(a).
+    The point furthest from the line after the last inflection point is
+    used as a cutoff value for registration quality.
+
+    :return: The cross product values in an array representing each percentile.  Index 42 is the 42nd percentile
+    """
+    a = records
+    p = np.linspace(0, 100, 101)
+
+    percentile_values = np.percentile(a, p, interpolation='linear')
+
+    linear_slope = np.array(
+        (percentile_values[-1] - percentile_values[0], 100))  # A vector from the first to the last point
+    linear_vector = linear_slope / np.linalg.norm(linear_slope)  # Normalize the vector
+
+    # Create a vector for each record from the record to the min and max points
+
+    min_vectors = np.vstack(np.array(((percentile_values - min(a)), p, np.zeros(len(p))))).T
+    max_vectors = np.vstack(np.array(((max(a) - percentile_values), p, np.zeros(len(p))))).T
+
+    cross_products = np.cross(min_vectors, max_vectors)
+
+    # Project the points onto the line
+    return np.vstack((p, cross_products[:, 2])).T
