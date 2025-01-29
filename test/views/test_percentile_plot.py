@@ -8,6 +8,7 @@ import nornir_imageregistration
 import setup_imagetest
 
 from nornir_imageregistration.views.alignment_records import *
+import nornir_imageregistration
 
 
 class Test(setup_imagetest.TestBase):
@@ -19,7 +20,7 @@ class Test(setup_imagetest.TestBase):
         # Test data contains
         percentile = test_data['percentile']
         values = test_data['values']
-  
+
         percentile_values = np.percentile(values, percentile)
         # Add a polyfit to the linear line
         degree = 5
@@ -30,10 +31,25 @@ class Test(setup_imagetest.TestBase):
 
         inflection_points = find_inflection_points(percentile, y_fit)
         highest_inflection_point = int(inflection_points[-1])
-        cross_products = find_maximum_deviation(records=percentile_values)
-        cutoff_percentile_index = np.argmin(cross_products[highest_inflection_point:, 1]) + highest_inflection_point
-        self.assertTrue(cutoff_percentile_index == 82)
+        cross_products = calculate_deviation(values=percentile_values, above=highest_inflection_point)
+        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
 
         cutoff_value = percentile_values[cutoff_percentile_index]
 
         plot_percentiles(records=values, horz_line_pos_list=[cutoff_value])
+        self.assertTrue(cutoff_percentile_index == 92)
+
+    def test_repro(self):
+        test_data_path = os.path.join(self.TestInputPath, 'Data', 'weight_distance_composite_scores_pass2.npz')
+        test_data = np.load(test_data_path)
+
+        # Test data contains
+        weight_distance_composite_scores = test_data['weight_distance_composite_scores']
+
+        cutoff_percentile, inflection_percentile, cutoff_value_this_pass, polyfit_weights = nornir_imageregistration.local_distortion_correction.estimate_cutoff(
+            weight_distance_composite_scores[:, 0],
+            method=nornir_imageregistration.local_distortion_correction.CutoffMethod.Polyfit)
+
+        nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
+                                                        title=f"Value at percentile",
+                                                        horz_line_pos_list=[cutoff_value_this_pass])

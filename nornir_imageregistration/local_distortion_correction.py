@@ -6,6 +6,7 @@ Created on Apr 7, 2015
 This module performs local distortions of images to refine alignments of mosaics and sections
 """
 import os
+import enum
 from typing import Iterable, Sequence
 
 import numpy as np
@@ -33,6 +34,12 @@ except ImportError:
 AlignmentRecordDict = dict[tuple[int, int], nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordList = Sequence[nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordKey = tuple[int, int]
+
+
+class CutoffMethod(enum.Enum):
+    Raw = enum.auto(),  # Use the raw data to find the cutoff
+    Polyfit = enum.auto(),  # Use a polyfit to determine the cutoff
+    Average = enum.auto(),  # Average the raw cutoff and polyfit cutoff together
 
 
 class DistortionCorrection:
@@ -257,7 +264,8 @@ def SplitDisplacements(A, B, point_pairs):
     raise NotImplementedError()
 
 
-def estimate_cutoff(records: NDArray[float]) -> tuple[int, float]:
+def estimate_cutoff(records: NDArray[float], method: CutoffMethod = CutoffMethod.Average) -> tuple[
+    int, float, NDArray[float]]:
     """
     :param records: A list of records to estimate the cutoff for.  Finds the inflection point with the highest x
     value.  Then finds the percentile higher than that with the largest cross product, which is the furthest point
@@ -276,11 +284,37 @@ def estimate_cutoff(records: NDArray[float]) -> tuple[int, float]:
     y_fit = polynomial(percentile)
 
     inflection_points = nornir_imageregistration.views.alignment_records.find_inflection_points(percentile, y_fit)
+    # The points after the highest inflection point are the ones considered for maximum deviation
     highest_inflection_point = int(inflection_points[-1])
-    cross_products = nornir_imageregistration.views.alignment_records.find_maximum_deviation(records=percentile_values)
-    cutoff_percentile_index = np.argmin(cross_products[highest_inflection_point:, 1]) + highest_inflection_point
 
-    return cutoff_percentile_index, percentile_values[cutoff_percentile_index], y_fit
+    if method == CutoffMethod.Raw:
+        cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=percentile_values,
+                                                                                              above=highest_inflection_point)
+        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
+        cutoff_value = percentile_values[cutoff_percentile_index]
+    elif method == CutoffMethod.Polyfit:
+        cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=y_fit,
+                                                                                              above=highest_inflection_point)
+        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
+        cutoff_value = y_fit[cutoff_percentile_index]
+    elif method == CutoffMethod.Average:
+        raw_cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(
+            values=percentile_values,
+            above=highest_inflection_point)
+        raw_cutoff_percentile_index = np.argmin(raw_cross_products[:, 1]) + highest_inflection_point
+        raw_cutoff_value = percentile_values[raw_cutoff_percentile_index]
+
+        poly_cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=y_fit,
+                                                                                                   above=highest_inflection_point)
+        poly_cutoff_percentile_index = np.argmin(poly_cross_products[:, 1]) + highest_inflection_point
+        poly_cutoff_value = y_fit[poly_cutoff_percentile_index]
+
+        cutoff_percentile_index = (raw_cutoff_percentile_index + poly_cutoff_percentile_index) // 2
+        cutoff_value = (raw_cutoff_value + poly_cutoff_value) / 2
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    return cutoff_percentile_index, highest_inflection_point, cutoff_value, y_fit
 
 
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
@@ -449,29 +483,38 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
         #                                           finalize_percentile_this_pass)
 
-        cutoff_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
+        cutoff_percentile_this_pass, inflection_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
             updated_and_finalized_weights_distance[:, 0])
-        cutoff_ema.add(cutoff_value_this_pass)
-        cutoff_value = cutoff_ema.ema_value
+
+        # cutoff_value = cutoff_ema.ema_value
+
+        # transform_cutoff_percentile = (cutoff_percentile_this_pass + inflection_percentile) // 2
+        transform_cutoff_percentile = inflection_percentile
+        transform_cutoff_value = polyfit_weights[transform_cutoff_percentile]
+        cutoff_value = transform_cutoff_value
+        cutoff_ema.add(transform_cutoff_value)
 
         if first_cutoff is None:
             first_cutoff = cutoff_value_this_pass
 
+        if final_pass:
+            prettyoutput.Log("FINAL PASS")
+            transform_cutoff_value = first_cutoff
+
         prettyoutput.Log(
             f'#######\n' +
-            f'Transform inclusion cutoff this pass: {cutoff_percentile}% -> {cutoff_value_this_pass}\n' +
-            f'Exponential Moving Average transform inclusion cutoff: {cutoff_value}\n')
+            f'Transform inclusion cutoff this pass: {transform_cutoff_percentile}% -> {transform_cutoff_value}\n' +
+            f'Exponential Moving Average transform inclusion cutoff: {cutoff_ema.ema_value}\n')
 
         # finalize_percentile_this_pass = ((100 - cutoff_percentile) / 2.0) + cutoff_percentile
-
-        if final_pass:
-            cutoff_value = first_cutoff
 
         (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
             alignment_points,
             AlignRecordsToControlPoints(finalized_points.values()),
-            percentile=cutoff_percentile,
-            cutoff=cutoff_value)
+            percentile=transform_cutoff_percentile,
+            cutoff=transform_cutoff_value)
+
+        prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
         # if FirstPassCompositeScoreCutoff is None:
         #    FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2], 100.0 - percentile)
@@ -482,21 +525,27 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # fraction = i / (settings.num_iterations - 1)
         # FirstPassFinalizeValue - (cutoff_range * fraction)
 
-        finalize_percentile_this_pass = ((100 - cutoff_percentile) / 2.0) + cutoff_percentile
+        finalize_percentile_this_pass = cutoff_percentile_this_pass  # ((inflection_percentile + transform_cutoff_percentile) / 2.0) + transform_cutoff_value
         finalize_cutoff_this_pass = np.percentile(polyfit_weights,
                                                   finalize_percentile_this_pass)
         finalize_ema.add(finalize_cutoff_this_pass)
-        # finalize_cutoff = finalize_ema.ema_value
-        # finalize_cutoff = finalize_cutoff_this_pass
-        finalize_cutoff = cutoff_value_this_pass
+
+        if final_pass:
+            finalize_cutoff_this_pass = first_cutoff
+
+        # finalize_percentile_this_pass = cutoff_percentile
+        # finalize_cutoff = cutoff_value_this_pass
+
+        # finalize_percentile_this_pass = cutoff_percentile
+        finalize_cutoff = finalize_cutoff_this_pass
 
         if i != 0:
             prettyoutput.Log(
                 f'Finalize cutoff this pass: {finalize_percentile_this_pass}% -> {finalize_cutoff_this_pass}\n' +
-                f'Finalize Exponential Moving Average Cutoff calculated: {finalize_cutoff}\n#####\n')
+                f'Finalize Exponential Moving Average Cutoff calculated: {finalize_ema.ema_value}\n#####\n')
 
             new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
-                                                                         percentile=finalize_percentile_this_pass / 100.0,
+                                                                         percentile=finalize_percentile_this_pass,
                                                                          max_travel_distance=settings.max_travel_for_finalization,
                                                                          weight_cutoff=finalize_cutoff)
             new_finalized_alignments_list = list(
@@ -539,19 +588,24 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             f"  Improved {len(improved_alignments)} finalized points using latest transform")
 
         if SavePlots:
+            np.savez(os.path.join(outputDir,
+                                  f'weight_distance_composite_scores_pass{i}.npz'),
+                     updated_and_finalized_weights_distance=updated_and_finalized_weights_distance,
+                     weight_distance_composite_scores=weight_distance_composite_scores,
+                     )
             percentile_filename = os.path.join(outputDir, f'percentile_pass{i}.svg')
             nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
                                                             percentile_filename,
                                                             title=f"Value at percentile",
-                                                            horz_line_pos_list=[cutoff_value_this_pass,
-                                                                                finalize_cutoff_this_pass, cutoff_value,
+                                                            horz_line_pos_list=[transform_cutoff_value,
+                                                                                # finalize_cutoff_this_pass, cutoff_value,
                                                                                 finalize_cutoff])
 
             histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.svg')
             nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
-                                                               transform_cutoff=cutoff_percentile / 100.0,
+                                                               transform_cutoff=transform_cutoff_percentile / 100.0,
                                                                finalize_cutoff=finalize_percentile_this_pass / 100.0,
-                                                               line_pos_list=[cutoff_value_this_pass,
+                                                               line_pos_list=[transform_cutoff_value,
                                                                               finalize_cutoff_this_pass],
                                                                title=f"Histogram of Weights, pass #{i}")
 

@@ -274,7 +274,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         return transPoints
 
@@ -576,7 +576,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         return transPoints
 

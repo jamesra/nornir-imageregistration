@@ -133,7 +133,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         # When CuPy support was first added, there was no support for LinearNDInterpolator, but the rest of the Cupy paths expect a Cupy array, so convert the array to CuPy if needed
         transPoints = transPoints if nornir_imageregistration.GetComputationModule() == np else nornir_imageregistration.EnsurePointsAre2DCuPyArray(
@@ -159,7 +159,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         # When CuPy support was first added, there was no support for LinearNDInterpolator, but the rest of the Cupy paths expect a Cupy array, so convert the array to CuPy if needed
         transPoints = transPoints if nornir_imageregistration.GetComputationModule() == np else nornir_imageregistration.EnsurePointsAre2DCuPyArray(
@@ -556,7 +556,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         return transPoints
 
@@ -580,7 +580,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
             # This was added for the case where all points in the triangulation are colinear.
             transPoints = np.empty(points.shape)
-            transPoints[:] = np.NaN
+            transPoints[:] = np.nan
 
         return transPoints
 

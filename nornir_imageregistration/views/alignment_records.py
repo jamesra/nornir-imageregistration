@@ -165,15 +165,15 @@ def plot_percentiles(records: NDArray[np.floating],
     ax = plt.gca()
     lines = [
         ('linear', '-', 'C0'),
-        ('inverted_cdf', ':', 'C1'),
-        # Almost the same as `inverted_cdf`:
-        ('averaged_inverted_cdf', '-.', 'C1'),
-        ('closest_observation', ':', 'C2'),
-        ('interpolated_inverted_cdf', '--', 'C1'),
-        ('hazen', '--', 'C3'),
-        ('weibull', '-.', 'C4'),
-        ('median_unbiased', '--', 'C5'),
-        ('normal_unbiased', '-.', 'C6'),
+        # ('inverted_cdf', ':', 'C1'),
+        # # Almost the same as `inverted_cdf`:
+        # ('averaged_inverted_cdf', '-.', 'C1'),
+        # ('closest_observation', ':', 'C2'),
+        # ('interpolated_inverted_cdf', '--', 'C1'),
+        # ('hazen', '--', 'C3'),
+        # ('weibull', '-.', 'C4'),
+        # ('median_unbiased', '--', 'C5'),
+        # ('normal_unbiased', '-.', 'C6'),
     ]
 
     percentile_values = np.percentile(a, p, method='linear')
@@ -193,24 +193,30 @@ def plot_percentiles(records: NDArray[np.floating],
     # Generate the polynomial function from the coefficients
     polynomial = np.poly1d(coefficients)
     y_fit = polynomial(p)
-    ax.plot(p, y_fit, 'k--')
+    ax.plot(p, y_fit, 'k--', label='Polyfit')
 
     min_a = min(a)
     max_a = max(a)
     inflections = find_inflection_points(x=p, y=y_fit)
+    label = 'Inflection Point'
     for inflection in inflections:
-        ax.plot([inflection, inflection], [min_a, max_a], 'b--')
+        ax.plot([inflection, inflection], [min_a, max_a], 'b--', label=label)
+        label = None
 
-    max_rate_of_change = np.gradient(y_fit, p)
-    max_accel_of_rate = np.gradient(max_rate_of_change, p)
-    max_rate_of_change_index = np.argmax(abs(max_accel_of_rate))
-    max_rate_of_change_percentile = p[max_rate_of_change_index]
+    # max_rate_of_change = np.gradient(y_fit, p)
+    # max_accel_of_rate = np.gradient(max_rate_of_change, p)
+    # max_rate_of_change_index = np.argmax(abs(max_accel_of_rate))
+    # max_rate_of_change_percentile = p[max_rate_of_change_index]
+    #
+    # ax.plot([max_rate_of_change_percentile, max_rate_of_change_percentile], [min_a, max_a], 'r--', label='Max rate of change')
 
-    ax.plot([max_rate_of_change_percentile, max_rate_of_change_percentile], [min_a, max_a], 'r--')
+    label = 'Cutoff Threshold'
 
     if horz_line_pos_list is not None:
+        c = 1
         for line in horz_line_pos_list:
-            ax.plot([0, 100], [line, line], 'g--')
+            color = 'C' + str(c)
+            ax.plot([0, 100], [line, line], linestyle='--', color=color, label=label)
 
     ax.legend(bbox_to_anchor=(1.03, 1))
     ax.set_ylim(min(a), max(a))
@@ -223,30 +229,49 @@ def plot_percentiles(records: NDArray[np.floating],
     return
 
 
-def find_maximum_deviation(records: NDArray[np.floating], filename: str | None = None):
+def calculate_deviation(values: NDArray[np.floating], above: int | None = None) -> NDArray[np.floating]:
     """
-    Take a set of values and plot them accoring to their percentile.
-    Then project the plot onto a line that runs from min(a) to max(a).
-    The point furthest from the line after the last inflection point is
+    Project the values onto a line that runs from min(a) to max(a).
+    The point furthest from the line will have the largest absolute cross product.
+    :param above: If specified, only indicies above this value will be considered.
+    The line's origin used for the cross product will be at values[above].
+    IF ABOVE IS SPECIFIED, THE RETURNED CROSS PRODUCTS WILL BE OFFSET BY ABOVE INDICES. The first index will be the above value.
+    :return: The point with the lowest cross product indicating it is furthest from the line
     used as a cutoff value for registration quality.
 
     :return: The cross product values in an array representing each percentile.  Index 42 is the 42nd percentile
     """
-    a = records
+    a = values
     p = np.linspace(0, 100, 101)
 
-    percentile_values = np.percentile(a, p, interpolation='linear')
+    start_index = 0 if above is None else above
+
+    percentile_values = np.percentile(a, p, method='linear')
 
     linear_slope = np.array(
-        (percentile_values[-1] - percentile_values[0], 100))  # A vector from the first to the last point
-    linear_vector = linear_slope / np.linalg.norm(linear_slope)  # Normalize the vector
+        (percentile_values[-1] - percentile_values[start_index], 100))  # A vector from the first to the last point
+    # linear_vector = linear_slope / np.linalg.norm(linear_slope)  # Normalize the vector
 
     # Create a vector for each record from the record to the min and max points
+    percentile_value_subset = percentile_values[start_index:]
+    percentile_subset = p[start_index:]
+    min_value = percentile_value_subset[0]  # Sorted data, so indicies are fine
+    max_value = percentile_value_subset[-1]
 
-    min_vectors = np.vstack(np.array(((percentile_values - min(a)), p, np.zeros(len(p))))).T
-    max_vectors = np.vstack(np.array(((max(a) - percentile_values), p, np.zeros(len(p))))).T
+    min_vectors = np.vstack(
+        np.array(((percentile_value_subset - min_value),
+                  percentile_subset - percentile_subset[0],
+                  np.zeros(len(percentile_subset))
+                  ))
+    ).T
+    max_vectors = np.vstack(
+        np.array(((max_value - percentile_value_subset),
+                  percentile_subset - percentile_subset[-1],
+                  np.zeros(len(percentile_subset))
+                  ))
+    ).T
 
     cross_products = np.cross(min_vectors, max_vectors)
 
     # Project the points onto the line
-    return np.vstack((p, cross_products[:, 2])).T
+    return np.vstack((percentile_subset, cross_products[:, 2])).T
