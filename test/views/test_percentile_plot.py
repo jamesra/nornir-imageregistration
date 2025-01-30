@@ -36,7 +36,10 @@ class Test(setup_imagetest.TestBase):
 
         cutoff_value = percentile_values[cutoff_percentile_index]
 
-        plot_percentiles(records=values, horz_line_pos_list=[cutoff_value])
+        second_cutoff = percentile_values[50]
+
+        plot_percentiles(records=values, horz_line_pos_list=[cutoff_value, (
+            second_cutoff, {'label': 'Cutoff Value #2', 'color': 'blue', 'linestyle': '--'})])
         self.assertTrue(cutoff_percentile_index == 92)
 
     def test_repro(self):

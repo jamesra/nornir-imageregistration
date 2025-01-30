@@ -42,6 +42,12 @@ class CutoffMethod(enum.Enum):
     Average = enum.auto(),  # Average the raw cutoff and polyfit cutoff together
 
 
+class WeightMethod(enum.IntEnum):
+    Registration: int = 0  # The registration score
+    Distance: int = 1  # The distance score is the distance of the updated registration point to the original registration point
+    Composite: int = 2  # The composite score is the distance score / max distance * registration score, distances less than 1 are set to 1
+
+
 class DistortionCorrection:
 
     def __init__(self):
@@ -457,7 +463,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
         updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
         updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
-            updated_and_finalized_alignment_points)
+            updated_and_finalized_alignment_points,
+            max_distance=max(settings.cell_size))
 
         # What fraction of the maximum number of iterations have been completed?
         adjustment_scalar = (i - 1) / settings.num_iterations
@@ -484,7 +491,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         #                                           finalize_percentile_this_pass)
 
         cutoff_percentile_this_pass, inflection_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
-            updated_and_finalized_weights_distance[:, 0])
+            updated_and_finalized_weights_distance[:, WeightMethod.Registration])
 
         # cutoff_value = cutoff_ema.ema_value
 
@@ -510,6 +517,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
         (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
             alignment_points,
+            WeightMethod.Registration,
             AlignRecordsToControlPoints(finalized_points.values()),
             percentile=transform_cutoff_percentile,
             cutoff=transform_cutoff_value)
@@ -597,9 +605,13 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
                                                             percentile_filename,
                                                             title=f"Value at percentile",
-                                                            horz_line_pos_list=[transform_cutoff_value,
+                                                            horz_line_pos_list=[(transform_cutoff_value,
+                                                                                 {'label': 'Transform Cutoff',
+                                                                                  'color': 'green'}),
                                                                                 # finalize_cutoff_this_pass, cutoff_value,
-                                                                                finalize_cutoff])
+                                                                                (finalize_cutoff,
+                                                                                 {'label': 'Finalize Cutoff',
+                                                                                  'color': 'brown'})])
 
             histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.svg')
             nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
@@ -658,7 +670,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if final_pass:
             break
 
-        if i == settings.num_iterations:
+        if i == settings.num_iterations - 1:  # Check if the next pass is the final pass
             final_pass = True
 
             # If we've locked 10% of the points and have not locked any new ones we are done
@@ -931,13 +943,20 @@ def AlignRecordsToControlPoints(
 
 
 def _alignment_records_to_composite_scores(
-        alignment_records: AlignmentRecordList):
+        alignment_records: AlignmentRecordList,
+        max_distance: float | None = None) -> NDArray:
     """
     A helper function to produce a ndarray of measurements for alignment records
+    :param max_distance: The maximum distance to use for the distance weight, this could be tile size / 2 to keep a consistent metric across multiple runs
     :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
     """
     weights_distance = np.asarray(list(map(lambda a: (a.weight, np.sqrt(a.peak.dot(a.peak))), alignment_records)))
-    max_weight_distance = np.max(weights_distance, 0)
+
+    if max_distance is None:
+        max_weight_distance = np.max(weights_distance, 0)
+    else:
+        max_weight_distance = np.asarray((1, max_distance))
+
     # I don't want a random near zero travel distance accidentally reducing a bad alignment score, so the
     # minimum travel distance is 1 for calculating the distance weight 
     floor_distances = np.maximum(1, weights_distance[:, 1])
@@ -947,6 +966,7 @@ def _alignment_records_to_composite_scores(
 
 
 def _PeakListToTransform(alignment_records: AlignmentRecordList,
+                         weight_method: WeightMethod,
                          fixed_points: NDArray | None = None, percentile: float = None, cutoff: float = None):
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
@@ -981,7 +1001,7 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
     # To merge these scores I invert the weights to subtract them from the max weight, then multiply by distance
 
     weights_distance = _alignment_records_to_composite_scores(alignment_records)
-    composite_score = weights_distance[:, 2]
+    composite_score = weights_distance[:, weight_method]
     # WarpedPeaks = AdjustedWarpedPoints - OriginalSourcePoints
 
     if cutoff is None:
@@ -989,7 +1009,7 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
         if percentile is not None:
             cutoff = np.percentile(composite_score, percentile)
 
-    valid_indicies = composite_score <= cutoff
+    valid_indicies = composite_score >= cutoff
 
     # Todo: Check that we have at least three points
 

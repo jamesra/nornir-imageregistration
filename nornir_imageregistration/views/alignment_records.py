@@ -152,7 +152,7 @@ def find_inflection_points(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 def plot_percentiles(records: NDArray[np.floating],
                      filename: str | None = None,
                      title: str | None = None,
-                     horz_line_pos_list: list[float] | None = None):
+                     horz_line_pos_list: list[tuple[float, dict]] | None = None):
     '''
     Plot the percentiles of the records
     '''
@@ -215,8 +215,15 @@ def plot_percentiles(records: NDArray[np.floating],
     if horz_line_pos_list is not None:
         c = 1
         for line in horz_line_pos_list:
-            color = 'C' + str(c)
-            ax.plot([0, 100], [line, line], linestyle='--', color=color, label=label)
+            if isinstance(line, float):
+                min_a = min(min_a, line)
+                color = 'C' + str(c)
+                ax.plot([0, 100], [line, line], linestyle='--', color=color, label=label)
+            elif isinstance(line, tuple):
+                min_a = min(min_a, line[0])
+                # The first entry in the tuple is the line position, the second are the keyword args for the line
+                color = 'C' + str(c)
+                ax.plot([0, 100], [line[0], line[0]], **line[1])
 
     ax.legend(bbox_to_anchor=(1.03, 1))
     ax.set_ylim(min(a), max(a))
