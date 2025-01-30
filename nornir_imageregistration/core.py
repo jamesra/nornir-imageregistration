@@ -788,9 +788,9 @@ def GetImageSize(image_param: str | np.ndarray | Iterable) -> NDArray[np.integer
     if isinstance(image_param, str):
         return nornir_shared.images.GetImageSize(image_param)
     elif isinstance(image_param, np.ndarray):
-        return np.array(image_param.shape, dtype=int, copy=False)
+        return np.asarray(image_param.shape, dtype=int)
     elif isinstance(image_param, Iterable):
-        return np.array([GetImageSize(i) for i in image_param], dtype=int)
+        return np.asarray([GetImageSize(i) for i in image_param], dtype=int)
 
     raise ValueError(f'Unexpected image argument {image_param}')
 
