@@ -40,10 +40,10 @@ def _plot_fixed_space_overlap(ax, overlap, color=None):
                                   color='green',
                                   label='A'),
                mpatches.Rectangle(numpy.flip(overlap.B.FixedBoundingBox.BottomLeft),
-                                                                 overlap.B.FixedBoundingBox.Width,
-                                                                 overlap.B.FixedBoundingBox.Height,
-                                                                 color='blue',
-                                                                 label='B'),
+                                  overlap.B.FixedBoundingBox.Width,
+                                  overlap.B.FixedBoundingBox.Height,
+                                  color='blue',
+                                  label='B'),
                mpatches.Rectangle(numpy.flip(overlap.overlapping_target_rect.BottomLeft),
                                   overlap.overlapping_target_rect.Width,
                                   overlap.overlapping_target_rect.Height,
@@ -119,7 +119,11 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
 
         feature_scores = getattr(overlap, 'feature_scores', None)
         if feature_scores is not None and feature_scores[0] is not None:
-            label_str += '\nScores: {0:.2f} {1:.2f}'.format(feature_scores[0], feature_scores[1])
+            score_str = 'Scores: {0:.2f} {1:.2f}'.format(feature_scores[0], feature_scores[1])
+            if label_str is not None:
+                label_str += score_str
+            else:
+                label_str = score_str
 
         text_rotation = 0
         if overlap.overlapping_target_rect.Height > overlap.overlapping_target_rect.Width:

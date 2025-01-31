@@ -1061,8 +1061,12 @@ def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
                                                              LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] *= allowed_weight_range
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] += min_allowed_weight
-        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= min_allowed_weight))
-        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= max_allowed_weight))
+
+        if nornir_imageregistration.in_debug_mode():
+            assert (np.all(node.Weights >= min_allowed_weight))
+            assert (np.all(node.Weights <= max_allowed_weight))
+        else:
+            node.Weights = np.clip(node.Weights, min_allowed_weight, max_allowed_weight)
 
     return
 
