@@ -23,6 +23,7 @@ assemble_tiles
 .. automodule:: nornir_imageregistration.assemble_tiles
 
 """
+import os
 from typing import Iterable, Sequence, Any
 
 from PIL import Image
@@ -49,19 +50,22 @@ import matplotlib.pyplot as plt
 plt.ioff()
 
 
-def default_image_dtype():
+def default_image_dtype() -> DTypeLike:
     """
     :return: The default dtype for image data
     """
     return np.float16
 
 
-def default_depth_image_dtype():
+def default_depth_image_dtype() -> DTypeLike:
     """
     :return: The default dtype for image data
     """
     return np.float32
 
+
+import nornir_imageregistration.debugging as debugging
+from nornir_imageregistration.debugging import in_debug_mode
 
 import nornir_imageregistration.mathfuncs as math
 

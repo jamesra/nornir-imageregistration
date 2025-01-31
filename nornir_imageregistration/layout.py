@@ -992,7 +992,7 @@ def NormalizeOffsetWeights(original_layout: Layout,
     weight_range = maxWeight - minWeight
 
     # All the weights are equal... odd
-    if maxWeight == minWeight:
+    if np.isclose(maxWeight, minWeight):
         for node in original_layout.nodes.values():
             if node.IsIsolated:
                 continue
@@ -1009,9 +1009,12 @@ def NormalizeOffsetWeights(original_layout: Layout,
         # node.OffsetArray[:, LayoutPosition.iOffsetWeight] = node.OffsetArray[:,
         #                                                    LayoutPosition.iOffsetWeight] / maxWeight
         node.Weights = (node.Weights - minWeight) / weight_range
-        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= 0))
-        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= 1.0))
 
+        if nornir_imageregistration.in_debug_mode():
+            assert (np.all(node.Weights >= 0))
+            assert (np.all(node.Weights <= 1.0))
+        else:
+            node.Weights = np.clip(node.Weights, 0, 1.0)
     return
 
 
