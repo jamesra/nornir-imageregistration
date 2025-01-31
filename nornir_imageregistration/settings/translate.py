@@ -4,11 +4,30 @@ Created on Aug 4, 2022
 @author: u0490822
 """
 
+from numpy.typing import NDArray
+
 
 class TranslateSettings(object):
     """
     Settings for translating a mosaic
     """
+
+    min_overlap: float
+    max_relax_iterations: int
+    max_relax_tension_cutoff: float
+    feature_score_threshold: float
+    offset_acceptance_threshold: float
+    min_translate_iterations: int
+    max_translate_iterations: int
+    inter_tile_distance_scale: float
+    first_pass_inter_tile_distance_scale: float
+    first_pass_excess_scalar: float
+    min_offset_weight: float
+    max_offset_weight: float
+    excess_scalar: float
+    use_feature_score: bool
+    exclude_diagonal_overlaps: bool
+    known_offsets: list[NDArray[float]]
 
     @property
     def feature_score_calculations_required(self):
@@ -60,8 +79,8 @@ class TranslateSettings(object):
         self.inter_tile_distance_scale = 1.0 if inter_tile_distance_scale is None else inter_tile_distance_scale
         self.first_pass_inter_tile_distance_scale = self.inter_tile_distance_scale / 2 if first_pass_inter_tile_distance_scale is None else first_pass_inter_tile_distance_scale
         self.first_pass_excess_scalar = 3.0 if first_pass_excess_scalar is None else first_pass_excess_scalar
-        self.min_offset_weight = 0 if min_offset_weight is None else min_offset_weight
-        self.max_offset_weight = 1.0 if max_offset_weight is None else max_offset_weight
+        self.min_offset_weight = min_offset_weight
+        self.max_offset_weight = max_offset_weight
         self.excess_scalar = 3.0 if excess_scalar is None else excess_scalar
         self.use_feature_score = False if use_feature_score is None else use_feature_score
         self.exclude_diagonal_overlaps = True if exclude_diagonal_overlaps is None else exclude_diagonal_overlaps
@@ -70,5 +89,7 @@ class TranslateSettings(object):
         if self.min_translate_iterations > self.max_translate_iterations:
             raise ValueError("min_translate_iterations > max_translate_iterations")
 
-        if self.min_offset_weight > self.max_offset_weight:
+        if (self.min_offset_weight is not None and
+                self.max_offset_weight is not None and
+                self.min_offset_weight > self.max_offset_weight):
             raise ValueError("min_offset_weight > max_offset_weight")

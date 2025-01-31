@@ -1,10 +1,13 @@
 import numpy as np
+from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.spatial import Rectangle
+from nornir_imageregistration.tile import Tile
 
 
 def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diagonal_overlaps: bool = False):
-    '''Return all tiles which overlap'''
+    """Return all tiles which overlap"""
 
     list_rects = [tile.FixedBoundingBox for tile in list_tiles]
     rset = nornir_imageregistration.RectangleSet.Create(list_rects)
@@ -34,14 +37,14 @@ def CreateTileOverlaps(list_tiles,
                        min_overlap: float | None = None,
                        inter_tile_distance_scale: float = 1.0,
                        exclude_diagonal_overlaps: bool = False):
-    '''
+    """
 ea that must overlap between tiles
     :param min_overlap: 0 to 1.0 indicating amount of area that must overlap between tiles
     :param list_tiles:
     :param image_to_source_space_scale:
     :param exclude_diagonal_overlaps:
     :param float inter_tile_distance_scale: When tiles overlap, scale the distance between them by this factor.  Used to increase the area of overlap used for registration for cases where the input positions are noisy
-    '''
+    """
     if isinstance(list_tiles, dict):
         list_tiles = list(list_tiles.values())
 
@@ -54,134 +57,152 @@ ea that must overlap between tiles
 
 
 class TileOverlap(object):
-    '''
+    """
     Describes properties of the overlapping regions of two tiles
-    '''
+    """
 
     iA = 0
     iB = 1
+    _normalized_feature_scores: tuple[float, float] | None = None
+    _scaled_overlapping_source_rects: tuple[nornir_imageregistration.Rectangle, nornir_imageregistration.Rectangle] = (
+        None, None)
+    _Tiles: tuple[Tile, Tile]
+    _feature_scores: tuple[float, float] = (np.nan, np.nan)
+    _overlap: float | None = None  # A value from 0 to 1 indicating the overlapping rectangle area divided by the largest tile area
+    _imageScale: float
+    _overlapping_source_rects: tuple[Rectangle, Rectangle]
 
     @property
-    def has_overlap(self):
+    def has_overlap(self) -> bool:
+        """True if the tiles overlap"""
         return not (self._scaled_overlapping_source_rects[0] is None or self._scaled_overlapping_source_rects[
             1] is None)
 
     @property
     def ID(self):
-        '''ID tuple of (A.ID, B.ID)'''
+        """ID tuple of (A.ID, B.ID)"""
         assert (self._Tiles[0].ID < self._Tiles[1].ID)
         return self._Tiles[0].ID, self._Tiles[1].ID
 
     @property
-    def Tiles(self):
-        '''[A,B]'''
+    def Tiles(self) -> tuple[Tile, Tile]:
+        """[A,B]"""
         return self._Tiles
 
     @property
-    def A(self) -> nornir_imageregistration.Tile:
-        '''Tile object'''
+    def A(self) -> Tile:
+        """Tile object"""
         return self._Tiles[0]
 
     @property
-    def B(self) -> nornir_imageregistration.Tile:
-        '''Tile object'''
+    def B(self) -> Tile:
+        """Tile object"""
         return self._Tiles[1]
 
     @property
-    def feature_scores(self) -> (float, float):
-        '''float tuple indicating how much texture is available in the overlap region for registration'''
+    def feature_scores(self) -> tuple[float, float]:
+        """float tuple indicating how much texture is available in the overlap region for registration"""
         return self._feature_scores
 
     @feature_scores.setter
-    def feature_scores(self, val: (float, float)):
-        self._feature_scores = val.copy()
+    def feature_scores(self, val: tuple[float, float]):
+        self._feature_scores = val
 
     @property
     def A_feature_score(self) -> float:
-        '''float value indicating how much texture is available in the overlap region for registration'''
+        """float value indicating how much texture is available in the overlap region for registration"""
         return self._feature_scores[0]
 
     @property
     def B_feature_score(self) -> float:
-        '''float value indicating how much texture is available in the overlap region for registration'''
+        """float value indicating how much texture is available in the overlap region for registration"""
         return self._feature_scores[1]
 
     @A_feature_score.setter
     def A_feature_score(self, val: float):
-        self._feature_scores[0] = val
+        self._feature_scores = (val, self._feature_scores[1])
 
     @B_feature_score.setter
     def B_feature_score(self, val: float):
-        self._feature_scores[1] = val
+        self._feature_scores = (self._feature_scores[0], val)
 
     @property
-    def offset(self):
-        '''
+    def normalized_feature_scores(self) -> tuple[float, float] | None:
+        """float tuple indicating how much texture is available in the overlap region for registration"""
+        return self._normalized_feature_scores
+
+    @normalized_feature_scores.setter
+    def normalized_feature_scores(self, val: tuple[float, float]):
+        self._normalized_feature_scores = val
+
+    @property
+    def offset(self) -> NDArray[np.floating]:
+        """
         The result of B.Center - A.Center.
-        '''
+        """
         return self._offset
 
     @property
-    def scaled_offset(self):
-        '''
+    def scaled_offset(self) -> np.ndarray:
+        """
         The result of B.Center - A.Center.
-        '''
+        """
         return self._offset * self._imageScale
 
     @property
-    def overlapping_target_rect(self):
-        '''
+    def overlapping_target_rect(self) -> Rectangle:
+        """
         Rectangle describing the overlap in volume (target) space
-        '''
+        """
         return self._overlapping_target_rect
 
     @property
-    def overlapping_source_rects(self):
-        '''
+    def overlapping_source_rects(self) -> tuple[Rectangle, Rectangle]:
+        """
         Tuple of rectangles (A,B) describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._overlapping_source_rects
 
     @property
-    def overlapping_source_rect_A(self):
-        '''
+    def overlapping_source_rect_A(self) -> Rectangle:
+        """
         Rectangle describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._overlapping_source_rects[0]
 
     @property
-    def overlapping_source_rect_B(self):
-        '''
+    def overlapping_source_rect_B(self) -> Rectangle:
+        """
         Rectangle describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._overlapping_source_rects[1]
 
     @property
-    def scaled_overlapping_source_rects(self):
-        '''
+    def scaled_overlapping_source_rects(self) -> tuple[Rectangle, Rectangle]:
+        """
         Tuple of rectangles (A,B) describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._scaled_overlapping_source_rects
 
     @property
-    def scaled_overlapping_source_rect_A(self):
-        '''
+    def scaled_overlapping_source_rect_A(self) -> Rectangle:
+        """
         Rectangle describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._scaled_overlapping_source_rects[0]
 
     @property
-    def scaled_overlapping_source_rect_B(self):
-        '''
+    def scaled_overlapping_source_rect_B(self) -> Rectangle:
+        """
         Rectangle describing the overlap of both tiles in tile image (source) space
-        '''
+        """
         return self._scaled_overlapping_source_rects[1]
 
     @property
-    def overlap(self):
-        '''
+    def overlap(self) -> float:
+        """
         :return: 0 to 1 float indicating the overlapping rectangle area divided by largest tile area
-        '''
+        """
         if self._overlap is None:
             if self.scaled_overlapping_source_rect_A is None or self.scaled_overlapping_source_rect_B is None:
                 self._overlap = 0
@@ -191,7 +212,7 @@ class TileOverlap(object):
 
         return self._overlap
 
-    def get_expanded_overlap_rects(self, scale_factor):
+    def get_expanded_overlap_rects(self, scale_factor: float):
         raise NotImplemented()
 
     def __init__(self,
@@ -215,8 +236,8 @@ class TileOverlap(object):
 
         self._imageScale = 1.0 / image_to_source_space_scale  # type: float
         self._Tiles = (A, B)
-        self._feature_scores = [None, None]  # type: (float | None, float | None)
-        self._overlap = None  # type: float | None
+        self._feature_scores = np.nan, np.nan
+        self._overlap = None
         (overlapping_rect_A, overlapping_rect_B, self._overlapping_target_rect,
          self._offset) = TileOverlap.Calculate_Overlapping_Regions(A, B,
                                                                    inter_tile_distance_scale=inter_tile_distance_scale)
@@ -240,9 +261,13 @@ class TileOverlap(object):
         return val
 
     @staticmethod
-    def Calculate_Overlapping_Regions(A: nornir_imageregistration.Tile, B: nornir_imageregistration.Tile,
-                                      inter_tile_distance_scale=1.0):
-        '''
+    def Calculate_Overlapping_Regions(A: nornir_imageregistration.Tile,
+                                      B: nornir_imageregistration.Tile,
+                                      inter_tile_distance_scale=1.0) -> tuple[nornir_imageregistration.Rectangle | None,
+                                                                              nornir_imageregistration.Rectangle | None,
+                                                                              nornir_imageregistration.Rectangle | None,
+    NDArray[np.floating | None]]:
+        """
         :param nornir_imageregistration.Tile A:
         :param nornir_imageregistration.Tile B:
         :param float inter_tile_distance_scale: A value from 0 to 1 that scales the distance between the centers of the two tiles.  A value of 0 considers the full images when registering.  A value of 1.0 only considers the overlapping regions according to the tile transforms.  Reduce this value in early registration passes to increase the search area.
@@ -251,14 +276,14 @@ class TileOverlap(object):
             2. The rectangle describing the overlapping region in source (image) space of B
             3. The rectangle describing the overlapping portions of tile A and B in the destination (volume) space
             4. The offset adjustment from A to B, how much to add to the center of A to get the center of B
-        '''
+        """
         A_target_bbox = A.FixedBoundingBox
         B_target_bbox = B.FixedBoundingBox
         OffsetAdjustment = (B.FixedBoundingBox.Center - A.FixedBoundingBox.Center)
         original_offset = OffsetAdjustment
 
         if inter_tile_distance_scale != 1.0:
-            dist = np.sqrt(np.sum(np.power(original_offset, 2)))
+            # dist = np.sqrt(np.sum(np.power(original_offset, 2)))
             scaled_offset = original_offset * inter_tile_distance_scale
             new_B_target_bbox_center = A_target_bbox.Center + scaled_offset  # B_target_bbox.Center - (scaled_offset / 2)
             new_A_target_bbox_center = A_target_bbox.Center  # A_target_bbox.Center + (scaled_offset / 2)
@@ -287,7 +312,8 @@ class TileOverlap(object):
         return overlapping_rect_A, overlapping_rect_B, overlapping_target_rect, OffsetAdjustment
 
     @staticmethod
-    def scale_overlapping_rects(overlapping_rect_A, overlapping_rect_B, scalar):
+    def scale_overlapping_rects(overlapping_rect_A: Rectangle, overlapping_rect_B: Rectangle, scalar: float) -> tuple[
+        Rectangle, Rectangle]:
 
         downsampled_overlapping_rect_A = nornir_imageregistration.Rectangle.SafeRound(
             nornir_imageregistration.Rectangle.CreateFromBounds(overlapping_rect_A.ToArray() * scalar))
@@ -307,8 +333,9 @@ class TileOverlap(object):
         return downsampled_overlapping_rect_A, downsampled_overlapping_rect_B
 
     @staticmethod
-    def Calculate_Largest_Possible_Region(A, B):
+    def Calculate_Largest_Possible_Region(A: Tile, B: Tile):
         A_B_vector = A.FixedBoundingBox.Center - B.FixedBoundingBox.Center
         A_B_distance = np.sqrt(np.sum((A_B_vector ** 2)))
 
+        raise NotImplementedError()
         pass

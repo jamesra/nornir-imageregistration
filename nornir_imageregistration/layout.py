@@ -1,3 +1,4 @@
+from __future__ import annotations
 import collections
 import copy
 import os
@@ -5,9 +6,14 @@ import warnings
 from operator import itemgetter
 
 import numpy as np
+from numpy.random.mtrand import Sequence
+from numpy.typing import NDArray
 import scipy
 
+from collections.abc import Iterable
+
 import nornir_imageregistration
+from nornir_imageregistration.tile_overlap import TileOverlap
 import nornir_imageregistration.transforms
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
@@ -26,46 +32,54 @@ def _sort_array_on_column(a, iCol, ascending=False):
     return a[iSorted, :]
 
 
-def CreatePairID(A, B=None):
+def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition, B: int | LayoutPosition | None = None) -> \
+        tuple[int, int]:
     """
     :return: A tuple where the lowest ID number is in the first position and IDs are cast to integers
     """
 
-    if isinstance(A, collections.abc.Iterable) and B is None:
+    if isinstance(A, collections.abc.Sequence) and B is None:
+        if B is not None:
+            raise ValueError("B must not be specified if A is a Sequence")
         B = A[1]
         A = A[0]
+    elif isinstance(A, tuple):
+        if B is not None:
+            raise ValueError("B must not be specified if A is a tuple")
+        return A
 
-    A_ID = None
-    if isinstance(A, LayoutPosition):
-        A_ID = A.ID
+    a_id = A.ID if isinstance(A, LayoutPosition) else A
+    b_id = B.ID if isinstance(B, LayoutPosition) else B
+
+    a_id = int(a_id)
+    b_id = int(b_id)
+
+    if a_id < b_id:
+        return a_id, b_id
     else:
-        A_ID = A
-
-    if isinstance(B, LayoutPosition):
-        B_ID = B.ID
-    else:
-        B_ID = B
-
-    A_ID = int(A_ID)
-    B_ID = int(B_ID)
-
-    if A_ID < B_ID:
-        return A_ID, B_ID
-    else:
-        return B_ID, A_ID
+        return b_id, a_id
 
 
-class LayoutPosition(object):
+class LayoutPosition:
     """This is an anchor with a number of springs of a certain length attached.  In our use the anchor is a tile and the spring size
        and strength is determined by the offset to overlap an adjacent tile
 
        Offsets is a numpy array of the form [[ID Y X Weight]]
     """
 
-    iOffsetID = 0
-    iOffsetY = 1
-    iOffsetX = 2
-    iOffsetWeight = 3
+    iOffsetID: int = 0
+    iOffsetY: int = 1
+    iOffsetX: int = 2
+    iOffsetWeight: int = 3
+
+    _ID: int
+    Position: NDArray[np.floating]
+    _OffsetArray: NDArray[np.float64]
+    _dims: nornir_imageregistration.spatial.RectLike | None
+    _IDToIndex: dict[int, int] | None = None
+
+    _connected_id_cache: NDArray[int] | None = None
+    _irow_cache: None = None
 
     # offset_dtype = np.dtype([('ID', int), ('Y', float), ('X', float), ('Weight', float)])
 
@@ -74,22 +88,12 @@ class LayoutPosition(object):
         return self._ID
 
     @property
-    def Position(self):
+    def Position(self) -> NDArray[np.floating]:
         """Our position in the layout"""
         return self._position
 
-    @property
-    def OffsetArray(self):
-        """Read-only use please"""
-        return self._OffsetArray
-
-    @property
-    def IsIsolated(self) -> bool:
-        """Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no offsets"""
-        return len(self._OffsetArray) == 0
-
     @Position.setter
-    def Position(self, value):
+    def Position(self, value: NDArray[np.floating] | Iterable[np.floating]):
         """Our position in the layout"""
         if not isinstance(value, np.ndarray):
             self._position = np.array(value, dtype=np.float64)
@@ -100,11 +104,30 @@ class LayoutPosition(object):
         return
 
     @property
-    def Weights(self):
-        return self._OffsetArray[:, LayoutPosition.iOffsetWeight]
+    def OffsetArray(self) -> NDArray[np.float64]:
+        """
+        Read-only use please.
+        Each row is [ID Y X Weight]
+        """
+        readonly_array = np.array(self._OffsetArray)
+        readonly_array.setflags(write=False)
+        return readonly_array
 
     @property
-    def ConnectedIDs(self):
+    def IsIsolated(self) -> bool:
+        """Sometimes we have tiles which end up isolated, usually due to prune.  When this occurs they have no offsets"""
+        return len(self._OffsetArray) == 0
+
+    @property
+    def Weights(self) -> NDArray[np.floating]:
+        return self._OffsetArray[:, LayoutPosition.iOffsetWeight]
+
+    @Weights.setter
+    def Weights(self, value: NDArray[np.floating] | float):
+        self._OffsetArray[:, LayoutPosition.iOffsetWeight] = value
+
+    @property
+    def ConnectedIDs(self) -> NDArray[int]:
         if self._connected_id_cache is None:
             self._connected_id_cache = self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int, copy=False)
 
@@ -120,7 +143,7 @@ class LayoutPosition(object):
 
     def GetOffset(self, ID):
         iKnown = self.ConnectedIDs == ID
-        return self.OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
+        return self._OffsetArray[iKnown, LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1].flatten()
 
     def ContainsOffset(self, ID) -> bool:
         iKnown = self.ConnectedIDs == ID
@@ -128,18 +151,22 @@ class LayoutPosition(object):
 
     def GetWeight(self, ID) -> float:
         iKnown = self.ConnectedIDs == ID
-        return float(self.OffsetArray[iKnown, LayoutPosition.iOffsetWeight])
+        return float(self._OffsetArray[iKnown, LayoutPosition.iOffsetWeight])
 
     @property
-    def IDToIndex(self) -> {int: int}:
+    def IDToIndex(self) -> dict[int, int]:
+        """
+        Maps the ID of a connected node to the row index in the offset array
+        :return:
+        """
         if self._IDToIndex is None:
-            self._IDToIndex = {}
+            self._IDToIndex = dict()
             for (i, ID) in enumerate(self._OffsetArray[:, 0]):
                 self._IDToIndex[ID] = i
 
         return self._IDToIndex
 
-    def SetOffset(self, ID, offset, weight):
+    def SetOffset(self, ID: int, offset: nornir_imageregistration.typing.PointLike, weight: float):
         """Set the offset for the specified Layout position ID.
            This means that when we subtract our position from the other ID's position we hope to obtain this offset value.
         """
@@ -180,25 +207,24 @@ class LayoutPosition(object):
         Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
         return
 
-    def get_row_indicies(self, connected_nodes=None):
+    def get_row_indicies(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[int]:
         """
         Given a set of connected nodes, return the index into our _OffsetArray
         :return: A numpy array of row indicies
         """
         if connected_nodes is None:
             if self._irow_cache is None:
-                self._irow_cache = np.array(range(0, len(self.ConnectedIDs)), dtype=np.int)
+                self._irow_cache = np.array(range(0, len(self.ConnectedIDs)), dtype=int)
             return self._irow_cache
         else:
             # connected_IDs = [n.ID for n in connected_nodes]
-            iRows = np.array([self.IDToIndex[n.ID] for n in
-                              connected_nodes])  # nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
-            return iRows
+            return np.array([self.IDToIndex[n.ID] for n in
+                             connected_nodes])  # nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
 
-    def TensionVectors(self, connected_nodes=None):
+    def TensionVectors(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[np.floating]:
         """The difference between the current connected_positions and the expected positions based on our offsets
         :param connected_nodes:
-        :param ndarray connected_positions: [ID Y X] Position of the connected nodes"""
+        :param ndarray connected_nodes: [ID Y X] Position of the connected nodes"""
         if len(connected_nodes) == 0:
             return np.zeros((1, 2), dtype=np.float64)
 
@@ -209,17 +235,17 @@ class LayoutPosition(object):
         return relative_connected_positions - self._OffsetArray[iRows,
                                               LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1]
 
-    def NetTensionVector(self, connected_nodes):
+    def NetTensionVector(self, connected_nodes: Sequence[LayoutPosition]) -> NDArray[np.floating]:
         """
         A set of N rows indicating where this node needs to move to have no tension with the linked node on that row
         """
         position_difference = self.TensionVectors(connected_nodes)
         return np.sum(position_difference, 0)
 
-    def WeightedNetTensionVector(self, connected_nodes):
-        """The direction of the vector this tile wants to move after summing all of the offsets
+    def WeightedNetTensionVector(self, connected_nodes: Sequence[LayoutPosition]) -> NDArray[np.floating]:
+        """The direction of the vector this tile wants to move after summing all     of the offsets
         :param connected_nodes:
-        :param ndarray connected_positions: Position of the connected nodes"""
+        :param ndarray connected_nodes: Position of the connected nodes"""
         if len(connected_nodes) == 0:
             return np.zeros((1, 2), dtype=np.float64)
 
@@ -242,7 +268,7 @@ class LayoutPosition(object):
 
         return np.sum(weighted_position_difference, 0)
 
-    def MaxTensionVector(self, connected_nodes):
+    def MaxTensionVector(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
         The largest tension vector
         :return: tuple of (ID, magnitude) of the largest tension vector
@@ -255,7 +281,7 @@ class LayoutPosition(object):
         i_max_tension = magnitudes.argmax()
         return ID_Value(self.OffsetArray[i_max_tension, self.iOffsetID], position_difference[i_max_tension, :])
 
-    def MinTensionVector(self, connected_nodes):
+    def MinTensionVector(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
         The smallest tension vector
         :return: tuple of (ID, magnitude) of the smallest tension vector
@@ -268,7 +294,7 @@ class LayoutPosition(object):
         i_min_tension = magnitudes.argmin()
         return ID_Value(self.OffsetArray[i_min_tension, self.iOffsetID], position_difference[i_min_tension, :])
 
-    def MaxTensionMagnitude(self, connected_nodes):
+    def MaxTensionMagnitude(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
         The largest tension vector
         :return: tuple of (ID, magnitude) of the largest tension vector
@@ -277,11 +303,11 @@ class LayoutPosition(object):
             return ID_Value(None, 0)
 
         position_difference = self.MaxTensionVector(connected_nodes)
-        magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
+        magnitudes = np.sqrt(np.sum(position_difference.Value ** 2, 1))
         i_max_tension = magnitudes.argmax()
         return ID_Value(self.OffsetArray[i_max_tension, self.iOffsetID], magnitudes[i_max_tension])
 
-    def MinTensionMagnitude(self, connected_nodes):
+    def MinTensionMagnitude(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
         The smallest tension vector
         :return: tuple of (ID, magnitude) of the smallest tension vector
@@ -294,7 +320,7 @@ class LayoutPosition(object):
         i_min_tension = magnitudes.argmin()
         return ID_Value(self.OffsetArray[i_min_tension, self.iOffsetID], magnitudes[i_min_tension])
 
-    def ScaleOffsetWeightsByPosition(self, connected_nodes):
+    def ScaleOffsetWeightsByPosition(self, connected_nodes: Sequence[LayoutPosition]):
         """
         Reweight our set of weights based on how far from this expectation our offsets are.  THis is useful if we believe our initial positions are largely accurate but
         our calculated desired offsets may have errors.
@@ -311,7 +337,11 @@ class LayoutPosition(object):
 
         return
 
-    def __init__(self, ID, position, dims=None, *args, **kwargs):
+    def __init__(self,
+                 ID: int,
+                 position: nornir_imageregistration.typing.PointLike,
+                 dims: nornir_imageregistration.spatial.RectLike | None = None,
+                 *args, **kwargs):
         """
         :param int ID: ID number
         :param tuple position: Center position (Y,X)
@@ -329,43 +359,49 @@ class LayoutPosition(object):
         self._connected_id_cache = None
         self._irow_cache = None
 
-    def __eq__(self, other):
+    def __eq__(self, other: LayoutPosition) -> bool:
         if isinstance(other, LayoutPosition):
             return self._ID == other.ID  # change that to your needs 
 
         return False
 
-    def __ne__(self, other):
+    def __ne__(self, other: LayoutPosition) -> bool:
         if isinstance(other, LayoutPosition):
             return self._ID != other.ID  # change that to your needs 
 
         return True
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return self._ID
 
-    def copy(self):
+    def copy(self) -> LayoutPosition:
         """:return: A copy of the object"""
         c = LayoutPosition(self._ID,
                            position=self.Position.copy())
         c._OffsetArray = self._OffsetArray.copy()
         return c
 
-    def __str__(self):
-        return "%d y:%g x:%g" % (self._ID, self.Position[0], self.Position[1])
+    def __str__(self) -> str:
+        return f"{self._ID} y:{self.Position:f2} x:{self.Position:f2}"
 
 
-class Layout(object):
+OverlapKeyType = TileOverlap | tuple[int, int]
+
+
+class Layout:
     """ Records the optimal offset from each tile in a mosaic tile to overlapping tiles.
         IDs of nodes should be incremental and match the row index of the array."""
 
     # Offsets into node position array
-    iNodeID = 0
-    iNodeY = 1
-    iNodeX = 2
+    iNodeID: int = 0
+    iNodeY: int = 1
+    iNodeX: int = 2
+
+    ID: int
+    _nodes: dict[int, LayoutPosition]
 
     @classmethod
-    def _parameter_to_offset_IDs(cls, param):
+    def _parameter_to_offset_IDs(cls, param: OverlapKeyType) -> tuple[int, int]:
         """
         :param param: Either a TileOverlap object or a tuple of node ID's.
         :return: A tuple of node ID's
@@ -376,14 +412,14 @@ class Layout(object):
             return param
 
     @property
-    def nodes(self) -> {int: LayoutPosition}:
+    def nodes(self) -> dict[int, LayoutPosition]:
         """
         :return: A dictionary mapping ID to LayoutPosition objects
         """
         return self._nodes
 
     @property
-    def linked_nodes(self):
+    def linked_nodes(self) -> set[tuple[int, int]]:
         """
         :return: A set of tuples of linked IDs, lowest ID value in the first position
         """
@@ -400,7 +436,7 @@ class Layout(object):
         return pairs
 
     @property
-    def average_center(self):
+    def average_center(self) -> NDArray[np.floating]:
         """
         :return: The average of the center positions of all tiles in the layout
         """
@@ -427,7 +463,7 @@ class Layout(object):
         return ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
 
     @property
-    def MaxTensionMagnitude(self) -> ID_Value:
+    def MaxTensionMagnitude(self) -> ID_Value | None:
         """
         The largest single tension between any two nodes in the layout
         :return: An array of (A,B,Magnitude) where A,B are IDs
@@ -439,10 +475,10 @@ class Layout(object):
             return None
 
         i_max = tension_magnitude.argmax()
-        return ID_Value(CreatePairID(tension_vectors[i_max, 0:2]), tension_magnitude[i_max])
+        return ID_Value(create_pair_id(tension_vectors[i_max, 0:2]), tension_magnitude[i_max])
 
     @property
-    def MinTensionMagnitude(self) -> ID_Value:
+    def MinTensionMagnitude(self) -> ID_Value | None:
         """
         The smallest tension between any two nodes in the layout
         :return: A tuple of (A,B,Magnitude) where A,B are IDs
@@ -454,10 +490,10 @@ class Layout(object):
             return None
 
         i_min = tension_magnitude.argmin()
-        return ID_Value(CreatePairID(tension_vectors[i_min, 0:2]), tension_magnitude[i_min])
+        return ID_Value(create_pair_id(tension_vectors[i_min, 0:2]), tension_magnitude[i_min])
 
     @property
-    def MinWeightedNetTensionMagnitude(self):
+    def MinWeightedNetTensionMagnitude(self) -> ID_Value:
         """Returns the (ID, Magnitude) of the node with the largest weighted net tension vector."""
         net_tension_vectors = self.WeightedNetTensionVectors()
         tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:])
@@ -465,17 +501,17 @@ class Layout(object):
         return ID_Value(net_tension_vectors[i_min, 0], tension_magnitude[i_min])
         # return np.max(nornir_imageregistration.array_distance(net_tension_vectors))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "Layout {0} nodes {1} Connections {2}".format(self.ID, len(self.nodes.keys()), len(self.linked_nodes))
 
-    def Contains(self, ID):
+    def Contains(self, ID: int) -> bool:
         """
         :rtype: bool
         :return: True if layout contains the ID
         """
         return ID in self._nodes.keys()
 
-    def SetOffset(self, A_ID, B_ID, offset, weight=1.0):
+    def SetOffset(self, A_ID: int, B_ID: int, offset: NDArray[np.floating], weight: float = 1.0):
         """
         Specify the expected offset between two nodes in the spring model.
         """
@@ -484,7 +520,7 @@ class Layout(object):
         A.SetOffset(B.ID, offset, weight)
         B.SetOffset(A.ID, -offset, weight)
 
-    def ContainsOffset(self, overlap) -> bool:
+    def ContainsOffset(self, overlap: OverlapKeyType) -> bool:
         """:return: True if the layout has an offset between the two nodes"""
         (A_ID, B_ID) = Layout._parameter_to_offset_IDs(overlap)
 
@@ -496,7 +532,12 @@ class Layout(object):
 
         return A.ContainsOffset(B_ID) and B.ContainsOffset(A_ID)
 
-    def RemoveOverlap(self, overlap):
+    def RemoveOverlap(self, overlap: OverlapKeyType):
+        """
+
+        :param overlap:
+        :return:
+        """
         (A_ID, B_ID) = Layout._parameter_to_offset_IDs(overlap)
 
         if self.Contains(A_ID) and self.Contains(B_ID):
@@ -506,7 +547,7 @@ class Layout(object):
             B.RemoveOffset(A.ID)
         return
 
-    def RemoveNode(self, node_ID):
+    def RemoveNode(self, node_ID: int) -> bool:
         if node_ID in self.nodes:
             node = self.nodes[node_ID]
 
@@ -519,11 +560,11 @@ class Layout(object):
 
         return False
 
-    def GetPosition(self, ID):
+    def GetPosition(self, ID: int):
         """Return the position array for a set of nodes, sorted by node ID"""
         return self.nodes[ID].Position
 
-    def GetPositions(self, IDs=None):
+    def GetPositions(self, IDs: list[LayoutPosition] | int | NDArray[int] | None = None) -> NDArray[np.floating]:
         """Return the position array for a set of nodes, sorted by node ID"""
 
         if IDs is None:
@@ -544,7 +585,7 @@ class Layout(object):
 
         return positions
 
-    def GetNodes(self, IDs=None):
+    def GetNodes(self, IDs: list[LayoutPosition] | int | NDArray[int] | None = None) -> list[LayoutPosition]:
         """Return the sorted subset of nodes by IDs as a list"""
 
         if IDs is None:
@@ -556,7 +597,7 @@ class Layout(object):
 
         return nodes
 
-    def GetOffsetWeightExtrema(self):
+    def GetOffsetWeightExtrema(self) -> tuple[float, float]:
         """
         :return: A tuple with the (min,max) weight values of offsets in the layout
         """
@@ -582,7 +623,7 @@ class Layout(object):
 
         return minWeight, maxWeight
 
-    def NetTensionVector(self, ID):
+    def NetTensionVector(self, ID: int) -> NDArray[np.floating]:
         """Return the net tension vector of the specified ID"""
 
         node = self.nodes[ID]
@@ -590,7 +631,7 @@ class Layout(object):
 
         return node.NetTensionVector(linked_nodes)
 
-    def NetTensionVectors(self):
+    def NetTensionVectors(self) -> NDArray[np.floating]:
         """Return all net tension vectors for our nodes"""
         IDs = list(self.nodes.keys())
         IDs.sort()
@@ -601,12 +642,12 @@ class Layout(object):
 
         return output
 
-    def PairTensionVector(self, A, B):
+    def PairTensionVector(self, A: LayoutPosition, B: LayoutPosition) -> NDArray[np.floating]:
         """Return the tension vector between A and B
         :return: The ideal offset between A and B
         """
 
-        pair = CreatePairID(A, B)
+        pair = create_pair_id(A, B)
         node = self.nodes[pair[0]]
         linked_nodes = self.GetNodes(pair[1])
 
@@ -617,13 +658,13 @@ class Layout(object):
     #         :return: The ideal offset between A and B
     #         '''
     #
-    #         pair = CreatePairID(A,B)
+    #         pair = create_pair_id(A,B)
     #         node = self.nodes[pair[0]]
     #         linked_nodes = self.GetNodes(pair[1])
     #
     #         net = node.NetTensionVector(linked_nodes)
 
-    def WeightedNetTensionVector(self, ID):
+    def WeightedNetTensionVector(self, ID: int) -> NDArray[np.floating]:
         """Return the net tension vector of the specified ID"""
 
         node = self.nodes[ID]
@@ -631,7 +672,7 @@ class Layout(object):
 
         return node.WeightedNetTensionVector(linked_node_positions)
 
-    def WeightedNetTensionVectors(self):
+    def WeightedNetTensionVectors(self) -> NDArray[np.floating]:
         """Return all net tension vectors for our nodes"""
         IDs = list(self.nodes.keys())
         IDs.sort()
@@ -643,7 +684,7 @@ class Layout(object):
         return output
 
     @property
-    def MaxTensionVectors(self):
+    def MaxTensionVectors(self) -> NDArray[np.floating]:
         """
         Return the maximum tension vector for each node
         """
@@ -657,14 +698,14 @@ class Layout(object):
             if node_max[0] is None:
                 continue
 
-            pair = CreatePairID(ID, node_max[0])
+            pair = create_pair_id(ID, node_max.ID)
             output[i, :] = (pair[0], pair[1], node_max[1][0], node_max[1][1])
             i += 1
 
         return np.array(output[0:i, :])
 
     @property
-    def MinTensionVectors(self):
+    def MinTensionVectors(self) -> NDArray[np.floating]:
         """
         Return the minimum tension vector for each node
         """
@@ -678,18 +719,20 @@ class Layout(object):
             if node_min[0] is None:
                 continue
 
-            pair = CreatePairID(ID, node_min[0])
+            pair = create_pair_id(ID, node_min[0])
             output[i, :] = (pair[0], pair[1], node_min[1][0], node_min[1][1])
             i += 1
 
         return np.array(output[0:i, :])
 
-    def _nextID(self):
-        """Generate the next ID number for a position"""
-        return self._nodepositions.shape[0]
-
     def CreateNode(self, ID, position, dims=None):
+        """
 
+        :param ID:
+        :param position:
+        :param dims:
+        :return:
+        """
         assert (not ID in self.nodes)
         node = LayoutPosition(ID, position, dims)
         self.nodes[ID] = node
@@ -736,7 +779,7 @@ class Layout(object):
         self.nodes.update(layoutB.copy().nodes)
 
     @classmethod
-    def RelaxNodes(cls, layout_obj, vector_scalar=None):
+    def RelaxNodes(cls, layout_obj: Layout, vector_scalar: float | None = None):
         """Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
@@ -775,13 +818,13 @@ class Layout(object):
 
         sorted_node_movement = node_movement[sort_by_weight_asc, 0]
 
-        for i in range(sorted_node_movement.shape[0] - 1, -1,
+        for i in range(int(sorted_node_movement.shape[0]) - 1, -1,
                        -1):  # Reversing the range calls saves me a np.flip and this function is a bottleneck
-            nodeId = sorted_node_movement[i]
-            vector = layout_obj.WeightedNetTensionVector(nodeId) * vector_scalar
+            node_id = int(sorted_node_movement[i])
+            vector = layout_obj.WeightedNetTensionVector(node_id) * vector_scalar
 
-            node = layout_obj.nodes[nodeId]
-            node.Position = node.Position + vector
+            node = layout_obj.nodes[node_id]
+            node.Position += vector
 
         # OK, move all of the nodes according to the net movement
         # for (i, node) in enumerate(nodes): 
@@ -934,12 +977,19 @@ def ScaleOffsetWeightsByPosition(original_layout):
     return
 
 
-def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
+def NormalizeOffsetWeights(original_layout: Layout,
+                           min_allowed_weight: float | None = None,
+                           max_allowed_weight: float | None = None):
     """
     Proportionally scale offset weights so the highest weight is 1.0
     """
 
     (minWeight, maxWeight) = original_layout.GetOffsetWeightExtrema()
+
+    minWeight = min_allowed_weight if min_allowed_weight is not None else minWeight
+    maxWeight = max_allowed_weight if max_allowed_weight is not None else maxWeight
+
+    weight_range = maxWeight - minWeight
 
     # All the weights are equal... odd
     if maxWeight == minWeight:
@@ -947,7 +997,7 @@ def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_we
             if node.IsIsolated:
                 continue
 
-            node.OffsetArray[:, LayoutPosition.iOffsetWeight] = 1.0
+            node.Weights = 1.0
 
         return
 
@@ -956,8 +1006,9 @@ def NormalizeOffsetWeights(original_layout, min_allowed_weight=0, max_allowed_we
         if node.IsIsolated:
             continue
 
-        node.OffsetArray[:, LayoutPosition.iOffsetWeight] = node.OffsetArray[:,
-                                                            LayoutPosition.iOffsetWeight] / maxWeight
+        # node.OffsetArray[:, LayoutPosition.iOffsetWeight] = node.OffsetArray[:,
+        #                                                    LayoutPosition.iOffsetWeight] / maxWeight
+        node.Weights = (node.Weights - minWeight) / weight_range
         assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= 0))
         assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= 1.0))
 
@@ -972,7 +1023,9 @@ def SetOffsetWeights(original_layout, weight_value):
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] = weight_value
 
 
-def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, max_allowed_weight=1.0):
+def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
+                                       min_allowed_weight: float = 0,
+                                       max_allowed_weight: float = 1.0):
     """
     Remap offset weights so the highest weight is 1.0 and the lowest is 0
     """
@@ -1005,8 +1058,8 @@ def ScaleOffsetWeightsByPopulationRank(original_layout, min_allowed_weight=0, ma
                                                              LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] *= allowed_weight_range
         node.OffsetArray[:, LayoutPosition.iOffsetWeight] += min_allowed_weight
-        assert (np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= min_allowed_weight))
-        assert (np.alltrue(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= max_allowed_weight))
+        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] >= min_allowed_weight))
+        assert (np.all(node.OffsetArray[:, LayoutPosition.iOffsetWeight] <= max_allowed_weight))
 
     return
 
@@ -1036,7 +1089,7 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
 
     i = 0
     min_plotting_tension = max_tension_cutoff * 20
-    plotting_max_tension = max(min_plotting_tension, max_tension)
+    # plotting_max_tension = max(min_plotting_tension, max_tension)
 
     #         MovieImageDir = os.path.join(self.TestOutputPath, "relax_movie")
     #         if not os.path.exists(MovieImageDir):
@@ -1118,7 +1171,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     :param original_layout: Dictionary of tile objects containing alignment records to other tiles
     """
 
-    placedTiles = dict()
+    # placedTiles = dict()
 
     sorted_offsets = OffsetsSortedByWeight(original_layout)
 
@@ -1128,12 +1181,12 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
         row = sorted_offsets[iRow, :]
         A_ID = int(row[0])
         B_ID = int(row[1])
-        YOffset = row[2]
-        XOffset = row[3]
+        # YOffset = row[2]
+        # XOffset = row[3]
         Weight = row[4]
         offset = row[2:4]
 
-        # print("%d -> %d (%g,%g w: %g)" % (A_ID, B_ID, YOffset, XOffset, Weight))
+        # print("%d -> %d (%g,%g w: %g)" % (A_ID, B_ID, row[2], row[3], Weight))
 
         if np.isnan(Weight):
             print("Skip: Invalid weight, not a number")
