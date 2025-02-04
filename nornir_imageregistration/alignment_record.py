@@ -175,12 +175,12 @@ class AlignmentRecord(object):
         # It expands the output image by one pixel and essentially blurs 
         # the output.  Peak is most likely also a fraction which will blur the 
         # image as well.  
-        
+
         # If we don't want to blur, one idea is to nudge the peak at a sub-pixel 
         # distance to make source_to_target_offset a whole number.  However, 
         # this adjustment is pointless if a rotation is present since that will
         # also blur the output 
-        
+
         source_to_target_offset = target_center - source_center_of_rotation
 
         target_translation = source_to_target_offset + self.peak
@@ -306,6 +306,11 @@ class EnhancedAlignmentRecord(AlignmentRecord):
     @property
     def AdjustedTargetPoint(self):
         return self._TargetPoint + self.peak
+
+    @property
+    def TargetOffset(self) -> NDArray[np.floating]:
+        """The amount to add to the target point to get the adjusted target point"""
+        return self.peak
 
     @property
     def AdjustedSourcePoint(self):
