@@ -92,24 +92,26 @@ def index_with_array(image: NDArray, indicies: NDArray) -> NDArray:
     :param ndarray image: Image to index into
     :param ndarray indicies: nx2 array of pixel coordinates
     """
+    xp = cp.get_array_module(image)
 
-    return np.take(image, ravel_index(indicies, image.shape))
-    # return np.reshape(values, (len(values),1))
+    return xp.take(image, ravel_index(indicies, xp.asarray(image.shape)))
 
 
 def array_distance(array: NDArray) -> NDArray:
     """Convert an Mx2 array into a Mx1 array of euclidean distances"""
-    if array.ndim == 1:
-        return np.sqrt(np.sum(array ** 2))
+    xp = cp.get_array_module(array)
 
-    return np.sqrt(np.sum(array ** 2, 1))
+    if array.ndim == 1:
+        return xp.sqrt(xp.sum(array ** 2))
+
+    return xp.sqrt(xp.sum(array ** 2, 1))
 
 
 # def GetBitsPerPixel(File):
 #    return shared_images.GetImageBpp(File)
 
 
-def ApproxEqual(a, b, epsilon=None):
+def ApproxEqual(a: float, b: float, epsilon=None) -> bool:
     if epsilon is None:
         epsilon = 0.01
 
