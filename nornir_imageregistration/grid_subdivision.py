@@ -118,7 +118,7 @@ class GridDivisionBase(IGrid):
                 self._TargetPoints = self._TargetPoints.get()
             return self._TargetPoints
 
-    def RemoveMaskedPoints(self, mask: NDArray[np.bool_]):
+    def RemoveMaskedPoints(self, mask: NDArray[np.bool_]) -> NDArray[np.floating]:
         """
         :param mask: a boolean mask that determines which points are kept.
         """
@@ -196,16 +196,26 @@ class GridDivisionBase(IGrid):
                                                 min_unmasked_area=min_unmasked_area)
             self.RemoveMaskedPoints(valid)
 
-    def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | None = None):
-        valid_inbounds = np.logical_and(np.all(self._TargetPoints >= np.asarray((0, 0)), 1),
-                                        np.all(self._TargetPoints < target_shape, 1))
+    def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None) \
+            -> NDArray[np.floating]:
+
+        xp = nornir_imageregistration.GetComputationModule() if target_shape is None else cp.get_array_module(points)
+
+        if not isinstance(target_shape, NDArray):
+            target_shape = xp.asarray(target_shape)
+
+        valid_inbounds = xp.logical_and(xp.all(self._TargetPoints >= xp.asarray((0, 0)), 1),
+                                        xp.all(self._TargetPoints < target_shape, 1))
         self.RemoveMaskedPoints(valid_inbounds)
 
-    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray):
-        xp = cp.get_array_module(self._SourcePoints)
+    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None) \
+            -> NDArray[np.floating]:
+        xp = nornir_imageregistration.GetComputationModule() if source_shape is None else cp.get_array_module(points)
 
         if source_shape is None:
             source_shape = xp.asarray(self._source_shape)
+        elif not isinstance(source_shape, xp.ndarray):
+            source_shape = xp.asarray(source_shape)
 
         valid_inbounds = xp.logical_and(xp.all(self._SourcePoints >= xp.asarray((0, 0)), 1),
                                         xp.all(self._SourcePoints < source_shape, 1))
