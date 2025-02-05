@@ -199,7 +199,8 @@ class GridDivisionBase(IGrid):
     def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None) \
             -> NDArray[np.floating]:
 
-        xp = nornir_imageregistration.GetComputationModule() if target_shape is None else cp.get_array_module(points)
+        xp = nornir_imageregistration.GetComputationModule() if target_shape is None else cp.get_array_module(
+            target_shape)
 
         if not isinstance(target_shape, NDArray):
             target_shape = xp.asarray(target_shape)
@@ -210,7 +211,8 @@ class GridDivisionBase(IGrid):
 
     def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None) \
             -> NDArray[np.floating]:
-        xp = nornir_imageregistration.GetComputationModule() if source_shape is None else cp.get_array_module(points)
+        xp = nornir_imageregistration.GetComputationModule() if source_shape is None else cp.get_array_module(
+            source_shape)
 
         if source_shape is None:
             source_shape = xp.asarray(self._source_shape)

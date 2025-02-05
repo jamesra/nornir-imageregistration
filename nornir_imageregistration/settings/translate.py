@@ -28,6 +28,7 @@ class TranslateSettings(object):
     use_feature_score: bool
     exclude_diagonal_overlaps: bool
     known_offsets: list[NDArray[float]]
+    mask_extrema: bool = True
 
     @property
     def feature_score_calculations_required(self):
@@ -49,7 +50,8 @@ class TranslateSettings(object):
                  excess_scalar: float | None = None,
                  use_feature_score: bool | None = False,
                  exclude_diagonal_overlaps: bool | None = True,
-                 known_offsets: list | None = None):
+                 known_offsets: list | None = None,
+                 mask_extrema: bool = True):
         """
         :param float min_overlap: The percentage of area that two tilesets must overlap before being considered by the layout model
         :param int max_relax_iterations: Maximum number of iterations in the relax stage
@@ -67,6 +69,7 @@ class TranslateSettings(object):
         :param bool use_feature_score:  Multiply the alignment quality metric for the registration by the min power spectral density of the overlapping regions.  The idea is to down-weight featureless regions.  However the latest peak weight currently down-weights itself if there were many strong peaks to choose from.
         :param bool exclude_diagonal_overlaps:  Do not include overlaps between rectangles whose center is outside the min/max range of the partner rectangle along both axes.  Reduces calculations by eliminating calculations for small overlapping corner regions.
         :param list known_offsets: Optional list of known tile offsets to prevent seams from opening up with questionable input with areas of low overlap.
+        :param bool mask_extrema:  If True, mask the extrema min/max values of each overlapping region in the translate step with random noise.  Useful for images with large regions of background such as found in CMP light microscopy images
         """
 
         self.min_overlap = 0.02 if min_overlap is None else min_overlap
@@ -85,6 +88,7 @@ class TranslateSettings(object):
         self.use_feature_score = False if use_feature_score is None else use_feature_score
         self.exclude_diagonal_overlaps = True if exclude_diagonal_overlaps is None else exclude_diagonal_overlaps
         self.known_offsets = [] if known_offsets is None else known_offsets
+        self.mask_extrema = mask_extrema
 
         if self.min_translate_iterations > self.max_translate_iterations:
             raise ValueError("min_translate_iterations > max_translate_iterations")
