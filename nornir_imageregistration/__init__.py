@@ -368,6 +368,8 @@ from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKG
 import nornir_imageregistration.pillow_helpers
 from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_for_pillow_image
 
+import nornir_imageregistration.blur as blur
+
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
