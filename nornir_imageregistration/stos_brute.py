@@ -1,8 +1,8 @@
-'''
+"""
 Created on Oct 4, 2012
 
 @author: u0490822
-'''
+"""
 from typing import NamedTuple
 import multiprocessing
 import multiprocessing.sharedctypes
@@ -13,6 +13,7 @@ from typing import Sequence
 import logging
 
 from nornir_imageregistration import AlignmentRecord
+import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
@@ -42,9 +43,9 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
                            SingleThread: bool = False,
                            Cluster: bool = False,
                            TestFlip: bool = True) -> nornir_imageregistration.AlignmentRecord:
-    '''Given two images this function returns the rotation angle which best aligns them
+    """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
-       
+
        :param FixedImageInput:
        :param WarpedImageInput:
        :param FixedImageMaskPath:
@@ -56,7 +57,7 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
        :param float MinOverlap: The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
-       '''
+       """
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     if AngleSearchRange is not None:
@@ -211,8 +212,9 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                   target_stats: nornir_imageregistration.ImageStats | None = None,
                   source_stats: nornir_imageregistration.ImageStats | None = None,
                   target_image_prepadded: bool = True, min_overlap: float = 0.75):
-    '''Returns an alignment score for a fixed image and an image rotated at a specified angle'''
+    """Returns an alignment score for a fixed image and an image rotated at a specified angle"""
 
+    # print(f'Scoring {angle} degrees')
     try:
         im_target = nornir_imageregistration.ImageParamToImageArray(target_original,
                                                                     dtype=nornir_imageregistration.default_image_dtype())
@@ -255,19 +257,19 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                                                                             dtype=im_source.dtype)
             OKToDelimWarped = True
 
-        rotated_source = nornir_imageregistration.PadImageForPhaseCorrelation(im_source,
-                                                                              ImageMedian=source_stats.median,
-                                                                              ImageStdDev=source_stats.std,
-                                                                              MinOverlap=min_overlap)
+        rotated_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_source,
+                                                                                               ImageMedian=source_stats.median,
+                                                                                               ImageStdDev=source_stats.std,
+                                                                                               MinOverlap=min_overlap)
 
         assert (rotated_source.shape[0] > 0)
         assert (rotated_source.shape[1] > 0)
 
         if not target_image_prepadded:
-            padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(im_target,
-                                                                                 ImageMedian=target_stats.median,
-                                                                                 ImageStdDev=target_stats.std,
-                                                                                 MinOverlap=min_overlap)
+            padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_target,
+                                                                                                  ImageMedian=target_stats.median,
+                                                                                                  ImageStdDev=target_stats.std,
+                                                                                                  MinOverlap=min_overlap)
         else:
             padded_target = im_target
 
@@ -279,11 +281,12 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         # Why is MinOverlap hard-coded to 1.0?
         # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
         if not np.array_equal(im_target.shape, np.array((TargetHeight, TargetWidth))):
-            padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(im_target, NewWidth=TargetWidth,
-                                                                                 NewHeight=TargetHeight,
-                                                                                 ImageMedian=target_stats.median,
-                                                                                 ImageStdDev=target_stats.std,
-                                                                                 MinOverlap=1.0)
+            padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_target,
+                                                                                                  NewWidth=TargetWidth,
+                                                                                                  NewHeight=TargetHeight,
+                                                                                                  ImageMedian=target_stats.median,
+                                                                                                  ImageStdDev=target_stats.std,
+                                                                                                  MinOverlap=1.0)
             # print(f"{angle}: Padding target image to {padded_target.shape}")
         # else:
         #     print(f"{angle}: No additional padding   {padded_target.shape}")
@@ -291,12 +294,13 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         if np.array_equal(rotated_source.shape, np.array((TargetHeight, TargetWidth))):
             rotated_padded_source = rotated_source
         else:
-            rotated_padded_source = nornir_imageregistration.PadImageForPhaseCorrelation(rotated_source,
-                                                                                         NewWidth=TargetWidth,
-                                                                                         NewHeight=TargetHeight,
-                                                                                         ImageMedian=source_stats.median,
-                                                                                         ImageStdDev=source_stats.std,
-                                                                                         MinOverlap=1.0)
+            rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(
+                rotated_source,
+                NewWidth=TargetWidth,
+                NewHeight=TargetHeight,
+                ImageMedian=source_stats.median,
+                ImageStdDev=source_stats.std,
+                MinOverlap=1.0)
 
         assert (np.array_equal(padded_target.shape, rotated_padded_source.shape))
 
@@ -312,9 +316,11 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         # if use_cp and not isinstance(rotated_padded_source, cp.ndarray):
         #     rotated_padded_source = cp.asarray(rotated_padded_source)
 
-        correlation_image = nornir_imageregistration.ImagePhaseCorrelation(padded_target, rotated_padded_source,
-                                                                           target_stats.mean,
-                                                                           source_stats.mean)
+        correlation_image = nornir_imageregistration.phasecorrelation.ImagePhaseCorrelation(padded_target,
+                                                                                            rotated_padded_source,
+                                                                                            target_stats.mean,
+                                                                                            source_stats.mean,
+                                                                                            correlation_coefficient=1)
 
         del padded_target
         del rotated_padded_source
@@ -322,7 +328,7 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         correlation_image = xp_scipy.fft.fftshift(correlation_image)
         try:
             correlation_image -= correlation_image.min()
-            correlation_image /= correlation_image.max()
+            # correlation_image /= correlation_image.max()
         except FloatingPointError as e:
             print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
             record = nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
@@ -337,7 +343,7 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         if use_cp and not isinstance(overlap_mask, cp.ndarray):
             overlap_mask = cp.asarray(overlap_mask)
 
-        (peak, weight) = nornir_imageregistration.FindPeak(correlation_image, overlap_mask)
+        (peak, weight) = nornir_imageregistration.phasecorrelation.FindPeak(correlation_image, overlap_mask)
         del overlap_mask
         del correlation_image
 
@@ -367,8 +373,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      min_overlap: float = 0.75,
                      SingleThread: bool = False,
                      use_cluster: bool = False):
-    '''Find the best angle to align two images.  This function can be very memory intensive.
-       Setting SingleThread=True makes debugging easier'''
+    """Find the best angle to align two images.  This function can be very memory intensive.
+       Setting SingleThread=True makes debugging easier"""
 
     try:
         Debug = False
@@ -382,8 +388,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
             SingleThread = True
 
         if not SingleThread:
-            if Debug:
-                pool = nornir_pools.GetThreadPool(Poolname=None, num_threads=3)
+            if nornir_imageregistration.in_debug_mode():
+                pool = nornir_pools.GetGlobalSerialPool()
             elif use_cluster:
                 pool = nornir_pools.GetGlobalClusterPool()
             else:
@@ -399,10 +405,10 @@ def _find_best_angle(source_image: NDArray[np.floating],
         #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
         #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
 
-        padded_target = nornir_imageregistration.PadImageForPhaseCorrelation(target_image,
-                                                                             MinOverlap=min_overlap,
-                                                                             ImageMedian=target_stats.median,
-                                                                             ImageStdDev=target_stats.std)
+        padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(target_image,
+                                                                                              MinOverlap=min_overlap,
+                                                                                              ImageMedian=target_stats.median,
+                                                                                              ImageStdDev=target_stats.std)
 
         # Create a shared read-only memory map for the Padded fixed image
 
@@ -520,6 +526,6 @@ def __ExecuteProfiler():
 if __name__ == '__main__':
     from nornir_shared import misc
 
-    misc.RunWithProfiler("__ExecuteProfiler()", "C:\Temp\StosBrute")
+    misc.RunWithProfiler("__ExecuteProfiler()", r"C:\Temp\StosBrute")
     # __ExecuteProfiler()
     pass

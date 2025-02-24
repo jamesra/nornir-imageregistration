@@ -1,78 +1,99 @@
-'''
+"""
 Created on Jun 26, 2012
 
 @author: James Anderson
-'''
+"""
 
 from __future__ import annotations
 
 import os
-from typing import Sequence
+import warnings
+from typing import Sequence, Callable
 
 import numpy
 import numpy as np
 
 try:
     import cupy as cp
-    # import cupyx
-except ModuleNotFoundError:
+    import cupyx
+    import cupyx.scipy as sp
+except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
-    # import cupyx_thunk as cupyx
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
-    # import cupyx_thunk as cupyx
+    import nornir_imageregistration.cupyx_thunk as cupyx
+    import scipy as sp
+
+try:
+    import cupy.fft as fftpack
+except (ModuleNotFoundError, ImportError):
+    # try:
+    #        import mkl_fft as fftpack
+    #    except (ModuleNotFoundError, ImportError):
+    import scipy.fft as fftpack
+
+try:
+    import cupy.random as random
+except (ModuleNotFoundError, ImportError):
+    # try:
+    #     import mkl_random.mklrand as random
+    # except (ModuleNotFoundError, ImportError):
+    import numpy.random as random
 
 from PIL import Image
 from numpy.typing import NDArray, DTypeLike
 from pylab import ceil, mod
 
 import nornir_shared.histogram
-import nornir_shared.prettyoutput as PrettyOutput
+import nornir_shared.prettyoutput as prettyoutput
 import nornir_pools
 import nornir_imageregistration
 
 
 class ImageStats:
-    '''A container for image statistics'''
+    """A container for image statistics"""
+    _median: float | None = None
+    _mean: float | None = None
+    _std: float | None = None
+    _min: float | None = None
+    _max: float | None = None
 
     @property
-    def median(self):
+    def median(self) -> float:
         return self._median
 
     @median.setter
-    def median(self, val):
+    def median(self, val: float):
         self._median = val
 
     @property
-    def mean(self):
+    def mean(self) -> float:
         return self._mean
 
     @mean.setter
-    def mean(self, val):
+    def mean(self, val: float):
         self._mean = val
 
     @property
-    def std(self):
+    def std(self) -> float:
         return self._std
 
     @std.setter
-    def std(self, val):
+    def std(self, val: float):
         self._std = val
 
     @property
-    def min(self):
+    def min(self) -> float:
         return self._min
 
     @min.setter
-    def min(self, val):
+    def min(self, val: float):
         self._min = val
 
     @property
-    def max(self):
+    def max(self) -> float:
         return self._max
 
     @max.setter
-    def max(self, val):
+    def max(self, val: float):
         self._max = val
 
     def __init__(self):
@@ -89,17 +110,17 @@ class ImageStats:
         d = {'_median': self._median, '_mean': self._mean, '_std': self._std, '_min': self._min, '_max': self._max}
         return d
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict):
         self.__dict__.update(state)
 
     @classmethod
-    def CalcStats(cls, image) -> self:
+    def CalcStats(cls, image: nornir_imageregistration.ImageLike) -> ImageStats:
         return ImageStats.Create(image)
 
     @classmethod
-    def Create(cls, image: NDArray) -> self:
-        '''Returns an object with the mean,median,std.dev of an image,
-           this object is attached to the image object and only calculated once'''
+    def Create(cls, image: NDArray) -> ImageStats:
+        """Returns an object with the mean,median,std.dev of an image,
+           this object is attached to the image object and only calculated once"""
 
         #        I removed this cache in the image object of the statistics.  I believe
         #        Python 3 had issues with it.  If there are performance problems we
@@ -144,10 +165,10 @@ class ImageStats:
         return obj
 
     def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike):
-        '''
+        """
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
-        :param array shape: Shape of the returned array 
-        '''
+        :param array shape: Shape of the returned array
+        """
 
         size = None
         height = 1
@@ -173,17 +194,32 @@ class ImageStats:
         use_cp = nornir_imageregistration.UsingCupy()
 
         xp = cp if use_cp else numpy
-        try:
-            data = ((xp.random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
-        except RuntimeWarning as e:
-            if 'underflow' in e.msg:
-                pass  # We are converting from random numbers, which are float64 at the time this was written, to float16, so an underflow is expected.
+        with warnings.catch_warnings(record=True) as w:
+            data = ((random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
+
+            if w:
+                for warning in w:
+                    if issubclass(warning.category, RuntimeWarning):
+                        if warning.message and warning.message.args and len(warning.message.args) > 0:
+                            message = warning.message.args[0]
+                            if 'overflow' in message and nornir_imageregistration.in_debug_mode():
+                                # prettyoutput.LogErr(
+
+                                prettyoutput.LogErr(
+                                    f"Overflow error generating random image. StdDev={self.std} median={self.median}")
+                            elif 'underflow' in message and nornir_imageregistration.in_debug_mode():
+                                # prettyoutput.LogErr(
+                                prettyoutput.LogErr(
+                                    f"Underflow error generating random image. StdDev={self.std} median={self.median}")
+                            else:
+                                warnings.warn(message, RuntimeWarning)
+
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
 
         return data
 
 
-def Prune(filenames, MaxOverlap=None):
+def Prune(filenames: str | Sequence[str], MaxOverlap: float | None = None):
     if isinstance(filenames, str):
         listfilenames = [filenames]
     else:
@@ -208,9 +244,12 @@ def Prune(filenames, MaxOverlap=None):
         return FilenameToResult
 
 
-def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwargs):
-    '''Return a number indicating how interesting the image is using SciPy
-       '''
+def __InvokeFunctionOnImageList__(listfilenames: Sequence[str],
+                                  Function: Callable[[str], None] | None = None,
+                                  Pool: nornir_pools.IPool | None = None,
+                                  **kwargs):
+    """Return a number indicating how interesting the image is using SciPy
+       """
 
     if Pool is None:
         TPool = nornir_pools.GetGlobalMultithreadingPool()
@@ -232,14 +271,14 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
         Result = task.wait_return()
         iTask += 1
         if Result is None:
-            PrettyOutput.LogErr('No return value for ' + task.filename)
+            prettyoutput.LogErr('No return value for ' + task.filename)
             continue
 
         #         if Result[0] is None:
         #             PrettyOutput.LogErr('No filename for ' + task.name)
         #             continue
 
-        PrettyOutput.CurseProgress("ImageStats", iTask, numTasks)
+        prettyoutput.CurseProgress("ImageStats", iTask, numTasks)
 
         filename = task.filename
         TileToScore[filename] = Result
@@ -247,28 +286,35 @@ def __InvokeFunctionOnImageList__(listfilenames, Function=None, Pool=None, **kwa
     return TileToScore
 
 
-def ScoreImageWithPowerSpectralDensity(image):
+def ScoreImageWithPowerSpectralDensity(image: nornir_imageregistration.ImageLike) -> float:
     # Find all NaN values and replace with median value
-    adjustment_value = numpy.mean(image[numpy.isfinite(image)].flat)
-    image[numpy.isfinite(image) == False] = adjustment_value
+    # finite_mask = numpy.isfinite(image)
+    # infinite_mask = numpy.logical_not(finite_mask)
+    # adjustment_value = numpy.mean(image[finite_mask].flat)
+    # image[infinite_mask] = adjustment_value
 
     # Adjust image to have median value of zero, makes the PSD numbers more human-readable and possibly avoids floating point precision issues
-    Im_centered = image - adjustment_value
-    fft = numpy.fft.rfft2(Im_centered)
+    # Im_centered = image - adjustment_value
+
+    Im_centered = image
+
+    fft = fftpack.fft2(Im_centered)
+    rfft = np.real(fft)
     # fft = numpy.fft.fftshift(fft) 
-    total_amp = numpy.sum(numpy.abs(fft))
+    total_amp = numpy.sum(numpy.abs(rfft))
     score = total_amp / numpy.prod(Im_centered.shape)
     return score
 
 
-def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_percent=None, **kwargs):
-    '''
+def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,
+                                   cell_size: tuple[int, int] | None = None,
+                                   feature_coverage_percent: float | None = None, **kwargs) -> float:
+    """
     Calculates a score indicating the amount of texture available for our phase correlation algorithm to use for alignment
     :param image: The image to score, either an ndarray or filename
     :param tuple cell_size: The dimensions of the subregions that will be evaluated across the image.
     :param float feature_coverage_percent: A value from 0 - 100 indicating what percentage of the image should contain textures scoring at or above the returned value.
-     
-    '''
+    """
 
     if feature_coverage_percent is None:
         feature_coverage_percent = 75
@@ -320,6 +366,9 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
     #
     #     return numpy.std(finite_subset)
 
+    # Apply a basic gaussian smoothing to remove high frequency noise
+    Im = sp.ndimage.filters.gaussian_filter(Im.astype(np.float32), sigma=2.5, radius=5)
+
     if cell_size is None:
         # cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
         cell_size = numpy.asarray((64, 64), dtype=numpy.int32)
@@ -334,9 +383,13 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
         rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint, :],
                                                                                grid.cell_size)
         subset = nornir_imageregistration.CropImageRect(Im, rect, cval=numpy.nan)
-        finite_subset = subset[numpy.isfinite(subset)].flat
+        finite_mask = numpy.isfinite(subset)
+        finite_subset = subset[finite_mask]
         if len(finite_subset) < (cell_area / 2.0):
             continue
+
+        not_finite_subset = np.logical_not(finite_mask)
+        subset[not_finite_subset] = subset[finite_mask].mean()
 
         std_val = ScoreImageWithPowerSpectralDensity(subset)
 
@@ -357,13 +410,13 @@ def __CalculateFeatureScoreSciPy__(image, cell_size=None, feature_coverage_perce
 
         # val = numpy.max(score_list)
         # val = numpy.mean(score_list) #Median was less reliable when using the range of intensity values as a measure
-        return val
+        return float(val)
 
 
-def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
-    '''Returns a prune score for a single file
+def __PruneFileSciPy__(filename: str, MaxOverlap: float = 0.15, **kwargs):
+    """Returns a prune score for a single file
         Args:
-           MaxOverlap = 0 to 1'''
+           MaxOverlap = 0 to 1"""
 
     # TODO: This function should be updated to use the grid_subdivision module to create cells.  It should be used in the mosaic tile translation code to eliminate featureless 
     # overlap regions of adjacent tiles
@@ -431,10 +484,10 @@ def __PruneFileSciPy__(filename, MaxOverlap=0.15, **kwargs):
     return sum(StdDevList)
 
 
-def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale=None,
+def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: float | None = None,
               **kwargs) -> nornir_shared.histogram.Histogram:
-    '''Returns a single histogram built by combining histograms of all images
-       If scale is not none the images are scaled before the histogram is collected'''
+    """Returns a single histogram built by combining histograms of all images
+       If scale is not none the images are scaled before the histogram is collected"""
 
     if isinstance(filenames, str):
         listfilenames = [filenames]
@@ -479,7 +532,7 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale=None
         try:
             h = task.wait_return()
         except IOError as e:
-            PrettyOutput.Log("File not found " + f)
+            prettyoutput.Log("File not found " + f)
             continue
 
         histlist.append(h)
@@ -542,7 +595,7 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale=None
     return HistogramComposite
 
 
-def __Get_Histogram_For_Image_From_ImageMagick(filename, Bpp=None, Scale=None):
+def __Get_Histogram_For_Image_From_ImageMagick(filename: str, Bpp: int | None = None, Scale: float | None = None):
     Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
     raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
 
@@ -554,7 +607,7 @@ def __HistogramFileSciPy__(filename: str,
                            Scale: float | None = None,
                            MinVal: float | None = None,
                            MaxVal: float | None = None) -> nornir_shared.histogram.Histogram:
-    '''Return the histogram of an image'''
+    """Return the histogram of an image"""
 
     with Image.open(filename, mode='r') as img:
         img_I = img.convert("I")
@@ -615,7 +668,7 @@ def HistogramOfArray(input: NDArray,
     step_size = int(float(num_pixels) / float(num_samples))
 
     if step_size > 1:
-        Samples = numpy.random.random_integers(0, num_pixels - 1, num_samples)
+        Samples = random.random_integers(0, num_pixels - 1, num_samples)
         ImOneD = ImOneD[Samples]
 
     # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
@@ -628,12 +681,12 @@ def HistogramOfArray(input: NDArray,
     return histogram_obj
 
 
-def __CreateImageMagickCommandLineForHistogram(filename, Scale):
+def __CreateImageMagickCommandLineForHistogram(filename: str, Scale: float):
     CmdTemplate = "magick convert %(filename)s -filter point -scale %(scale)g%% -define histogram:unique-colors=true -format %%c histogram:info:- && exit"
     return CmdTemplate % {'filename': filename, 'scale': Scale * 100}
 
 
-def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
+def __HistogramFilePillow__(filename: str, Bpp: int | None = None, Scale: float | None = None):
     if Scale is None:
         Scale = 1
 
@@ -653,7 +706,10 @@ def __HistogramFilePillow__(filename, Bpp=None, Scale=None):
     return histogram_obj
 
 
-def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
+def __HistogramFileImageMagick__(filename: str,
+                                 ProcPool: nornir_pools.IPool | None = None,
+                                 Bpp: int | None = None,
+                                 Scale: float | None = None):
     if Scale is None:
         Scale = 1
 
@@ -697,4 +753,3 @@ def __HistogramFileImageMagick__(filename, ProcPool, Bpp=None, Scale=None):
 #         if not pr is None:
 #             pr.sort_stats('time')
 #             print(str(pr.print_stats(.05)))
-#

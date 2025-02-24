@@ -18,6 +18,7 @@ import nornir_imageregistration.layout
 # from nornir_imageregistration.mosaic_tileset import MosaicTileset
 import nornir_imageregistration.mosaic
 import nornir_imageregistration.mosaic_tileset
+import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.tile_overlap
 import setup_imagetest
 import test_arrange
@@ -41,7 +42,6 @@ class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 847, 848)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 868, 869)
         self.align_two_tiles(mosaic_tileset, volume_dir, 0, 776, 802)
-        
 
     def align_two_tiles(self, mosaic_tileset, volume_dir: str, iPass: int, TileA_ID: int, TileB_ID: int):
         layout_files_dir = os.path.join(volume_dir, "Layouts", "Min_0.0")
@@ -104,6 +104,21 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         self.RunAlignment(Tile1Filename, Tile2Filename, (2 / Downsample, 1260 / Downsample), epsilon=1.5,
                           min_overlap=0.05)
 
+    def test_alignment_cmp(self):
+        Downsample = 2.0
+        DownsampleString = "%03d" % Downsample
+
+        self.TilesPath = os.path.join("D:", "Data", "miniRCx1", "TEM", "0004", "E", "ShadingCorrected", "TilePyramid",
+                                      DownsampleString)
+
+        Tile15Filename = "Tile000015.png"
+        Tile18Filename = "Tile000018.png"
+        Tile19Filename = "Tile000019.png"
+
+        self.RunAlignment(Tile15Filename, Tile18Filename, (2.46 / Downsample, 2.46), epsilon=1.5, min_overlap=0.08)
+        self.RunAlignment(Tile15Filename, Tile19Filename, (-1889 / Downsample, 2454.11 / Downsample), epsilon=1.5,
+                          min_overlap=0.08)
+
     def test_Alignment_Redmond(self):
         Downsample = 4
         DownsampleString = "%03d" % Downsample
@@ -164,11 +179,15 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         imMoving = core.LoadImage(os.path.join(self.TilesPath, TileBFilename),
                                   dtype=nornir_imageregistration.default_image_dtype())
 
-        imFixedPadded = core.PadImageForPhaseCorrelation(imFixed, MinOverlap=min_overlap)
-        imMovingPadded = core.PadImageForPhaseCorrelation(imMoving, MinOverlap=min_overlap)
+        imFixedPadded = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(imFixed,
+                                                                                              MinOverlap=min_overlap)
+        imMovingPadded = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(imMoving,
+                                                                                               MinOverlap=min_overlap)
 
-        alignrecord = core.FindOffset(imFixedPadded, imMovingPadded, MinOverlap=0.05, MaxOverlap=0.5,
-                                      FixedImageShape=imFixed.shape, MovingImageShape=imMoving.shape)
+        alignrecord = nornir_imageregistration.phasecorrelation.FindOffset(imFixedPadded, imMovingPadded,
+                                                                           MinOverlap=0.05, MaxOverlap=0.5,
+                                                                           FixedImageShape=imFixed.shape,
+                                                                           MovingImageShape=imMoving.shape)
 
         print(str(alignrecord))
 

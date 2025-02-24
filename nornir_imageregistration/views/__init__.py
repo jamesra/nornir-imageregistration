@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 
 from nornir_imageregistration.views.alignment_records import PlotPeakList, PlotWeightHistogram, plot_aligned_images, \
     plot_percentiles
+from nornir_imageregistration.views.grid_refinement import ShowGridRefinement
+from nornir_imageregistration.views.grid_data import PlotGridPositionsAndMask
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.views.layout import plot_layout
 from nornir_imageregistration.views.tile_overlap import plot_tile_overlap, plot_tile_overlaps

@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.transforms.base import IDiscreteTransform
 from nornir_shared import prettyoutput
 
@@ -142,7 +143,7 @@ class Tile:
     def PaddedImage(self) -> NDArray:
         """The padded version of the image that can be used for phase correlation"""
         if self._paddedimage is None:
-            self._paddedimage = nornir_imageregistration.PadImageForPhaseCorrelation(self.Image)
+            self._paddedimage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(self.Image)
 
         return self._paddedimage
 

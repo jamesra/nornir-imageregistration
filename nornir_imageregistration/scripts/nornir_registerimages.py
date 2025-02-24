@@ -12,6 +12,7 @@ import sys
 import numpy
 
 import nornir_imageregistration.core as core
+import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.misc
 
@@ -111,7 +112,9 @@ def Execute(ExecArgs=None):
 
     # cropped_fixed_padded_image = core.PadImageForPhaseCorrelation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
 
-    control_point_align_record = core.FindOffset(cropped_fixed_image, cropped_warped_image, MinOverlap=0.5)
+    control_point_align_record = nornir_imageregistration.phasecorrelation.FindOffset(cropped_fixed_image,
+                                                                                      cropped_warped_image,
+                                                                                      MinOverlap=0.5)
 
     print("Control point alignment: %s" % str(control_point_align_record))
 

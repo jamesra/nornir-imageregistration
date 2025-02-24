@@ -1,39 +1,50 @@
-'''
+"""
 Created on Sep 14, 2018
 
 @author: u0490822
-'''
+"""
 
 import numpy as np
 from numpy.typing import NDArray
 
-from nornir_imageregistration import Rectangle
+import nornir_imageregistration
+from nornir_imageregistration import Rectangle, ShapeLike
 
 # Collection of masks we have already calculated
 __known_overlap_masks = {}
 
 
-def __CreateMaskLookupIndex(FixedImageShape, WarpedImageShape, CorrelationImageShape, MinOverlap, MaxOverlap):
-    '''
+def __CreateMaskLookupIndex(FixedImageShape: NDArray[int],
+                            WarpedImageShape: NDArray[int],
+                            CorrelationImageShape: NDArray[int],
+                            MinOverlap: float, MaxOverlap: float):
+    """
     Create an index into a dictionary for a overlap mask
-    '''
+    """
+
     dimensions = np.concatenate((FixedImageShape, WarpedImageShape, CorrelationImageShape))
     full_index = list(dimensions) + [MinOverlap, MaxOverlap]
     return tuple(full_index)
 
 
-def GetOverlapMask(FixedImageSize: NDArray, MovingImageSize: NDArray, CorrelationImageSize: NDArray,
+def GetOverlapMask(FixedImageSize: ShapeLike,
+                   MovingImageSize: ShapeLike,
+                   CorrelationImageSize: ShapeLike,
                    MinOverlap: float = 0.0, MaxOverlap: float = 1.0):
-    '''Defines a mask that determines which peaks should be considered
+    """Defines a mask that determines which peaks should be considered
     :param NDArray FixedImageSize: Shape of fixed image, before padding
     :param NDArray MovingImageSize: Shape of moving image, before padding
     :param NDArray CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
     :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
     :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
     :return: An mxn image mask, with 1 indicating allowed peak locations
-    '''
+    """
 
     global __known_overlap_masks
+
+    FixedImageSize = np.asarray(FixedImageSize, dtype=int)
+    MovingImageSize = np.asarray(MovingImageSize, dtype=int)
+    CorrelationImageSize = np.asarray(CorrelationImageSize, dtype=int)
 
     if MinOverlap == 0.0 and MaxOverlap == 1.0:  # and np.array_equal(FixedImageSize, MovingImageSize) and np.array_equal(FixedImageSize, CorrelationImageSize):
         return None
@@ -49,11 +60,12 @@ def GetOverlapMask(FixedImageSize: NDArray, MovingImageSize: NDArray, Correlatio
     return mask
 
 
-def __CreateFullMaskFromQuadrant(Mask: np.ndarray, isOddDimension: np.ndarray):
-    '''
-    Given an image, replicates the image symetrically around both the X and Y axis to create a full mask
+def __CreateFullMaskFromQuadrant(Mask: np.ndarray[bool],
+                                 isOddDimension: np.ndarray[bool]):
+    """
+    Given the top right quadrant of a mask, replicates the mask symetrically around both the X and Y axis to create a full mask
     :param array isOddDimension: True if the axis has an odd dimension in the input.
-    '''
+    """
     MaskUpRight = Mask
 
     if isOddDimension[1]:
@@ -79,16 +91,20 @@ def __CreateFullMaskFromQuadrant(Mask: np.ndarray, isOddDimension: np.ndarray):
     return Mask
 
 
-def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap=0.0,
-                                  MaxOverlap=1.0):
-    '''Defines a mask that determines which peaks should be considered
+def __CreateOverlapMaskBruteForce(FixedImageSize: ShapeLike,
+                                  MovingImageSize: ShapeLike,
+                                  CorrelationImageSize: ShapeLike,
+                                  MinOverlap: float = 0.0,
+                                  MaxOverlap: float = 1.0):
+    """Defines a mask that determines which peaks should be considered
     :param array FixedImageSize: Shape of fixed image, before padding
     :param array MovingImageSize: Shape of moving image, before padding
     :param array CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
     :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
     :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
     :return: An mxn image mask, with 1 indicating allowed peak locations
-    '''
+    """
+
     if MinOverlap is None:
         MinOverlap = 0.0
 
@@ -113,7 +129,11 @@ def __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationIm
     return __CreateFullMaskFromQuadrant(Mask, isOddDimension)
 
 
-def _PopulateMaskQuadrantBruteForce(Mask, FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+def _PopulateMaskQuadrantBruteForce(Mask: NDArray[bool],
+                                    FixedImageSize: NDArray[int],
+                                    MovingImageSize: NDArray[int],
+                                    MinOverlap: float = 0.0,
+                                    MaxOverlap: float = 1.0) -> NDArray[bool]:
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
     WarpedImageRect = None
 
@@ -138,7 +158,11 @@ def _PopulateMaskQuadrantBruteForce(Mask, FixedImageSize, MovingImageSize, MinOv
     return Mask
 
 
-def _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+def _PopulateMaskQuadrantBruteForceOptimized(Mask: NDArray[bool],
+                                             FixedImageSize: NDArray[int],
+                                             MovingImageSize: NDArray[int],
+                                             MinOverlap: float = 0.0,
+                                             MaxOverlap: float = 1.0) -> NDArray[bool]:
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
     WarpedImageRect = None
 
@@ -166,7 +190,11 @@ def _PopulateMaskQuadrantBruteForceOptimized(Mask, FixedImageSize, MovingImageSi
     return Mask
 
 
-def _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap=0.0, MaxOverlap=1.0):
+def _PopulateMaskQuadrantOptimized(Mask: NDArray[bool],
+                                   FixedImageSize: NDArray[int],
+                                   MovingImageSize: NDArray[int],
+                                   MinOverlap: float = 0.0,
+                                   MaxOverlap: float = 1.0) -> NDArray[bool]:
     FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
     WarpedImageRect = None
 

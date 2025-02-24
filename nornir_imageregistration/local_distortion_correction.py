@@ -14,6 +14,9 @@ import scipy.spatial
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.mathfuncs import estimate_cutoff
+import nornir_imageregistration.mathfuncs.plotproperties
+import nornir_imageregistration.phasecorrelation
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
@@ -34,12 +37,6 @@ except ImportError:
 AlignmentRecordDict = dict[tuple[int, int], nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordList = Sequence[nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordKey = tuple[int, int]
-
-
-class CutoffMethod(enum.Enum):
-    Raw = enum.auto(),  # Use the raw data to find the cutoff
-    Polyfit = enum.auto(),  # Use a polyfit to determine the cutoff
-    Average = enum.auto(),  # Average the raw cutoff and polyfit cutoff together
 
 
 class WeightMethod(enum.IntEnum):
@@ -210,8 +207,8 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
                 continue
 
             try:
-                record = nornir_imageregistration.FindOffset(A_tiles[iRow, iCol], B_tiles[iRow, iCol],
-                                                             FFT_Required=True)
+                record = nornir_imageregistration.phasecorrelation.FindOffset(A_tiles[iRow, iCol], B_tiles[iRow, iCol],
+                                                                              FFT_Required=True)
             except Exception as e:
                 prettyoutput.LogErr(f'Exception on row: {iRow} col: {iCol} when finding offset:\n{e}')
                 net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
@@ -268,59 +265,6 @@ def SplitDisplacements(A, B, point_pairs):
     """
 
     raise NotImplementedError()
-
-
-def estimate_cutoff(records: NDArray[float], method: CutoffMethod = CutoffMethod.Average) -> tuple[
-    int, float, NDArray[float]]:
-    """
-    :param records: A list of records to estimate the cutoff for.  Finds the inflection point with the highest x
-    value.  Then finds the percentile higher than that with the largest cross product, which is the furthest point
-    from a line drawn from the min to max values.  This is where the values tend to begin increasing rapidly
-    indicating that registrations are successful.
-    :return: The index of the cutoff and the value at the cutoff
-    """
-    percentile = np.linspace(0, 100, 101)
-    percentile_values = np.percentile(records, percentile)
-
-    # Add a polyfit to the linear line
-    degree = 5
-    coefficients = np.polyfit(percentile, percentile_values, degree)
-    # Generate the polynomial function from the coefficients
-    polynomial = np.poly1d(coefficients)
-    y_fit = polynomial(percentile)
-
-    inflection_points = nornir_imageregistration.views.alignment_records.find_inflection_points(percentile, y_fit)
-    # The points after the highest inflection point are the ones considered for maximum deviation
-    highest_inflection_point = int(inflection_points[-1])
-
-    if method == CutoffMethod.Raw:
-        cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=percentile_values,
-                                                                                              above=highest_inflection_point)
-        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
-        cutoff_value = percentile_values[cutoff_percentile_index]
-    elif method == CutoffMethod.Polyfit:
-        cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=y_fit,
-                                                                                              above=highest_inflection_point)
-        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
-        cutoff_value = y_fit[cutoff_percentile_index]
-    elif method == CutoffMethod.Average:
-        raw_cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(
-            values=percentile_values,
-            above=highest_inflection_point)
-        raw_cutoff_percentile_index = np.argmin(raw_cross_products[:, 1]) + highest_inflection_point
-        raw_cutoff_value = percentile_values[raw_cutoff_percentile_index]
-
-        poly_cross_products = nornir_imageregistration.views.alignment_records.calculate_deviation(values=y_fit,
-                                                                                                   above=highest_inflection_point)
-        poly_cutoff_percentile_index = np.argmin(poly_cross_products[:, 1]) + highest_inflection_point
-        poly_cutoff_value = y_fit[poly_cutoff_percentile_index]
-
-        cutoff_percentile_index = (raw_cutoff_percentile_index + poly_cutoff_percentile_index) // 2
-        cutoff_value = (raw_cutoff_value + poly_cutoff_value) / 2
-    else:
-        raise ValueError(f"Unknown method: {method}")
-
-    return cutoff_percentile_index, highest_inflection_point, cutoff_value, y_fit
 
 
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
@@ -491,6 +435,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
         #                                           finalize_percentile_this_pass)
 
+        # Using the set of alignment record scores, estimate the cutoff value that separates successful registrations from failed registrations
         cutoff_percentile_this_pass, inflection_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
             updated_and_finalized_weights_distance[:, WeightMethod.Registration])
 

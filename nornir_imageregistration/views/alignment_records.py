@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.mathfuncs import find_inflection_points
 import nornir_shared
 import nornir_shared.histogram
 import nornir_shared.plot
@@ -113,42 +114,6 @@ def plot_aligned_images(alignment_record, image_A: NDArray, image_B: NDArray):
     return
 
 
-def find_inflection_points(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    # Calculate the first derivative
-    dy = np.gradient(y, x)
-
-    # Calculate the second derivative
-    d2y = np.gradient(dy, x)
-
-    # Find where the second derivative changes sign
-    inflection_point_candidates = np.where(np.diff(np.sign(d2y)))[0]
-
-    dNy = np.gradient(d2y, x)
-    is_odd_derivative = True
-    verified_inflection_points = np.array([], dtype=int)
-    while len(inflection_point_candidates) > 0:
-        # Check if the next derivative is non-zero.  If it is an odd derivative and non-zero it is an inflection point.#
-        # Otherwise it is an undulation point
-        if is_odd_derivative:
-            new_inflection_points = np.where(np.logical_not(
-                np.isclose(dNy[inflection_point_candidates], 0)))[0]
-            verified_inflection_points = np.union1d(inflection_point_candidates,
-                                                    inflection_point_candidates[new_inflection_points])
-            inflection_point_candidates = np.setdiff1d(inflection_point_candidates, verified_inflection_points,
-                                                       assume_unique=True)
-        else:
-            undulation_points = np.where(np.isclose(dNy[inflection_point_candidates], 0))[0]
-            undulation_indicies = inflection_point_candidates[undulation_points]
-            inflection_point_candidates = np.setdiff1d(inflection_point_candidates,
-                                                       undulation_indicies,
-                                                       assume_unique=True)
-
-        dNy = np.gradient(dNy, x)
-        is_odd_derivative = not is_odd_derivative
-
-    return x[verified_inflection_points]
-
-
 def plot_percentiles(records: NDArray[np.floating],
                      filename: str | None = None,
                      title: str | None = None,
@@ -197,7 +162,7 @@ def plot_percentiles(records: NDArray[np.floating],
 
     min_a = min(a)
     max_a = max(a)
-    inflections = find_inflection_points(x=p, y=y_fit)
+    inflection_indicies, inflections = find_inflection_points(x=p, y=y_fit)
     label = 'Inflection Point'
     for inflection in inflections:
         ax.plot([inflection, inflection], [min_a, max_a], 'b--', label=label)
@@ -234,51 +199,3 @@ def plot_percentiles(records: NDArray[np.floating],
         nornir_imageregistration.ShowWithPassFail(plt.gcf())
 
     return
-
-
-def calculate_deviation(values: NDArray[np.floating], above: int | None = None) -> NDArray[np.floating]:
-    """
-    Project the values onto a line that runs from min(a) to max(a).
-    The point furthest from the line will have the largest absolute cross product.
-    :param above: If specified, only indicies above this value will be considered.
-    The line's origin used for the cross product will be at values[above].
-    IF ABOVE IS SPECIFIED, THE RETURNED CROSS PRODUCTS WILL BE OFFSET BY ABOVE INDICES. The first index will be the above value.
-    :return: The point with the lowest cross product indicating it is furthest from the line
-    used as a cutoff value for registration quality.
-
-    :return: The cross product values in an array representing each percentile.  Index 42 is the 42nd percentile
-    """
-    a = values
-    p = np.linspace(0, 100, 101)
-
-    start_index = 0 if above is None else above
-
-    percentile_values = np.percentile(a, p, method='linear')
-
-    linear_slope = np.array(
-        (percentile_values[-1] - percentile_values[start_index], 100))  # A vector from the first to the last point
-    # linear_vector = linear_slope / np.linalg.norm(linear_slope)  # Normalize the vector
-
-    # Create a vector for each record from the record to the min and max points
-    percentile_value_subset = percentile_values[start_index:]
-    percentile_subset = p[start_index:]
-    min_value = percentile_value_subset[0]  # Sorted data, so indicies are fine
-    max_value = percentile_value_subset[-1]
-
-    min_vectors = np.vstack(
-        np.array(((percentile_value_subset - min_value),
-                  percentile_subset - percentile_subset[0],
-                  np.zeros(len(percentile_subset))
-                  ))
-    ).T
-    max_vectors = np.vstack(
-        np.array(((max_value - percentile_value_subset),
-                  percentile_subset - percentile_subset[-1],
-                  np.zeros(len(percentile_subset))
-                  ))
-    ).T
-
-    cross_products = np.cross(min_vectors, max_vectors)
-
-    # Project the points onto the line
-    return np.vstack((percentile_subset, cross_products[:, 2])).T

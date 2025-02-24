@@ -314,6 +314,9 @@ from nornir_imageregistration.core import *
 import nornir_imageregistration.alignment_record as alignment_record
 from nornir_imageregistration.alignment_record import AlignmentRecord, EnhancedAlignmentRecord
 
+import nornir_imageregistration.phasecorrelation as phasecorrelation
+from nornir_imageregistration.phasecorrelation import *
+
 import nornir_imageregistration.settings as settings
 
 import nornir_imageregistration.transforms as transforms

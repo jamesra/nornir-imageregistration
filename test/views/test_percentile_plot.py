@@ -1,9 +1,7 @@
-import unittest
 import os
 
-import numpy as np
-
-import nornir_imageregistration
+from nornir_imageregistration.mathfuncs import calculate_deviation
+import nornir_imageregistration.mathfuncs.plotproperties
 
 import setup_imagetest
 
@@ -29,10 +27,13 @@ class Test(setup_imagetest.TestBase):
         polynomial = np.poly1d(coefficients)
         y_fit = polynomial(percentile)
 
-        inflection_points = find_inflection_points(percentile, y_fit)
+        # Here we find the inflection point with the highest x value.
+        # We then calculate the deviation of the values from the line at that point to max(x)
+        # The point with the largest deviation has the largest magnitude of cross product.  Negative values are below the line, positive are above.
+        inflection_indicies, inflection_points = find_inflection_points(percentile, y_fit)
         highest_inflection_point = int(inflection_points[-1])
-        cross_products = calculate_deviation(values=percentile_values, above=highest_inflection_point)
-        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
+        cross_products = calculate_deviation(values=percentile_values, above_index=highest_inflection_point)
+        cutoff_percentile_index = np.argmax(abs(cross_products[:, 1])) + highest_inflection_point
 
         cutoff_value = percentile_values[cutoff_percentile_index]
 
@@ -49,9 +50,9 @@ class Test(setup_imagetest.TestBase):
         # Test data contains
         weight_distance_composite_scores = test_data['weight_distance_composite_scores']
 
-        cutoff_percentile, inflection_percentile, cutoff_value_this_pass, polyfit_weights = nornir_imageregistration.local_distortion_correction.estimate_cutoff(
+        cutoff_percentile, inflection_percentile, cutoff_value_this_pass, polyfit_weights = nornir_imageregistration.mathfuncs.plotproperties.estimate_cutoff(
             weight_distance_composite_scores[:, 0],
-            method=nornir_imageregistration.local_distortion_correction.CutoffMethod.Polyfit)
+            method=nornir_imageregistration.mathfuncs.plotproperties.CutoffMethod.Polyfit)
 
         nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
                                                         title=f"Value at percentile",
