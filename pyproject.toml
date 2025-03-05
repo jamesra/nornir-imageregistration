@@ -23,6 +23,7 @@ dependencies = [
     "Pillow >= 10.2",
     "pydantic >= 2.9.2",
     "six >= 1.16",
+    "scikit-image >= 25.1",
     "hypothesis >= 6.96",
     "nornir_pools @ git+https://github.com/jamesra/nornir-pools.git@dev",
     "nornir_shared @ git+https://github.com/jamesra/nornir-shared.git@dev",
@@ -46,6 +47,9 @@ nornir-show-mosaic-layout = "nornir_imageregistration.scripts.nornir_show_mosaic
 
 [project.optional-dependencies]
 gpu = ["cupy >= 13.0"]
+mkl = ["mkl_fft >= 1.3.11",
+    "mkl_random >= mkl_random >= 1.2.8",
+    "mkl_service >= 2.4.2"]
 
 [project.urls]
 Homepage = "https://github.com/jamesra/nornir-imageregistration"
