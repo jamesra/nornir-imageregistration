@@ -21,11 +21,18 @@ except ImportError:
 import nornir_imageregistration
 
 
-def add_rectangle(ax: plt.Axes, roi: nornir_imageregistration.Rectangle):
+def add_rectangle(ax: plt.Axes, roi: nornir_imageregistration.Rectangle, **kwargs) -> plt.Rectangle | None:
+    """Add a rectangle to the axes"""
     if roi is None:
-        return
+        return None
 
-    rect = plt.Rectangle((roi.MinX, roi.MinY), roi.Width, roi.Height, facecolor='blue', alpha=0.25)
+    if 'facecolor' not in kwargs:
+        kwargs['facecolor'] = 'blue'
+
+    if 'alpha' not in kwargs:
+        kwargs['alpha'] = 0.25
+
+    rect = plt.Rectangle((roi.MinX, roi.MinY), roi.Width, roi.Height, **kwargs)
     ax.add_patch(rect)
     return rect
 
@@ -35,12 +42,12 @@ def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None =
                   rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None,
                   PassFail: bool = False,
                   filename: str | None = None):
-    '''
+    """
     :param PassFail:
     :param list input_params: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
     :param image_titles: A list of titles, must have same shape as input_params
-    '''
+    """
 
     def set_title_for_single_image(title: str | None):
         if title is not None:
@@ -221,8 +228,8 @@ def _ConvertParamsToImageList(param):
 
 
 def _GridLayoutDims(image_list: np.typing.NDArray | Iterable) -> tuple[int, int]:
-    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
-    '''
+    """Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    """
 
     def _num_images(param):
         if isinstance(param, np.ndarray):
@@ -241,8 +248,8 @@ def _GridLayoutDims(image_list: np.typing.NDArray | Iterable) -> tuple[int, int]
 
 
 def _TitleLayoutDims(title_list: np.typing.NDArray | Iterable) -> tuple[int, int]:
-    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
-    '''
+    """Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    """
 
     def _num_titles(param):
         if isinstance(param, str):
@@ -259,7 +266,7 @@ def _TitleLayoutDims(title_list: np.typing.NDArray | Iterable) -> tuple[int, int
         return len(title_list), max_len
 
 
-def get_aspect(ax=None):
+def get_aspect(ax: plt.Axes | None = None):
     remove_plot = False
     if ax is None:
         ax = plt.gca()
