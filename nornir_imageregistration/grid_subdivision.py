@@ -123,6 +123,9 @@ class GridDivisionBase(IGrid):
         :param mask: a boolean mask that determines which points are kept.
         """
 
+        if not np.any(mask):
+            raise ValueError("Masking operation removes all points from grid refinement")
+
         self._coords = self._coords[mask, :]
         self._SourcePoints = self._SourcePoints[mask, :]
 
@@ -222,6 +225,9 @@ class GridDivisionBase(IGrid):
         valid_inbounds = xp.logical_and(xp.all(self._SourcePoints >= xp.asarray((0, 0)), 1),
                                         xp.all(self._SourcePoints < source_shape, 1))
         self.RemoveMaskedPoints(valid_inbounds)
+
+    def __str__(self):
+        return f"grid_dims:{self._grid_dims[0]},{self._grid_dims[1]} grid_spacing:{self._grid_spacing[0]},{self._grid_spacing[1]} cell_size:{self._cell_size[0]},{self._cell_size[1]}"
 
 
 class ITKGridDivision(GridDivisionBase):
