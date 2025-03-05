@@ -404,6 +404,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                                          settings=settings,
                                                          finalized=finalized_points)
 
+        if len(alignment_points) == 0:
+            raise ValueError(f"No alignment points generated at pass #{i}")
+
         prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
 
         updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
@@ -871,6 +874,10 @@ def _alignment_records_to_composite_scores(
     :param max_distance: The maximum distance to use for the distance weight, this could be tile size / 2 to keep a consistent metric across multiple runs
     :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
     """
+
+    if len(alignment_records) == 0:
+        raise ValueError("No alignment records to calculate composite scores")
+
     weights_distance = np.asarray(list(map(lambda a: (a.weight, np.sqrt(a.peak.dot(a.peak))), alignment_records)))
 
     if max_distance is None:
