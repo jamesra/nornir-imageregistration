@@ -156,6 +156,10 @@ def estimate_cutoff(records: NDArray[float],
     y_fit = polynomial(percentiles)
 
     inflection_results = find_inflection_points(percentiles, y_fit)
+
+    if len(inflection_results.indicies) == 0:
+        raise ValueError("No inflection points found in the data")
+
     # The points after the highest inflection point are the ones considered for maximum deviation
     highest_inflection_point = int(inflection_results.values[-1])
 
