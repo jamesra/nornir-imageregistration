@@ -315,6 +315,10 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         TransformInverseCheck(self, T, sourcePoint)
 
     def testScale(self):
+        """
+        Check if a scale between source and target space is applied correctly
+        :return:
+        """
         xp = nornir_imageregistration.GetComputationModule()
         angle = 0
         scale = 10
@@ -331,13 +335,20 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         TransformCheck(self, T, sourcePoint, targetPoint)
 
     def testScaleWithTranslation(self):
+        """
+        Check if we retain the scale between source and target space, but change the scale of both spaces simultaneously,
+        as in changing image resolutions, that the transform still works correctly
+        :return:
+        """
         xp = nornir_imageregistration.GetComputationModule()
         angle = 0
         scale = 10
         offset = xp.array((5, 5))
-        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset, source_rotation_center=[0, 0],
+        source_rotation_center = xp.array((0, 0))
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset,
+                                                                              source_rotation_center=source_rotation_center,
                                                                               angle=angle,
-                                                                              scalar=10)
+                                                                              scalar=scale)
 
         sourcePoint = xp.array([[0, 1],
                                 [2, 0],
@@ -345,6 +356,11 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
 
         targetPoint = (sourcePoint * scale) + offset
 
+        TransformCheck(self, T, sourcePoint, targetPoint)
+
+        T.Scale(1 / scale)
+        adjusted_scale = 1 / scale
+        targetPoint = (sourcePoint * scale) + (offset * adjusted_scale)
         TransformCheck(self, T, sourcePoint, targetPoint)
 
     @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),

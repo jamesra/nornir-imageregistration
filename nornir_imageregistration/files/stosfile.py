@@ -88,7 +88,7 @@ class StosFile(object):
         return os.path.join(self.ControlImagePath, self.ControlImageName)
 
     @ControlImageFullPath.setter
-    def ControlImageFullPath(self, val):
+    def ControlImageFullPath(self, val: str | None):
 
         if val is None:
             self.ControlImagePath = None
@@ -110,7 +110,7 @@ class StosFile(object):
         return os.path.join(self.MappedImagePath, self.MappedImageName)
 
     @MappedImageFullPath.setter
-    def MappedImageFullPath(self, val):
+    def MappedImageFullPath(self, val: str | None):
 
         if val is None:
             self.MappedImagePath = None
@@ -516,11 +516,13 @@ class StosFile(object):
 
         return False
 
-    def ChangeStosGridPixelSpacing(self, oldspacing, newspacing, ControlImageFullPath,
-                                   MappedImageFullPath,
-                                   ControlMaskFullPath,
-                                   MappedMaskFullPath,
-                                   create_copy=True):
+    def ChangeTransformPixelSpacing(self, oldspacing: int,
+                                    newspacing: int,
+                                    ControlImageFullPath: str,
+                                    MappedImageFullPath: str,
+                                    ControlMaskFullPath: str | None,
+                                    MappedMaskFullPath: str | None,
+                                    create_copy: bool = True):
         '''
         :param oldspacing:
         :param newspacing:
@@ -540,7 +542,7 @@ class StosFile(object):
             else:
                 return self
 
-                # PrettyOutput.Log("ChangeStosGridPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
+                # PrettyOutput.Log("ChangeTransformPixelSpacing from " + str(oldspacing) + " to " + str(newspacing))
         scale = float(oldspacing) / float(newspacing)
 
         NewStosFile = StosFile()
@@ -614,7 +616,7 @@ class StosFile(object):
             else:
                 return self
 
-        PrettyOutput.Log("ChangeStosGridPixelSpacing from {0:d} to {1:d}".format(mapped_spacing, control_spacing))
+        PrettyOutput.Log("ChangeTransformPixelSpacing from {0:d} to {1:d}".format(mapped_spacing, control_spacing))
 
         control_spacing = float(control_spacing)
         mapped_spacing = float(mapped_spacing)

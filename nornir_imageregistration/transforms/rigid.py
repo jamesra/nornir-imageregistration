@@ -26,8 +26,10 @@ from nornir_imageregistration.transforms.utils import IdentityMatrix, RotationMa
     FlipMatrixY, FlipMatrixX
 
 
-class RigidNoRotation(base.ITransformScaling, base.ITransformTranslation,
-                      base.IRigidTransform, DefaultTransformChangeEvents):
+class RigidTranslation(base.ITransformScaling,
+                       base.ITransformTranslation,
+                       base.IRigidTransform,
+                       DefaultTransformChangeEvents):
     """This class is legacy and probably needs a deprecation warning"""
 
     _target_offset: NDArray[np.floating]  # Amount to translate the points after centering and rotation
@@ -104,7 +106,7 @@ class RigidNoRotation(base.ITransformScaling, base.ITransformTranslation,
         :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         """
-        super(RigidNoRotation, self).__init__()
+        super(RigidTranslation, self).__init__()
 
         if angle is None:
             angle = 0.0
@@ -112,9 +114,9 @@ class RigidNoRotation(base.ITransformScaling, base.ITransformTranslation,
         if source_rotation_center is None:
             source_rotation_center = (0.0, 0.0)
 
-        self._target_offset = nornir_imageregistration.EnsurePointsAre1DArray(target_offset)
+        self._target_offset = nornir_imageregistration.EnsurePointsAre1DArray(target_offset, dtype=np.float32)
         self._source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre1DArray(
-            source_rotation_center)
+            source_rotation_center, dtype=np.float32)
         self._angle = angle  # type: float
 
     def __getstate__(self):
@@ -182,7 +184,7 @@ class RigidNoRotation(base.ITransformScaling, base.ITransformTranslation,
         return itransformed
 
 
-class Rigid(base.ITransformSourceRotation, RigidNoRotation):
+class Rigid(base.ITransformSourceRotation, RigidTranslation):
     """
     Applies a rotation+translation transform
     The order of operations is:
@@ -195,12 +197,21 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     """
 
     @property
+    def source_space_center_of_rotation(self) -> NDArray[np.floating]:
+        return self._source_space_center_of_rotation
+
+    @source_space_center_of_rotation.setter
+    def source_space_center_of_rotation(self, value: NDArray[np.floating]):
+        self._source_space_center_of_rotation = value
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    @property
     def flip_ud(self) -> bool:
         return self._flip_ud
 
     _flip_ud: bool  # True if the transform should flip the Y axis
     _scalar: float = 1  # The relative scale difference between source and target space
-    source_space_center_of_rotation: NDArray[np.floating]  # The center of rotation in the source space
 
     @property
     def scalar(self) -> float:
@@ -352,9 +363,11 @@ class Rigid(base.ITransformSourceRotation, RigidNoRotation):
     def Scale(self, value: float):
 
         # We aren't changing the relative scale of either space compared to the other
-        # We are changing the scale of both spaces, so simply adjust the target and source space offsets
+        # We are changing the scale of both spaces, so we scale the target and source center of rotation offsets
         # Do not call super, this method is a replacement
-        self._scalar *= value
+        # self._scalar *= value
+        self._target_offset *= value
+        self._source_space_center_of_rotation *= value
         # self._source_space_center_of_rotation = self._source_space_center_of_rotation * value
         self._update_transform_matrix()
         self.OnTransformChanged()

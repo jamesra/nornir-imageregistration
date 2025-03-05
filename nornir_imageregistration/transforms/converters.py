@@ -255,7 +255,7 @@ def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransfo
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle,
             scalar=input_transform.scalar)
-    elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+    elif isinstance(input_transform, nornir_imageregistration.transforms.RigidTranslation):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
@@ -289,8 +289,8 @@ def ConvertTransformToRigidTransform(input_transform: ITransform, ignore_rotatio
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle)
-    elif isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
-        return nornir_imageregistration.transforms.RigidNoRotation(
+    elif isinstance(input_transform, nornir_imageregistration.transforms.RigidTranslation):
+        return nornir_imageregistration.transforms.RigidTranslation(
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_rotation_center,
             angle=input_transform.angle)
@@ -304,7 +304,7 @@ def ConvertTransformToMeshTransform(input_transform: ITransform,
         return nornir_imageregistration.transforms.MeshWithRBFFallback(input_transform.points)
 
     if isinstance(input_transform, nornir_imageregistration.transforms.Rigid) or \
-            isinstance(input_transform, nornir_imageregistration.transforms.RigidNoRotation):
+            isinstance(input_transform, nornir_imageregistration.transforms.RigidTranslation):
         control_points = GetControlPointsForRigidTransform(input_transform, source_image_shape)
         transform = nornir_imageregistration.transforms.MeshWithRBFFallback(control_points)
         return transform

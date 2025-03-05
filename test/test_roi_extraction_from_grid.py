@@ -43,7 +43,7 @@ class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):
         source_to_target_offset = np.array((0, 0))
         cell_size = np.array((3, 3))
         grid_dims = np.array((3, 3))
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=source_to_target_offset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=source_to_target_offset)
         self.run_grid_division(source_image=source_image,
                                target_image=target_image,
                                transform=transform,
@@ -73,7 +73,7 @@ class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):
 
         cell_size = np.array((3, 3))
         grid_dims = np.array((3, 3))
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=source_to_target_offset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=source_to_target_offset)
         target_image = self.build_target_image(source_image, transform)
         self.run_grid_division(source_image=source_image,
                                target_image=target_image,
@@ -100,7 +100,7 @@ class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):
 
         cell_size = np.array((3, 3))
         grid_dims = np.array((3, 3))
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=source_to_target_offset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=source_to_target_offset)
         target_image = self.build_target_image(source_image, transform)
         self.run_grid_division(source_image=source_image,
                                target_image=target_image,

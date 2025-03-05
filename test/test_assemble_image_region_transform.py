@@ -42,7 +42,7 @@ class TestAssembleImageRegionTranslateOnly(setup_imagetest.ImageTestBase):
         # source_image = self.create_gradient_image((9, 9))
         target_coords = assemble.GetROICoords(botleft=target_bottom_left, area=target_area)
         source_to_target_offset = np.array((3.5, 1))
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=source_to_target_offset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=source_to_target_offset)
 
         roi_read_coords, roi_write_coords = assemble.write_to_target_roi_coords(transform,
                                                                                 target_bottom_left,
@@ -79,7 +79,7 @@ class TestAssembleImageRegionTranslateOnly(setup_imagetest.ImageTestBase):
 
         source_coords = assemble.GetROICoords(botleft=source_bottom_left, area=source_area)
         source_to_target_offset = np.array((3.5, 1))
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=source_to_target_offset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=source_to_target_offset)
 
         roi_read_coords, roi_write_coords = assemble.write_to_source_roi_coords(transform, source_bottom_left,
                                                                                 source_area)

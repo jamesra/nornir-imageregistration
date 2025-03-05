@@ -249,7 +249,7 @@ class MosaicFile(object):
                 # Remove dirname from key
                 key = os.path.basename(key)
 
-                tile_transform = nornir_imageregistration.transforms.RigidNoRotation((Y, X))
+                tile_transform = nornir_imageregistration.transforms.RigidTranslation((Y, X))
 
                 transform_string = tile_transform.ToITKString()
 
@@ -330,8 +330,8 @@ class MosaicFile(object):
             if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
                 t = nornir_imageregistration.transforms.LoadTransform(transformStr, pixelSpacing=self.pixel_spacing)
                 outTrans = None
-                if isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
-                    outTrans = nornir_imageregistration.transforms.RigidNoRotation(
+                if isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
+                    outTrans = nornir_imageregistration.transforms.RigidTranslation(
                         (t._target_offset[1], t._target_offset[0]))
                 elif isinstance(t, nornir_imageregistration.transforms.Rigid):
                     outTrans = nornir_imageregistration.transforms.Rigid(

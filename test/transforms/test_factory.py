@@ -16,7 +16,7 @@ import nornir_imageregistration.spatial as spatial
 from nornir_imageregistration.transforms.base import IControlPoints, \
     IDiscreteTransform
 import nornir_imageregistration.transforms.factory as factory
-from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation
+from nornir_imageregistration.transforms.rigid import Rigid, RigidTranslation
 import setup_imagetest
 
 tau = math.pi * 2.0
@@ -133,8 +133,8 @@ class TestIO(setup_imagetest.TransformTestBase):
                                rtol=1e-04),
                 "Mapped bounding box should match after converting transform to string and back")
 
-        if isinstance(transform, RigidNoRotation):
-            self.assertTrue(isinstance(loadedTransform, RigidNoRotation),
+        if isinstance(transform, RigidTranslation):
+            self.assertTrue(isinstance(loadedTransform, RigidTranslation),
                             "Loaded transform must have same interface as saved transform")
             self.assertTrue(numpy.allclose(transform._target_offset, loadedTransform._target_offset))
 

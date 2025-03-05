@@ -59,7 +59,7 @@ import nornir_imageregistration.transforms.landmark as landmark
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
 
 import nornir_imageregistration.transforms.rigid as rigid
-from nornir_imageregistration.transforms.rigid import Rigid, RigidNoRotation, CenteredSimilarity2DTransform
+from nornir_imageregistration.transforms.rigid import Rigid, RigidTranslation, CenteredSimilarity2DTransform
 
 import nornir_imageregistration.transforms.metrics as metrics
 

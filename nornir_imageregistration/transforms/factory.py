@@ -318,7 +318,7 @@ def ParseLegendrePolynomialTransform(parts, pixelSpacing: float | None = None):
     if not np.array_equal(np.array(VariableParameters), np.array([1, 0, 1, 1, 1, 0])):
         raise ValueError("We don't support anything but translation from polynomial transforms")
 
-    return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+    return nornir_imageregistration.transforms.RigidTranslation(target_offset)
 
     # # We don't support anything but translation from this transform at the moment:
     # # assert(VariableParameters == [1, 0, 1, 1, 1, 0])  # Sequence for transform only transformation
@@ -409,7 +409,7 @@ def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = Non
     target_offset = (yoffset, xoffset)
 
     if angle == 0:
-        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+        return nornir_imageregistration.transforms.RigidTranslation(target_offset)
     else:
         return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
                                                          source_rotation_center=(y_center, x_center),
@@ -439,7 +439,7 @@ def ParseCenteredSimilarity2DTransform(parts: Sequence[str], pixelSpacing: float
     source_center = (y_center, x_center)
 
     if scale == 1.0 and angle == 0:
-        return nornir_imageregistration.transforms.RigidNoRotation(target_offset)
+        return nornir_imageregistration.transforms.RigidTranslation(target_offset)
     elif scale == 1.0:
         return nornir_imageregistration.transforms.Rigid(target_offset=target_offset,
                                                          source_rotation_center=source_center,
@@ -526,7 +526,7 @@ def CreateRigidTransform(warped_offset, rangle: float, target_image_shape: NDArr
                                                                                       angle=rangle,
                                                                                       scalar=scalar)
     else:
-        transform = nornir_imageregistration.transforms.RigidNoRotation(target_offset=AdjustedOffset)
+        transform = nornir_imageregistration.transforms.RigidTranslation(target_offset=AdjustedOffset)
 
     return transform
 

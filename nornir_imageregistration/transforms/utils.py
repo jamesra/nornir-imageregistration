@@ -238,7 +238,7 @@ def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
-        elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
+        elif isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
             mins[i, :] = t._target_offset
         elif hasattr(t, 'FixedBoundingBox'):
             mins[i, :] = t.FixedBoundingBox.BottomLeft
@@ -280,7 +280,7 @@ def FixedBoundingBox(transforms, images=None):
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
             mbb[i, :] = t.FixedBoundingBox.ToArray()
-        elif isinstance(t, nornir_imageregistration.transforms.RigidNoRotation):
+        elif isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
             # Figure out if images is an iterable or just a single size for all tiles
             if is_images_param_single_size:
                 size = images

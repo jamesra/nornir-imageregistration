@@ -25,6 +25,12 @@ class AlignmentRecord(object):
 
     """
 
+    _peak = NDArray[np.floating]
+    _angle: float
+    _weight: float
+    _flippedud: bool
+    _scale: float
+
     @property
     def angle(self) -> float:
         """Rotation in degrees"""
@@ -96,9 +102,11 @@ class AlignmentRecord(object):
     def __str__(self):
         return f'Offset: {self.__repr__()}'
 
-    def __init__(self, peak: NDArray[np.floating] | tuple[float, float], weight: float, angle: float = 0.0,
+    def __init__(self, peak: NDArray[np.floating] | tuple[float, float],
+                 weight: float,
+                 angle: float = 0.0,
                  flipped_ud: bool = False,
-                 scale: float = 1.0):
+                 scale: float = 1.0, ):
         """
         :param float scale: Scales source space by this factor to map into target space
         """
@@ -234,7 +242,14 @@ class AlignmentRecord(object):
         #                                                                         flip_ud=self.flippedud,
         #                                                                         scale=self.scale)
 
-    def ToStos(self, ImagePath, WarpedImagePath, FixedImageMaskPath=None, WarpedImageMaskPath=None, PixelSpacing=1):
+    def ToStos(self,
+               ImagePath: str,
+               WarpedImagePath: str,
+               FixedImageMaskPath: str | None = None,
+               WarpedImageMaskPath: str | None = None,
+               PixelSpacing: float | int = 1):
+        """Convert the alignment record to a StosFile"""
+
         stos = nornir_imageregistration.StosFile()
         stos.ControlImageName = os.path.basename(ImagePath)
         stos.ControlImagePath = os.path.dirname(ImagePath)
@@ -290,6 +305,11 @@ class EnhancedAlignmentRecord(AlignmentRecord):
     """
     An extension of the AlignmentRecord class that also records the Fixed and Warped Points
     """
+    _ID: any
+    _TargetPoint: NDArray[np.floating]
+    _SourcePoint: NDArray[np.floating]
+    _cutoff_percent: float
+    _cutoff_value: float
 
     @property
     def ID(self):
@@ -317,11 +337,32 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         """Note if there is rotation involved this point is not reliable"""
         return self._SourcePoint - self.peak
 
-    def __init__(self, ID, TargetPoint: NDArray[np.floating], SourcePoint, peak, weight, angle=0.0, flipped_ud=False):
+    @property
+    def CutoffPercent(self) -> float | None:
+        """The percentage of pixels in the correlation image that are below the cutoff value used to locate the peak"""
+        return self._cutoff_percent
+
+    @property
+    def CutoffValue(self) -> float | None:
+        """The value below which pixels in the correlation image are considered to be below the cutoff"""
+        return self._cutoff_value
+
+    def __init__(self,
+                 ID,
+                 TargetPoint: NDArray[np.floating],
+                 SourcePoint: NDArray[np.floating],
+                 peak: NDArray[np.floating],
+                 weight: float,
+                 angle: float = 0.0,
+                 flipped_ud: bool = False,
+                 cutoff_percent: float | None = None,
+                 cutoff_value: float | None = None):
         super(EnhancedAlignmentRecord, self).__init__(peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud)
         self._ID = ID
         self._TargetPoint = TargetPoint
         self._SourcePoint = SourcePoint
+        self._cutoff_percent = cutoff_percent
+        self._cutoff_value = cutoff_value
 
     def __repr__(self):
         return f'ID: {self._ID} {super(EnhancedAlignmentRecord, self).__repr__()}'
