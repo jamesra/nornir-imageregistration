@@ -85,7 +85,7 @@ class ITransformTargetRotation(ABC):
 
 
 class ITransformScaling(ABC):
-    '''Supports scaling target and source space together (changing image downsample level for example)'''
+    """Supports scaling target and source space together (changing image downsample level for example)"""
 
     @abstractmethod
     def Scale(self, scalar: float) -> None:
@@ -94,7 +94,7 @@ class ITransformScaling(ABC):
 
 
 class ITransformRelativeScaling(ABC):
-    '''Supports scaling of target space or source space independently of each other'''
+    """Supports scaling of target space or source space independently of each other"""
 
     @abstractmethod
     def ScaleFixed(self, scalar: float) -> None:
@@ -150,38 +150,38 @@ class IControlPoints(ABC):
 
     @abc.abstractmethod
     def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        '''
+        """
         Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        '''
+        """
         Return the warped points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle) -> NDArray[np.floating]:
-        '''Return the point pairs inside the rectangle defined in target space'''
+        """Return the point pairs inside the rectangle defined in target space"""
         raise NotImplementedError()
 
     @abc.abstractmethod
     def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle) -> NDArray[np.floating]:
-        '''Return the point pairs inside the rectangle defined in source space'''
+        """Return the point pairs inside the rectangle defined in source space"""
         raise NotImplementedError()
 
     @abc.abstractmethod
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]) -> NDArray[np.floating]:
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         raise NotImplementedError()
 
     @abc.abstractmethod
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]) -> NDArray[np.floating]:
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         raise NotImplementedError()
 
     @property
