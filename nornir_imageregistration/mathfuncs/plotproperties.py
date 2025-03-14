@@ -161,28 +161,29 @@ def estimate_cutoff(records: NDArray[float],
         raise ValueError("No inflection points found in the data")
 
     # The points after the highest inflection point are the ones considered for maximum deviation
-    highest_inflection_point = int(inflection_results.values[-1])
+    highest_inflection_point = inflection_results.values[-1]
+    highest_inflection_point_index = inflection_results.indicies[-1]
 
     if method == CutoffMethod.Raw:
         cross_products = nornir_imageregistration.mathfuncs.plotproperties.calculate_deviation(values=percentile_values,
-                                                                                               above_index=highest_inflection_point)
-        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
+                                                                                               above_index=highest_inflection_point_index)
+        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point_index
         cutoff_value = percentile_values[cutoff_percentile_index]
     elif method == CutoffMethod.Polyfit:
         cross_products = nornir_imageregistration.mathfuncs.plotproperties.calculate_deviation(values=y_fit,
-                                                                                               above_index=highest_inflection_point)
-        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point
+                                                                                               above_index=highest_inflection_point_index)
+        cutoff_percentile_index = np.argmin(cross_products[:, 1]) + highest_inflection_point_index
         cutoff_value = y_fit[cutoff_percentile_index]
     elif method == CutoffMethod.Average:
         raw_cross_products = nornir_imageregistration.mathfuncs.plotproperties.calculate_deviation(
             values=percentile_values,
-            above_index=highest_inflection_point)
-        raw_cutoff_percentile_index = np.argmin(raw_cross_products[:, 1]) + highest_inflection_point
+            above_index=highest_inflection_point_index)
+        raw_cutoff_percentile_index = np.argmin(raw_cross_products[:, 1]) + highest_inflection_point_index
         raw_cutoff_value = percentile_values[raw_cutoff_percentile_index]
 
         poly_cross_products = nornir_imageregistration.mathfuncs.plotproperties.calculate_deviation(values=y_fit,
-                                                                                                    above_index=highest_inflection_point)
-        poly_cutoff_percentile_index = np.argmin(poly_cross_products[:, 1]) + highest_inflection_point
+                                                                                                    above_index=highest_inflection_point_index)
+        poly_cutoff_percentile_index = np.argmin(poly_cross_products[:, 1]) + highest_inflection_point_index
         poly_cutoff_value = y_fit[poly_cutoff_percentile_index]
 
         cutoff_percentile_index = (raw_cutoff_percentile_index + poly_cutoff_percentile_index) // 2
@@ -190,4 +191,4 @@ def estimate_cutoff(records: NDArray[float],
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    return EstimateCutoffResult(cutoff_percentile_index, highest_inflection_point, cutoff_value, y_fit)
+    return EstimateCutoffResult(cutoff_percentile_index, highest_inflection_point_index, cutoff_value, y_fit)
