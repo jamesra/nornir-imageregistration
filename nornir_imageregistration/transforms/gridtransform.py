@@ -137,52 +137,52 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return self.fixedtri
 
     def NearestFixedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.FixedKDTree.query(points)
 
     def NearestTargetPoint(self, points: NDArray[np.floating]):
-        '''Return the target points nearest to the query points
+        """Return the target points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.FixedKDTree.query(points)
 
     def NearestWarpedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.WarpedKDTree.query(points)
 
     def NearestSourcePoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.WarpedKDTree.query(points)
 
     def Scale(self, scalar):
-        '''Scale both warped and control space by scalar'''
+        """Scale both warped and control space by scalar"""
         self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):
-        '''Scale source space control points by scalar'''
+        """Scale source space control points by scalar"""
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
 
     def ScaleFixed(self, scalar):
-        '''Scale target space control points by scalar'''
+        """Scale target space control points by scalar"""
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
-        '''Translate all fixed points by the specified amount'''
+        """Translate all fixed points by the specified amount"""
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
-        '''Translate all warped points by the specified amount'''
+        """Translate all warped points by the specified amount"""
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
@@ -207,27 +207,27 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return OutputPoints
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         return points[:, 2:4]
 
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         return points[:, 0:2]
 
     @property
@@ -249,7 +249,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return self._InverseInterpolator
 
     def Transform(self, points, **kwargs):
-        '''Map points from the warped space to fixed space'''
+        """Map points from the warped space to fixed space"""
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
@@ -257,7 +257,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''Map points from the fixed space to the warped space'''
+        """Map points from the fixed space to the warped space"""
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -283,7 +283,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return self.fixedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
-        '''Centroids of fixed triangles'''
+        """Centroids of fixed triangles"""
         if triangles is None:
             triangles = self.FixedTriangles
 
@@ -293,7 +293,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return np.swapaxes(Centroids, 0, 1)
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
-        '''Rotate all warped points about a center by a given angle'''
+        """Rotate all warped points about a center by a given angle"""
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
@@ -323,8 +323,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         raise NotImplementedError("Grid transforms have a fixed grid of points, they should not change")
 
     def ClearDataStructures(self):
-        '''Something about the transform has changed, for example the points.
-           Clear out our data structures so we do not use bad data'''
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
         super(GridTransform, self).ClearDataStructures()
         self._fixedtri = None
         self._FixedKDTree = None
@@ -438,52 +438,52 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return self.fixedtri
 
     def NearestFixedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.FixedKDTree.query(points)
 
     def NearestTargetPoint(self, points: NDArray[np.floating]):
-        '''Return the target points nearest to the query points
+        """Return the target points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.FixedKDTree.query(points)
 
     def NearestWarpedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.WarpedKDTree.query(points)
 
     def NearestSourcePoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return self.WarpedKDTree.query(points)
 
     def Scale(self, scalar):
-        '''Scale both warped and control space by scalar'''
+        """Scale both warped and control space by scalar"""
         self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):
-        '''Scale source space control points by scalar'''
+        """Scale source space control points by scalar"""
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
 
     def ScaleFixed(self, scalar):
-        '''Scale target space control points by scalar'''
+        """Scale target space control points by scalar"""
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
-        '''Translate all fixed points by the specified amount'''
+        """Translate all fixed points by the specified amount"""
 
         self._points[:, 0:2] = self._points[:, 0:2] + offset
         self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
-        '''Translate all warped points by the specified amount'''
+        """Translate all warped points by the specified amount"""
         self._points[:, 2:4] = self._points[:, 2:4] + offset
         self.OnWarpedPointChanged()
 
@@ -509,27 +509,27 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return OutputPoints
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         return points[:, 2:4]
 
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         return points[:, 0:2]
 
     @property
@@ -551,7 +551,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return self._InverseInterpolator
 
     def Transform(self, points, **kwargs):
-        '''Map points from the warped space to fixed space'''
+        """Map points from the warped space to fixed space"""
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
@@ -559,7 +559,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''Map points from the fixed space to the warped space'''
+        """Map points from the fixed space to the warped space"""
         transPoints = None
 
         method = kwargs.get('method', 'linear')
@@ -585,7 +585,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return self.fixedtri.simplices
 
     def GetFixedCentroids(self, triangles=None):
-        '''Centroids of fixed triangles'''
+        """Centroids of fixed triangles"""
         if triangles is None:
             triangles = self.FixedTriangles
 
@@ -595,7 +595,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return np.swapaxes(Centroids, 0, 1)
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
-        '''Rotate all warped points about a center by a given angle'''
+        """Rotate all warped points about a center by a given angle"""
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
@@ -625,8 +625,8 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         raise NotImplementedError("Grid transforms have a fixed grid of points, they should not change")
 
     def ClearDataStructures(self):
-        '''Something about the transform has changed, for example the points.
-           Clear out our data structures so we do not use bad data'''
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
         super(GridTransform_GPUComponent, self).ClearDataStructures()
         self._fixedtri = None
         self._FixedKDTree = None
@@ -709,40 +709,40 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return transform_string
 
     def NearestFixedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return None
 
     def NearestWarpedPoint(self, points: NDArray[np.floating]):
-        '''Return the fixed points nearest to the query points
+        """Return the fixed points nearest to the query points
         :return: Distance, Index
-        '''
+        """
         return None
 
     def Scale(self, scalar):
-        '''Scale both warped and control space by scalar'''
+        """Scale both warped and control space by scalar"""
         self._points *= scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar):
-        '''Scale source space control points by scalar'''
+        """Scale source space control points by scalar"""
         self._points[:, 2:4] = self._points[:, 2:4] * scalar
         self.OnTransformChanged()
 
     def ScaleFixed(self, scalar):
-        '''Scale target space control points by scalar'''
+        """Scale target space control points by scalar"""
         self._points[:, 0:2] = self._points[:, 0:2] * scalar
         self.OnTransformChanged()
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
-        '''Translate all fixed points by the specified amount'''
+        """Translate all fixed points by the specified amount"""
 
         self._points[:, 0:2] = self._points[:, 0:2] + cp.asarray(offset)
         self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
-        '''Translate all warped points by the specified amount'''
+        """Translate all warped points by the specified amount"""
         self._points[:, 2:4] = self._points[:, 2:4] + cp.asarray(offset)
         self.OnWarpedPointChanged()
 
@@ -768,27 +768,27 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return OutputPoints
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointPairsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         return points[:, 2:4]
 
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         return points[:, 0:2]
 
     @property
@@ -810,7 +810,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return self._InverseInterpolator
 
     def Transform(self, points, **kwargs):
-        '''Map points from the warped space to fixed space'''
+        """Map points from the warped space to fixed space"""
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
@@ -818,7 +818,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return transPoints
 
     def InverseTransform(self, points, **kwargs):
-        '''Map points from the fixed space to the warped space'''
+        """Map points from the fixed space to the warped space"""
         transPoints = None
 
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
@@ -826,7 +826,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return transPoints
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
-        '''Rotate all warped points about a center by a given angle'''
+        """Rotate all warped points about a center by a given angle"""
         self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
@@ -854,8 +854,8 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         raise NotImplementedError("Grid transforms have a fixed grid of points, they should not change")
 
     def ClearDataStructures(self):
-        '''Something about the transform has changed, for example the points.
-           Clear out our data structures so we do not use bad data'''
+        """Something about the transform has changed, for example the points.
+           Clear out our data structures so we do not use bad data"""
         super(GridTransform_GPU, self).ClearDataStructures()
         self._ForwardInterpolator = None
         self._InverseInterpolator = None

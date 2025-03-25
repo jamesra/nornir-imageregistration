@@ -22,6 +22,9 @@ from nornir_imageregistration.transforms.defaulttransformchangeevents import Def
 
 class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents, metaclass=ABCMeta):
     def __init__(self, pointpairs: NDArray[np.floating]):
+        """
+        :param pointpairs: [TargetY TargetX SourceY SourceX]
+        """
         super(ControlPointBase, self).__init__()
         self._points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpairs, dtype=np.float32)
         self._MappedBoundingBox = None
@@ -38,7 +41,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @staticmethod
     def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
-        '''Returns a bool array indicating which new_points already exist in points'''
+        """Returns a bool array indicating which new_points already exist in points"""
 
         # (new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
 
@@ -80,7 +83,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
-        '''Returns a copy of the array sorted in fixed space x,y without duplicates'''
+        """Returns a copy of the array sorted in fixed space x,y without duplicates"""
 
         (points, invalid_indicies, valid_indicies) = utils.InvalidIndicies(points)
 
@@ -116,9 +119,9 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         return nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(points)
 
     def FindDuplicateFixedPoints(self, new_points, epsilon: float = 0):
-        '''Using our control point KDTree, ensure the new points are not duplicates
+        """Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
-        '''
+        """
         distance, index = self.FixedKDTree.query(new_points)
         same = distance <= 0
         return same
@@ -126,11 +129,6 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
     def OnTransformChanged(self):
         self.ClearDataStructures()
         super(ControlPointBase, self).OnTransformChanged()
-
-    def GetFixedPointsRect(self, bounds):
-        '''bounds = [left bottom right top]'''
-        # return self.GetPointPairsInRect(self.TargetPoints, bounds)
-        raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
 
     def GetPointPairsInRect(self, points: NDArray[np.floating],
                             bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
@@ -154,35 +152,35 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         return OutputPoints
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         return points[:, 2:4]
 
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         return points[:, 0:2]
 
     @property
@@ -198,9 +196,9 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @property
     def FixedBoundingBox(self):
-        '''
+        """
         :return: (minY, minX, maxY, maxX)
-        '''
+        """
         if self._FixedBoundingBox is None:
             self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
 
@@ -227,16 +225,16 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @property
     def SourcePoints(self) -> NDArray[np.floating]:
-        ''' [[Y1, X1],
+        """ [[Y1, X1],
              [Y2, X2],
-             [Yn, Xn]]'''
+             [Yn, Xn]]"""
         return self._points[:, 2:4]
 
     @property
     def MappedBoundingBox(self):
-        '''
+        """
         :return: (minY, minX, maxY, maxX)
-        '''
+        """
         if self._MappedBoundingBox is None:
             self._MappedBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.SourcePoints)
 
@@ -249,9 +247,9 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @property
     def TargetPoints(self) -> NDArray[np.floating]:
-        ''' [[Y1, X1],
+        """ [[Y1, X1],
              [Y2, X2],
-             [Yn, Xn]]'''
+             [Yn, Xn]]"""
         return self._points[:, 0:2]
 
     @property
@@ -275,7 +273,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @staticmethod
     def RotatePoints(points: NDArray[np.floating], rangle: float, rotationCenter: NDArray[np.floating] | None):
-        '''Rotate all points about a center by a given angle'''
+        """Rotate all points about a center by a given angle"""
 
         rt = nornir_imageregistration.transforms.Rigid(target_offset=(0, 0),
                                                        source_rotation_center=rotationCenter,
@@ -313,7 +311,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @staticmethod
     def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
-        '''Returns a bool array indicating which new_points already exist in points'''
+        """Returns a bool array indicating which new_points already exist in points"""
 
         # (new_points, invalid_indicies, valid_indices) = utils.InvalidIndicies_GPU(new_points)
 
@@ -355,7 +353,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
-        '''Returns a copy of the array sorted in fixed space x,y without duplicates'''
+        """Returns a copy of the array sorted in fixed space x,y without duplicates"""
 
         (points, indicies) = utils.InvalidIndicies(points)
 
@@ -389,9 +387,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         return nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(points)
 
     def FindDuplicateFixedPoints(self, new_points, epsilon: float = 0):
-        '''Using our control point KDTree, ensure the new points are not duplicates
+        """Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
-        '''
+        """
         distance, index = self.FixedKDTree.query(new_points)
         same = distance <= 0
         return same
@@ -401,7 +399,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         super(ControlPointBase_GPUComponent, self).OnTransformChanged()
 
     def GetFixedPointsRect(self, bounds):
-        '''bounds = [left bottom right top]'''
+        """bounds = [left bottom right top]"""
         # return self.GetPointPairsInRect(self.TargetPoints, bounds)
         raise DeprecationWarning("This function was a typo, replace with GetFixedPointsInRect")
 
@@ -427,35 +425,35 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         return OutputPoints
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetWarpedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointsInFixedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointsInWarpedRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.TargetPoints, bounds)
 
     def GetPointPairsInSourceRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        '''bounds = [bottom left top right]'''
+        """bounds = [bottom left top right]"""
         return self.GetPointPairsInRect(self.SourcePoints, bounds)
 
     def PointPairsToWarpedPoints(self, points: NDArray[np.floating]):
-        '''Return the warped points from a set of target-source point pairs'''
+        """Return the warped points from a set of target-source point pairs"""
         return points[:, 2:4]
 
     def PointPairsToTargetPoints(self, points: NDArray[np.floating]):
-        '''Return the target points from a set of target-source point pairs'''
+        """Return the target points from a set of target-source point pairs"""
         return points[:, 0:2]
 
     @property
@@ -471,9 +469,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @property
     def FixedBoundingBox(self):
-        '''
+        """
         :return: (minY, minX, maxY, maxX)
-        '''
+        """
         if self._FixedBoundingBox is None:
             self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
 
@@ -500,16 +498,16 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @property
     def SourcePoints(self) -> NDArray[np.floating]:
-        ''' [[Y1, X1],
+        """ [[Y1, X1],
              [Y2, X2],
-             [Yn, Xn]]'''
+             [Yn, Xn]]"""
         return self._points[:, 2:4]
 
     @property
     def MappedBoundingBox(self):
-        '''
+        """
         :return: (minY, minX, maxY, maxX)
-        '''
+        """
         if self._MappedBoundingBox is None:
             self._MappedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.SourcePoints)
 
@@ -522,9 +520,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @property
     def TargetPoints(self) -> NDArray[np.floating]:
-        ''' [[Y1, X1],
+        """ [[Y1, X1],
              [Y2, X2],
-             [Yn, Xn]]'''
+             [Yn, Xn]]"""
         return self._points[:, 0:2]
 
     @property
@@ -548,7 +546,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @staticmethod
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[np.floating]):
-        '''Rotate all points about a center by a given angle'''
+        """Rotate all points about a center by a given angle"""
 
         rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0, 0),
                                                            source_rotation_center=rotationCenter,
