@@ -186,8 +186,8 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
 
         alignrecord = nornir_imageregistration.phasecorrelation.FindOffset(imFixedPadded, imMovingPadded,
                                                                            MinOverlap=0.05, MaxOverlap=0.5,
-                                                                           FixedImageShape=imFixed.shape,
-                                                                           MovingImageShape=imMoving.shape)
+                                                                           target_shape=imFixed.shape,
+                                                                           source_shape=imMoving.shape)
 
         print(str(alignrecord))
 

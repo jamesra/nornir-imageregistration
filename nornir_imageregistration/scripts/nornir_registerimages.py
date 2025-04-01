@@ -20,7 +20,7 @@ import nornir_shared.misc
 def __CreateArgParser(ExecArgs=None):
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
     parser = argparse.ArgumentParser(
-        description="Maps the control space of the warped transform to the control space of the fixed transform and saves the resulting transform as a new .stos file.")
+        description="Maps the control space of the source transform to the control space of the target transform and saves the resulting transform as a new .stos file.  Source -> Target")
 
     #     parser.add_argument('-output', '-o',
     #                         action='store',
@@ -29,21 +29,21 @@ def __CreateArgParser(ExecArgs=None):
     #                         help='Output transform file path',
     #                         dest='outputpath')
 
-    parser.add_argument('-fixed', '-f',
+    parser.add_argument('-target', '-f',
                         action='store',
                         required=True,
                         type=str,
                         default=None,
-                        help='Fixed transform path',
+                        help='Target transform path',
                         dest='fixedpath'
                         )
 
-    parser.add_argument('-warped', '-w',
+    parser.add_argument('-source', '-w',
                         action='store',
                         required=True,
                         type=str,
                         default=None,
-                        help='Warped transform path, ',
+                        help='Source transform path, ',
                         dest='warpedpath'
                         )
 
@@ -93,10 +93,10 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    fixed_image = core.LoadImage(Args.fixedpath)
-    warped_image = core.LoadImage(Args.warpedpath)
+    target_image = core.LoadImage(Args.fixedpath)
+    source_image = core.LoadImage(Args.warpedpath)
 
-    # align_record = core.FindOffset(fixed_image, warped_image)
+    # align_record = core.FindOffset(target_image, source_image)
 
     # print("Overall alignment: %s" % str(align_record))
 
@@ -107,8 +107,8 @@ def Execute(ExecArgs=None):
     warped_control_points_bbox = spatial.Rectangle.CreateFromCenterPointAndArea(control_point_coord, fixed_image_area)
 
     # Pull a subtile from the images.
-    cropped_fixed_image = core.CropImageRect(fixed_image, fixed_control_points_bbox, cval=0)
-    cropped_warped_image = core.CropImageRect(warped_image, warped_control_points_bbox, cval=0)
+    cropped_fixed_image = core.CropImageRect(target_image, fixed_control_points_bbox, cval=0)
+    cropped_warped_image = core.CropImageRect(source_image, warped_control_points_bbox, cval=0)
 
     # cropped_fixed_padded_image = core.PadImageForPhaseCorrelation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
 
@@ -118,7 +118,7 @@ def Execute(ExecArgs=None):
 
     print("Control point alignment: %s" % str(control_point_align_record))
 
-    core.ShowGrayscale((fixed_image, warped_image, cropped_fixed_image, cropped_warped_image),
+    core.ShowGrayscale((target_image, source_image, cropped_fixed_image, cropped_warped_image),
                        title="Control point regions")
 
 

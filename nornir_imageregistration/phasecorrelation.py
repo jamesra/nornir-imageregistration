@@ -1,5 +1,9 @@
+from typing import NamedTuple
+
 import numpy as np
 from numpy.typing import NDArray
+
+from typing import NamedTuple
 
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_imageregistration
@@ -31,7 +35,7 @@ def PadImageForPhaseCorrelation(image: NDArray[np.floating],
                                 NewHeight: int | None = None,
                                 PowerOfTwo: bool = True,
                                 AlwaysCopy: bool = True,
-                                return_numpy: bool = True):
+                                return_numpy: bool = True) -> NDArray[np.floating]:
     """
     Prepares an image for use with the phase correlation operation.  Padded areas are filled with noise matching the histogram of the
     original image.
@@ -146,64 +150,64 @@ def PadImageForPhaseCorrelation(image: NDArray[np.floating],
     return PaddedImage
 
 
-def ImagePhaseCorrelation(FixedImage: NDArray[np.floating],
-                          MovingImage: NDArray[np.floating],
-                          fixed_mean: float | None = None,
-                          moving_mean: float | None = None,
-                          correlation_coefficient: float | None = None):
+def ImagePhaseCorrelation(target_image: NDArray[np.floating],
+                          source_image: NDArray[np.floating],
+                          target_mean: float | None = None,
+                          source_mean: float | None = None,
+                          correlation_coefficient: float | None = None) -> NDArray[np.floating]:
     """
     Returns the phase shift correlation of the FFT's of two images.
 
     Dimensions of Fixed and Moving images must match
 
-    :param ndarray FixedImage: grayscale image
-    :param ndarray MovingImage: grayscale image
-    :param fixed_mean: Mean value of the fixed image
-    :param moving_mean: Mean value of the moving image
+    :param ndarray target_image: grayscale image
+    :param ndarray source_image: grayscale image
+    :param target_mean: Mean value of the fixed image
+    :param source_mean: Mean value of the moving image
     :param CorrelationCoefficient: Setting this value to 1 is equivalent to using phase correlation.  Setting it to 0 is equivalent to using Pierson Correlation.  The default is .65.  If you have a difficult to register section changing this value to 1 may help.
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
     """
-    xp = cp.get_array_module(FixedImage)
+    xp = cp.get_array_module(target_image)
 
-    if not (FixedImage.shape == MovingImage.shape):
+    if not (target_image.shape == source_image.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
         raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
 
     # --------------------------------
     # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
     # code has been obfuscated more than I like
-    # FFTFixed = fftpack.rfft2(FixedImage)
-    # FFTMoving = fftpack.rfft2(MovingImage)
-    # conjFFTFixed = conj(FFTFixed)
-    # Numerator = conjFFTFixed * FFTMoving
-    # Divisor = abs(conjFFTFixed * FFTMoving)
+    # target_fft = fftpack.rfft2(FixedImage)
+    # source_fft = fftpack.rfft2(MovingImage)
+    # conjFFTFixed = conj(target_fft)
+    # Numerator = conjFFTFixed * source_fft
+    # Divisor = abs(conjFFTFixed * source_fft)
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
-    if fixed_mean is None:
-        fixed_mean = xp.mean(FixedImage)
-    if moving_mean is None:
-        moving_mean = xp.mean(MovingImage)
+    if target_mean is None:
+        target_mean = xp.mean(target_image)
+    if source_mean is None:
+        source_mean = xp.mean(source_image)
 
-    FFTFixed = fftpack.fft2(FixedImage - fixed_mean)
-    FFTMoving = fftpack.fft2(MovingImage - moving_mean)
+    target_fft = fftpack.fft2(target_image - target_mean)
+    source_fft = fftpack.fft2(source_image - source_mean)
 
-    return FFTPhaseCorrelation(FFTFixed, FFTMoving, True, correlation_coefficient=correlation_coefficient)
+    return FFTPhaseCorrelation(target_fft, source_fft, True, correlation_coefficient=correlation_coefficient)
 
 
-def FFTPhaseCorrelation(FFTFixed: NDArray[np.floating],
-                        FFTMoving: NDArray[np.floating],
+def FFTPhaseCorrelation(fft_target: NDArray[np.floating],
+                        fft_source: NDArray[np.floating],
                         delete_input: bool = False,
-                        correlation_coefficient: float | None = None):
+                        correlation_coefficient: float | None = None) -> NDArray[np.floating]:
     """
     Returns the phase shift correlation of the FFT's of two images.
 
     Dimensions of Fixed and Moving images must match
 
     :param delete_input:
-    :param ndarray FFTFixed: grayscale image
-    :param ndarray FFTMoving: grayscale image
+    :param ndarray fft_target: grayscale image
+    :param ndarray fft_source: grayscale image
     :param CorrelationCoefficient: Setting this value to 1 is equivalent to using phase correlation.  Setting it to 0 is equivalent to using Pierson Correlation.  The default is .65.  If you have a difficult to register section changing this value to 1 may help.
     :returns: Correlation image of the FFT's.  Light pixels indicate the phase is well aligned at that offset.
     :rtype: ndimage
@@ -212,7 +216,7 @@ def FFTPhaseCorrelation(FFTFixed: NDArray[np.floating],
     if correlation_coefficient is None:
         correlation_coefficient = 0.65
 
-    if not (FFTFixed.shape == FFTMoving.shape):
+    if not (fft_target.shape == fft_source.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
         raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
 
@@ -221,51 +225,58 @@ def FFTPhaseCorrelation(FFTFixed: NDArray[np.floating],
     # code has been obfuscated more than I like
     # FFTFixed = fftpack.rfft2(FixedImage)
     # FFTMoving = fftpack.rfft2(MovingImage)
-    # conjFFTFixed = conj(FFTFixed)
-    # Numerator = conjFFTFixed * FFTMoving
-    # Divisor = abs(conjFFTFixed * FFTMoving)
+    # conj_fft_target = conj(FFTFixed)
+    # Numerator = conj_fft_target * FFTMoving
+    # Divisor = abs(conj_fft_target * FFTMoving)
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
 
-    xp = cp.get_array_module(FFTFixed)
+    xp = cp.get_array_module(fft_target)
     # sp = cupyx.scipy.get_array_module(FFTFixed)
 
-    conjFFTFixed = xp.conjugate(FFTFixed)
+    conj_fft_target = xp.conjugate(fft_target)
     if delete_input:
-        del FFTFixed
+        del fft_target
 
-    conjFFTFixed *= FFTMoving
+    conj_fft_target *= fft_source
 
     if delete_input:
-        del FFTMoving
+        del fft_source
 
-    abs_conjFFTFixed = xp.absolute(conjFFTFixed)
+    abs_conj_target_fft = xp.absolute(conj_fft_target)
 
     # Based on talk with Art Wetzel, apparently wht_expon = 1 is Phase Correlation.  0 is Pierson Correlation
-    mask = abs_conjFFTFixed > 1e-5
-    # conjFFTFixed[wht_mask] /= wht_scales  # Numerator / Divisor
-    # conjFFTFixed[mask] /= abs_conjFFTFixed[mask]
-    conjFFTFixed[mask] /= xp.power(abs_conjFFTFixed[mask], correlation_coefficient)
-    # assert (np.array_equiv(WconjFFTFixed, conjFFTFixed[mask]))
+    mask = abs_conj_target_fft > 1e-5
+    # conj_fft_target[wht_mask] /= wht_scales  # Numerator / Divisor
+    # conj_fft_target[mask] /= abs_conj_target_fft[mask]
+    conj_fft_target[mask] /= xp.power(abs_conj_target_fft[mask], correlation_coefficient)
+    # assert (np.array_equiv(WconjFFTFixed, conj_fft_target[mask]))
     del mask
 
-    # wht_expon_adjustment = np.power(np.absolute(conjFFTFixed[mask]), wht_expon)
-    # conjFFTFixed[mask] *= wht_expon_adjustment
-    # wht_mask = conjFFTFixed > 1e-5
-    # conjFFTFixed[wht_mask] *= np.power(conjFFTFixed[wht_mask], -0.65)
+    # wht_expon_adjustment = np.power(np.absolute(conj_fft_target[mask]), wht_expon)
+    # conj_fft_target[mask] *= wht_expon_adjustment
+    # wht_mask = conj_fft_target > 1e-5
+    # conj_fft_target[wht_mask] *= np.power(conj_fft_target[wht_mask], -0.65)
     # del wht_expon_adjustment
-    del abs_conjFFTFixed
+    del abs_conj_target_fft
 
-    CorrelationImage = xp.real(fftpack.ifft2(conjFFTFixed))
-    del conjFFTFixed
+    CorrelationImage = xp.real(fftpack.ifft2(conj_fft_target))
+    del conj_fft_target
 
     return CorrelationImage
 
 
+class FindPeakResult(NamedTuple):
+    scaled_offset: tuple[float, float]
+    peak_strength: float
+    cutoff_value: float
+    cutoff_percent: float
+
+
 def FindPeak(image: NDArray[np.floating],
              OverlapMask: NDArray[bool] | None = None,
-             Cutoff: float = None):
+             Cutoff: float = None) -> FindPeakResult:
     """
     Find the offset of the strongest response in a phase correlation image
 
@@ -279,7 +290,16 @@ def FindPeak(image: NDArray[np.floating],
     sp = cupyx.scipy.get_array_module(image)
 
     if Cutoff is None:
-        Cutoff = 0.996
+        percentiles = np.linspace(0.95, 1, 101)
+        try:
+            result = nornir_imageregistration.mathfuncs.estimate_cutoff(image.flat, percentiles)
+            cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
+        except ValueError:
+            cutoff_percent = 99.6
+    else:
+        cutoff_percent = Cutoff * 100
+
+        # Cutoff = 0.996
     #        num_pixels = np.prod(image.shape)
 
     #        if (1.0 - Cutoff) * num_pixels > 1000:
@@ -292,10 +312,10 @@ def FindPeak(image: NDArray[np.floating],
     # OverlapMask = cp.array(OverlapMask)
 
     if OverlapMask is not None:
-        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=Cutoff * 100.0)
+        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=cutoff_percent)
         ThresholdImage[xp.logical_not(OverlapMask)] = 0
     else:
-        CutoffValue = xp.percentile(ThresholdImage, q=Cutoff * 100.0)
+        CutoffValue = xp.percentile(ThresholdImage, q=cutoff_percent)
 
     ThresholdImage[ThresholdImage < CutoffValue] = 0
 
@@ -363,16 +383,16 @@ def FindPeak(image: NDArray[np.floating],
         del ThresholdImage
         del LabelSums
 
-        return scaled_offset, signal_to_noise
+        return FindPeakResult(scaled_offset, signal_to_noise, CutoffValue, cutoff_percent)
 
 
-def FindOffset(FixedImage: NDArray[np.floating],
-               MovingImage: NDArray[np.floating],
+def FindOffset(target_image: NDArray[np.floating],
+               source_image: NDArray[np.floating],
                MinOverlap: float = 0.0,
                MaxOverlap: float = 1.0,
                FFT_Required: bool = True,
-               FixedImageShape: tuple[int, int] | NDArray[int] | None = None,
-               MovingImageShape: tuple[int, int] | NDArray[int] | None = None,
+               target_shape: tuple[int, int] | NDArray[int] | None = None,
+               source_shape: tuple[int, int] | NDArray[int] | None = None,
                correlation_coefficient: float | None = None):
     """return an alignment record describing how the images overlap. The alignment record indicates how much the
        moving image must be rotated and translated to align perfectly with the FixedImage.
@@ -380,43 +400,43 @@ def FindOffset(FixedImage: NDArray[np.floating],
        If adjusting control points the peak can be added to the fixed image's control point, or subtracted from the
        warped image's control point (accounting for any transform used to create the warped image) to align the images.
 
-       :param ndarray FixedImage:  Target space we are registering into
-       :param ndarray MovingImage: Source space we are coming from
+       :param ndarray target_image:  Target space we are registering into
+       :param ndarray source_image: Source space we are coming from
        :param float MinOverlap: The minimum amount of overlap by area the registration must have
        :param float MaxOverlap: The maximum amount of overlap by area the registration must have
        :param bool FFT_Required: True by default, if False the input images are in FFT space already
-       :param tuple FixedImageShape: Defaults to None, if specified it contains the size of the fixed image before padding.  Used to calculate mask for valid overlap values.
-       :param tuple MovingImageShape: Defaults to None, if specified it contains the size of the moving image before padding.  Used to calculate mask for valid overlap values.
+       :param tuple target_shape: Defaults to None, if specified it contains the size of the fixed image before padding.  Used to calculate mask for valid overlap values.
+       :param tuple source_shape: Defaults to None, if specified it contains the size of the moving image before padding.  Used to calculate mask for valid overlap values.
        """
 
     # nornir_imageregistration.ShowGrayscale([FixedImage, MovingImage])
 
-    if FixedImageShape is None:
-        FixedImageShape = FixedImage.shape
+    if target_shape is None:
+        target_shape = target_image.shape
 
-    if MovingImageShape is None:
-        MovingImageShape = MovingImage.shape
+    if source_shape is None:
+        source_shape = source_image.shape
 
-    xp = cp.get_array_module(FixedImage)
+    xp = cp.get_array_module(target_image)
 
     # Find peak requires both the fixed and moving images have equal size
-    if not ((FixedImage.shape[0] == MovingImage.shape[0]) and (FixedImage.shape[1] == MovingImage.shape[1])):
+    if not ((target_image.shape[0] == source_image.shape[0]) and (target_image.shape[1] == source_image.shape[1])):
         # Pad the smaller image to the appropriate size
         (desired_height, desired_width) = (
-            max((FixedImage.shape[0], MovingImage.shape[0])), max((FixedImage.shape[1], MovingImage.shape[1])))
-        FixedImage = PadImageForPhaseCorrelation(FixedImage, MinOverlap=1, NewWidth=desired_width,
-                                                 NewHeight=desired_height, AlwaysCopy=False)
-        MovingImage = PadImageForPhaseCorrelation(MovingImage, MinOverlap=1, NewWidth=desired_width,
-                                                  NewHeight=desired_height, AlwaysCopy=False)
+            max((target_image.shape[0], source_image.shape[0])), max((target_image.shape[1], source_image.shape[1])))
+        target_image = PadImageForPhaseCorrelation(target_image, MinOverlap=1, NewWidth=desired_width,
+                                                   NewHeight=desired_height, AlwaysCopy=False)
+        source_image = PadImageForPhaseCorrelation(source_image, MinOverlap=1, NewWidth=desired_width,
+                                                   NewHeight=desired_height, AlwaysCopy=False)
 
     CorrelationImage = None
     if FFT_Required:
-        CorrelationImage = ImagePhaseCorrelation(FixedImage,
-                                                 MovingImage,
+        CorrelationImage = ImagePhaseCorrelation(target_image,
+                                                 source_image,
                                                  correlation_coefficient=correlation_coefficient)
     else:
-        CorrelationImage = FFTPhaseCorrelation(FixedImage,
-                                               MovingImage,
+        CorrelationImage = FFTPhaseCorrelation(target_image,
+                                               source_image,
                                                delete_input=False,
                                                correlation_coefficient=correlation_coefficient)
 
@@ -427,12 +447,12 @@ def FindOffset(FixedImage: NDArray[np.floating],
     CorrelationImage /= CorrelationImage.max()
 
     # Timer.Start('Find Peak')
-    OverlapMask = nornir_imageregistration.GetOverlapMask(FixedImageShape,
-                                                          MovingImageShape,
+    OverlapMask = nornir_imageregistration.GetOverlapMask(target_shape,
+                                                          source_shape,
                                                           CorrelationImage.shape,
                                                           MinOverlap,
                                                           MaxOverlap)
-    (peak, weight) = FindPeak(CorrelationImage, OverlapMask)
+    (peak, weight, cutoff, cutoff_percent) = FindPeak(CorrelationImage, OverlapMask)
 
     del CorrelationImage
 
@@ -466,7 +486,7 @@ if __name__ == '__main__':
         FixedA = PadImageForPhaseCorrelation(imA)
         MovingB = PadImageForPhaseCorrelation(imB)
 
-        record = FindOffset(FixedA, MovingB, FixedImageShape=imA.shape, MovingImageShape=imB.shape)
+        record = FindOffset(FixedA, MovingB, target_shape=imA.shape, source_shape=imB.shape)
         print(str(record))
 
         stos = record.ToStos(FilenameA, FilenameB)

@@ -812,8 +812,8 @@ def __tile_offset_remote(A_Filename: str, B_Filename: str,
                                                                   OverlappingRegionB,
                                                                   MinOverlap=MinOverlap,
                                                                   MaxOverlap=MaxOverlap,
-                                                                  FixedImageShape=scaled_overlapping_source_rect_A.Dimensions,
-                                                                  MovingImageShape=scaled_overlapping_source_rect_B.Dimensions,
+                                                                  target_shape=scaled_overlapping_source_rect_A.Dimensions,
+                                                                  source_shape=scaled_overlapping_source_rect_B.Dimensions,
                                                                   FFT_Required=True,
                                                                   correlation_coefficient=correlation_coefficient)  # , FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
 

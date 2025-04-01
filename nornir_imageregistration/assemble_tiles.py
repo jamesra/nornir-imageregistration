@@ -1,8 +1,8 @@
-'''
+"""
 Created on Oct 28, 2013
 
 Deals with assembling images composed of mosaics or dividing images into tiles
-'''
+"""
 
 import copy
 import logging
@@ -24,11 +24,17 @@ import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_shared.tasktimer
 
+from nornir_imageregistration.type_info import ShapeLike
+from nornir_imageregistration.image_filter_cache import WindowFilterCache
+from nornir_imageregistration.distance import CreateDistanceImage
+
 # from nornir_imageregistration.files.mosaicfile import MosaicFile
 # from nornir_imageregistration.mosaic import Mosaic
 # import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 # import nornir_imageregistration.transforms.triangulation as triangulation
-DistanceImageCache = {}
+
+
+distance_image_cache = WindowFilterCache('distance', CreateDistanceImage)
 
 
 # TODO: Use atexit to delete the temporary files
@@ -41,7 +47,7 @@ nextNumpyMemMapFilenameIndex = 0
 
 
 def GetProcessAndThreadUniqueString():
-    '''We use the index because if the same thread makes a new tile of the same size and the original has not been garbage collected yet we get errors'''
+    """We use the index because if the same thread makes a new tile of the same size and the original has not been garbage collected yet we get errors"""
     global nextNumpyMemMapFilenameIndex
     nextNumpyMemMapFilenameIndex += 1
     return "%d_%d_%d" % (os.getpid(), threading.get_ident(), nextNumpyMemMapFilenameIndex)
@@ -86,89 +92,13 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     return
 
 
-def CreateDistanceImage(shape, dtype=None):
-    if dtype is None:
-        dtype = nornir_imageregistration.default_depth_image_dtype()
-
-    center = [shape[0] / 2.0, shape[1] / 2.0]
-
-    x_range = np.linspace(-center[1], center[1], shape[1])
-    y_range = np.linspace(-center[0], center[0], shape[0])
-
-    x_range **= 2
-    y_range **= 2
-
-    distance = np.empty(shape, dtype=dtype)
-
-    for i in range(0, shape[0]):
-        distance[i, :] = x_range + y_range[i]
-
-    distance = np.sqrt(distance)
-
-    return distance
-
-
-def CreateDistanceImage2(shape, dtype=None):
-    # TODO, this has some obvious optimizations available
-    if dtype is None:
-        dtype = nornir_imageregistration.default_depth_image_dtype()
-
-    # center = [shape[0] / 2.0, shape[1] / 2.0]
-    shape = np.asarray(shape, dtype=np.int64)
-    is_odd_shape = np.fmod(shape, 2) > 0
-
-    half_shape = None
-    if True:
-        even_shape = shape.copy()
-        even_shape[is_odd_shape] -= 1
-        half_shape = even_shape / 2
-        half_shape = half_shape.astype(np.int64)
-
-    y_range = None
-    if not is_odd_shape[0]:
-        y_range = np.linspace(0.5, half_shape[0] + 0.5, num=half_shape[0])
-    else:
-        half_shape[0] += 1
-        y_range = np.linspace(0, half_shape[0] - 1, num=half_shape[0])
-
-    x_range = None
-    if not is_odd_shape[1]:
-        x_range = np.linspace(0.5, half_shape[1] + 0.5, num=half_shape[1])
-    else:
-        half_shape[1] += 1
-        x_range = np.linspace(0, half_shape[1] - 1, num=half_shape[1])
-
-    x_range *= x_range
-    y_range *= y_range
-
-    distance = np.empty(half_shape, dtype=dtype)
-
-    for i in range(0, half_shape[0]):
-        distance[i, :] = x_range + y_range[i]
-
-    distance = np.sqrt(distance)
-
-    # OK, mirror the array as needed to build the final image
-    if not is_odd_shape[1]:
-        distance = np.hstack((np.fliplr(distance), distance))
-    else:
-        distance = np.hstack((np.fliplr(distance[:, 1:]), distance))
-
-    if not is_odd_shape[0]:
-        distance = np.vstack((np.flipud(distance), distance))
-    else:
-        distance = np.vstack((np.flipud(distance[1:, :]), distance))
-
-    return distance
-
-
 def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
-def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
+def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
     dtype = np.float16 if dtype is None else dtype
-    
+
     xp = nornir_imageregistration.GetComputationModule()
 
     if _use_memmap():  # use_memmap:
@@ -212,11 +142,11 @@ def EmptyDistanceBuffer(shape, dtype: DTypeLike | None = None):
 
 
 def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
-    '''Create output images using the passed width and height
-    '''
-    
+    """Create output images using the passed width and height
+    """
+
     xp = nornir_imageregistration.GetComputationModule()
-    
+
     fullImage = None
     fullImage_shape = (
         int(Height),
@@ -238,57 +168,6 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
 
     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape)
     return fullImage, fullImageZbuffer
-
-
-def __GetOrCreateCachedDistanceImage(imageShape):
-    distance_array_path = os.path.join(tempfile.gettempdir(), 'distance%dx%d.npy' % (imageShape[0], imageShape[1]))
-
-    distanceImage = None
-
-    # distanceImage = nornir_imageregistration.LoadImage(distance_image_path)
-    try:
-        #             if use_memmap:
-        #                 distanceImage = np.load(distance_array_path, mmap_mode='r')
-        #             else:
-        distanceImage = np.load(distance_array_path, mmap_mode='r')
-        if distanceImage.dtype != nornir_imageregistration.default_depth_image_dtype():
-            os.remove(distance_array_path)
-            prettyoutput.Log("Removed outdated distance_image: %s" % distance_array_path)
-            distanceImage = None
-    except FileNotFoundError:
-        # print("Distance_image %s does not exist" % distance_array_path)
-        pass
-    except:
-        print("Invalid distance_image %s" % distance_array_path)
-        try:
-            os.remove(distance_array_path)
-        except:
-            prettyoutput.LogErr("Unable to delete invalid distance_image: %s" % distance_array_path)
-            pass
-
-        pass
-
-    if distanceImage is None:
-        distanceImage = CreateDistanceImage2(imageShape)
-        try:
-            np.save(distance_array_path, distanceImage)
-        except:
-            prettyoutput.LogErr("Unable to save invalid distance_image: %s" % distance_array_path)
-            pass
-
-    return distanceImage
-
-
-def __GetOrCreateDistanceImage(distanceImage, imageShape):
-    '''Determines size of the image.  Returns a distance image to match the size if the passed existing image is not the correct size.'''
-
-    assert (len(imageShape) == 2)
-    size = imageShape
-    if distanceImage is not None:
-        if np.array_equal(distanceImage.shape, size):
-            return distanceImage
-
-    return __GetOrCreateCachedDistanceImage(imageShape)
 
 
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
@@ -360,7 +239,8 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         # scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
         # scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
 
-        distanceImage = __GetOrCreateDistanceImage(distanceImage, tile.ImageSize)
+        global distance_image_cache
+        distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)
 
         transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
                                              TargetRegion=regionToRender, SingleThreadedInvoke=True)
@@ -371,7 +251,8 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                 prettyoutput.LogErr(transformedImageData.errormsg)
                 continue
 
-        CompositeOffset = (transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_targetRect.BottomLeft
+        CompositeOffset = (
+                                  transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_targetRect.BottomLeft
         CompositeOffset = CompositeOffset.astype(np.int64)
 
         CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
@@ -566,7 +447,8 @@ def __AddTransformedTileTaskToComposite(task,
             prettyoutput.LogErr(transformedImageData.errormsg)
             return fullImage, fullImageZBuffer
 
-    CompositeOffset = (transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
+    CompositeOffset = (
+                              transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
     CompositeOffset = CompositeOffset.astype(np.int32)
 
     try:
@@ -721,15 +603,15 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     # Round up to the nearest integer value
     # height = np.ceil(height)
     # width = np.ceil(width)
-
-    distanceImage = __GetOrCreateDistanceImage(distanceImage, source_image.shape[0:2])
+    global distance_image_cache
+    distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, source_image.shape[0:2])
 
     (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,
                                                                           [source_image, distanceImage],
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
                                                                           cval=[0,
-                                                                          		# I initially used max float value, but map_coordinates calls spline_filter, which
+                                                                                # I initially used max float value, but map_coordinates calls spline_filter, which
                                                                                 # somehow interacts with the max value to produce an invalid result for pixels
                                                                                 # outside the image boundary.
                                                                                 np.sum(distanceImage.shape) * 32.0],

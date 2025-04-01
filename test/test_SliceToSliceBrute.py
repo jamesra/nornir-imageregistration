@@ -6,6 +6,8 @@ Created on Mar 21, 2013
 import os
 import unittest
 import matplotlib
+import numpy as np
+import matplotlib.pyplot as plt
 
 matplotlib.use('qtAgg')
 
@@ -22,6 +24,9 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
 
+import scipy
+from nornir_shared.tasktimer import TaskTimerContext
+
 import nornir_imageregistration
 from nornir_imageregistration import AlignmentRecord, alignment_record
 import nornir_imageregistration.core as core
@@ -29,9 +34,44 @@ import nornir_imageregistration.files
 import nornir_imageregistration.scripts.nornir_rotate_translate
 import nornir_imageregistration.stos_brute as stos_brute
 import nornir_imageregistration.transforms
+from nornir_imageregistration.settings import SliceToSliceMethod
 from nornir_shared.tasktimer import TaskTimer
+from mathfuncs.angles import are_angle_radians_equal, are_angle_degrees_equal, assert_angles_equal, \
+    assert_angles_equal_degrees
+
 # from . import setup_imagetest
 import setup_imagetest
+
+
+def CreateRotatedAndOffsetImage(image: np.ndarray | str,
+                                mask: np.ndarray | str,
+                                angle: float,
+                                offset: tuple[int, int]) -> nornir_imageregistration.ImagePermutationHelper:
+    input_image_data = nornir_imageregistration.ImagePermutationHelper(image, mask)
+
+    if angle != 0:
+        rotated_image = scipy.ndimage.rotate(input_image_data.Image.astype(np.float32), -angle, reshape=False)
+        rotated_mask = scipy.ndimage.rotate(input_image_data.Mask, -angle, reshape=False)
+    else:
+        rotated_image = input_image_data.Image
+        rotated_mask = input_image_data.Mask
+
+    rotated_translated_image = nornir_imageregistration.CropImage(rotated_image,
+                                                                  Xo=-offset[1],
+                                                                  Yo=-offset[0],
+                                                                  Width=input_image_data.Image.shape[1],
+                                                                  Height=input_image_data.Image.shape[0],
+                                                                  image_stats=input_image_data.Stats)
+
+    rotated_translated_mask = nornir_imageregistration.CropImage(rotated_mask,
+                                                                 Xo=-offset[1],
+                                                                 Yo=-offset[0],
+                                                                 Width=input_image_data.Image.shape[1],
+                                                                 Height=input_image_data.Image.shape[0],
+                                                                 image_stats=input_image_data.Stats)
+
+    return nornir_imageregistration.ImagePermutationHelper(rotated_translated_image,
+                                                           rotated_translated_mask)
 
 
 def CheckAlignmentRecord(test: unittest.TestCase, arecord: alignment_record.AlignmentRecord, angle: float, X: float,
@@ -152,14 +192,15 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
 
         timer.Start(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
         # Check both clustered and non-clustered output
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                                                            WarpedImagePath,
-                                                            SingleThread=SingleThread,
-                                                            AngleSearchRange=None,
-                                                            # AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
-                                                            TestFlip=FlipUD,
-                                                            MinOverlap=MinOverlap,
-                                                            Cluster=Cluster)
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(target_image=FixedImagePath,
+                                                                   source_image=WarpedImagePath,
+                                                                   SingleThread=SingleThread,
+                                                                   AngleSearchRange=None,
+                                                                   # AngleSearchRange=list(range(130, 140)),#AngleSearchRange=None, #
+                                                                   TestFlip=FlipUD,
+                                                                   MinOverlap=MinOverlap,
+                                                                   Cluster=Cluster,
+                                                                   method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         timer.End(f"\nSliceToSliceBrute No Mask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
@@ -173,7 +214,8 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         FixedSize = core.GetImageSize(FixedImagePath)
         WarpedSize = core.GetImageSize(WarpedImagePath)
 
-        alignmentTransform = AlignmentRecord.ToImageTransform(FixedSize, WarpedSize)
+        alignmentTransform = AlignmentRecord.ToImageTransform(source_image_shape=FixedSize,
+                                                              target_image_shape=WarpedSize)
 
         if FlipUD:
             stosfilepath = os.path.join(self.VolumeDir, '17-18_brute_flipped.stos')
@@ -241,7 +283,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                                        WarpedImageScaleFactors=None,
                                        FlipUD: bool = False,
                                        SingleThread: bool = False,
-                                       Cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
+                                       Cluster: bool = False,
+                                       method: SliceToSliceMethod = SliceToSliceMethod.BruteForce) -> nornir_imageregistration.AlignmentRecord:
         self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
@@ -251,16 +294,17 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         timer = TaskTimer()
         timer.Start(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                                                            WarpedImagePath,
-                                                            FixedImageMaskPath,
-                                                            WarpedImageMaskPath,
-                                                            LargestDimension=1024,
-                                                            AngleSearchRange=AngleSearchRange,
-                                                            WarpedImageScaleFactors=WarpedImageScaleFactors,
-                                                            SingleThread=SingleThread,
-                                                            TestFlip=FlipUD,
-                                                            Cluster=Cluster)
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath,
+                                                                   WarpedImagePath,
+                                                                   FixedImageMaskPath,
+                                                                   WarpedImageMaskPath,
+                                                                   LargestDimension=1024,
+                                                                   AngleSearchRange=AngleSearchRange,
+                                                                   WarpedImageScaleFactors=WarpedImageScaleFactors,
+                                                                   SingleThread=SingleThread,
+                                                                   TestFlip=FlipUD,
+                                                                   Cluster=Cluster,
+                                                                   method=method)
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
         timer.End(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
@@ -387,7 +431,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
     #        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
     #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
     #
-    #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath, FixedImagePath)
+    #        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath, FixedImagePath)
     #
     #        CheckAlignmentRecord(self, AlignmentRecord, angle = 0.0, X = 0, Y = 0)
     #
@@ -399,7 +443,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
     #        FixedImageMaskPath = os.path.join(self.ImportedDataPath, "fixedmask.png")
     #        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
     #
-    #        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
+    #        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath,
     #                       FixedImagePath,
     #                       FixedImageMaskPath,
     #                       FixedImageMaskPath)
@@ -487,10 +531,13 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
                                                self.FixedImageMaskPath,
                                                SingleThread=True)
 
-    def RunBasicBruteAlignmentToSameImage(self, FixedImagePath: str,
+    def RunBasicBruteAlignmentToSameImage(self,
+                                          FixedImagePath: str,
                                           WarpedImagePath: str,
                                           FixedImageMaskPath: str,
                                           WarpedImageMaskPath: str,
+                                          angle: float = 0.0,  # Angle to rotate the target image by
+                                          offset: tuple[int, int] = (0, 0),  # Offset to apply to the target image
                                           AngleSearchRange: list[float] | None = None,
                                           FlipUD: bool = False,
                                           SingleThread: bool = False,
@@ -500,14 +547,196 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
         self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
         self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
 
-        AlignmentRecord = stos_brute.SliceToSliceBruteForce(FixedImagePath,
-                                                            WarpedImagePath,
-                                                            FixedImageMaskPath,
-                                                            WarpedImageMaskPath,
-                                                            AngleSearchRange=AngleSearchRange,
-                                                            SingleThread=SingleThread)
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(FixedImagePath,
+                                                                            FixedImageMaskPath)
+
+        target_image_data = CreateRotatedAndOffsetImage(WarpedImagePath, WarpedImageMaskPath, angle,
+                                                        offset)
+
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath,
+                                                                   WarpedImagePath,
+                                                                   FixedImageMaskPath,
+                                                                   WarpedImageMaskPath,
+                                                                   AngleSearchRange=AngleSearchRange,
+                                                                   SingleThread=SingleThread,
+                                                                   method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce)
         print(AlignmentRecord)
-        CheckAlignmentRecord(self, AlignmentRecord, angle=0.0, X=0, Y=0, adelta=1.5)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=angle, X=offset[1], Y=offset[0], adelta=1.5)
+
+    def RunBruteAlignmentToSameImageWithRotateTranslate(self,
+                                                        FixedImagePath: str,
+                                                        WarpedImagePath: str,
+                                                        FixedImageMaskPath: str,
+                                                        WarpedImageMaskPath: str,
+                                                        angle: float = 0.0,  # Angle to rotate the target image by
+                                                        offset: tuple[int, int] = (0, 0),
+                                                        # Offset to apply to the target image
+                                                        AngleSearchRange: list[float] | None = None,
+                                                        FlipUD: bool = False,
+                                                        SingleThread: bool = False,
+                                                        Cluster: bool = False):
+        self.assertTrue(os.path.exists(FixedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(WarpedImagePath), "Missing test input")
+        self.assertTrue(os.path.exists(FixedImageMaskPath), "Missing test input")
+        self.assertTrue(os.path.exists(WarpedImageMaskPath), "Missing test input")
+
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(FixedImagePath,
+                                                                            FixedImageMaskPath)
+
+        target_image_data = CreateRotatedAndOffsetImage(WarpedImagePath, WarpedImageMaskPath, angle,
+                                                        offset)
+
+        settings = nornir_imageregistration.settings.StosBruteSettings(
+            method=SliceToSliceMethod.BruteForce,
+            min_overlap=0.5,
+            try_flipped=True,
+            angles=AngleSearchRange)
+
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistrationWithPreprocessedImages(
+            source_image_data=source_image_data,
+            target_image_data=target_image_data,
+            settings=settings,
+            SingleThread=SingleThread,
+            Cluster=Cluster)
+        print(AlignmentRecord)
+        CheckAlignmentRecord(self, AlignmentRecord, angle=angle, X=offset[1], Y=offset[0], adelta=1.5)
+
+    def testTranslateOnly(self):
+        self.RunBruteAlignmentToSameImageWithRotateTranslate(self.FixedImagePath,
+                                                             self.FixedImagePath,
+                                                             self.FixedImageMaskPath,
+                                                             self.FixedImageMaskPath,
+                                                             angle=0,
+                                                             offset=(0, 64),
+                                                             AngleSearchRange=[0])
+
+
+class TestLogPolarStosWithMask(setup_imagetest.ImageTestBase):
+
+    def setUp(self):
+        super(TestLogPolarStosWithMask, self).setUp()
+        self.WarpedImagePath = self.GetImagePath("0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImagePath = self.GetImagePath("mini_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.WarpedImagePathFlipped = self.GetImagePath(
+            "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
+        self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+        self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
+
+    def test_simple(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+
+        target_image_data = nornir_imageregistration.ImagePermutationHelper(self.FixedImagePath,
+                                                                            self.FixedImageMaskPath)
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(self.WarpedImagePath,
+                                                                            self.WarpedImageMaskPath)
+
+        results = stos_brute._find_angle_and_scale_with_logpolar(source_image=source_image_data.ImageWithMaskAsNoise,
+                                                                 target_image=target_image_data.ImageWithMaskAsNoise,
+                                                                 source_stats=source_image_data.Stats,
+                                                                 target_stats=target_image_data.Stats)
+
+    def test_known_rotation_offset(self, angle=132, source_to_target_offset=(34, 100)):
+        """
+        Using the same image as source and target, rotate the target through a full circle and plot the
+        measured angle and shift at each angle.  The resulting plot should be a line with a slope of 1
+        :param angle:
+        :param source_to_target_offset:
+        :return:
+        """
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(self.WarpedImagePath,
+                                                                            self.WarpedImageMaskPath)
+
+        target_image_data = CreateRotatedAndOffsetImage(self.WarpedImagePath, self.WarpedImageMaskPath, angle,
+                                                        source_to_target_offset)
+
+        # Check that we can get the correct angle and scale calling logpolar directly
+        results = stos_brute._find_angle_and_scale_with_logpolar(source_image=source_image_data.ImageWithMaskAsNoise,
+                                                                 target_image=target_image_data.ImageWithMaskAsNoise,
+                                                                 source_stats=source_image_data.Stats,
+                                                                 target_stats=source_image_data.Stats)
+
+        assert_angles_equal_degrees(self, results.angle, angle, tolerance=1.0, msg="Angle mismatch")
+        self.assertAlmostEqual(results.scale, 1.0, delta=0.1, msg="Scale mismatch")
+
+        # Check that we can get the correct translation vector by calling the full alignment routine
+        settings = nornir_imageregistration.settings.StosBruteSettings(
+            min_overlap=0.5,
+            method=SliceToSliceMethod.LogPolar,
+            try_flipped=False
+        )
+
+        rigid_results = stos_brute.SliceToSliceRigidRegistrationWithPreprocessedImages(
+            source_image_data=source_image_data,
+            target_image_data=target_image_data,
+            settings=settings)
+        self.assertAlmostEqual(rigid_results.peak[0], source_to_target_offset[0], delta=2.0)
+        self.assertAlmostEqual(rigid_results.peak[1], source_to_target_offset[1], delta=2.0)
+        assert_angles_equal_degrees(self, rigid_results.angle, angle, tolerance=1)
+
+    def test_known_offset(self):
+        self.test_known_rotation_offset(angle=0, source_to_target_offset=(0, 64))
+
+    def test_identity(self):
+        self.test_known_rotation_offset(angle=0, source_to_target_offset=(0, 0))
+
+    def test_known_rotation_plot(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+
+        with TaskTimerContext() as timer:
+            angles, y, weight, diff = self.get_angle_plot()
+
+        print(f"{timer}")
+        self.plot_angles(angles, y, weight, diff)
+
+    def get_angle_plot(self) -> tuple[list[float], list[float], list[float], list[float]]:
+        """
+        Using the same image as source and target, rotate the target through a full circle and plot the
+        measured angle and shift at each angle.  The resulting plot should be a line with a slope of 1
+        :param angle:
+        :param source_to_target_offset:
+        :return:
+        """
+        angles = list(range(-180, 180, 30))
+        source_to_target_offset = (0, 0)
+
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(self.WarpedImagePath,
+                                                                            self.WarpedImageMaskPath)
+        y = []
+        weight = []
+        diff = []
+        timer = TaskTimer()
+        for angle in angles:
+            target_image_data = CreateRotatedAndOffsetImage(self.WarpedImagePath, self.WarpedImageMaskPath, angle,
+                                                            source_to_target_offset)
+            print(f"angle: {angle}")
+            timer.Start(f"find angle")
+            result = stos_brute._find_angle_and_scale_with_logpolar(source_image=source_image_data.ImageWithMaskAsNoise,
+                                                                    target_image=target_image_data.ImageWithMaskAsNoise,
+                                                                    source_stats=source_image_data.Stats,
+                                                                    target_stats=target_image_data.Stats)
+            timer.End(f"find angle")
+
+            y.append(result.angle)
+            diff.append(result.angle - angle)
+            weight.append(result.weight)
+
+        print(f"{timer}")
+        return angles, y, weight, diff
+
+    def plot_angles(self, angles, y, weight, diff):
+        plt.plot(angles, y)
+        plt.plot(angles, weight)
+        plt.plot(angles, diff)
+        plt.legend(['angle', 'weight', 'diff'])
+        plt.xlabel('actual angle')
+        plt.ylabel('measured angle')
+        plt.gca().set_aspect('equal')
+
+        plt.show()
 
 
 if __name__ == "__main__":

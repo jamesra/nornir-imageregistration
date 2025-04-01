@@ -93,12 +93,12 @@ def Execute(ExecArgs=None):
     if not os.path.exists(os.path.dirname(Args.outputpath)):
         os.makedirs(os.path.dirname(Args.outputpath))
 
-    alignRecord = sb.SliceToSliceBruteForce(stosArgs.ControlImage,
-                                            stosArgs.WarpedImage,
-                                            stosArgs.ControlMask,
-                                            stosArgs.WarpedMask,
-                                            MinOverlap=Args.min_overlap,
-                                            TestFlip=Args.testflip)
+    alignRecord = sb.SliceToSliceRigidRegistration(target_image=stosArgs.ControlImage,
+                                                   source_image=stosArgs.WarpedImage,
+                                                   target_mask=stosArgs.ControlMask,
+                                                   source_mask=stosArgs.WarpedMask,
+                                                   MinOverlap=Args.min_overlap,
+                                                   TestFlip=Args.testflip)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,

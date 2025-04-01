@@ -6,6 +6,9 @@ Created on Apr 22, 2013
 
 import os
 import warnings
+import logging
+
+from nornir_imageregistration import IgnoreUnderflow
 
 try:
     import cupy as cp
@@ -335,15 +338,14 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     any_nan_values = xp.any(xp.isnan(subroi_warpedImage))  # type: bool
     # filtered_source_coords -= 0.5
     order = 1 if any_nan_values or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
-    try:
+    with IgnoreUnderflow(
+            f"Underflow error assembling image.  min_val={subroi_warpedImage.min()} max_val={subroi_warpedImage.max()} mean={subroi_warpedImage.mean()} standardDev={np.std(subroi_warpedImage)}"):
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,
                                                   filtered_source_coords.transpose(),
                                                   mode='constant',
                                                   order=order,
                                                   cval=cval,
                                                   prefilter=True).astype(original_dtype, copy=False)
-    except RuntimeWarning:
-        raise
 
     del filtered_source_coords
     # outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())
@@ -672,7 +674,7 @@ def TransformImage(transform: ITransform,
     else:
         outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)
-        mpool = nornir_pools.GetGlobalMultithreadingPool()
+        mpool = nornir_pools.GetGlobalLocalMachinePool()
 
         try:
 

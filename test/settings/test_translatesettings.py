@@ -16,7 +16,7 @@ except (ImportError, ModuleNotFoundError):
 import nornir_imageregistration
 
 
-class TestTranslateSettings(TestBase):
+class TestTranslateSettings(setup_imagetest.TestBase):
 
     def testSaveLoadTranslateSettings(self):
         settings = nornir_imageregistration.settings.TranslateSettings()

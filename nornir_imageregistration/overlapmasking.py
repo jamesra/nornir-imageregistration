@@ -14,27 +14,28 @@ from nornir_imageregistration import Rectangle, ShapeLike
 __known_overlap_masks = {}
 
 
-def __CreateMaskLookupIndex(FixedImageShape: NDArray[int],
-                            WarpedImageShape: NDArray[int],
-                            CorrelationImageShape: NDArray[int],
-                            MinOverlap: float, MaxOverlap: float):
+def __CreateMaskLookupIndex(target_image_shape: NDArray[int],
+                            source_image_shape: NDArray[int],
+                            correlation_image_shape: NDArray[int],
+                            min_overlap: float, max_overlap: float) -> tuple[
+    int, int, int, int, int, int, float, float]:
     """
     Create an index into a dictionary for a overlap mask
     """
 
-    dimensions = np.concatenate((FixedImageShape, WarpedImageShape, CorrelationImageShape))
-    full_index = list(dimensions) + [MinOverlap, MaxOverlap]
+    dimensions = np.concatenate((target_image_shape, source_image_shape, correlation_image_shape))
+    full_index = list(dimensions) + [min_overlap, max_overlap]
     return tuple(full_index)
 
 
-def GetOverlapMask(FixedImageSize: ShapeLike,
-                   MovingImageSize: ShapeLike,
-                   CorrelationImageSize: ShapeLike,
+def GetOverlapMask(target_image_shape: ShapeLike,
+                   source_image_shape: ShapeLike,
+                   correlation_image_size: ShapeLike,
                    MinOverlap: float = 0.0, MaxOverlap: float = 1.0):
     """Defines a mask that determines which peaks should be considered
-    :param NDArray FixedImageSize: Shape of fixed image, before padding
-    :param NDArray MovingImageSize: Shape of moving image, before padding
-    :param NDArray CorrelationImageSize: Shape of correlation image, which will be equal to size of largest padded image dimensions
+    :param NDArray target_image_shape: Shape of fixed image, before padding
+    :param NDArray source_image_shape: Shape of moving image, before padding
+    :param NDArray correlation_image_size: Shape of correlation image, which will be equal to size of largest padded image dimensions
     :param float MinOverlap: The minimum amount of overlap between the fixed and moving images, area based
     :param float MaxOverlap: The maximum amount of overlap between the fixed and moving images, area based
     :return: An mxn image mask, with 1 indicating allowed peak locations
@@ -42,19 +43,21 @@ def GetOverlapMask(FixedImageSize: ShapeLike,
 
     global __known_overlap_masks
 
-    FixedImageSize = np.asarray(FixedImageSize, dtype=int)
-    MovingImageSize = np.asarray(MovingImageSize, dtype=int)
-    CorrelationImageSize = np.asarray(CorrelationImageSize, dtype=int)
+    target_image_shape = np.asarray(target_image_shape, dtype=int)
+    source_image_shape = np.asarray(source_image_shape, dtype=int)
+    correlation_image_size = np.asarray(correlation_image_size, dtype=int)
 
     if MinOverlap == 0.0 and MaxOverlap == 1.0:  # and np.array_equal(FixedImageSize, MovingImageSize) and np.array_equal(FixedImageSize, CorrelationImageSize):
         return None
 
-    MaskIndex = __CreateMaskLookupIndex(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap, MaxOverlap)
+    MaskIndex = __CreateMaskLookupIndex(target_image_shape, source_image_shape, correlation_image_size, MinOverlap,
+                                        MaxOverlap)
 
     if MaskIndex in __known_overlap_masks:
         return __known_overlap_masks[MaskIndex]
 
-    mask = __CreateOverlapMaskBruteForce(FixedImageSize, MovingImageSize, CorrelationImageSize, MinOverlap, MaxOverlap)
+    mask = __CreateOverlapMaskBruteForce(target_image_shape, source_image_shape, correlation_image_size, MinOverlap,
+                                         MaxOverlap)
     __known_overlap_masks[MaskIndex] = mask
 
     return mask

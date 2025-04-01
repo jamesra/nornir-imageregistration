@@ -4,7 +4,7 @@ from .grid_refinement import GridRefinement
 from .mosaic_tile_offset import LoadMosaicOffsets, SaveMosaicOffsets, TileOffset
 from .translate import TranslateSettings
 from .angle_range import AngleSearchRange
-from .stos_brute import StosBruteSettings
+from .stos_brute import StosBruteSettings, SliceToSliceMethod
 
 
 def GetOrSaveTranslateSettings(settings: TranslateSettings, path: str):

@@ -42,8 +42,8 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(PaddedWarpedImage)
 
         record = nornir_imageregistration.phasecorrelation.FindOffset(self.PaddedFixedImage, PaddedWarpedImage,
-                                                                      FixedImageShape=self.FixedImage.shape,
-                                                                      MovingImageShape=WarpedImage.shape)
+                                                                      target_shape=self.FixedImage.shape,
+                                                                      source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
@@ -65,8 +65,8 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(PaddedWarpedImage)
 
         record = nornir_imageregistration.phasecorrelation.FindOffset(self.PaddedFixedImage, PaddedWarpedImage,
-                                                                      FixedImageShape=self.FixedImage.shape,
-                                                                      MovingImageShape=WarpedImage.shape)
+                                                                      target_shape=self.FixedImage.shape,
+                                                                      source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         self.assertEqual(record.angle, 0.0)
@@ -100,8 +100,8 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         self.assertIsNotNone(PaddedWarpedImage)
 
         record = nornir_imageregistration.phasecorrelation.FindOffset(PaddedFixedImage, PaddedWarpedImage,
-                                                                      FixedImageShape=FixedImage.shape,
-                                                                      MovingImageShape=WarpedImage.shape)
+                                                                      target_shape=FixedImage.shape,
+                                                                      source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
 
         print(record)

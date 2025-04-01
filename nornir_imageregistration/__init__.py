@@ -88,7 +88,7 @@ def GetComputationModule():
     return cp if UsingCupy() else np
 
 
-def ParamToDtype(param: NDArray) -> DTypeLike:
+def ParamToDtype(param: NDArray | DTypeLike) -> DTypeLike:
     if param is None:
         raise ValueError("'None' cannot be converted to a dtype")
 
@@ -114,21 +114,21 @@ def __DetermineDType(array: Sequence[Any] | NDArray) -> DTypeLike:
     return dtype
 
 
-def IsFloatArray(param: NDArray) -> bool:
+def IsFloatArray(param: NDArray | DTypeLike) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.floating)
 
 
-def IsIntArray(param: NDArray) -> bool:
+def IsIntArray(param: NDArray | DTypeLike) -> bool:
     if param is None:
         return False
 
     return np.issubdtype(ParamToDtype(param), np.integer)
 
 
-def IsBoolArray(param: NDArray) -> bool:
+def IsBoolArray(param: NDArray | DTypeLike) -> bool:
     if param is None:
         return False
 
@@ -288,6 +288,10 @@ def EnsurePointsAre4xN_Array(points: NDArray[np.floating] | Sequence[float], dty
 import nornir_shared.mathhelper
 from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
+import nornir_imageregistration.runtime_warnings as runtime_warnings
+from nornir_imageregistration.runtime_warnings import IgnoreRuntimeWarnings, IgnoreUnderflow, IgnoreOverflow, \
+    IgnoreUnderAndOverflow
+
 import nornir_imageregistration.shared_mem_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
 
@@ -348,6 +352,7 @@ import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.layout as layout
 import nornir_imageregistration.local_distortion_correction as local_distortion_correction
+from nornir_imageregistration.local_distortion_correction import WeightMethod
 import nornir_imageregistration.tileset_functions as tileset_functions
 import nornir_imageregistration.views as views
 import nornir_imageregistration.volume as volume
@@ -372,6 +377,10 @@ import nornir_imageregistration.pillow_helpers
 from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_for_pillow_image
 
 import nornir_imageregistration.blur as blur
+
+import nornir_imageregistration.distance as distance
+
+import nornir_imageregistration.image_filter_cache as image_filter_cache
 
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')

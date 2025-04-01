@@ -5,6 +5,7 @@ import numpy as np
 
 import nornir_imageregistration
 from nornir_imageregistration.grid_subdivision import ITKGridDivision, IGrid, CenteredGridDivision
+from nornir_imageregistration.views import build_grid_rois
 
 
 class testITKGridDivision(unittest.TestCase):

@@ -21,6 +21,7 @@ class ImagePermutationHelper:
     _blended_mask: NDArray
     _stats: nornir_imageregistration.ImageStats
     _image_with_mask_as_noise: NDArray
+    _extrema_size_cutoff_in_pixels: int
 
     @property
     def shape(self) -> tuple[int, int]:

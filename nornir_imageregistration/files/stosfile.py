@@ -385,16 +385,28 @@ class StosFile(object):
             [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(
                 self.ControlImageFullPath)
             self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
-        else:
+        elif self.ControlImageDim is not None:
             if len(self.ControlImageDim) == 2:
                 self.ControlImageDim = [1.0, 1.0, int(self.ControlImageDim[0]), int(self.ControlImageDim[1])]
+            elif len(self.ControlImageDim) == 4:
+                pass
+            else:
+                raise ValueError("Unexpected number of dimensions of Control Image")
+        else:
+            raise ValueError("Control Image not found and Control Image Dim is None")
 
         if self.MappedImageDim is None:
             [MappedImageHeight, MappedImageWidth] = nornir_imageregistration.core.GetImageSize(self.MappedImageFullPath)
             self.MappedImageDim = [1.0, 1.0, MappedImageWidth, MappedImageHeight]
-        else:
+        elif self.MappedImageDim is not None:
             if len(self.MappedImageDim) == 2:
                 self.MappedImageDim = [1.0, 1.0, int(self.MappedImageDim[0]), int(self.MappedImageDim[1])]
+            elif len(self.MappedImageDim) == 4:
+                pass
+            else:
+                raise ValueError("Unexpected number of dimensions of Mapped Image")
+        else:
+            raise ValueError("Mapped Image not found and Mapped Image Dim is None")
 
         assert (self.ControlImageDim[2] >= 0)
         assert (self.ControlImageDim[3] >= 0)

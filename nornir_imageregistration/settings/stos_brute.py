@@ -1,8 +1,15 @@
+import enum
+
 from numpy.typing import NDArray
 import numpy as np
 from typing import NamedTuple, Sequence, Iterable
 from pydantic import BaseModel
 from nornir_imageregistration.settings.angle_range import AngleSearchRange
+
+
+class SliceToSliceMethod(enum.Enum):
+    BruteForce = 1  # Test every angle in a list of provided angles and choose the best
+    LogPolar = 2  # Use log polar registration to find the best angle and scale in one calculation
 
 
 class StosBruteSettings(BaseModel):
@@ -15,15 +22,25 @@ class StosBruteSettings(BaseModel):
 
     larget_dimension: int | None = None  # The input images should be scaled so the largest image dimension is equal to this value, default is 1024.  None means use the actual image size
     try_flipped: bool = False  # If True the algorithm will test the flipped version of the source image too
+    _method: SliceToSliceMethod
+
+    @property
+    def method(self) -> SliceToSliceMethod:
+        return self._method
+
+    @method.setter
+    def method(self, value: SliceToSliceMethod):
+        self._method = value
 
     def __init__(self,
+                 method: SliceToSliceMethod = None,
                  angles: AngleSearchRange | Sequence[float] | None = None,
                  min_overlap: float = 0.75,
                  source_image_scale_factors: NDArray[float] | None = None,
                  larget_dimension: int | None = 1024,
-                 try_flipped: bool = False):
+                 try_flipped: bool = False,
+                 ):
         """
-
         :param angles: Angles to search for the best control point alignment or None if all angles should be searched
         :param min_overlap: Minimum amount of overlap we require to consider a registration to be valiud
         :param source_image_scale_factors:  Amount to scale the warped image before attempting registration, this handles cases where multiple scopes are used with slightly differnt magnification values
@@ -31,10 +48,13 @@ class StosBruteSettings(BaseModel):
         :param try_flipped: If True the algorithm will test the flipped version of the source image too
         """
         super().__init__()
+        self._method = method
         self.angles = angles
+
         self.min_overlap = min_overlap
         self.larget_dimension = larget_dimension
         self.try_flipped = try_flipped
+        self._method = SliceToSliceMethod.LogPolar if method is None else method
 
         self.source_image_scale_factors = source_image_scale_factors
 

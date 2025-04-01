@@ -7,14 +7,23 @@ from typing import NamedTuple
 import multiprocessing
 import multiprocessing.sharedctypes
 from time import sleep
+from typing import NamedTuple
 import numpy as np
+import scipy as sp
 from numpy.typing import NDArray
 from typing import Sequence
 import logging
+import skimage
+import skimage.registration
+import skimage.transform
+import skimage.filters
+from dataclasses import dataclass
 
-from nornir_imageregistration import AlignmentRecord
+from nornir_shared.tasktimer import TaskTimerContext, TaskTimer
+from nornir_imageregistration import AlignmentRecord, IgnoreRuntimeWarnings, IgnoreUnderflow
 import nornir_imageregistration.phasecorrelation
-from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange
+from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange, SliceToSliceMethod
+from nornir_imageregistration.hann_window_cache import HannWindowCache
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
@@ -29,27 +38,38 @@ except ImportError:
 
 import nornir_imageregistration
 import nornir_pools
+from nornir_imageregistration.hann_window_cache import HannWindowCache
+
+
+@dataclass
+class AngleScaleResult:
+    angle: float
+    scale: float
+    weight: float
+    translation: tuple[float, float]
+    flippedud: bool = False
 
 
 # from memory_profiler import profile
-def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
-                           WarpedImageInput: nornir_imageregistration.ImageLike,
-                           FixedImageMaskPath: nornir_imageregistration.ImageLike | None = None,
-                           WarpedImageMaskPath: nornir_imageregistration.ImageLike | None = None,
-                           LargestDimension: int | None = None,
-                           AngleSearchRange: Sequence[float] | None = None,
-                           MinOverlap: float = 0.75,
-                           WarpedImageScaleFactors=None,
-                           SingleThread: bool = False,
-                           Cluster: bool = False,
-                           TestFlip: bool = True) -> nornir_imageregistration.AlignmentRecord:
+def SliceToSliceRigidRegistration(target_image: nornir_imageregistration.ImageLike,
+                                  source_image: nornir_imageregistration.ImageLike,
+                                  target_mask: nornir_imageregistration.ImageLike | None = None,
+                                  source_mask: nornir_imageregistration.ImageLike | None = None,
+                                  LargestDimension: int | None = None,
+                                  AngleSearchRange: Sequence[float] | None = None,
+                                  MinOverlap: float = 0.75,
+                                  WarpedImageScaleFactors=None,
+                                  SingleThread: bool = False,
+                                  Cluster: bool = False,
+                                  TestFlip: bool = True,
+                                  method: SliceToSliceMethod = SliceToSliceMethod.LogPolar) -> nornir_imageregistration.AlignmentRecord:
     """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
 
-       :param FixedImageInput:
-       :param WarpedImageInput:
-       :param FixedImageMaskPath:
-       :param WarpedImageMaskPath:
+       :param target_image: Source
+       :param source_image: Target
+       :param target_mask:
+       :param source_mask:
        :param SingleThread:
        :param Cluster:
        :param TestFlip:
@@ -66,29 +86,71 @@ def SliceToSliceBruteForce(FixedImageInput: nornir_imageregistration.ImageLike,
         # if isinstance(AngleSearchRange, np.ndarray):
 
         if 0 not in set(AngleSearchRange):
-            logger = logging.getLogger(__name__ + '.SliceToSliceBruteForce')
+            logger = logging.getLogger(__name__ + '.SliceToSliceRigidRegistration')
             logger.warning("AngleSearchRange should contain 0 degrees to ensure the best match is found")
 
     SingleThread = True if use_cp else SingleThread
 
-    target_image_data = nornir_imageregistration.ImagePermutationHelper(FixedImageInput, FixedImageMaskPath)
-    source_image_data = nornir_imageregistration.ImagePermutationHelper(WarpedImageInput, WarpedImageMaskPath)
+    source_image_data = nornir_imageregistration.ImagePermutationHelper(source_image, source_mask)
+    target_image_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask)
 
-    settings = StosBruteSettings(angles=AngleSearchRange,
+    settings = StosBruteSettings(method=method,
+                                 angles=AngleSearchRange,
                                  min_overlap=MinOverlap,
                                  source_image_scale_factors=WarpedImageScaleFactors,
                                  larget_dimension=LargestDimension,
                                  try_flipped=TestFlip)
 
-    return SliceToSliceBruteForceWithPreprocessedImages(source_image_data, target_image_data, settings,
-                                                        SingleThread=SingleThread, Cluster=Cluster)
+    return SliceToSliceRigidRegistrationWithPreprocessedImages(source_image_data=source_image_data,
+                                                               target_image_data=target_image_data,
+                                                               settings=settings,
+                                                               SingleThread=SingleThread,
+                                                               Cluster=Cluster)
 
 
-def SliceToSliceBruteForceWithPreprocessedImages(source_image_data: nornir_imageregistration.ImagePermutationHelper,
-                                                 target_image_data: nornir_imageregistration.ImagePermutationHelper,
-                                                 settings: StosBruteSettings,
-                                                 SingleThread: bool = False,
-                                                 Cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
+def NarrowAngleSearchRangeWithResult(angle_range: AngleSearchRange,
+                                     min_step_size: float,
+                                     target_angle: float) -> set[float]:
+    """
+    Given a range of angles, returns a smaller search range around an estimated correct angle
+    :param angle_range: The original search range of angles we want to narrow down
+    :param min_step_size: Minimum difference between angles in the results
+    :param matched_angle: The angle previously estimated to be the best match
+    :return: A narrower search range to refine the angle search in a future iteration
+    """
+    if len(angle_range) < 2:
+        raise ValueError("Angle search range must contain at least two angles to be refined")
+
+    sorted_angles = sorted(angle_range)
+    iMatch = sorted_angles.index(target_angle)
+    iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(sorted_angles) - 1
+    iAbove = iMatch + 1 if iMatch + 1 < len(sorted_angles) else 0
+    below = sorted_angles[iMatch - 1] if iMatch - 1 >= 0 else sorted_angles[0] - np.abs(
+        sorted_angles[1] - sorted_angles[0])
+    above = sorted_angles[iMatch + 1] if iMatch + 1 < len(sorted_angles) else sorted_angles[
+                                                                                  iMatch] + np.abs(
+        sorted_angles[iMatch] - sorted_angles[iMatch - 1])
+    refine_search_range = above - below
+    nSteps = 20
+    stepsize = refine_search_range / nSteps
+
+    if stepsize < min_step_size:
+        nSteps = int(refine_search_range / min_step_size)
+        stepsize = refine_search_range / nSteps
+
+    refined_angle_search_range = {(x * stepsize) + below for x in range(1, nSteps)}
+
+    # Ensure we include the best match angle
+    refined_angle_search_range.add(target_angle)
+    return refined_angle_search_range
+
+
+def SliceToSliceRigidRegistrationWithPreprocessedImages(
+        source_image_data: nornir_imageregistration.ImagePermutationHelper,
+        target_image_data: nornir_imageregistration.ImagePermutationHelper,
+        settings: StosBruteSettings,
+        SingleThread: bool = False,
+        Cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     target_image = target_image_data.ImageWithMaskAsNoise
@@ -115,86 +177,95 @@ def SliceToSliceBruteForceWithPreprocessedImages(source_image_data: nornir_image
         source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
 
     # Replace extrema with noise
-    best_match = _find_best_angle(source_image=source_image, target_image=target_image,
-                                  source_stats=source_stats, target_stats=target_stats,
-                                  angle_range=settings.angle_range,
-                                  min_overlap=settings.min_overlap,
-                                  SingleThread=SingleThread,
-                                  use_cluster=Cluster)
+    if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+        best_match = _find_angle_and_scale_with_logpolar(source_image=source_image, target_image=target_image,
+                                                         source_stats=source_stats, target_stats=target_stats,
+                                                         min_overlap=settings.min_overlap)
+    else:
+        best_match = _find_best_angle(source_image=source_image, target_image=target_image,
+                                      source_stats=source_stats, target_stats=target_stats,
+                                      angle_range=settings.angle_range,
+                                      min_overlap=settings.min_overlap,
+                                      SingleThread=SingleThread,
+                                      use_cluster=Cluster)
 
     is_flipped = False
     if settings.try_flipped:
         # source_flipped = np.copy(source_image)
         source_flipped = np.flipud(source_image)
 
-        best_match_flipped = _find_best_angle(source_image=source_flipped, target_image=target_image,
-                                              source_stats=source_stats, target_stats=target_stats,
-                                              angle_range=settings.angle_range,
-                                              min_overlap=settings.min_overlap,
-                                              SingleThread=SingleThread, use_cluster=Cluster)
+        if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+            best_match_flipped = _find_angle_and_scale_with_logpolar(source_image=source_image,
+                                                                     target_image=target_image,
+                                                                     source_stats=source_stats,
+                                                                     target_stats=target_stats,
+                                                                     min_overlap=settings.min_overlap)
+        else:
+            best_match_flipped = _find_best_angle(source_image=source_flipped, target_image=target_image,
+                                                  source_stats=source_stats, target_stats=target_stats,
+                                                  angle_range=settings.angle_range,
+                                                  min_overlap=settings.min_overlap,
+                                                  SingleThread=SingleThread, use_cluster=Cluster)
         best_match_flipped.flippedud = True
 
         # Determine if the best match is flipped or not
         is_flipped = best_match_flipped.weight > best_match.weight
+        source_image = source_flipped if is_flipped else source_image
+        best_match = best_match_flipped if is_flipped else best_match
 
-    if is_flipped:
-        source_image = source_flipped
-        best_match = best_match_flipped
-    else:
-        source_image = source_image
+    if not settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
 
-    # Note Clement - the RefinedAngleSearch list below is not centered around the current best angle
-    # Default angle search range every 2 degrees
-    # Old RefinedAngleSearch list: [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)]
-    # New RefinedAngleSearch list (length 39): [(x * 0.1 + best_match.angle) for x in range(-19, 20)]
-    # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + best_match.angle) for x in range(-9, 10)]
-    if not settings.angle_range_defined():
-        best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
-                                              source_stats=source_stats, target_stats=target_stats,
-                                              # [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)],
-                                              angle_range=[(x * 0.2 + best_match.angle) for x in range(-9, 10)],
-                                              min_overlap=settings.min_overlap, SingleThread=SingleThread)
-        best_refined_match.flippedud = is_flipped
-    else:
-        min_step_size = 0.25
-        if len(settings.angle_range) > 2:
-            sorted_angles = sorted(settings.angle_range)
-            iMatch = sorted_angles.index(best_match.angle)
-            iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(sorted_angles) - 1
-            iAbove = iMatch + 1 if iMatch + 1 < len(sorted_angles) else 0
-            below = sorted_angles[iMatch - 1] if iMatch - 1 >= 0 else sorted_angles[0] - np.abs(
-                sorted_angles[1] - sorted_angles[0])
-            above = sorted_angles[iMatch + 1] if iMatch + 1 < len(sorted_angles) else sorted_angles[
-                                                                                          iMatch] + np.abs(
-                sorted_angles[iMatch] - sorted_angles[iMatch - 1])
-            refine_search_range = above - below
-            nSteps = 20
-            stepsize = refine_search_range / nSteps
+        # Todo: We do not utilize the scale information from the log-polar method
 
-            if stepsize < min_step_size:
-                nSteps = int(refine_search_range / min_step_size)
-                stepsize = refine_search_range / nSteps
-
-            refined_angle_search_range = {(x * stepsize) + below for x in range(1, nSteps)}
-
-            # Ensure we include the best match angle
-            refined_angle_search_range.add(best_match.angle)
-
+        # Note Clement - the RefinedAngleSearch list below is not centered around the current best angle
+        # Default angle search range every 2 degrees
+        # Old RefinedAngleSearch list: [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)]
+        # New RefinedAngleSearch list (length 39): [(x * 0.1 + best_match.angle) for x in range(-19, 20)]
+        # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + best_match.angle) for x in range(-9, 10)]
+        if not settings.angle_range_defined():
             best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
                                                   source_stats=source_stats, target_stats=target_stats,
-                                                  angle_range=np.array(list(refined_angle_search_range), float),
+                                                  # [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)],
+                                                  angle_range=[(x * 0.2 + best_match.angle) for x in range(-9, 10)],
                                                   min_overlap=settings.min_overlap, SingleThread=SingleThread)
             best_refined_match.flippedud = is_flipped
         else:
-            best_refined_match = best_match
-            best_refined_match.flippedud = is_flipped
+            min_step_size = 0.25
+            if len(settings.angle_range) > 2:
+                refined_angle_search_range = NarrowAngleSearchRangeWithResult(settings.angle_range, min_step_size,
+                                                                              best_match.angle)
+                best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
+                                                      source_stats=source_stats, target_stats=target_stats,
+                                                      angle_range=np.array(list(refined_angle_search_range), float),
+                                                      min_overlap=settings.min_overlap, SingleThread=SingleThread)
+                best_refined_match.flippedud = is_flipped
+            else:
+                best_refined_match = best_match
+                best_refined_match.flippedud = is_flipped
+    else:
+        # TODO: Preserve scale information
+        translation_results = ScoreOneAngle(source_original=source_image,
+                                            target_original=target_image,
+                                            target_image_shape=target_image.shape,
+                                            source_image_shape=source_image.shape,
+                                            angle=best_match.angle,
+                                            target_stats=target_stats,
+                                            source_stats=source_stats,
+                                            target_image_prepadded=False,
+                                            min_overlap=settings.min_overlap)
+
+        best_refined_match = nornir_imageregistration.AlignmentRecord(peak=translation_results.peak,
+                                                                      weight=translation_results.weight,
+                                                                      angle=best_match.angle,
+                                                                      flipped_ud=best_match.flippedud,
+                                                                      scale=best_match.scale)
 
     if scalar > 1.0:
         AdjustedPeak = (best_refined_match.peak[0] * scalar, best_refined_match.peak[1] * scalar)
         best_refined_match = nornir_imageregistration.AlignmentRecord(AdjustedPeak, best_refined_match.weight,
                                                                       best_refined_match.angle, is_flipped)
 
-    if settings.source_image_scaling_required:
+    if settings.source_image_scaling_required and not settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
         # AdjustedPeak = best_refined_match.peak * (1.0 / WarpedImageScaleFactors)
         best_refined_match = nornir_imageregistration.AlignmentRecord(best_refined_match.peak,
                                                                       best_refined_match.weight,
@@ -211,7 +282,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                   angle: float,
                   target_stats: nornir_imageregistration.ImageStats | None = None,
                   source_stats: nornir_imageregistration.ImageStats | None = None,
-                  target_image_prepadded: bool = True, min_overlap: float = 0.75):
+                  target_image_prepadded: bool = True,
+                  min_overlap: float = 0.75) -> nornir_imageregistration.AlignmentRecord:
     """Returns an alignment score for a fixed image and an image rotated at a specified angle"""
 
     # print(f'Scoring {angle} degrees')
@@ -243,15 +315,14 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
             # This confused me for years, but the implementation of rotate calls affine_transform with
             # the rotation matrix.  However the docs for affine_transform state it needs to be called
             # with the inverse transform.  Hence negating the angle here.
-            try:
+            with IgnoreUnderflow():
                 if use_cp:
-                    im_source = rotate(im_source, axes=(0, 1), angle=-angle, cval=np.nan)
+                    im_source = rotate(im_source, axes=(1, 0), angle=-angle, cval=np.nan)
                 else:
-                    im_source = rotate(im_source.astype(np.float32, copy=False), axes=(0, 1), angle=-angle,
+                    im_source = rotate(im_source.astype(np.float32, copy=False), axes=(1, 0), angle=-angle,
                                        cval=np.nan).astype(
                         im_source.dtype, copy=False)  # Numpy cannot rotate float16 images
-            except RuntimeWarning as e:
-                pass
+
             im_source_empty_entries = xp.isnan(im_source)
             im_source[im_source_empty_entries] = source_stats.GenerateNoise(xp.sum(im_source_empty_entries),
                                                                             dtype=im_source.dtype)
@@ -260,7 +331,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         rotated_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_source,
                                                                                                ImageMedian=source_stats.median,
                                                                                                ImageStdDev=source_stats.std,
-                                                                                               MinOverlap=min_overlap)
+                                                                                               MinOverlap=min_overlap,
+                                                                                               OriginalShape=source_image_shape)
 
         assert (rotated_source.shape[0] > 0)
         assert (rotated_source.shape[1] > 0)
@@ -269,7 +341,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
             padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_target,
                                                                                                   ImageMedian=target_stats.median,
                                                                                                   ImageStdDev=target_stats.std,
-                                                                                                  MinOverlap=min_overlap)
+                                                                                                  MinOverlap=min_overlap,
+                                                                                                  OriginalShape=target_image_shape)
         else:
             padded_target = im_target
 
@@ -278,7 +351,7 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         TargetHeight = max([padded_target.shape[0], rotated_source.shape[0]])
         TargetWidth = max([padded_target.shape[1], rotated_source.shape[1]])
 
-        # Why is MinOverlap hard-coded to 1.0?
+        # Why is MinOverlap hard-coded to 1.0?  To prevent padded_target from growing larger than the largest of the input dimensions
         # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
         if not np.array_equal(im_target.shape, np.array((TargetHeight, TargetWidth))):
             padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_target,
@@ -316,10 +389,10 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         # if use_cp and not isinstance(rotated_padded_source, cp.ndarray):
         #     rotated_padded_source = cp.asarray(rotated_padded_source)
 
-        correlation_image = nornir_imageregistration.phasecorrelation.ImagePhaseCorrelation(padded_target,
-                                                                                            rotated_padded_source,
-                                                                                            target_stats.mean,
-                                                                                            source_stats.mean,
+        correlation_image = nornir_imageregistration.phasecorrelation.ImagePhaseCorrelation(target_image=padded_target,
+                                                                                            source_image=rotated_padded_source,
+                                                                                            target_mean=target_stats.mean,
+                                                                                            source_mean=source_stats.mean,
                                                                                             correlation_coefficient=1)
 
         del padded_target
@@ -343,7 +416,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         if use_cp and not isinstance(overlap_mask, cp.ndarray):
             overlap_mask = cp.asarray(overlap_mask)
 
-        (peak, weight) = nornir_imageregistration.phasecorrelation.FindPeak(correlation_image, overlap_mask)
+        (peak, weight, cutoff_value, cutoff_percent) = nornir_imageregistration.phasecorrelation.FindPeak(
+            correlation_image, overlap_mask)
         del overlap_mask
         del correlation_image
 
@@ -354,7 +428,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         nornir_imageregistration.close_shared_memory(source_original)
 
 
-def GetFixedAndWarpedImageStats(imFixed, imWarped):
+def GetFixedAndWarpedImageStats(imFixed: NDArray[np.floating], imWarped: NDArray[np.floating]) -> tuple[
+    nornir_imageregistration.ImageStats, nornir_imageregistration.ImageStats]:
     tpool = nornir_pools.GetGlobalThreadPool()
 
     fixedStatsTask = tpool.add_task('FixedStats', nornir_imageregistration.ImageStats.CalcStats, imFixed)
@@ -365,6 +440,134 @@ def GetFixedAndWarpedImageStats(imFixed, imWarped):
     return fixedStats, warpedStats
 
 
+def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
+                                        target_image: NDArray[np.floating],
+                                        source_stats: nornir_imageregistration.ImageStats,
+                                        target_stats: nornir_imageregistration.ImageStats,
+                                        min_overlap: float = 0.75) -> AngleScaleResult:
+    """This function uses the log polar technique to determine the scale and angle of the best alignment between two images"""
+    desired_height = nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[0], target_image.shape[0]]))
+    desired_width = nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[1], target_image.shape[1]]))
+    desired_shape = np.array([desired_height, desired_width], dtype=int)
+
+    max_dimension = max([desired_height, desired_width])
+    radius = max_dimension // 4  # only take lower frequencies
+
+    """Use the log-polar space to determine the best angle and then use the normal phase correlation to determine the best translation"""
+    padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(target_image,
+                                                                                          MinOverlap=min_overlap,
+                                                                                          ImageMedian=target_stats.median,
+                                                                                          ImageStdDev=target_stats.std,
+                                                                                          NewHeight=desired_height,
+                                                                                          NewWidth=desired_width)
+
+    padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(source_image,
+                                                                                          MinOverlap=min_overlap,
+                                                                                          ImageMedian=source_stats.median,
+                                                                                          ImageStdDev=source_stats.std,
+                                                                                          NewHeight=desired_height,
+                                                                                          NewWidth=desired_width)
+
+    dg_target_image = skimage.filters.difference_of_gaussians(padded_target, low_sigma=4, high_sigma=20)
+    dg_source_image = skimage.filters.difference_of_gaussians(padded_source, low_sigma=4, high_sigma=20)
+
+    # target_window = skimage.filters.window('hann', padded_target.shape)
+    # source_window = skimage.filters.window('hann', padded_source.shape)
+    target_window = HannWindowCache.GetOrCreate(padded_target.shape)
+    source_window = HannWindowCache.GetOrCreate(padded_source.shape)
+
+    window_target_image = dg_target_image * target_window
+    window_source_image = dg_source_image * source_window
+
+    target_freq = np.fft.fft2(window_target_image)
+    source_freq = np.fft.fft2(window_source_image)
+
+    target_freq_shift = np.abs(np.fft.fftshift(target_freq))
+    source_freq_shift = np.abs(np.fft.fftshift(source_freq))
+
+    # Create a log-polar space image of both images
+
+    target_image_log_polar = skimage.transform.warp_polar(target_freq_shift,
+                                                          radius=radius,
+                                                          output_shape=desired_shape,
+                                                          scaling='log',
+                                                          order=0)
+    source_image_log_polar = skimage.transform.warp_polar(source_freq_shift,
+                                                          radius=radius,
+                                                          output_shape=desired_shape,
+                                                          scaling='log',
+                                                          order=0)
+
+    target_image_log_polar_left_half = target_image_log_polar[:target_image_log_polar.shape[0] // 2, :]
+    source_image_log_polar_left_half = source_image_log_polar[:source_image_log_polar.shape[0] // 2, :]
+
+    phase_correlation = nornir_imageregistration.phasecorrelation.ImagePhaseCorrelation(
+        target_image_log_polar_left_half, source_image_log_polar_left_half)
+
+    # shifts, error, phasediff = skimage.registration.phase_cross_correlation(
+    #     source_image_log_polar_left_half, target_image_log_polar_left_half, upsample_factor=2, normalization=None
+    # )
+
+    # phase_correlation_shifted = phase_correlation
+    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    try:
+        phase_correlation_shifted -= phase_correlation_shifted.min()
+        phase_correlation_shifted /= phase_correlation_shifted.max()  # Remove before release, this is for visualization
+    except FloatingPointError as e:
+        print(f"Floating point error: {e} for {phase_correlation.min()} or {phase_correlation.max()}")
+        record = nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
+        return record
+
+    angle_scale_peak = nornir_imageregistration.phasecorrelation.FindPeak(phase_correlation_shifted)
+
+    # Because of the fftshift we need to add 180 to the angle to get the correct angle
+    # recovered_angle = (360 / (desired_shape[0] / 2)) * (angle_scale_peak.scaled_offset[0] + (desired_shape[0] / 2))
+    # recovered_angle = (360 / (desired_shape[0])) * (angle_scale_peak.scaled_offset[0] + (desired_shape[0] / 2))
+
+    degrees_per_pixel = 360 / desired_shape[0]
+    recovered_angle = (degrees_per_pixel * angle_scale_peak.scaled_offset[0])  # + 180
+    klog = desired_shape[1] / np.log(radius)
+    shift_scale = np.exp(angle_scale_peak.scaled_offset[1] / klog)
+
+    fft_target_ref = np.fft.fft2(padded_target * target_window)
+
+    rotated_source = sp.ndimage.rotate(padded_source.astype(np.float32), -recovered_angle, reshape=False)
+    # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
+    fft_source_ref = np.fft.fft2(rotated_source * source_window)
+    original_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, fft_source_ref)
+
+    rotated_source = sp.ndimage.rotate(padded_source.astype(np.float32), -recovered_angle + 180, reshape=False)
+    rotated_source_freq = np.fft.fft2(rotated_source * source_window)
+    rotated_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, rotated_source_freq)
+
+    original_peak = nornir_imageregistration.phasecorrelation.FindPeak(original_correlation)
+    rotated_peak = nornir_imageregistration.phasecorrelation.FindPeak(rotated_correlation)
+
+    rotated_180 = False
+    if original_peak.peak_strength >= rotated_peak.peak_strength:
+        selected_peak = original_peak
+    else:
+        selected_peak = rotated_peak
+        recovered_angle -= 180
+        if recovered_angle < -180:
+            recovered_angle += 360
+        rotated_180 = True
+
+    if nornir_imageregistration.in_debug_mode():
+        print(
+            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} {'rotated_180' if rotated_180 else ""}')
+
+    # shiftr, shiftc = shifts[:2]
+    # degrees_per_pixel = 360 / desired_shape[0]
+    # recovered_angle = degrees_per_pixel * shiftr
+    # klog = desired_shape[1] / np.log(radius)
+    # shift_scale = np.exp(shiftc / klog)
+
+    #    return AngleScaleResult(angle=recovered_angle, scale=shift_scale, weight=angle_scale_peak.peak_strength)
+    return AngleScaleResult(angle=recovered_angle, scale=shift_scale, weight=angle_scale_peak.peak_strength,
+                            translation=selected_peak.scaled_offset)
+
+
 def _find_best_angle(source_image: NDArray[np.floating],
                      target_image: NDArray[np.floating],
                      source_stats: nornir_imageregistration.ImageStats,
@@ -372,7 +575,7 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      angle_range: NDArray[float],
                      min_overlap: float = 0.75,
                      SingleThread: bool = False,
-                     use_cluster: bool = False):
+                     use_cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
     """Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier"""
 
@@ -517,10 +720,10 @@ def _find_best_angle(source_image: NDArray[np.floating],
 
 
 def __ExecuteProfiler():
-    SliceToSliceBruteForce('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
-                           'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
-                           AngleSearchRange=list(range(-175, -174, 1)),
-                           SingleThread=True)
+    SliceToSliceRigidRegistration('C:/Src/Git/nornir-testdata/Images/0162_ds32.png',
+                                  'C:/Src/Git/nornir-testdata/Images/0164_ds32.png',
+                                  AngleSearchRange=list(range(-175, -174, 1)),
+                                  SingleThread=True)
 
 
 if __name__ == '__main__':

@@ -489,7 +489,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
                 #         continue
                 #
                 #     # See if we can improve the final alignment
-                #     refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
+                #     refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(record.TargetROI,
                 #                                                                                       record.SourceROI,
                 #                                                                                       AngleSearchRange=settings.final_pass_angles,
                 #                                                                                       MinOverlap=min_alignment_overlap,
@@ -709,7 +709,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
         # If this is failing check that at least three records make it past the filter criteria
         (transform, included_alignment_records, calculated_cutoff) = local_distortion_correction._PeakListToTransform(
-            records)
+            records, nornir_imageregistration.WeightMethod.Composite)
 
         test1 = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected1 = np.asarray(((10, 10), (15, 15), (20, 20)))
@@ -731,7 +731,7 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
         (
             transform2, included_alignment_records,
             calculated_cutoff_2) = local_distortion_correction._PeakListToTransform(
-            records2)
+            records2, nornir_imageregistration.WeightMethod.Composite)
         test2 = np.asarray(((0, 0), (5, 5), (10, 10)))
         expected2 = np.asarray(((9, 11), (14, 16), (19, 21)))
         actual2 = transform2.InverseTransform(test2)

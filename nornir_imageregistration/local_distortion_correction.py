@@ -17,6 +17,7 @@ import nornir_imageregistration
 from nornir_imageregistration.mathfuncs import estimate_cutoff
 import nornir_imageregistration.mathfuncs.plotproperties
 import nornir_imageregistration.phasecorrelation
+from nornir_imageregistration.settings import SliceToSliceMethod
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
@@ -1344,7 +1345,7 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
 
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
 
-    #     nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
+    #     nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
     #                         targetImageROI,
     #                         sourceImageROI,
     #                         AngleSearchRange=anglesToSearch,
@@ -1354,14 +1355,14 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
     #                         TestFlip=False)
     #
     task = pool.add_task(taskname,
-                         nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
-                         target_image_roi,
-                         source_image_roi,
+                         nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration,
+                         target_image=target_image_roi,
+                         source_image=source_image_roi,
                          AngleSearchRange=anglesToSearch,
                          MinOverlap=min_alignment_overlap,
                          SingleThread=True,
-                         Cluster=False,
-                         TestFlip=False)
+                         TestFlip=False,
+                         method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce)
 
     task.TargetROI = target_image_roi
     task.SourceROI = source_image_roi
@@ -1413,7 +1414,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
 
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
 
-    #     nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
+    #     nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
     #                         targetImageROI,
     #                         sourceImageROI,
     #                         AngleSearchRange=anglesToSearch,
@@ -1422,14 +1423,14 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
     #                         Cluster=False,
     #                         TestFlip=False)
     #
-    result = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(
-        target_image_roi,
-        source_image_roi,
+    result = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
+        target_image=target_image_roi,
+        source_image=source_image_roi,
         AngleSearchRange=anglesToSearch,
         MinOverlap=min_alignment_overlap,
         SingleThread=True,
-        Cluster=False,
-        TestFlip=False)
+        TestFlip=False,
+        method=SliceToSliceMethod.BruteForce)
 
     if 'DEBUG' in os.environ:
         result.TargetROI = target_image_roi
@@ -1459,39 +1460,6 @@ def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITrans
     keys = [fp[0] for fp in items]
 
     refined_alignments = _RefinePointsForTwoImages(transform, keys, SourcePoints, TargetPoints, settings)
-    #
-    # pool = None
-    # if len(alignment_points) > 8:
-    #     pool = nornir_pools.GetGlobalMultithreadingPool()
-    # else:
-    #     pool = nornir_pools.GetGlobalSerialPool()
-    #
-    # tasks = {}
-    # for record in alignment_points:
-    #     key = tuple(record.SourcePoint)
-    #
-    #     # See if we can improve the final alignment
-    #     # refined_align_record = nornir_imageregistration.stos_brute.SliceToSliceBruteForce(record.TargetROI,
-    #     #                                                                                   record.SourceROI,
-    #     #                                                                                   AngleSearchRange=settings.final_pass_angles,
-    #     #                                                                                   MinOverlap=settings.min_alignment_overlap,
-    #     #                                                                                   SingleThread=False,
-    #     #                                                                                   Cluster=False,
-    #     #                                                                                   TestFlip=False)
-    #
-    #     t = pool.add_task(f'{key}',
-    #                         nornir_imageregistration.stos_brute.SliceToSliceBruteForce,
-    #                         record.TargetROI,
-    #                         record.SourceROI,
-    #                         AngleSearchRange=settings.final_pass_angles,
-    #                         MinOverlap=settings.min_alignment_overlap,
-    #                         SingleThread=True,
-    #                         Cluster=False,
-    #                         TestFlip=False)
-    #
-    #     tasks[key] = (t, record)
-    #
-    # pool.wait_completion()
 
     output = dict()  # type: AlignmentRecordDict
     improved_alignments = []  # type: list[tuple[int, int]]

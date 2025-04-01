@@ -2,14 +2,12 @@
 scipy image arrays are indexed [y,x]
 """
 
-import warnings
 from collections.abc import Iterable
 import math
 import multiprocessing
 from multiprocessing import shared_memory
 from multiprocessing.shared_memory import SharedMemory
 import multiprocessing.sharedctypes
-import logging
 
 import os
 import typing
@@ -17,7 +15,6 @@ import warnings
 import weakref
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from PIL import Image
 
@@ -56,7 +53,6 @@ except (ModuleNotFoundError, ImportError):
 
 from numpy.typing import DTypeLike, NDArray
 
-import scipy.misc
 import scipy.ndimage.measurements
 
 import nornir_imageregistration
@@ -64,7 +60,7 @@ import nornir_imageregistration.image_stats
 import nornir_pools
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
-from nornir_imageregistration import ImageLike
+from nornir_imageregistration import IgnoreUnderAndOverflow, ImageLike
 from nornir_imageregistration.mmap_metadata import memmap_metadata
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -223,7 +219,7 @@ def ScalarForMaxDimension(max_dim: float, shapes):
     return max_dim / maxVal
 
 
-def remove_duplicate_points(points: NDArray, columns=list[int]) -> tuple[NDArray, NDArray[np.integer]]:
+def remove_duplicate_points(points: NDArray, columns=Iterable[int]) -> tuple[NDArray, NDArray[np.integer]]:
     """Remove rows who have equal values in the specified columns.  Result will be sorted
        using the column order provided.  Lexsort is used, so the last column entry is the primary sort key."""
     sort_values = tuple(points[:, i] for i in columns)
@@ -579,7 +575,8 @@ def CropImageRect(imageparam, bounding_rect, cval=None):
                      Height=int(bounding_rect.Height), cval=cval)
 
 
-def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: int, cval: float | int | str = None,
+def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: int,
+              cval: float | int | str | None = None,
               image_stats: nornir_imageregistration.ImageStats | None = None):
     """
        Crop the image at the passed bounds and returns the cropped ndarray.
@@ -691,13 +688,13 @@ def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: i
 
 
 def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | SharedMemory):
-    '''
+    """
     Checks if the input is shared memory, if it is, closes it to indicate
     this process is done using it, but others may still be using it.
     Note that once this function executes the dictionary entry is removed and
     the memory cannot be unlinked.  So make sure the array does not go out of
     scope if you are responsible for unlinking it.
-    '''
+    """
     if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
         if input.shared_memory is not None:
             input.shared_memory.close()
@@ -718,13 +715,13 @@ def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | Sh
 
 
 def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
-    '''
+    """
     Checks if the input is shared memory, if it is, closes it to indicate
     this process is done using it and unlinks it to free the underlying
     memory block.  This renders it unusable for all other processes as well.
     Make sure the array does not go out of
     scope if you are responsible for unlinking it.
-    '''
+    """
     if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
         if input.name in __known_shared_memory_allocations:
             shared_mem, finalizer = __known_shared_memory_allocations[input.name]
@@ -791,27 +788,11 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     xp = nornir_imageregistration.GetComputationModule()
     dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
 
-    with warnings.catch_warnings(record=True) as w:
+    with IgnoreUnderAndOverflow(
+            "Over/Under flow generating random image.  min_val={min_val} max_val={max_val} mean={mean} standardDev={standardDev}"):
         image = (random.standard_normal((int(height), int(width))) * standardDev) + mean
         xp.clip(image, a_min=min_val, a_max=max_val, out=image)
         image = image.astype(dtype, copy=False)
-
-        if w:
-            for warning in w:
-                if issubclass(warning.category, RuntimeWarning):
-                    if warning.message and warning.message.args and len(warning.message.args) > 0:
-                        message = warning.message.args[0]
-                        if 'overflow' in message and nornir_imageregistration.in_debug_mode():
-                            # prettyoutput.LogErr(
-
-                            logging.warn(
-                                f"Overflow error generating random image.  min_val={min_val} max_val={max_val} mean={mean} standardDev={standardDev}")
-                        elif 'underflow' in message and nornir_imageregistration.in_debug_mode():
-                            # prettyoutput.LogErr(
-                            logging.warn(
-                                f"Underflow error generating random image.  min_val={min_val} max_val={max_val} mean={mean} standardDev={standardDev}")
-                        else:
-                            warnings.warn(message, RuntimeWarning)
 
     return image
 
@@ -1048,7 +1029,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
                 image = image.astype(dtype, copy=False)
         else:
             # image = plt.imread(ImageFullPath)
-            with Image.open(ImageFullPath) as im:
+            with Image.open(ImageFullPath, "r") as im:
 
                 expected_dtype = nornir_imageregistration.pillow_helpers.dtype_for_pillow_image(im)
                 image = np.array(im, dtype=expected_dtype)
@@ -1101,9 +1082,11 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
     except IOError as E:
         prettyoutput.LogErr("IO error loading image {0}\n{1}".format(ImageFullPath, str(E)))
         raise
-    except Exception as E:
-        prettyoutput.LogErr("Unexpected exception loading image {0}\n{1}".format(ImageFullPath, str(E)))
-        raise E
+    # except Exception as E:
+    #     prettyoutput.LogErr("Unexpected exception loading image {0}\n{1}".format(ImageFullPath, str(E)))
+    #     import traceback
+    #     traceback.print_exc()
+    #     raise
 
     return image
 
@@ -1193,7 +1176,10 @@ def TileGridShape(source_image_shape: nornir_imageregistration.Rectangle | tuple
     return np.ceil(source_image_shape / tile_shape).astype(np.int32, copy=False)
 
 
-def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
+def ImageToTiles(source_image: NDArray,
+                 tile_size: nornir_imageregistration.ShapeLike,
+                 grid_shape: nornir_imageregistration.ShapeLike | None = None,
+                 cval: int | None = 0):
     """
     :param ndarray source_image: Image to cut into tiles
     :param array tile_size: Shape of each tile
@@ -1209,8 +1195,11 @@ def ImageToTiles(source_image, tile_size, grid_shape=None, cval=0):
     return grid
 
 
-def ImageToTilesGenerator(source_image: NDArray, tile_size: NDArray, grid_shape: NDArray | None = None,
-                          coord_offset=None, cval=0):
+def ImageToTilesGenerator(source_image: NDArray,
+                          tile_size: NDArray,
+                          grid_shape: NDArray | None = None,
+                          coord_offset: NDArray = None,
+                          cval: float | int | str | None = 0):
     """An iterator generating that divides a large image into a collection of smaller non-overlapping tiles.
     :param source_image: The image to divide
     :param tile_size: Shape of each tile
