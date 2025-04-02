@@ -909,18 +909,20 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
 
     dtype = nornir_imageregistration.default_image_dtype()
     try:
-        OverlappingRegionA = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(A_Filename,
-                                                                                                     dtype=nornir_imageregistration.default_image_dtype()),
-                                                     scaled_overlapping_source_rect_A,
-                                                     excess_scalar=1.0,
-                                                     mask_extrema=mask_extrema,
-                                                     dtype=dtype)
-        OverlappingRegionB = __get_overlapping_image(nornir_imageregistration.ImageParamToImageArray(B_Filename,
-                                                                                                     dtype=nornir_imageregistration.default_image_dtype()),
-                                                     scaled_overlapping_source_rect_B,
-                                                     excess_scalar=1.0,
-                                                     mask_extrema=mask_extrema,
-                                                     dtype=dtype)
+        OverlappingRegionA, extrema_mask_OverlappingRegionA = __get_overlapping_image(
+            nornir_imageregistration.ImageParamToImageArray(A_Filename,
+                                                            dtype=nornir_imageregistration.default_image_dtype()),
+            scaled_overlapping_source_rect_A,
+            excess_scalar=1.0,
+            mask_extrema=mask_extrema,
+            dtype=dtype)
+        OverlappingRegionB, extrema_mask_OverlappingRegionB = __get_overlapping_image(
+            nornir_imageregistration.ImageParamToImageArray(B_Filename,
+                                                            dtype=nornir_imageregistration.default_image_dtype()),
+            scaled_overlapping_source_rect_B,
+            excess_scalar=1.0,
+            mask_extrema=mask_extrema,
+            dtype=dtype)
 
         # If the entire region is a solid color, then return the maximum score possible
         if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \
@@ -936,10 +938,11 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         OverlappingRegionB /= OverlappingRegionB.max()
 
         # Mask off small regions of max values
-        extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA, size_cutoff=0.001)
-        extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB, size_cutoff=0.001)
+        # extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA, size_cutoff=0.001)
+        # extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB, size_cutoff=0.001)
+        # extremaMask = np.logical_and(extremaMaskA, extremaMaskB)  # Must be valid in both images to be scored
 
-        extremaMask = np.logical_and(extremaMaskA, extremaMaskB)  # Must be valid in both images to be scored
+        extremaMask = np.logical_and(extrema_mask_OverlappingRegionA, extrema_mask_OverlappingRegionB)
 
         # ignoreIndicies = OverlappingRegionA == OverlappingRegionA.max()
         # ignoreIndicies |= OverlappingRegionA == OverlappingRegionA.min()
@@ -959,8 +962,10 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         absoluteDiff = np.fabs(OverlappingRegionA)
 
         # Multiple diff by the largest masked area to compensate for the large blank area
-        valid_mask_fraction_A = extremaMaskA.sum() / (extremaMaskA.shape[0] * extremaMaskA.shape[1])
-        valid_mask_fraction_B = extremaMaskB.sum() / (extremaMaskB.shape[0] * extremaMaskB.shape[1])
+        valid_mask_fraction_A = extrema_mask_OverlappingRegionA.sum() / (
+                    extrema_mask_OverlappingRegionA.shape[0] * extrema_mask_OverlappingRegionA.shape[1])
+        valid_mask_fraction_B = extrema_mask_OverlappingRegionB.sum() / (
+                    extrema_mask_OverlappingRegionB.shape[0] * extrema_mask_OverlappingRegionB.shape[1])
 
         valid_mask_fraction = min(valid_mask_fraction_A, valid_mask_fraction_B)
 

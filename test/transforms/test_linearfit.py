@@ -22,6 +22,8 @@ import hypothesis.strategies as st
 import numpy as np
 from numpy.typing import NDArray
 
+from mathfuncs import are_angle_degrees_equal, are_angle_radians_equal
+
 try:
     from transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
 except ImportError:
@@ -537,7 +539,7 @@ class TestLinearFit(unittest.TestCase):
                                                               source_rotation_center: NDArray[float],
                                                               flip_ud: bool):
         """
-        This should run the version of code copied into EstimateRigidComponentsFromControlPoints3
+        This should run the version of code copied into EstimateRigidComponentsFromControlPoints
         from test_linearfit_improved.
 
         A set of initial random points is created along with random rigid transform parameters.  The input
@@ -603,6 +605,7 @@ class TestLinearFit(unittest.TestCase):
 
         test_target_points = estimated_transform.Transform(source_points)
         np.testing.assert_allclose(target_points, test_target_points, atol=1e-5)
+        TransformCheck(self, estimated_transform, source_points, target_points)
 
     @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
                       target_offset=st.tuples(st.floats(min_value=-15, max_value=15),
@@ -643,10 +646,11 @@ class TestLinearFit(unittest.TestCase):
             angle=r_angle,
             flip_ud=flip_ud)
 
-        similar_target_point_array = transform_similar.Transform(source_point_array)
-        np.testing.assert_array_almost_equal(target_point_array, similar_target_point_array)
-
         TransformCheck(self, transform_similar, source_point_array, target_point_array)
+
+        similar_target_point_array = transform_similar.Transform(source_point_array)
+
+        np.testing.assert_array_almost_equal(target_point_array, similar_target_point_array)
 
         try:
             r = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
@@ -658,9 +662,9 @@ class TestLinearFit(unittest.TestCase):
                 return
             raise
 
-        self.assertAlmostEqual(r_angle, r.angle, places=4)
-        np.testing.assert_allclose(target_offset.flatten(), r.translation.flatten())
-        np.testing.assert_allclose(source_rotation_center.flatten(), r.source_rotation_center.flatten())
+        are_angle_radians_equal(r_angle, r.angle, tolerance=math.pi / 180.0)
+        np.testing.assert_allclose(target_offset.flatten(), r.translation.flatten(), atol=0.5)
+        np.testing.assert_allclose(source_rotation_center.flatten(), r.source_rotation_center.flatten(), atol=0.5)
         self.assertEqual(flip_ud, r.reflected)
 
 

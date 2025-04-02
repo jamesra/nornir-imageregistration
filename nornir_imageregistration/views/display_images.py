@@ -190,8 +190,8 @@ def add_rois(fig: plt.Figure, grid_dim: tuple[int, int], rois: Rectangle | Seque
                 add_rois_to_single_axes(ax, rois[i])
         else:
             # Add each list of rois to the corresponding image, and stop when the list ends
-            for i, ax in enumerate(fig.get_axes()):
-                add_rois_to_single_axes(ax, rois[i])
+            for ax in fig.get_axes():
+                add_rois_to_single_axes(ax, rois)
 
 
 def add_rois_to_single_axes(ax: plt.Axes, rois: Rectangle | Sequence[Rectangle] | None):
@@ -202,7 +202,9 @@ def add_rois_to_single_axes(ax: plt.Axes, rois: Rectangle | Sequence[Rectangle] 
         add_rectangle(ax, rois)
     else:
         for roi in rois:
-            if not isinstance(roi, Rectangle):
+            if roi is None:
+                continue
+            elif not isinstance(roi, Rectangle):
                 raise ValueError(f"Unexpected type in roi list for single image: {roi.__class__} \n\twithin: {rois}")
 
             add_rectangle(ax, roi)

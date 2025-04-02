@@ -184,6 +184,11 @@ class RigidTranslation(base.ITransformScaling,
         return itransformed
 
 
+class RigidNoRotation(RigidTranslation):
+    """A deprecated class that exists only for old pickle files to work"""
+    pass
+
+
 class Rigid(base.ITransformSourceRotation, RigidTranslation):
     """
     Applies a rotation+translation transform

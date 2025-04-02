@@ -10,7 +10,7 @@ import numpy as np
 
 import nornir_imageregistration
 from nornir_imageregistration.layout import *
-from . import setup_imagetest
+import setup_imagetest
 
 
 def _MaxTension(layout):

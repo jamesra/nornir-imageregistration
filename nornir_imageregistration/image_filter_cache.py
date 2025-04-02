@@ -68,10 +68,10 @@ class WindowFilterCache:
         if len(image_shape) != 2:
             raise ValueError("image_shape must be a 2 element tuple")
 
-        if image and np.array_equal(image.shape, image_shape):
+        if image is not None and np.array_equal(image.shape, image_shape):
             return image
 
-        return self.__GetOrCreateCachedImage(image_shape)
+        return self.__GetOrCreateCachedImage((image_shape[0], image_shape[1]))
 
     def __GetOrCreateCachedImage(self, image_shape: ShapeLike, creation_kwargs: dict | None = None) -> NDArray[
         np.floating]:

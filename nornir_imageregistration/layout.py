@@ -32,8 +32,8 @@ def _sort_array_on_column(a, iCol, ascending=False):
     return a[iSorted, :]
 
 
-def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition, B: int | LayoutPosition | None = None) -> \
-        tuple[int, int]:
+def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition,
+                   B: int | LayoutPosition | None = None) -> tuple[int, int]:
     """
     :return: A tuple where the lowest ID number is in the first position and IDs are cast to integers
     """
@@ -43,10 +43,17 @@ def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition, B:
             raise ValueError("B must not be specified if A is a Sequence")
         B = A[1]
         A = A[0]
+    elif isinstance(A, collections.abc.Iterable):
+        B = A[1]
+        A = A[0]
     elif isinstance(A, tuple):
         if B is not None:
             raise ValueError("B must not be specified if A is a tuple")
         return A
+    elif isinstance(A, int):
+        pass
+    else:
+        raise ValueError("Invalid type for A: {0}".format(type(A)))
 
     a_id = A.ID if isinstance(A, LayoutPosition) else A
     b_id = B.ID if isinstance(B, LayoutPosition) else B

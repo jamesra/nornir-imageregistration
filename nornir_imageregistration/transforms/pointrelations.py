@@ -13,6 +13,24 @@ class ControlPointRelation(enum.IntEnum):
     COLINEAR = 2
 
 
+def signed_cross_product_2d(v1: NDArray[np.floating], v2: NDArray[np.floating]) -> NDArray[np.floating]:
+    """
+    Calculate the signed cross product of two 2D vectors.
+
+    Parameters:
+    v1 (array-like): First vector [x1, y1]
+    v2 (array-like): Second vector [x2, y2]
+
+    Returns:
+    float: The signed cross product of the two vectors
+    """
+    # X,Y are flipped in my arrays, so this is why I'm not using v1[0] * v2[1] - v1[1] * v2[0]
+    try:
+        return v1[1] * v2[:, 0] - v1[0] * v2[:, 1]
+    except IndexError:
+        raise
+
+
 def _get_pointset_crossproducts(points: NDArray[np.floating]) -> NDArray[np.floating]:
     """
     Returns the cross products of the vectors return by the differences (np.diff) between each point in the array, p[i] - p[i -1].
@@ -28,8 +46,10 @@ def _get_pointset_crossproducts(points: NDArray[np.floating]) -> NDArray[np.floa
     vectors = xp.diff(points, axis=0)
     # Grid transforms in particular have may colinear points.  So we start our search for a non-zero cross product
     # at the end of the list, and continue until we have two non-zero cross products
-    vectors_3d = np.hstack((vectors, np.zeros((vectors.shape[0], 1))))
-    cross_products = xp.cross(vectors_3d[0], vectors_3d[1:])
+    # vectors_3d = np.hstack((vectors, np.zeros((vectors.shape[0], 1))))
+    # cross_products = xp.cross(vectors_3d[0], vectors_3d[1:])
+
+    cross_products = signed_cross_product_2d(vectors[0, :], vectors[1:])
 
     return cross_products
 
@@ -60,10 +80,10 @@ def calculate_point_relation(points: NDArray[np.floating]) -> ControlPointRelati
 
     # Check if flippednp.isclose(cross, 0)
     # If either cross product is close to zero the points are colinear.
-    cross = 0 if xp.isclose(cross, 0) else cross
+    cross = 0 if cross == 0 else cross
 
     # Both point sets are colinear
-    if cross == 0:
+    if xp.allclose(cross, 0):
         return ControlPointRelation.COLINEAR
 
     return ControlPointRelation.LINEAR if xp.sign(cross) >= 0 else ControlPointRelation.FLIPPED

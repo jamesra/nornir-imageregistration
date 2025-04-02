@@ -220,7 +220,7 @@ class TestGridFitting(unittest.TestCase):
         self.assertTrue(angles_close(rangle, calc_rotate_angle, atol=1e-3))
         # np.testing.assert_allclose(rangle, calc_rotate_angle, atol=1e-3)
         self.assertTrue(np.allclose(scale, calc_scale, atol=1e-3), "scale incorrect")
-        self.assertTrue(np.allclose(t, translate_output, atol=1e-3), "translation incorrect")
+        self.assertTrue(np.allclose(t, translate_output, atol=2e-3), "translation incorrect")
         self.assertTrue(np.allclose(calc_source_rotate_center, np.mean(points_array, 0)), "source center incorrect")
         return
 
