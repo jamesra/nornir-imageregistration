@@ -5,16 +5,17 @@ Created on Oct 18, 2012
 """
 
 import numpy
+
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
     from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import nornir_imageregistration.cupyx_thunk as cupyx
+    # import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 import nornir_pools
@@ -171,7 +172,7 @@ class MeshWithRBFFallback(Triangulation):
 
     def __init__(self, pointpairs):
         """
-        :param ndarray pointpairs: [ControlY, ControlX, MappedY, MappedX] 
+        :param ndarray pointpairs: [TargetY, TargetX, SourceY, SourceX]
         """
         super(MeshWithRBFFallback, self).__init__(pointpairs)
 
@@ -329,7 +330,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
-                                                                            cp.ndarray) else FixedPoints
+                                                                cp.ndarray) else FixedPoints
 
         TransformedPoints[InvalidIndicies] = FixedPoints
         return TransformedPoints
@@ -437,6 +438,7 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
     def Load(TransformString, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
+
 class MeshWithRBFInterpolator_CPU(Landmark_CPU):
     """
     classdocs
@@ -539,6 +541,7 @@ class MeshWithRBFInterpolator_CPU(Landmark_CPU):
     def Load(TransformString, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseMeshTransform(TransformString, pixelSpacing)
 
+
 if __name__ == '__main__':
     print("Test OneWayRBFWithLinearCorrection")
     p = numpy.array([[0, 0, 0, 0],
@@ -603,9 +606,9 @@ if __name__ == '__main__':
     # GPU
     print("Test OneWayRBFWithLinearCorrection_GPUComponent")
     p_gpu = cp.array([[0, 0, 0, 0],
-                  [0, 10, 0, -10],
-                  [10, 0, -10, 0],
-                  [10, 10, -10, -10]])
+                      [0, 10, 0, -10],
+                      [10, 0, -10, 0],
+                      [10, 10, -10, -10]])
 
     (Fixed, Moving) = cp.hsplit(p_gpu, 2)
     T = OneWayRBFWithLinearCorrection_GPUComponent(Fixed, Moving)
