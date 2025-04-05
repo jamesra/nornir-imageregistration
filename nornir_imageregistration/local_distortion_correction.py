@@ -634,6 +634,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
             final_pass = True
 
+        if len(finalized_points) >= len(updated_and_finalized_alignment_points):
+            break  # There are no more points to align, everything is finalized
+
         stosTransform = updatedTransform
 
         # Make one more pass to see if we can improve finalized points
@@ -768,8 +771,6 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints,
                                                                cell_size=settings.cell_size)
-
-    # os.environ['DEBUG'] = '1'
 
     for i in range(nPoints):
         targetPoint = targetPoints[i, :]
@@ -944,27 +945,29 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
 
     # Todo: Check that we have at least three points
 
-    ValidFP = AdjustedTargetPoints[valid_indicies, :]
-    ValidWP = OriginalSourcePoints[valid_indicies, :]
+    valid_target_points = AdjustedTargetPoints[valid_indicies, :]
+    valid_source_points = OriginalSourcePoints[valid_indicies, :]
 
-    if not np.array_equiv(ValidFP.shape, Triangulation.RemoveDuplicateControlPoints(ValidFP).shape):
+    if not np.array_equiv(valid_target_points.shape,
+                          Triangulation.RemoveDuplicateControlPoints(valid_target_points).shape):
         raise Exception("Duplicate fixed points detected")
 
-    if not np.array_equiv(ValidWP.shape, Triangulation.RemoveDuplicateControlPoints(ValidWP).shape):
+    if not np.array_equiv(valid_source_points.shape,
+                          Triangulation.RemoveDuplicateControlPoints(valid_source_points).shape):
         raise Exception("Duplicate warped points detected")
 
     # See if we have enough points to build a transform.  If not include top scoring points until we have a transform
-    if ValidFP.shape[0] + num_fixed < 3:
+    if valid_target_points.shape[0] + num_fixed < 3:
         num_needed = 3 - num_fixed
         sorted_composite_indicies = np.argsort(composite_score)
         top_alignment_indicies = sorted_composite_indicies[0:num_needed]
-        ValidFP = AdjustedTargetPoints[top_alignment_indicies, :]
-        ValidWP = OriginalSourcePoints[top_alignment_indicies, :]
+        valid_target_points = AdjustedTargetPoints[top_alignment_indicies, :]
+        valid_source_points = OriginalSourcePoints[top_alignment_indicies, :]
         prettyoutput.Log(
             f'Insufficient alignments found, expanding to use top {num_needed} alignments of {num_alignments} alignments')
 
     # PointPairs = np.hstack((TargetPoints, SourcePoints))
-    point_pairs = np.hstack((ValidFP, ValidWP))
+    point_pairs = np.hstack((valid_target_points, valid_source_points))
 
     if fixed_points is not None and fixed_points.shape[0] > 0:
         if fixed_points.shape[1] != 4:
