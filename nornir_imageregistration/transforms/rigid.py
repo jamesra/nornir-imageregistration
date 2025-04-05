@@ -314,7 +314,6 @@ class Rigid(base.ITransformSourceRotation, RigidTranslation):
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        # This is horrible, but we negate the angle to be compatible with ITK, then reverse it again on loading
         return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self.angle, self._target_offset[1],
                                                                                   self._target_offset[0],
                                                                                   self.source_space_center_of_rotation[
