@@ -19,6 +19,7 @@ import skimage.transform
 import skimage.filters
 from dataclasses import dataclass
 
+from imageutilities import use_cp
 from nornir_shared.tasktimer import TaskTimerContext, TaskTimer
 from nornir_imageregistration import AlignmentRecord, IgnoreRuntimeWarnings, IgnoreUnderflow
 import nornir_imageregistration.phasecorrelation
@@ -48,6 +49,84 @@ class AngleScaleResult:
     weight: float
     translation: tuple[float, float]
     flippedud: bool = False
+
+
+def rotate_image(image: NDArray,
+                 angle: float,
+                 image_stats: nornir_imageregistration.ImageStats) -> tuple[
+    NDArray, nornir_imageregistration.ImageStats]:
+    """Rotates an image, filling empty space with noise that matches the image stats
+    :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed"""
+
+    if angle == 0:
+        return image
+
+    xp = nornir_imageregistration.GetComputationModule()
+    xp_scipy = cupyx.scipy.get_array_module(image)
+    rotate = xp_scipy.ndimage.rotate
+
+    # im_target = cp.asarray(im_target) if use_cp and not isinstance(im_target, cp.ndarray) else im_target
+    # im_source = cp.asarray(im_source) if use_cp  and not isinstance(im_source, cp.ndarray)  else im_source
+
+    # gc.set_debug(gc.DEBUG_LEAK)
+    if image_stats is None:
+        image_stats = nornir_imageregistration.ImageStats.CalcStats(image_stats)
+
+    # This confused me for years, but the implementation of rotate calls affine_transform with
+    # the rotation matrix.  However the docs for affine_transform state it needs to be called
+    # with the inverse transform.  Hence negating the angle here.
+    with IgnoreUnderflow():
+        if nornir_imageregistration.UsingCupy():
+            im_rotated = rotate(image, axes=(1, 0), angle=-angle, cval=np.nan)
+        else:
+            im_rotated = rotate(image.astype(np.float32, copy=False), axes=(1, 0), angle=-angle,
+                                cval=np.nan).astype(image.dtype, copy=False)  # Numpy cannot rotate float16 images
+
+    im_result_empty_entries = xp.isnan(im_rotated)
+    im_rotated[im_result_empty_entries] = image_stats.GenerateNoise(xp.sum(im_result_empty_entries),
+                                                                    dtype=image.dtype)
+
+    return im_rotated
+
+
+def pad_and_rotate_image(image: NDArray,
+                         angle: float,
+                         image_stats: nornir_imageregistration.ImageStats,
+                         desired_shape: tuple[int, int] = None,
+                         min_overlap: float = 0.75,
+                         original_shape: NDArray | tuple[int, int] | None = None,
+                         ) -> tuple[NDArray, nornir_imageregistration.ImageStats]:
+    """
+    Rotates and image and pads it to ensure it has the requested dimensions, filling empty space with noise that matches the image stats.
+    :param image:
+    :param desired_shape: The desired shape of the image after rotation
+    :param image_stats:
+    :param min_overlap:
+    :param original_shape: If the input image has been previously padded, this is the original shape of the image
+    :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed
+    """
+
+    if original_shape is None:
+        orginal_shape = image.shape
+
+    if desired_shape is None:
+        desired_shape = (None, None)
+
+    rotated_image = rotate_image(image, angle=angle, image_stats=image_stats)
+
+    # if desired_shape is not None and rotated_image.shape[0] > desired_shape[0] or rotated_image.shape[1] > desired_shape[1]:
+    #    raise ValueError("Need to add support to pad_and_rotate_image for expanding the desired image size")
+
+    padded_rotated_image = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_image,
+                                                                                                 ImageMedian=image_stats.median,
+                                                                                                 ImageStdDev=image_stats.std,
+                                                                                                 MinOverlap=min_overlap,
+                                                                                                 OriginalShape=original_shape,
+                                                                                                 NewHeight=
+                                                                                                 desired_shape[0],
+                                                                                                 NewWidth=desired_shape[
+                                                                                                     1])
+    return padded_rotated_image
 
 
 # from memory_profiler import profile
@@ -260,8 +339,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                                                       flipped_ud=best_match.flippedud,
                                                                       scale=best_match.scale)
 
-    if scalar > 1.0:
-        AdjustedPeak = (best_refined_match.peak[0] * scalar, best_refined_match.peak[1] * scalar)
+    if scalar != 1.0:
+        AdjustedPeak = (best_refined_match.peak[0] * (1 / scalar), best_refined_match.peak[1] * (1 / scalar))
         best_refined_match = nornir_imageregistration.AlignmentRecord(AdjustedPeak, best_refined_match.weight,
                                                                       best_refined_match.angle, is_flipped)
 
@@ -293,46 +372,22 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         im_source = nornir_imageregistration.ImageParamToImageArray(source_original,
                                                                     dtype=nornir_imageregistration.default_image_dtype())
 
+        if source_stats is None:
+            source_stats = nornir_imageregistration.ImageStats.CalcStats(im_source)
+
+        if target_stats is None:
+            target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
+
         use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         # Use of cupy or numpy
         xp = cp.get_array_module(target_original)
         # Use of cupyx.scipy.fft or scipy.fft
         xp_scipy = cupyx.scipy.get_array_module(target_original)
-        rotate = xp_scipy.ndimage.rotate
 
-        # im_target = cp.asarray(im_target) if use_cp and not isinstance(im_target, cp.ndarray) else im_target
-        # im_source = cp.asarray(im_source) if use_cp  and not isinstance(im_source, cp.ndarray)  else im_source
-
-        # gc.set_debug(gc.DEBUG_LEAK)
-        if target_stats is None:
-            target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
-
-        if source_stats is None:
-            source_stats = nornir_imageregistration.ImageStats.CalcStats(im_source)
-
-        OKToDelimWarped = False
-        if angle != 0:
-            # This confused me for years, but the implementation of rotate calls affine_transform with
-            # the rotation matrix.  However the docs for affine_transform state it needs to be called
-            # with the inverse transform.  Hence negating the angle here.
-            with IgnoreUnderflow():
-                if use_cp:
-                    im_source = rotate(im_source, axes=(1, 0), angle=-angle, cval=np.nan)
-                else:
-                    im_source = rotate(im_source.astype(np.float32, copy=False), axes=(1, 0), angle=-angle,
-                                       cval=np.nan).astype(
-                        im_source.dtype, copy=False)  # Numpy cannot rotate float16 images
-
-            im_source_empty_entries = xp.isnan(im_source)
-            im_source[im_source_empty_entries] = source_stats.GenerateNoise(xp.sum(im_source_empty_entries),
-                                                                            dtype=im_source.dtype)
-            OKToDelimWarped = True
-
-        rotated_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(im_source,
-                                                                                               ImageMedian=source_stats.median,
-                                                                                               ImageStdDev=source_stats.std,
-                                                                                               MinOverlap=min_overlap,
-                                                                                               OriginalShape=source_image_shape)
+        rotated_source = pad_and_rotate_image(image=im_source,
+                                              angle=angle,
+                                              image_stats=source_stats,
+                                              min_overlap=min_overlap)
 
         assert (rotated_source.shape[0] > 0)
         assert (rotated_source.shape[1] > 0)
@@ -531,13 +586,39 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     fft_target_ref = np.fft.fft2(padded_target * target_window)
 
-    rotated_source = sp.ndimage.rotate(padded_source.astype(np.float32), -recovered_angle, reshape=False)
+    # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle, reshape=True)
+    # rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_source,
+    #                                                                                               MinOverlap=min_overlap,
+    #                                                                                               ImageMedian=source_stats.median,
+    #                                                                                               ImageStdDev=source_stats.std,
+    #                                                                                               NewHeight=desired_height,
+    #                                                                                               NewWidth=desired_width)
+
+    rotated_padded_source = pad_and_rotate_image(image=source_image.astype(np.float32),
+                                                 angle=recovered_angle,
+                                                 image_stats=source_stats,
+                                                 min_overlap=min_overlap,
+                                                 desired_shape=[desired_height, desired_width])
+
     # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
-    fft_source_ref = np.fft.fft2(rotated_source * source_window)
+    fft_source_ref = np.fft.fft2(rotated_padded_source * source_window)
     original_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, fft_source_ref)
 
-    rotated_source = sp.ndimage.rotate(padded_source.astype(np.float32), -recovered_angle + 180, reshape=False)
-    rotated_source_freq = np.fft.fft2(rotated_source * source_window)
+    # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle + 180, reshape=True)
+    # rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_source,
+    #                                                                                               MinOverlap=min_overlap,
+    #                                                                                               ImageMedian=source_stats.median,
+    #                                                                                               ImageStdDev=source_stats.std,
+    #                                                                                               NewHeight=desired_height,
+    #                                                                                               NewWidth=desired_width)
+
+    rotated_padded_source = pad_and_rotate_image(image=source_image.astype(np.float32),
+                                                 angle=recovered_angle + 180,
+                                                 image_stats=source_stats,
+                                                 min_overlap=min_overlap,
+                                                 desired_shape=[desired_height, desired_width])
+
+    rotated_source_freq = np.fft.fft2(rotated_padded_source * source_window)
     rotated_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, rotated_source_freq)
 
     original_peak = nornir_imageregistration.phasecorrelation.FindPeak(original_correlation)
