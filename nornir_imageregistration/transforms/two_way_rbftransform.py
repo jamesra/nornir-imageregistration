@@ -91,8 +91,18 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         return self._forward_rbf.MappedBoundingBox
 
     @property
+    def SourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        """Bounding box of source space points"""
+        return self._forward_rbf.SourceBoundingBox
+
+    @property
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         return self._forward_rbf.FixedBoundingBox
+
+    @property
+    def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        """Bounding box of target space points"""
+        return self._forward_rbf.TargetBoundingBox
 
     def NearestTargetPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
         return self._forward_rbf.NearestTargetPoint(points)

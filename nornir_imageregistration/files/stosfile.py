@@ -196,8 +196,8 @@ class StosFile(object):
         self.ControlMaskName = None
         self.MappedMaskName = None
 
-        self.ControlSectionNumber = None
-        self.MappedSectionNumber = None
+        self.TargetSectionNumber = None
+        self.SourceSectionNumber = None
 
         self.ControlChannel = None  # What channel was used to create the stos file?
         self.MappedChannel = None
@@ -218,7 +218,7 @@ class StosFile(object):
         return
 
     def __str__(self):
-        return f'{self.ControlSectionNumber}<-{self.MappedSectionNumber} DS:{self._Downsample}'
+        return f'{self.TargetSectionNumber}<-{self.SourceSectionNumber} DS:{self._Downsample}'
 
     @classmethod
     def GetInfo(cls, filename: str):
@@ -295,7 +295,7 @@ class StosFile(object):
         obj = StosFile()
 
         try:
-            [obj.MappedSectionNumber, obj.ControlSectionNumber, Channels, Filters, obj.StosSource,
+            [obj.SourceSectionNumber, obj.TargetSectionNumber, Channels, Filters, obj.StosSource,
              obj._Downsample] = StosFile.GetInfo(filename)
         except:
             pass
@@ -739,7 +739,7 @@ def AddStosTransforms(A_To_B,
             ignore_rotation=ignore_rotation)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
-    A_To_C_Stos.ControlSectionNumber = B_To_C_Stos.ControlSectionNumber
+    A_To_C_Stos.TargetSectionNumber = B_To_C_Stos.TargetSectionNumber
     A_To_C_Stos.ControlImageFullPath = B_To_C_Stos.ControlImageFullPath
     A_To_C_Stos.ControlMaskFullPath = B_To_C_Stos.ControlMaskFullPath
 

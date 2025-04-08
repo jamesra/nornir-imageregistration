@@ -1,8 +1,8 @@
-'''
+"""
 Created on Apr 1, 2013
 
 @author: u0490822
-'''
+"""
 import math
 import os
 import unittest
@@ -14,7 +14,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.mosaic as mosaic
 import nornir_imageregistration.spatial as spatial
 from nornir_imageregistration.transforms.base import IControlPoints, \
-    IDiscreteTransform
+    IDiscreteTransform, ITransform
 import nornir_imageregistration.transforms.factory as factory
 from nornir_imageregistration.transforms.rigid import Rigid, RigidTranslation
 import setup_imagetest
@@ -42,7 +42,7 @@ class TestMath(unittest.TestCase):
                                       err_msg="Top Right coordinate incorrect", verbose=True)
 
     def testGetTransformedRigidCornerPointsNoTranslateNoRotate(self):
-        '''Ensure that we can correctly translate and rotate points correctly'''
+        """Ensure that we can correctly translate and rotate points correctly"""
 
         Height = 128
         Width = 256
@@ -55,7 +55,7 @@ class TestMath(unittest.TestCase):
         return
 
     def testGetTransformedRigidCornerPointsNoTranslateRotate(self):
-        '''Ensure that we can correctly translate and rotate points correctly'''
+        """Ensure that we can correctly translate and rotate points correctly"""
 
         Height = 128
         Width = 256
@@ -109,11 +109,16 @@ class TestIO(setup_imagetest.TransformTestBase):
                 self.assertGreaterEqual(imageBoundRect.Width, mappedBoundRect.Width)
                 self.assertGreaterEqual(imageBoundRect.Height, mappedBoundRect.Height)
 
-    def LoadSaveTransform(self, transform):
+    def LoadSaveTransform(self, transform: ITransform):
+
+        ref_source_points = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+        ref_target_points = transform.Transform(ref_source_points)
 
         transformString = factory.TransformToIRToolsString(transform)
 
         loadedTransform = factory.LoadTransform(transformString)
+
+        reloaded_target_points = loadedTransform.Transform(ref_source_points)
 
         if isinstance(transform, IControlPoints):
             self.assertTrue(isinstance(loadedTransform, IControlPoints),
@@ -137,6 +142,7 @@ class TestIO(setup_imagetest.TransformTestBase):
             self.assertTrue(isinstance(loadedTransform, RigidTranslation),
                             "Loaded transform must have same interface as saved transform")
             self.assertTrue(numpy.allclose(transform._target_offset, loadedTransform._target_offset))
+            self.assertTrue(numpy.allclose(transform.angle, loadedTransform.angle))
 
         if isinstance(transform, Rigid):
             self.assertTrue(isinstance(loadedTransform, Rigid),
@@ -148,6 +154,10 @@ class TestIO(setup_imagetest.TransformTestBase):
         secondString = factory.TransformToIRToolsString(loadedTransform)
         self.assertTrue(secondString == transformString,
                         "Converting transform to string twice should produce identical string")
+
+        np.testing.assert_allclose(ref_target_points, reloaded_target_points, atol=0.1,
+                                   err_msg="Transformed points should be identical after loading and saving",
+                                   verbose=True)
 
 
 if __name__ == "__main__":

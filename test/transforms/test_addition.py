@@ -26,8 +26,8 @@ class TestTranslationTransformAddition(TransformTestBase):
 
     def CreateTransformFromTemplate(self, control, mapped):
         stos = nornir_imageregistration.StosFile.Load(self.TemplateIdentityTransformFullPath)
-        stos.ControlSectionNumber = control
-        stos.MappedSectionNumber = mapped
+        stos.TargetSectionNumber = control
+        stos.SourceSectionNumber = mapped
         stos.ControlImageFullPath = f'{control}.png'
         stos.MappedImageFullPath = f'{mapped}.png'
         stos.ControlMaskFullPath = f'{control}_Mask.png'
@@ -96,8 +96,8 @@ class TestTranslationTransformAddition(TransformTestBase):
         addedStos = transforms_stos[0]
 
         # self.assertEqual(addedStos.transform, originalStos.transform)
-        self.assertEqual(addedStos.ControlSectionNumber, 0)
-        self.assertEqual(addedStos.MappedSectionNumber, 10)
+        self.assertEqual(addedStos.TargetSectionNumber, 0)
+        self.assertEqual(addedStos.SourceSectionNumber, 10)
 
         self.assertEqual(addedStos.ControlImageFullPath, f'{control}.png')
         self.assertEqual(addedStos.MappedImageFullPath, f'{mapped}.png')

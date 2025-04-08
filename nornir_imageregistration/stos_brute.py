@@ -7,9 +7,7 @@ from typing import NamedTuple
 import multiprocessing
 import multiprocessing.sharedctypes
 from time import sleep
-from typing import NamedTuple
 import numpy as np
-import scipy as sp
 from numpy.typing import NDArray
 from typing import Sequence
 import logging
@@ -19,12 +17,9 @@ import skimage.transform
 import skimage.filters
 from dataclasses import dataclass
 
-from imageutilities import use_cp
-from nornir_shared.tasktimer import TaskTimerContext, TaskTimer
 from nornir_imageregistration import AlignmentRecord, IgnoreRuntimeWarnings, IgnoreUnderflow
 import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange, SliceToSliceMethod
-from nornir_imageregistration.hann_window_cache import HannWindowCache
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:

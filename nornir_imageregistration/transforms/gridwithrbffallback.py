@@ -5,13 +5,14 @@ Created on Oct 18, 2012
 """
 
 import numpy as np
+
 try:
     import cupy as cp
     from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
 
-    #import cupyx
-    #from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
-    #from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+    # import cupyx
+    # from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+    # from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
 except ImportError:
@@ -183,8 +184,16 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         return self._discrete_transform.MappedBoundingBox
 
     @property
+    def SourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        return self._discrete_transform.SourceBoundingBox
+
+    @property
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         return self._discrete_transform.FixedBoundingBox
+
+    @property
+    def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        return self._discrete_transform.TargetBoundingBox
 
     @property
     def SourcePoints(self) -> NDArray[np.floating]:
@@ -202,28 +211,32 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
-    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestTargetPoint(points)
 
-    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestSourcePoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -316,14 +329,18 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | \
+                                                                                                                 NDArray[
+                                                                                                                     np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
         result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
         self._continuous_transform.UpdateTargetPointsByIndex(index, point)
         self.OnTransformChanged()
         return result
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
+                                                                                                               NDArray[
+                                                                                                                   np.integer]:
         result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
         self._continuous_transform.UpdateTargetPointsByPosition(index, point)
         self.OnTransformChanged()
@@ -331,9 +348,9 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
 
 class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITransformScaling,
-                              ITransformRelativeScaling, ITransformTargetRotation,
-                              ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
-                              DefaultTransformChangeEvents):
+                                       ITransformRelativeScaling, ITransformTargetRotation,
+                                       ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
+                                       DefaultTransformChangeEvents):
     """
     classdocs
     """
@@ -455,10 +472,9 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
         TransformedPoints[InvalidIndicies] = FixedPoints
 
-        #Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
+        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
         return TransformedPoints
-
 
     def __init__(self,
                  grid: ITKGridDivision):
@@ -506,28 +522,32 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
     def NumControlPoints(self) -> int:
         return self._discrete_transform.NumControlPoints
 
-    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestTargetPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestTargetPoint(points)
 
-    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestFixedPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestSourcePoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestSourcePoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestWarpedPoint(self, points: NDArray[np.floating]) -> tuple(
+        (float | NDArray[np.floating], int | NDArray[np.integer])):
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -620,14 +640,18 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | \
+                                                                                                                 NDArray[
+                                                                                                                     np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
         result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
         self._continuous_transform.UpdateTargetPointsByIndex(index, point)
         self.OnTransformChanged()
         return result
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
+                                                                                                               NDArray[
+                                                                                                                   np.integer]:
         result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
         self._continuous_transform.UpdateTargetPointsByPosition(index, point)
         self.OnTransformChanged()
@@ -768,6 +792,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
+
 class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
     """
     classdocs
@@ -899,6 +924,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
+
 class GridWithRBFInterpolator_GPU(Landmark_GPU):
     """
     classdocs
@@ -956,10 +982,10 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
     def discrete_transform(self):
         if self._discrete_transform is None:
             self._discrete_transform = cuRegularGridInterpolator(self._grid.axis_points,
-                                                                  cp.reshape(self.TargetPoints, (
-                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
-                                                                      2)),
-                                                                  bounds_error=False)
+                                                                 cp.reshape(self.TargetPoints, (
+                                                                     self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                     2)),
+                                                                 bounds_error=False)
 
         return self._discrete_transform
 
@@ -1065,15 +1091,16 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
 
         super(GridWithRBFInterpolator_GPU, self).__init__(control_points)
         self._discrete_transform = cuRegularGridInterpolator(self._grid.axis_points,
-                                                                cp.reshape(self._grid.TargetPoints, (
-                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
-                                                                bounds_error=False)
+                                                             cp.reshape(self._grid.TargetPoints, (
+                                                                 self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                             bounds_error=False)
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
 
     @staticmethod
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
+
 
 class GridWithRBFInterpolator_CPU(Landmark_CPU):
     """
@@ -1132,10 +1159,10 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
     def discrete_transform(self):
         if self._discrete_transform is None:
             self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
-                                                                  np.reshape(self.TargetPoints, (
-                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
-                                                                      2)),
-                                                                  bounds_error=False)
+                                                               np.reshape(self.TargetPoints, (
+                                                                   self._grid.grid_dims[0], self._grid.grid_dims[1],
+                                                                   2)),
+                                                               bounds_error=False)
 
         return self._discrete_transform
 
@@ -1240,9 +1267,9 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
 
         super(GridWithRBFInterpolator_CPU, self).__init__(control_points)
         self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
-                                                                np.reshape(self._grid.TargetPoints, (
-                                                                self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
-                                                                bounds_error=False)
+                                                           np.reshape(self._grid.TargetPoints, (
+                                                               self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+                                                           bounds_error=False)
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
 
@@ -1250,11 +1277,12 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
     def Load(TransformString: str, pixelSpacing=None):
         return nornir_imageregistration.transforms.factory.ParseGridTransform(TransformString, pixelSpacing)
 
+
 if __name__ == '__main__':
     p = np.array([[0, 0, 0, 0],
-                     [0, 10, 0, -10],
-                     [10, 0, -10, 0],
-                     [10, 10, -10, -10]])
+                  [0, 10, 0, -10],
+                  [10, 0, -10, 0],
+                  [10, 10, -10, -10]])
 
     (Fixed, Moving) = np.hsplit(p, 2)
     T = OneWayRBFWithLinearCorrection(Fixed, Moving)
