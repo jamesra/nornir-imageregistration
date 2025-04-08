@@ -2,10 +2,8 @@
 
 __all__ = ['iPoint', 'iRect', 'iArea', 'iPoint3', 'iBox', 'iVolume', 'BoundingBox', 'BoundingPrimitiveFromPoints',
            'BoundsArrayFromPoints', 'Rectangle', 'RectangleSet', 'ArcAngle', 'PointBoundingBox', 'IsValidBoundingBox',
-           'IsValidRectangleInputArray', 'RectLike']
+           'IsValidRectangleInputArray']
 
-from nornir_imageregistration.spatial.typing import RectLike
-import nornir_imageregistration.spatial.typing as typing
 from nornir_imageregistration.spatial.indicies import iArea, iBox, iPoint, iPoint3, iRect, iVolume
 import nornir_imageregistration.spatial.indicies as indicies
 from nornir_imageregistration.spatial.point import *

@@ -35,7 +35,7 @@ def float_to_shortest_string(val: float, precision=6) -> str:
 
 
 import nornir_imageregistration.transforms.base as base
-from nornir_imageregistration.transforms.base import Base, ITransform, ITransformChangeEvents, ITransformTranslation, \
+from nornir_imageregistration.transforms.base import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit, \
@@ -105,4 +105,4 @@ from nornir_imageregistration.transforms.addition import AddTransforms
 
 import nornir_imageregistration.transforms.utils as utils
 from nornir_imageregistration.transforms.utils import BlendWithLinear, RotationMatrix, ScaleMatrixXY, TranslateMatrixXY, \
-    TranslateToZeroOrigin, IdentityMatrix
+    TranslateToZeroOrigin, IdentityMatrix, GetRotatedBoundaries

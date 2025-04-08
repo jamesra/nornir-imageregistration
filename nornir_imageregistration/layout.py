@@ -15,6 +15,7 @@ from collections.abc import Iterable
 import nornir_imageregistration
 from nornir_imageregistration.tile_overlap import TileOverlap
 import nornir_imageregistration.transforms
+import nornir_imageregistration.type_info
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 
@@ -82,7 +83,7 @@ class LayoutPosition:
     _ID: int
     Position: NDArray[np.floating]
     _OffsetArray: NDArray[np.float64]
-    _dims: nornir_imageregistration.spatial.RectLike | None
+    _dims: nornir_imageregistration.type_info.RectLike | None
     _IDToIndex: dict[int, int] | None = None
 
     _connected_id_cache: NDArray[int] | None = None
@@ -347,7 +348,7 @@ class LayoutPosition:
     def __init__(self,
                  ID: int,
                  position: nornir_imageregistration.typing.PointLike,
-                 dims: nornir_imageregistration.spatial.RectLike | None = None,
+                 dims: nornir_imageregistration.type_info.RectLike | None = None,
                  *args, **kwargs):
         """
         :param int ID: ID number

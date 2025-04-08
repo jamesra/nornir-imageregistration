@@ -38,6 +38,7 @@ except ImportError:
     import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
+import nornir_shared.mathhelper
 import nornir_pools
 from nornir_imageregistration.hann_window_cache import HannWindowCache
 
@@ -53,8 +54,7 @@ class AngleScaleResult:
 
 def rotate_image(image: NDArray,
                  angle: float,
-                 image_stats: nornir_imageregistration.ImageStats) -> tuple[
-    NDArray, nornir_imageregistration.ImageStats]:
+                 image_stats: nornir_imageregistration.ImageStats) -> NDArray:
     """Rotates an image, filling empty space with noise that matches the image stats
     :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed"""
 
@@ -95,7 +95,8 @@ def pad_and_rotate_image(image: NDArray,
                          desired_shape: tuple[int, int] = None,
                          min_overlap: float = 0.75,
                          original_shape: NDArray | tuple[int, int] | None = None,
-                         ) -> tuple[NDArray, nornir_imageregistration.ImageStats]:
+                         power_of_two: bool = False
+                         ) -> NDArray:
     """
     Rotates and image and pads it to ensure it has the requested dimensions, filling empty space with noise that matches the image stats.
     :param image:
@@ -103,6 +104,7 @@ def pad_and_rotate_image(image: NDArray,
     :param image_stats:
     :param min_overlap:
     :param original_shape: If the input image has been previously padded, this is the original shape of the image
+    :param power_of_two: If True, the image will be padded to the nearest power of two.  This may be largest than the desired_shape
     :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed
     """
 
@@ -116,6 +118,9 @@ def pad_and_rotate_image(image: NDArray,
 
     # if desired_shape is not None and rotated_image.shape[0] > desired_shape[0] or rotated_image.shape[1] > desired_shape[1]:
     #    raise ValueError("Need to add support to pad_and_rotate_image for expanding the desired image size")
+
+    if power_of_two:
+        desired_shape = nornir_imageregistration.NearestPowerOfTwo(rotated_image.shape)
 
     padded_rotated_image = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_image,
                                                                                                  ImageMedian=image_stats.median,
@@ -499,8 +504,9 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                         target_image: NDArray[np.floating],
                                         source_stats: nornir_imageregistration.ImageStats,
                                         target_stats: nornir_imageregistration.ImageStats,
-                                        min_overlap: float = 0.75) -> AngleScaleResult:
+                                        min_overlap: float = 0.5) -> AngleScaleResult:
     """This function uses the log polar technique to determine the scale and angle of the best alignment between two images"""
+
     desired_height = nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[0], target_image.shape[0]]))
     desired_width = nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[1], target_image.shape[1]]))
     desired_shape = np.array([desired_height, desired_width], dtype=int)
@@ -584,8 +590,6 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     klog = desired_shape[1] / np.log(radius)
     shift_scale = np.exp(angle_scale_peak.scaled_offset[1] / klog)
 
-    fft_target_ref = np.fft.fft2(padded_target * target_window)
-
     # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle, reshape=True)
     # rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_source,
     #                                                                                               MinOverlap=min_overlap,
@@ -594,14 +598,51 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     #                                                                                               NewHeight=desired_height,
     #                                                                                               NewWidth=desired_width)
 
+    # Check if we need to grow the boundaries to accomodate the rotation
+    # rotated_bounds = nornir_imageregistration.transforms.utils.GetRotatedBoundaries(source_image.shape,angle=recovered_angle)
+    # rotated_desired_height = max(desired_height, rotated_bounds.Height)
+    # rotated_desired_width = max(desired_width, rotated_bounds.Width)
+    # rotated_desired_shape = np.array((rotated_desired_height, rotated_desired_width), dtype=int)
+    # rotated_desired_shape = nornir_imageregistration.NearestPowerOfTwo(rotated_desired_shape)
+    # rotated_desired_height, rotated_desired_width = rotated_desired_shape
+
+    # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
     rotated_padded_source = pad_and_rotate_image(image=source_image.astype(np.float32),
                                                  angle=recovered_angle,
                                                  image_stats=source_stats,
                                                  min_overlap=min_overlap,
-                                                 desired_shape=[desired_height, desired_width])
+                                                 desired_shape=[desired_height, desired_width],
+                                                 power_of_two=True)
 
-    # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
+    if not np.array_equal(rotated_padded_source.shape, padded_target.shape):
+        # If the target image does not match the dimensions of the rotated source image, make the size equal
+        rotated_desired_shape = nornir_shared.mathhelper.max_shape([rotated_padded_source.shape, padded_target.shape])
+        rotated_desired_height, rotated_desired_width = rotated_desired_shape
+        padded_target = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(target_image,
+                                                                                              MinOverlap=min_overlap,
+                                                                                              ImageMedian=target_stats.median,
+                                                                                              ImageStdDev=target_stats.std,
+                                                                                              NewHeight=rotated_desired_height,
+                                                                                              NewWidth=rotated_desired_width)
+
+        if not np.array_equal(rotated_padded_source.shape, rotated_desired_shape):
+            # If the rotated source image does not match the dimensions of the target image, make the size equal
+            # rotated_desired_shape = nornir_shared.mathhelper.max_shape([rotated_padded_source.shape, padded_target.shape])
+            # rotated_desired_height, rotated_desired_width = rotated_desired_shape
+            rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(target_image,
+                                                                                                          MinOverlap=min_overlap,
+                                                                                                          ImageMedian=target_stats.median,
+                                                                                                          ImageStdDev=target_stats.std,
+                                                                                                          NewHeight=rotated_desired_height,
+                                                                                                          NewWidth=rotated_desired_width)
+        target_window = HannWindowCache.GetOrCreate(rotated_desired_shape)
+        source_window = HannWindowCache.GetOrCreate(rotated_desired_shape)
+    else:
+        rotated_desired_height, rotated_desired_width = desired_shape
+
+    fft_target_ref = np.fft.fft2(padded_target * target_window)
     fft_source_ref = np.fft.fft2(rotated_padded_source * source_window)
+
     original_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, fft_source_ref)
 
     # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle + 180, reshape=True)
@@ -616,7 +657,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                                  angle=recovered_angle + 180,
                                                  image_stats=source_stats,
                                                  min_overlap=min_overlap,
-                                                 desired_shape=[desired_height, desired_width])
+                                                 desired_shape=[rotated_desired_height, rotated_desired_width])
 
     rotated_source_freq = np.fft.fft2(rotated_padded_source * source_window)
     rotated_correlation = nornir_imageregistration.FFTPhaseCorrelation(fft_target_ref, rotated_source_freq)
@@ -654,7 +695,7 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      source_stats: nornir_imageregistration.ImageStats,
                      target_stats: nornir_imageregistration.ImageStats,
                      angle_range: NDArray[float],
-                     min_overlap: float = 0.75,
+                     min_overlap: float = 0.5,
                      SingleThread: bool = False,
                      use_cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
     """Find the best angle to align two images.  This function can be very memory intensive.
@@ -808,7 +849,7 @@ def __ExecuteProfiler():
 
 
 if __name__ == '__main__':
-    from nornir_shared import misc
+    from nornir_shared import NearestPowerOfTwo, misc
 
     misc.RunWithProfiler("__ExecuteProfiler()", r"C:\Temp\StosBrute")
     # __ExecuteProfiler()

@@ -14,8 +14,7 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration.spatial
 from nornir_imageregistration.spatial import iPoint, iRect, iArea
-from nornir_imageregistration import PointLike, AreaLike
-from nornir_imageregistration.spatial.typing import RectLike
+from nornir_imageregistration import PointLike, AreaLike, RectLike
 
 
 def RaiseValueErrorOnInvalidBounds(bounds):
@@ -242,7 +241,7 @@ class RectangleSet:
         return str(self._rects_array)
 
 
-class Rectangle(object):
+class Rectangle:
     """
     Defines a 2D rectangle
     """

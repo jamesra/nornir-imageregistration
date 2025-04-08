@@ -21,7 +21,9 @@ except ImportError:
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints
+from nornir_imageregistration.spatial.rectangle import Rectangle
 from nornir_shared import prettyoutput
+from nornir_imageregistration.type_info import ShapeLike, RectLike
 
 
 def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer]]:
@@ -248,7 +250,7 @@ def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
     return xp.min(mins, 0)
 
 
-def FixedBoundingBox(transforms, images=None):
+def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_imageregistration.ShapeLike] | None = None):
     """Calculate the bounding box of the warped position for a set of transforms
     :param list transforms: A list of transforms
     :param list images: A list of image parameters (strings, ndarrays, or 1x2
@@ -258,9 +260,9 @@ def FixedBoundingBox(transforms, images=None):
     :return: A rectangle describing the bounding box
     """
 
-    if len(transforms) == 1:
-        # Copy the data instead of passing the transforms object
-        return nornir_imageregistration.Rectangle(transforms[0].FixedBoundingBox.ToTuple())
+    # if len(transforms) == 1:
+    #    # Copy the data instead of passing the transforms object
+    #    return nornir_imageregistration.Rectangle(transforms[0].TargetBoundingBox.ToTuple())
 
     is_images_param_single_size = False
     if images is not None:
@@ -279,16 +281,23 @@ def FixedBoundingBox(transforms, images=None):
     mbb = np.zeros((len(transforms), 4))
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
-            mbb[i, :] = t.FixedBoundingBox.ToArray()
+            mbb[i, :] = t.TargetBoundingBox.ToArray()
         elif isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
+            # If there are no images we cannot calculate the bounding box
+            if images is None or len(images) == 0:
+                raise ValueError("Cannot calculate bounding box of rigid transform without images")
+
             # Figure out if images is an iterable or just a single size for all tiles
+            t_rigid = t  # type: nornir_imageregistration.transforms.RigidTranslation
             if is_images_param_single_size:
                 size = images
             else:
                 size = nornir_imageregistration.GetImageSize(images[i])
 
-            mbb[i, :2] = t._target_offset
-            mbb[i, 2:] = t._target_offset + size
+            mbb[i, :2] = t_rigid.target_offset
+            mbb[i, 2:] = t_rigid.target_offset + size
+        elif hasattr(t, 'TargetBoundingBox'):
+            mbb[i, :] = t.TargetBoundingBox.ToArray()
         elif hasattr(t, 'FixedBoundingBox'):
             mbb[i, :] = t.FixedBoundingBox.ToArray()
         else:
@@ -386,6 +395,33 @@ def MappedBoundingBoxWidth(transforms):
 def MappedBoundingBoxHeight(transforms):
     (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)
+
+
+def GetRotatedBoundaries(shape: ShapeLike,
+                         angle: float) -> nornir_imageregistration.Rectangle:
+    """Given a shape and angle, returns the new bounding box if the image is rotated by the angle"""
+
+    if not isinstance(shape, nornir_imageregistration.Rectangle):
+        rect = nornir_imageregistration.Rectangle.CreateFromBounds((0, 0, shape[0], shape[1]))
+    else:
+        rect = shape
+
+    if angle % np.pi * 2 == 0:
+        return rect
+
+    corners = rect.Corners
+
+    # If there are "off by one" errors, check that the center shouldn't have 0.5 pixels subtracted
+    rigid_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        angle=angle,
+        source_rotation_center=rect.Center,
+        target_offset=(0, 0),
+        scalar=1.0,
+        flip_ud=False,
+    )
+
+    rotated_corners = rigid_transform.Transform(corners)
+    return Rectangle.CreateBoundingRectangleForPoints(rotated_corners)
 
 
 if __name__ == '__main__':

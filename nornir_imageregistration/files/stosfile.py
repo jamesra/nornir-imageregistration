@@ -274,19 +274,19 @@ class StosFile(object):
         return mappedSection, controlSection, Channel, Filter, Source, Downsample
 
     @staticmethod
-    def Create(controlImageFullPath: str,
-               mappedImageFullPath: str,
-               Transform: ITransform,
-               controlMaskFullPath: str | None = None,
-               mappedMaskFullPath: str | None = None) -> StosFile:
+    def Create(target_image_fullpath: str,
+               source_image_fullpath: str,
+               transform: ITransform,
+               target_mask_fullpath: str | None = None,
+               source_mask_fullpath: str | None = None) -> StosFile:
         stosObj = StosFile()
-        stosObj.ControlImageFullPath = controlImageFullPath
-        stosObj.MappedImageFullPath = mappedImageFullPath
-        stosObj.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(Transform)
+        stosObj.ControlImageFullPath = target_image_fullpath
+        stosObj.MappedImageFullPath = source_image_fullpath
+        stosObj.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(transform)
 
-        if controlMaskFullPath is not None:
-            stosObj.ControlMaskFullPath = controlMaskFullPath
-            stosObj.MappedMaskFullPath = mappedMaskFullPath
+        if target_mask_fullpath is not None:
+            stosObj.ControlMaskFullPath = target_mask_fullpath
+            stosObj.MappedMaskFullPath = source_mask_fullpath
 
         return stosObj
 

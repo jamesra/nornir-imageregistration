@@ -1435,7 +1435,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         TestFlip=False,
         method=SliceToSliceMethod.BruteForce)
 
-    if 'DEBUG' in os.environ:
+    if nornir_imageregistration.in_debug_mode():
         result.TargetROI = target_image_roi
         result.SourceROI = source_image_roi
 

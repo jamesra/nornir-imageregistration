@@ -129,6 +129,8 @@ class IGridTransform(ITransform, ABC):
 
 
 class IControlPoints(ABC):
+    """Interface for transforms that use control points"""
+
     @property
     @abc.abstractmethod
     def SourcePoints(self) -> NDArray:
@@ -187,6 +189,18 @@ class IControlPoints(ABC):
     @property
     @abc.abstractmethod
     def NumControlPoints(self) -> int:
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        """Bounding box of target space points"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def SourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        """Bounding box of source space points"""
         raise NotImplementedError()
 
 

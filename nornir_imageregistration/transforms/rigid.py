@@ -6,6 +6,8 @@ from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+import nornir_imageregistration.type_info
+
 try:
     import cupy as cp
     import cupyx

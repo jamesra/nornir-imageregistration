@@ -14,6 +14,7 @@ import numpy as np
 import nornir_imageregistration
 from nornir_imageregistration.layout import Layout
 import nornir_imageregistration.phasecorrelation
+import nornir_imageregistration.type_info
 import nornir_pools
 import nornir_shared.prettyoutput
 
@@ -712,7 +713,7 @@ def __get_overlapping_image(imageparam,
 
 
 def __tile_offset_remote(A_Filename: str, B_Filename: str,
-                         scaled_overlapping_source_rect_A: nornir_imageregistration.spatial.RectLike,
+                         scaled_overlapping_source_rect_A: nornir_imageregistration.type_info.RectLike,
                          scaled_overlapping_source_rect_B,
                          OffsetAdjustment, excess_scalar,
                          mask_extrema: bool = True,
@@ -963,9 +964,9 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
 
         # Multiple diff by the largest masked area to compensate for the large blank area
         valid_mask_fraction_A = extrema_mask_OverlappingRegionA.sum() / (
-                    extrema_mask_OverlappingRegionA.shape[0] * extrema_mask_OverlappingRegionA.shape[1])
+                extrema_mask_OverlappingRegionA.shape[0] * extrema_mask_OverlappingRegionA.shape[1])
         valid_mask_fraction_B = extrema_mask_OverlappingRegionB.sum() / (
-                    extrema_mask_OverlappingRegionB.shape[0] * extrema_mask_OverlappingRegionB.shape[1])
+                extrema_mask_OverlappingRegionB.shape[0] * extrema_mask_OverlappingRegionB.shape[1])
 
         valid_mask_fraction = min(valid_mask_fraction_A, valid_mask_fraction_B)
 

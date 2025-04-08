@@ -76,6 +76,9 @@ class WindowFilterCache:
     def __GetOrCreateCachedImage(self, image_shape: ShapeLike, creation_kwargs: dict | None = None) -> NDArray[
         np.floating]:
 
+        if isinstance(image_shape, np.ndarray):
+            image_shape = tuple(image_shape)
+
         if image_shape in self._loaded_images:
             return self._loaded_images[image_shape]
 

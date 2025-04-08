@@ -27,8 +27,8 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         """
         super(ControlPointBase, self).__init__()
         self._points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpairs, dtype=np.float32)
-        self._MappedBoundingBox = None
-        self._FixedBoundingBox = None
+        self._SourceBoundingBox = None
+        self._TargetBoundingBox = None
 
     def __getstate__(self):
         odict = {'_points': self._points}
@@ -199,10 +199,17 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         """
         :return: (minY, minX, maxY, maxX)
         """
-        if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
+        return self.TargetBoundingBox
 
-        return self._FixedBoundingBox
+    @property
+    def TargetBoundingBox(self):
+        """
+        :return: (minY, minX, maxY, maxX)
+        """
+        if self._TargetBoundingBox is None:
+            self._TargetBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
+
+        return self._TargetBoundingBox
 
     @property
     def points(self) -> NDArray[np.floating]:
@@ -235,10 +242,17 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         """
         :return: (minY, minX, maxY, maxX)
         """
-        if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.SourcePoints)
+        return self.SourceBoundingBox
 
-        return self._MappedBoundingBox
+    @property
+    def SourceBoundingBox(self):
+        """
+        :return: (minY, minX, maxY, maxX)
+        """
+        if self._SourceBoundingBox is None:
+            self._SourceBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.SourcePoints)
+
+        return self._SourceBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):
@@ -258,18 +272,18 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
 
     @abstractmethod
     def OnFixedPointChanged(self):
-        self._FixedBoundingBox = None
+        self._TargetBoundingBox = None
 
     @abstractmethod
     def OnWarpedPointChanged(self):
-        self._MappedBoundingBox = None
+        self._SourceBoundingBox = None
 
     @abstractmethod
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
         Clear out our data structures so we do not use bad data"""
-        self._FixedBoundingBox = None
-        self._MappedBoundingBox = None
+        self._TargetBoundingBox = None
+        self._SourceBoundingBox = None
 
     @staticmethod
     def RotatePoints(points: NDArray[np.floating], rangle: float, rotationCenter: NDArray[np.floating] | None):
