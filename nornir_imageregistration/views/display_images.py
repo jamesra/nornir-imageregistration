@@ -86,12 +86,14 @@ def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None =
         else:
             set_title_for_multi_image(fig, title)
 
-        add_rois_to_single_axes(ax, rois)
+        axes_for_row = [ax]
+        # add_rois_to_single_axes(ax, rois)
     elif grid_dims[1] == 1:
-        (fig, ax) = _DisplayImageList1D(image_data, image_titles)
+        (fig, axes) = _DisplayImageList1D(image_data, image_titles)
+        axes_for_row = [axes]
         set_title_for_multi_image(fig, title)
     elif grid_dims[1] > 1:
-        (fig, gs) = _DisplayImageList2D(image_data, grid_dims, image_titles, rois)
+        (fig, gs, axes_for_row) = _DisplayImageList2D(image_data, grid_dims, image_titles, rois)
         set_title_for_multi_image(fig, title)
 
     elif isinstance(input_params, collections.abc.Iterable):
@@ -128,7 +130,7 @@ def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None =
     else:
         return
 
-    add_rois(fig, grid_dims, rois)
+    add_rois(fig, grid_dims, axes_for_row, rois)
 
     fig.tight_layout()
 
@@ -169,12 +171,19 @@ def __all_rectangles(rois: Rectangle | Sequence[Rectangle | Sequence[Rectangle]]
         raise ValueError(f"Unexpected type for rois: {rois.__class__}")
 
 
-def add_rois(fig: plt.Figure, grid_dim: tuple[int, int], rois: Rectangle | Sequence[Rectangle] | None):
+def add_rois(fig: plt.Figure,
+             grid_dim: tuple[int, int],
+             axes_for_row: list[list[plt.Axes]],
+             rois: Rectangle | Sequence[Rectangle] | None):
     """Add the rois to the figure.  If there is one figure, add all rois to that figure.  
     If there are multiple figures and rois is a list of lists of equal length as the number of images then each roi list is added to the 
     corresponding images.  If rois is a list of only rectangles the rectangles are added to each image.
     """
-    if rois is None or len(rois) == 0:
+
+    if rois is None:
+        return
+
+    if isinstance(rois, Sequence) and len(rois) == 0:
         return
 
     if grid_dim == (1, 1):
@@ -188,10 +197,33 @@ def add_rois(fig: plt.Figure, grid_dim: tuple[int, int], rois: Rectangle | Seque
         elif len(rois) == math.prod(grid_dim):
             for i, ax in enumerate(fig.get_axes()):
                 add_rois_to_single_axes(ax, rois[i])
+        elif len(rois) == grid_dim[0]:
+            # Each row of the tuple corresponds to a row of the grid
+
+            for iRow, axes_row in enumerate(axes_for_row):
+                add_rois_to_axes_row(axes_row, rois[iRow])
         else:
             # Add each list of rois to the corresponding image, and stop when the list ends
             for ax in fig.get_axes():
                 add_rois_to_single_axes(ax, rois)
+
+
+def add_rois_to_axes_row(row_axes: Sequence[plt.Axes], rois: Sequence[Rectangle] | Rectangle | None):
+    """Add all of the rectangles to a row of Axes"""
+    if rois is None:
+        return
+    elif isinstance(rois, Rectangle):
+        for ax in row_axes:
+            add_rectangle(ax, rois)
+    else:
+        for ax, roi in zip(row_axes, rois):
+            if roi is None:
+                continue
+            elif not isinstance(roi, Rectangle):
+                raise ValueError(f"Unexpected type in roi list for single image: {roi.__class__} \n\twithin: {rois}")
+
+            add_rectangle(ax, roi)
+    return
 
 
 def add_rois_to_single_axes(ax: plt.Axes, rois: Rectangle | Sequence[Rectangle] | None):
@@ -398,11 +430,14 @@ def _DisplayImageList1D(input_params, image_titles: Sequence[str] | None = None)
 
 
 def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None = None, rois: Sequence[
-                                                                                                  nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None):
+                                                                                                  nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None) -> \
+        tuple[plt.Figure, matplotlib.gridspec.GridSpec, list[plt.Axes]]:
     (height, width) = grid_dims
     gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
     fig = plt.figure()
     # , axes = plt.subplots(height, width)
+
+    axes_for_row = []
 
     for (iRow, row_list) in enumerate(input_params):
 
@@ -416,6 +451,7 @@ def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None 
 
         if isinstance(row_list, np.ndarray):
             ax = fig.add_subplot(gs[iRow, :])  # axes[iRow, 0]
+            axes_for_row.append([ax])
             ax.imshow(row_list, cmap=plt.gray(), origin='lower', figure=fig, aspect='equal',
                       norm=matplotlib.colors.NoNorm())
 
@@ -428,6 +464,7 @@ def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None 
             continue
 
         numCols = len(row_list)
+        col_axes = []
         for iCol, image in enumerate(row_list):
             image = nornir_imageregistration.EnsureNumpyArray(image)
             # print("Row %d Col %d" % (iRow, iCol))
@@ -444,6 +481,7 @@ def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None 
 
             ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal',
                       norm=matplotlib.colors.NoNorm())
+            col_axes.append(ax)
 
             if row_titles is not None:
                 row_title = row_titles[iCol]
@@ -453,4 +491,6 @@ def _DisplayImageList2D(input_params, grid_dims, image_titles: list[str] | None 
                 roi = row_rois[iCol]
                 add_rectangle(ax, roi)
 
-    return fig, gs
+        axes_for_row.append(col_axes)
+
+    return fig, gs, axes_for_row
