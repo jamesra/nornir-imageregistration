@@ -136,7 +136,7 @@ def SliceToSliceRigidRegistration(target_image: nornir_imageregistration.ImageLi
                                   source_mask: nornir_imageregistration.ImageLike | None = None,
                                   LargestDimension: int | None = None,
                                   AngleSearchRange: Sequence[float] | None = None,
-                                  MinOverlap: float = 0.75,
+                                  MinOverlap: float = 0.5,
                                   WarpedImageScaleFactors=None,
                                   SingleThread: bool = False,
                                   Cluster: bool = False,
