@@ -306,6 +306,7 @@ def FindPeak(image: NDArray[np.floating],
             CutoffValue = result.cutoff_value
         except ValueError:
             cutoff_percent = 99.6
+            CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=cutoff_percent)
     else:
         cutoff_percent = Cutoff * 100
         CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=cutoff_percent)
