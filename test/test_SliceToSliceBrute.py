@@ -294,10 +294,10 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         timer = TaskTimer()
         timer.Start(f"\nSliceToSliceBrute WithMask - Cluster={Cluster} - SingleThread={SingleThread} - GPU={use_cp}")
 
-        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath,
-                                                                   WarpedImagePath,
-                                                                   FixedImageMaskPath,
-                                                                   WarpedImageMaskPath,
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(target_image=FixedImagePath,
+                                                                   source_image=WarpedImagePath,
+                                                                   target_mask=FixedImageMaskPath,
+                                                                   source_mask=WarpedImageMaskPath,
                                                                    LargestDimension=1024,
                                                                    AngleSearchRange=AngleSearchRange,
                                                                    WarpedImageScaleFactors=WarpedImageScaleFactors,
@@ -553,10 +553,10 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
         target_image_data = CreateRotatedAndOffsetImage(WarpedImagePath, WarpedImageMaskPath, angle,
                                                         offset)
 
-        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(FixedImagePath,
-                                                                   WarpedImagePath,
-                                                                   FixedImageMaskPath,
-                                                                   WarpedImageMaskPath,
+        AlignmentRecord = stos_brute.SliceToSliceRigidRegistration(target_image=FixedImagePath,
+                                                                   source_image=WarpedImagePath,
+                                                                   target_mask=FixedImageMaskPath,
+                                                                   source_mask=WarpedImageMaskPath,
                                                                    AngleSearchRange=AngleSearchRange,
                                                                    SingleThread=SingleThread,
                                                                    method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce)

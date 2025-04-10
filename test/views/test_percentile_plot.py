@@ -2,6 +2,7 @@ import os
 
 from nornir_imageregistration.mathfuncs import calculate_deviation
 import nornir_imageregistration.mathfuncs.plotproperties
+import nornir_imageregistration.type_info
 
 import setup_imagetest
 

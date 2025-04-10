@@ -109,7 +109,7 @@ def pad_and_rotate_image(image: NDArray,
     if desired_shape is None:
         desired_shape = (None, None)
 
-    rotated_image = rotate_image(image, angle=angle, image_stats=image_stats)
+    rotated_image = rotate_image(image, angle=angle, image_stats=image_stats) if angle != 0 else image
 
     # if desired_shape is not None and rotated_image.shape[0] > desired_shape[0] or rotated_image.shape[1] > desired_shape[1]:
     #    raise ValueError("Need to add support to pad_and_rotate_image for expanding the desired image size")

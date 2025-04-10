@@ -781,15 +781,15 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         # So the transform runs an inverse transform to obtain the source point, which may be slightly off.
         AlignTask = pool.add_task(f"Align {key}",
                                   AttemptAlignPoint,
-                                  rigid_transforms[i],
-                                  settings.target_image_meta,  # Send the shared file to the task
-                                  settings.source_image_meta,  # Send the shared file to the task
+                                  transform=rigid_transforms[i],
+                                  targetImage=settings.target_image_meta,  # Send the shared file to the task
+                                  sourceImage=settings.source_image_meta,  # Send the shared file to the task
                                   # settings.target_mask,
                                   # settings.source_mask,
-                                  settings.target_image_stats,
-                                  settings.source_image_stats,
-                                  targetPoint,
-                                  settings.cell_size,
+                                  target_image_stats=settings.target_image_stats,
+                                  source_image_stats=settings.source_image_stats,
+                                  target_controlpoint=targetPoint,
+                                  alignmentArea=settings.cell_size,
                                   anglesToSearch=settings.angles_to_search,
                                   min_alignment_overlap=settings.min_alignment_overlap)
         # AlignTask = StartAttemptAlignPoint(pool,
@@ -1449,7 +1449,6 @@ def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITrans
     """
     Given a set of alignment points, try to align the points again.  If we get a stronger score then
     replace the alignment with the higher scoring result
-    
     """
 
     items = alignment_records.items()

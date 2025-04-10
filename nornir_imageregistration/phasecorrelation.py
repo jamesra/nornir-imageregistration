@@ -5,9 +5,9 @@ from numpy.typing import NDArray
 
 from typing import NamedTuple
 
-import nornir_shared.prettyoutput as prettyoutput
 import nornir_imageregistration
 from nornir_imageregistration.core import (DimensionWithOverlap, GenRandomData, NearestPowerOfTwoWithOverlap)
+from nornir_imageregistration.mathfuncs import CutoffMethod
 
 try:
     import cupy as cp
@@ -289,15 +289,26 @@ def FindPeak(image: NDArray[np.floating],
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
+    ThresholdImage = xp.copy(image)
+    if OverlapMask is not None:
+        ThresholdImage[xp.logical_not(OverlapMask)] = 0
+
     if Cutoff is None:
-        percentiles = np.linspace(0.95, 1, 101)
+        percentiles = np.linspace(0.95, 1, 101) * 100
         try:
-            result = nornir_imageregistration.mathfuncs.estimate_cutoff(image.flat, percentiles)
+            result = nornir_imageregistration.mathfuncs.estimate_cutoff(image[OverlapMask].flat,
+                                                                        percentiles,
+                                                                        polyfit_degree=2,
+                                                                        method=CutoffMethod.Raw) if OverlapMask is not None else \
+                nornir_imageregistration.mathfuncs.estimate_cutoff(image.flat, percentiles, polyfit_degree=2,
+                                                                   method=CutoffMethod.Raw)
             cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
+            CutoffValue = result.cutoff_value
         except ValueError:
             cutoff_percent = 99.6
     else:
         cutoff_percent = Cutoff * 100
+        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=cutoff_percent)
 
         # Cutoff = 0.996
     #        num_pixels = np.prod(image.shape)
@@ -308,14 +319,8 @@ def FindPeak(image: NDArray[np.floating],
     # CutoffValue = ImageIntensityAtPercent(image, Cutoff)
 
     # CutoffValue = scipy.stats.scoreatpercentile(image, per=Cutoff * 100.0)
-    ThresholdImage = xp.copy(image)  # np.copy(image)
+    # ThresholdImage = xp.copy(image)  # np.copy(image)
     # OverlapMask = cp.array(OverlapMask)
-
-    if OverlapMask is not None:
-        CutoffValue = xp.percentile(ThresholdImage[OverlapMask], q=cutoff_percent)
-        ThresholdImage[xp.logical_not(OverlapMask)] = 0
-    else:
-        CutoffValue = xp.percentile(ThresholdImage, q=cutoff_percent)
 
     ThresholdImage[ThresholdImage < CutoffValue] = 0
 

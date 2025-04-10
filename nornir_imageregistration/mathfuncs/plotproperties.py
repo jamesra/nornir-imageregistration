@@ -3,7 +3,6 @@ import enum
 from typing import NamedTuple
 
 import numpy as np
-from numpy._typing import NDArray
 from numpy.typing import NDArray
 from typing import NamedTuple
 
@@ -144,18 +143,23 @@ def estimate_cutoff(records: NDArray[float],
     percentiles = np.linspace(0, 100, 101) if percentiles is None else np.sort(percentiles)
     percentile_values = np.percentile(records, percentiles)
 
-    # Add a polyfit to the linear line
-    degree = 5 if polyfit_degree is None else polyfit_degree
+    if method != CutoffMethod.Raw:
+        # Sort the percentiles and values
+        # Add a polyfit to the linear line
+        degree = 5 if polyfit_degree is None else polyfit_degree
 
-    if degree < 1:
-        raise ValueError("Polyfit degree must be at least 1")
+        if degree < 1:
+            raise ValueError("Polyfit degree must be at least 1")
 
-    coefficients = np.polyfit(percentiles, percentile_values, degree)
-    # Generate the polynomial function from the coefficients
-    polynomial = np.poly1d(coefficients)
-    y_fit = polynomial(percentiles)
+        coefficients = np.polyfit(percentiles, percentile_values, degree)
+        # Generate the polynomial function from the coefficients
+        polynomial = np.poly1d(coefficients)
+        y_fit = polynomial(percentiles)
 
-    inflection_results = find_inflection_points(percentiles, y_fit)
+        inflection_results = find_inflection_points(percentiles, y_fit)
+    else:
+        inflection_results = find_inflection_points(percentiles, percentile_values)
+        y_fit = None
 
     if len(inflection_results.indicies) == 0:
         raise ValueError("No inflection points found in the data")
