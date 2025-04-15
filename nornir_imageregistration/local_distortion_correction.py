@@ -1121,7 +1121,11 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
 
 def calculate_offset(source_points: NDArray[np.floating],
                      cell_size: NDArray | None = None) -> NDArray[np.floating]:
-    """Figure out how much to translate each point along the x-axis to estimate the angle of rotation at each point"""
+    """
+    Figure out how much to translate each point along the x-axis to estimate the angle of rotation at each point.
+    :param cell_size: If provided, the answer is one half of the width.  If None, we will use half the distance between the closest two points to estimate the cell size
+    :return: A distance that we should create points at to estimate a rigid transform around a given source point
+    """
     # translate the target points a distance on the x-axis, and estimate the angle to determine the rotation
     xp = cp.get_array_module(source_points)
 
@@ -1145,16 +1149,16 @@ def _calculate_offset_ring(source_point: NDArray[np.floating],
                            nPoints: int = 8) -> NDArray[np.floating]:
     """
     Create a set of points in a circle around a source point that will be transformed to estimate a rigid transform
-    :param source_point:
-    :param offset:
-    :param nPoints:
+    :param source_point: The point we will create a circle around
+    :param offset:  The radius of the circle we will create around each source point
+    :param nPoints: The number of points around the radius of the circle
     :return:
     """
     xp = cp.get_array_module(source_point)
 
     angles = xp.linspace(0, 2 * xp.pi, nPoints, endpoint=False)
     offsets = xp.vstack((xp.cos(angles), xp.sin(angles))).T * offset
-    offsets = offsets + source_point
+    offsets += source_point
     offsets = xp.vstack((source_point, offsets))
     return offsets
 
@@ -1182,6 +1186,10 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     We treat each point in source_points individually.  We create a field of eight points around a circle centered on the source point.
     We then transform these points to the target space and calculate the angle of rotation to align the points.
+
+    :param input_transform: The transform we will use to estimate the rigid transform
+    :param source_points: The points we will use to estimate the rigid transform
+    :param cell_size: The size of the cell we will use to estimate the rigid transform.  If None, we will use half the distance between the closest two points to estimate the cell size
     """
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
@@ -1198,6 +1206,7 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     for iPoint in range(0, numPoints):
         source_point = source_points[iPoint, :]
 
+        # Using the actual cell size can help avoid wildly incorrect scale values for the estimates rigid transforms
         offset = calculate_offset(source_points, cell_size)
         offset_distance = xp.linalg.norm(offset)
 
