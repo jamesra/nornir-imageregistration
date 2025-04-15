@@ -1078,7 +1078,9 @@ an be offset before it is not eligible for finalization
 
 
 def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistration.ITransform,
-                                            target_points: NDArray) -> list[nornir_imageregistration.transforms.Rigid]:
+                                            target_points: NDArray,
+                                            cell_size: NDArray[int] | None = None) -> list[
+    nornir_imageregistration.transforms.Rigid]:
     """
     Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
     """
@@ -1092,7 +1094,7 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
 
     source_points = input_transform.InverseTransform(target_points)
 
-    return ApproximateRigidTransformBySourcePoints(input_transform, source_points)
+    return ApproximateRigidTransformBySourcePoints(input_transform, source_points, cell_size)
     # translate the target points by 1, and find the angle between the source points
     # offset = np.array([0, 1])
     # offset_source_points = source_points + offset
@@ -1301,6 +1303,23 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     return target_image_roi, source_image_roi
 
 
+def EnsureMaxContrast(image: NDArray) -> NDArray:
+    """
+    Ensures that the image has a min value of 0 and a max value of 1
+    :param image:
+    :return:
+    """
+
+    minval = image.min()
+    maxval = image.max()
+
+    if minval == 0 and maxval == 1:
+        return image
+
+    range = maxval - minval
+    return (image - image.min()) / range
+
+
 def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                            taskname: str,
                            transform: nornir_imageregistration.ITransform,
@@ -1320,7 +1339,8 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
         anglesToSearch = np.union1d(anglesToSearch, [0])
 
     rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
-                                                              target_points=target_controlpoint)
+                                                              target_points=target_controlpoint,
+                                                              cell_size=alignmentArea)
 
     target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
                                                             targetImage_param=targetImage,
@@ -1330,6 +1350,9 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                                                             target_controlpoint=target_controlpoint,
                                                             alignmentArea=alignmentArea,
                                                             description=taskname)
+
+    target_image_roi = EnsureMaxContrast(target_image_roi)
+    source_image_roi = EnsureMaxContrast(source_image_roi)
 
     # Just ignore pure color regions
     if not np.any(target_image_roi != target_image_roi[0][0]):
@@ -1389,7 +1412,8 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
     rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
-                                                              target_points=target_controlpoint)
+                                                              target_points=target_controlpoint,
+                                                              cell_size=alignmentArea)
 
     target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
                                                             targetImage_param=targetImage,

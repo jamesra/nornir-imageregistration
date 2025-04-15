@@ -327,7 +327,7 @@ import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
     IGridTransform, ITriangulatedSourceSpace, ITriangulatedTargetSpace, ITransformRelativeScaling, \
-    IRigidTransform
+    IRigidTransform, ITransfomFlip, IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms
