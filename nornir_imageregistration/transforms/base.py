@@ -93,6 +93,14 @@ class ITransformScaling(ABC):
         raise NotImplementedError()
 
 
+class ITransfomFlip(ABC):
+    """Supports flipping the target and source space independently of each other"""
+
+    def Flip(self):
+        """Flip the target and source space independently of each other"""
+        raise NotImplementedError()
+
+
 class ITransformRelativeScaling(ABC):
     """Supports scaling of target space or source space independently of each other"""
 

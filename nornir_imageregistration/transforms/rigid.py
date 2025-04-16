@@ -191,7 +191,7 @@ class RigidNoRotation(RigidTranslation):
     pass
 
 
-class Rigid(base.ITransformSourceRotation, RigidTranslation):
+class Rigid(base.ITransformSourceRotation, base.ITransfomFlip, RigidTranslation):
     """
     Applies a rotation+translation transform
     The order of operations is:
@@ -389,6 +389,13 @@ class Rigid(base.ITransformSourceRotation, RigidTranslation):
         self._target_offset = self._target_offset - nornir_imageregistration.EnsurePointsAre1DArray(offset)
         self._update_transform_matrix()
         self.OnTransformChanged()
+
+    def Flip(self):
+        """Flip the Y axis"""
+        self._flip_ud = not self._flip_ud
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+        return self
 
     def __repr__(self):
         return f"Offset: {self._target_offset[0]:03g}y,{self._target_offset[1]:03g}x Flip: {self.flip_ud} Angle: {self.angle:03g}r Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"

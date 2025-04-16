@@ -39,7 +39,7 @@ from nornir_imageregistration.transforms.base import ITransform, ITransformChang
     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit, \
-    IRigidTransform
+    IRigidTransform, ITransfomFlip
 
 import nornir_imageregistration.transforms.pointrelations as pointrelations
 from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, are_points_colinear, \

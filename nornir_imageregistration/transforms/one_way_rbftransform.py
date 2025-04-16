@@ -313,22 +313,27 @@ class OneWayRBFWithLinearCorrection(Triangulation):
             # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
 
             return np.hstack([WeightsX, WeightsY]), use_rigid_transform
+        except np.linalg.LinAlgWarning as e:
+
+            raise
         except np.linalg.LinAlgError as e:
             if e.args[0] == 'Matrix is singular.':
                 # This is a distraction for now, but I should be able to fill in these weights correctly
                 # rigid_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(ControlPoints,WarpedPoints)
-                source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
+                # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
+                #     ControlPoints, WarpedPoints)
+                result = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
                     ControlPoints, WarpedPoints)
-
+                rotation_matrix = nornir_imageregistration.transforms.RotationMatrix(np.radians(result.angle))
                 WeightsY = np.zeros(SolutionMatrix_Y.shape)
                 WeightsY[-3] = rotation_matrix[0, 1]
-                WeightsY[-2] = scale
-                WeightsY[-1] = translation[0]
+                WeightsY[-2] = result.scale
+                WeightsY[-1] = result.translation[0]
 
                 WeightsX = np.zeros(SolutionMatrix_X.shape)
                 WeightsX[-3] = rotation_matrix[0, 0]
-                WeightsX[-2] = scale
-                WeightsX[-1] = translation[1]
+                WeightsX[-2] = result.scale
+                WeightsX[-1] = result.translation[1]
 
                 # WeightsY = np.zeros(SolutionMatrix_Y.shape)
                 # WeightsY[-3] = rotation_matrix[1, 0]

@@ -16,11 +16,12 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import utils
-from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform
+from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransfomFlip
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 
-class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents, metaclass=ABCMeta):
+class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, DefaultTransformChangeEvents,
+                       metaclass=ABCMeta):
     def __init__(self, pointpairs: NDArray[np.floating]):
         """
         :param pointpairs: [TargetY TargetX SourceY SourceX]
@@ -303,6 +304,14 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, DefaultTransformChang
         # rotatedtemp = (self.forward_rotation_matrix @ centered_points.T).T
         # rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
         # return rotatedtemp
+
+    def Flip(self):
+        """Flip the target and source space independently of each other"""
+        flipped_target = self.TargetPoints
+        flippped_target_mirror_axis = ((flipped_target.max() - flipped_target.min()) / 2) + flipped_target.min()
+        flipped_target = -flipped_target + (2 * flippped_target_mirror_axis)
+        self.points[:, :2] = flipped_target
+        self.OnTransformChanged()
 
 
 class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents,
