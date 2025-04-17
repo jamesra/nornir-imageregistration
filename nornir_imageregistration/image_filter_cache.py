@@ -3,6 +3,7 @@ Implements a class that caches filter windows for use in image processing.  Exam
 
 """
 import shutil
+import multiprocessing
 
 from skimage.filters import window
 import numpy as np
@@ -49,7 +50,9 @@ class WindowFilterCache:
 
     def __del__(self):
         try:
-            shutil.rmtree(self.cache_dir)
+            # Only delete cache directory if we're in the parent process
+            if multiprocessing.current_process().name == 'MainProcess':
+                shutil.rmtree(self.cache_dir)
         except IOError:
             prettyoutput.LogErr("Unable to delete filter cache directory: %s" % self.cache_dir)
             pass
