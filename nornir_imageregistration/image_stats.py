@@ -194,26 +194,9 @@ class ImageStats:
         use_cp = nornir_imageregistration.UsingCupy()
 
         xp = cp if use_cp else numpy
-        with warnings.catch_warnings(record=True) as w:
+        with nornir_imageregistration.IgnoreUnderAndOverflow:
             data = ((random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
-
-            if w:
-                for warning in w:
-                    if issubclass(warning.category, RuntimeWarning):
-                        if warning.message and warning.message.args and len(warning.message.args) > 0:
-                            message = warning.message.args[0]
-                            if 'overflow' in message and nornir_imageregistration.in_debug_mode():
-                                # prettyoutput.LogErr(
-
-                                prettyoutput.LogErr(
-                                    f"Overflow error generating random image. StdDev={self.std} median={self.median}")
-                            elif 'underflow' in message and nornir_imageregistration.in_debug_mode():
-                                # prettyoutput.LogErr(
-                                prettyoutput.LogErr(
-                                    f"Underflow error generating random image. StdDev={self.std} median={self.median}")
-                            else:
-                                warnings.warn(message, RuntimeWarning)
-
+  
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
 
         return data

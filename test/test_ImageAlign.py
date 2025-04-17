@@ -28,7 +28,7 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         self.FixedImage = imread(self.FixedImagePath)
         self.assertIsNotNone(self.FixedImage)
 
-        self.PaddedFixedImage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(self.FixedImage)
+        self.PaddedFixedImage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(self.FixedImage)
         self.assertIsNotNone(self.PaddedFixedImage)
 
     def testPhaseCorrelationToSelf(self):
@@ -38,10 +38,10 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         WarpedImage = imread(WarpedImagePath)
         self.assertIsNotNone(WarpedImage)
 
-        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(WarpedImage)
+        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = nornir_imageregistration.phasecorrelation.FindOffset(self.PaddedFixedImage, PaddedWarpedImage,
+        record = nornir_imageregistration.phasecorrelation.find_offset(self.PaddedFixedImage, PaddedWarpedImage,
                                                                       target_shape=self.FixedImage.shape,
                                                                       source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
@@ -61,10 +61,10 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         WarpedImage = imread(WarpedImagePath)
         self.assertIsNotNone(WarpedImage)
 
-        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(WarpedImage)
+        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = nornir_imageregistration.phasecorrelation.FindOffset(self.PaddedFixedImage, PaddedWarpedImage,
+        record = nornir_imageregistration.phasecorrelation.find_offset(self.PaddedFixedImage, PaddedWarpedImage,
                                                                       target_shape=self.FixedImage.shape,
                                                                       source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
@@ -90,16 +90,16 @@ class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
         FixedImage = imread(FixedImagePath)
         self.assertIsNotNone(FixedImage)
 
-        PaddedFixedImage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(FixedImage)
+        PaddedFixedImage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(FixedImage)
         self.assertIsNotNone(PaddedFixedImage)
 
         WarpedImage = imread(WarpedImagePath)
         self.assertIsNotNone(WarpedImage)
 
-        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(WarpedImage)
+        PaddedWarpedImage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(WarpedImage)
         self.assertIsNotNone(PaddedWarpedImage)
 
-        record = nornir_imageregistration.phasecorrelation.FindOffset(PaddedFixedImage, PaddedWarpedImage,
+        record = nornir_imageregistration.phasecorrelation.find_offset(PaddedFixedImage, PaddedWarpedImage,
                                                                       target_shape=FixedImage.shape,
                                                                       source_shape=WarpedImage.shape)
         self.assertIsNotNone(record)
