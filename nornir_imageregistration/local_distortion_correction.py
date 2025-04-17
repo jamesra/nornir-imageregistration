@@ -293,10 +293,10 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
     :param min_unmasked_area:
     :param StosFile InputStos: Either a file path or StosFile object.  This is the stosfile to be refined.
     :param OutputStosPath: Path to save the refined stos file at.
-cell_size: (width, height) area of image around control points to use for registration
+    :param cell_size: (width, height) area of image around control points to use for registration
     :param grid_spacing: (width, height) of separation between control points on the grid
     :param angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-r plots of each iteration in the output path for debugging purposes
+    :param SavePlots: Save plots of each iteration in the output path for debugging purposes
     :param final_pass_angles: Angles to check at the final pass
     """
 
@@ -359,7 +359,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     """
     Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
     takes an initial transform and creates a regular grid of points.  points covered more than
-    
+
     Places a regular grid of control points across the target image.  These corresponding points on the
     source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
     :param settings:
@@ -693,7 +693,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
 
     # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
 
-    # Create 
+    # Create target points from grid coordinates
     #    TargetPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
 
     # Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
@@ -1040,11 +1040,11 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList
                                           percentile: float = 0.5, max_travel_distance: float = 1.0,
                                           weight_cutoff: float | None = None) -> NDArray[np.bool_]:
     """
-    :param alignment_records:
-    :param weight_cutoff:
+    :param alignment_records: List of alignment records to evaluate
+    :param weight_cutoff: Minimum weight for a point to be considered for finalization
     :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
-an be offset before it is not eligible for finalization
-    :return (array, cutoff): logical mask indicating which points meet the threshold to be finalized and cutoff value used/calculated
+    :param max_travel_distance: Maximum distance a point can be offset before it is not eligible for finalization
+    :return: logical mask indicating which points meet the threshold to be finalized
 
     """
     weights_distance = _alignment_records_to_composite_scores(alignment_records)
