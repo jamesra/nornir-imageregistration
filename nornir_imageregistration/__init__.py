@@ -290,7 +290,7 @@ from nornir_shared.mathhelper import NearestPowerOfTwo, RoundingPrecision
 
 import nornir_imageregistration.runtime_warnings as runtime_warnings
 from nornir_imageregistration.runtime_warnings import IgnoreRuntimeWarnings, IgnoreUnderflow, IgnoreOverflow, \
-    IgnoreUnderAndOverflow
+    IgnoreUnderAndOverflow, IgnoreLinAlgWarning
 
 import nornir_imageregistration.shared_mem_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata

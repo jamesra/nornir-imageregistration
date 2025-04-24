@@ -300,22 +300,20 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         thread_pool = nornir_pools.GetGlobalThreadPool()
 
         try:
-            Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
-                                          overwrite_b=True,
-                                          check_finite=False)
-            WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
-            WeightsY = Y_Task.wait_return()
+            with nornir_imageregistration.IgnoreLinAlgWarning() as context:
+                Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
+                                              overwrite_b=True,
+                                              check_finite=False)
+                WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
+                WeightsY = Y_Task.wait_return()
 
             if np.allclose(WeightsX[0:-3], 0) and np.allclose(WeightsY[0:-3], 0):
                 # prettyoutput.Log("RBF transform is approximately Rigid")
                 use_rigid_transform = True
 
-            # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
+                # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(ControlPoints, WarpedPoints)
 
             return np.hstack([WeightsX, WeightsY]), use_rigid_transform
-        except np.linalg.LinAlgWarning as e:
-
-            raise
         except np.linalg.LinAlgError as e:
             if e.args[0] == 'Matrix is singular.':
                 # This is a distraction for now, but I should be able to fill in these weights correctly

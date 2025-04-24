@@ -194,9 +194,9 @@ class ImageStats:
         use_cp = nornir_imageregistration.UsingCupy()
 
         xp = cp if use_cp else numpy
-        with nornir_imageregistration.IgnoreUnderAndOverflow:
+        with nornir_imageregistration.IgnoreUnderAndOverflow():
             data = ((random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
-  
+
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
 
         return data
