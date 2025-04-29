@@ -15,6 +15,7 @@ from typing import Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+import nornir_imageregistration
 import nornir_pools
 from nornir_imageregistration.transformed_image_data import ITransformedImageData
 
@@ -27,6 +28,9 @@ from nornir_imageregistration.transformed_image_data import ITransformedImageDat
 
 
 class TransformedImageDataViaTempFile(ITransformedImageData):
+    """
+    Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
+    """
     _image_path: str
     _centerDistanceImage_path: str
     _image: NDArray[np.floating]
@@ -38,10 +42,6 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
 
     _temp_folder_created = False
     sharedTempRoot = None
-
-    '''
-    Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
-    '''
 
     tempfile_threshold = 64 * 64
 
@@ -166,7 +166,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
 
             # Create the temporary directory if it doesn't exist
             if not TransformedImageDataViaTempFile._temp_folder_created:
-                temp_dir = os.environ['NORNIR_TEMP_DIR'] if 'NORNIR_TEMP_DIR' in os.environ else tempfile.gettempdir()
+                temp_dir = nornir_imageregistration.gettempdir()
                 TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(
                     prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
                 TransformedImageDataViaTempFile._temp_folder_created = True

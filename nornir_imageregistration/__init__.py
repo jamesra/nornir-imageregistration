@@ -67,6 +67,9 @@ def default_depth_image_dtype() -> DTypeLike:
 import nornir_imageregistration.debugging as debugging
 from nornir_imageregistration.debugging import in_debug_mode
 
+import nornir_imageregistration.temporaryfiles as temporaryfiles
+from nornir_imageregistration.temporaryfiles import gettempdir
+
 import nornir_imageregistration.mathfuncs as math
 
 import nornir_imageregistration.type_info as typing
