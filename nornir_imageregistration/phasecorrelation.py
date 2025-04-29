@@ -2,6 +2,21 @@
 Phase correlation module for image registration.
 
 This module provides functions for aligning images using phase correlation techniques.
+
+The phase correlation method is based on the Fourier shift theorem, which states that
+a shift in the spatial domain corresponds to a linear phase change in the frequency domain.
+By computing the cross-power spectrum of two images and finding the location of the peak
+in the inverse Fourier transform, we can determine the relative shift between the images.
+
+Key functions:
+- pad_image_for_phase_correlation: Prepares an image for phase correlation by padding it
+- image_phase_correlation: Calculates the phase correlation between two images
+- fft_phase_correlation: Calculates the phase correlation between two FFT-transformed images
+- find_peak: Finds the peak in a phase correlation image
+- find_offset: Finds the alignment between two images using phase correlation
+
+This module supports both CPU (numpy) and GPU (cupy) computation, automatically selecting
+the appropriate backend based on availability.
 """
 from typing import NamedTuple, Optional, Tuple, Union
 
@@ -210,17 +225,9 @@ def fft_phase_correlation(fft_target: NDArray[np.floating],
     :return: Correlation image of the FFT's. Light pixels indicate the phase is well aligned at that offset.
     :rtype: NDArray[np.floating]
     :raises ValueError: If the dimensions of fft_target and fft_source do not match.
-    """
-
-    if correlation_coefficient is None:
-        correlation_coefficient = 0.65
-
-    if not (fft_target.shape == fft_source.shape):
-        # TODO, we should pad the smaller image in this case to allow the comparison to continue
-        raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
-
+    :note:
     # --------------------------------
-    # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
+    # This is a working implementation of the phase correlation algorithm.  This code has been optimized and somewhat obfuscated as a result
     # code has been obfuscated more than I like
     # FFTFixed = fftpack.rfft2(FixedImage)
     # FFTMoving = fftpack.rfft2(MovingImage)
@@ -230,40 +237,54 @@ def fft_phase_correlation(fft_target: NDArray[np.floating],
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
+    """
 
+    if correlation_coefficient is None:
+        correlation_coefficient = 0.65
+
+    if not (fft_target.shape == fft_source.shape):
+        # TODO, we should pad the smaller image in this case to allow the comparison to continue
+        raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
+
+    # Ensure that correlation_coefficient is between 0 and 1
+    if correlation_coefficient < 0 or correlation_coefficient > 1:
+        raise ValueError("correlation_coefficient must be between 0 and 1")
+
+    # Get the array module (numpy or cupy) based on the input arrays
     xp = cp.get_array_module(fft_target)
-    # sp = cupyx.scipy.get_array_module(FFTFixed)
 
+    # Step 1: Calculate the complex conjugate of the target FFT
     conj_fft_target = xp.conjugate(fft_target)
     if delete_input:
-        del fft_target
+        del fft_target  # Free memory if requested
 
+    # Step 2: Multiply the conjugate of the target FFT with the source FFT
+    # This is the cross-power spectrum
     conj_fft_target *= fft_source
 
     if delete_input:
-        del fft_source
+        del fft_source  # Free memory if requested
 
+    # Step 3: Normalize the cross-power spectrum
+    # This step is what makes it "phase correlation" rather than just cross-correlation
     abs_conj_target_fft = xp.absolute(conj_fft_target)
 
-    # Based on talk with Art Wetzel, apparently wht_expon = 1 is Phase Correlation.  0 is Pierson Correlation
+    # Only normalize values above a small threshold to avoid division by zero
     mask = abs_conj_target_fft > 1e-5
-    # conj_fft_target[wht_mask] /= wht_scales  # Numerator / Divisor
-    # conj_fft_target[mask] /= abs_conj_target_fft[mask]
-    conj_fft_target[mask] /= xp.power(abs_conj_target_fft[mask], correlation_coefficient)
-    # assert (np.array_equiv(WconjFFTFixed, conj_fft_target[mask]))
-    del mask
 
-    # wht_expon_adjustment = np.power(np.absolute(conj_fft_target[mask]), wht_expon)
-    # conj_fft_target[mask] *= wht_expon_adjustment
-    # wht_mask = conj_fft_target > 1e-5
-    # conj_fft_target[wht_mask] *= np.power(conj_fft_target[wht_mask], -0.65)
-    # del wht_expon_adjustment
+    # The correlation_coefficient controls the type of correlation:
+    # - 1.0: Pure phase correlation (normalizes by absolute value)
+    # - 0.0: Pearson correlation (no normalization)
+    # - 0.65: Default, a blend that often works well in practice
+    conj_fft_target[mask] /= xp.power(abs_conj_target_fft[mask], correlation_coefficient)
+    del mask
     del abs_conj_target_fft
 
-    CorrelationImage = xp.real(fftpack.ifft2(conj_fft_target))
-    del conj_fft_target
+    # Step 4: Inverse FFT to get the correlation image
+    correlation_image = xp.real(fftpack.ifft2(conj_fft_target))
+    del conj_fft_target  # Free memory
 
-    return CorrelationImage
+    return correlation_image
 
 
 class FindPeakResult(NamedTuple):
@@ -296,39 +317,61 @@ def find_peak(image: NDArray[np.floating],
     :return: A named tuple containing the offset of the peak, the strength of the peak, the cutoff value, and the cutoff percentile
     :rtype: FindPeakResult
     """
+    # Get the appropriate array module (numpy or cupy) based on the input image
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
+    # Create a copy of the image for thresholding
     threshold_image = xp.copy(image)
+
+    # Apply the overlap mask if provided
     if overlap_mask is not None:
         threshold_image[xp.logical_not(overlap_mask)] = 0
 
+    # Determine the cutoff value for thresholding
     if cutoff is None:
+        # Use percentiles between 95% and 100% to find an optimal cutoff
         percentiles = np.linspace(0.95, 1, 101) * 100
         try:
-            result = nornir_imageregistration.mathfuncs.estimate_cutoff(
-                image[overlap_mask].flat,
-                percentiles,
-                polyfit_degree=2,
-                method=CutoffMethod.Raw
-            ) if overlap_mask is not None else nornir_imageregistration.mathfuncs.estimate_cutoff(
-                image.flat,
-                percentiles,
-                polyfit_degree=2,
-                method=CutoffMethod.Raw
-            )
+            # Use the estimate_cutoff function to automatically determine the best cutoff
+            if overlap_mask is not None:
+                result = nornir_imageregistration.mathfuncs.estimate_cutoff(
+                    image[overlap_mask].flat,
+                    percentiles,
+                    polyfit_degree=2,
+                    method=CutoffMethod.Raw
+                )
+            else:
+                result = nornir_imageregistration.mathfuncs.estimate_cutoff(
+                    image.flat,
+                    percentiles,
+                    polyfit_degree=2,
+                    method=CutoffMethod.Raw
+                )
             cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
             cutoff_value = result.cutoff_value
         except ValueError:
+            # Fallback to a fixed percentile if automatic estimation fails
             cutoff_percent = 99.6
             cutoff_value = xp.percentile(threshold_image[overlap_mask], q=cutoff_percent)
     else:
+        # Use the provided cutoff value
         cutoff_percent = cutoff * 100
         cutoff_value = xp.percentile(threshold_image[overlap_mask], q=cutoff_percent)
 
+    # Apply thresholding - set all values below the cutoff to zero
     threshold_image[threshold_image < cutoff_value] = 0
 
+    # Label connected components in the thresholded image
     [label_image, num_labels] = sp.ndimage.label(threshold_image)
+
+    # If no labels were found, there are no peaks
+    if num_labels == 0:
+        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
+        peak_strength = 0
+        return FindPeakResult(scaled_offset, peak_strength, 0, 0)
+
+    # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
     label_sums = sp.ndimage.sum_labels(threshold_image, label_image, xp.array(range(1, num_labels + 1)))
 
@@ -337,26 +380,28 @@ def find_peak(image: NDArray[np.floating],
         peak_strength = 0
         return FindPeakResult(scaled_offset, peak_strength, 0, 0)
     else:
+        # Find the label with the highest sum (strongest peak)
         peak_value_index = label_sums.argmax()
         peak_strength = label_sums[peak_value_index]
+
+        # Calculate the center of mass for the strongest peak
         # Because we offset the sum_labels call by 1, we must do the same for the peak_value_index
         peak_center_of_mass = sp.ndimage.center_of_mass(threshold_image, label_image, int(peak_value_index + 1))
 
+        # Calculate signal-to-noise ratio
         mean_pixel = xp.mean(image[overlap_mask])
         peak_pixel = sp.ndimage.maximum(threshold_image, label_image, int(peak_value_index + 1))
         signal_to_noise = peak_pixel / mean_pixel
 
-        ########################################################################
-        # This was my original implementation to understand signal strength.
-        # Art Wetzel convinced me to use signal to noise by dividing the
-        # peak pixel intensity by the median pixel intensity
-
-        # center_of_mass returns results as (y,x)
+        # Convert from cupy to numpy if using cupy
         if nornir_imageregistration.UsingCupy():
             peak_center_of_mass = np.array((cp.asnumpy(peak_center_of_mass[0]), cp.asnumpy(peak_center_of_mass[1])))
 
+        # Calculate the offset from the center of the image
+        # The center of mass is in (y,x) format, and the offset is from the center of the image
         scaled_offset = (np.asarray(image.shape) / 2.0) - peak_center_of_mass
 
+        # Clean up memory
         del label_image
         del threshold_image
         del label_sums
