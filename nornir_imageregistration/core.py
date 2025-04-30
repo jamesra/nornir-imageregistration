@@ -959,6 +959,9 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
             # if image.dtype == np.float16:
             #    image = image.astype(np.float32)
 
+            if image.dtype == np.float16:
+                im = image.astype(np.float32)
+
             im = Image.fromarray(image * ((1 << bpp) - 1))
             im = im.convert('I')
         else:
