@@ -4,13 +4,13 @@ from numpy.typing import DTypeLike, NDArray
 
 try:
     import cupy as cp
-    #import cupyx
+    # import cupyx
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    # import cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    #import cupyx_thunk as cupyx
+    # import cupyx_thunk as cupyx
 
 
 class memmap_metadata(object):
@@ -54,18 +54,19 @@ class memmap_metadata(object):
         self._dtype = dtype
         self._mode = None
         self.mode = mode
-
-
-def CreateTemporaryReadonlyMemmapFile(npArray: NDArray) -> memmap_metadata:
-    with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False) as hFile:
-        TempFullpath = hFile.name
-        hFile.close()
-    memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
-    if isinstance(npArray, cp.ndarray):
-        memImage[:] = npArray.get()[:]
-    else:
-        memImage[:] = npArray[:]
-    memImage.flush()
-    del memImage
-    # np.save(TempFullpath, npArray)
-    return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)
+#
+#
+# def CreateTemporaryReadonlyMemmapFile(npArray: NDArray) -> memmap_metadata:
+#     with tempfile.NamedTemporaryFile(suffix='.memmap', delete=False,
+#                                      dir=os.path.join(nornir_imageregistration.gettempdir(), "memmap")) as hFile:
+#         TempFullpath = hFile.name
+#         hFile.close()
+#     memImage = np.memmap(TempFullpath, dtype=npArray.dtype, shape=npArray.shape, mode='w+')
+#     if isinstance(npArray, cp.ndarray):
+#         memImage[:] = npArray.get()[:]
+#     else:
+#         memImage[:] = npArray[:]
+#     memImage.flush()
+#     del memImage
+#     # np.save(TempFullpath, npArray)
+#     return memmap_metadata(path=TempFullpath, shape=npArray.shape, dtype=npArray.dtype)

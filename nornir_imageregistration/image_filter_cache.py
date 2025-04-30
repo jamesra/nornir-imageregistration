@@ -41,7 +41,7 @@ class WindowFilterCache:
         """
 
         self._name = name
-        self.cache_dir = os.path.join(tempfile.gettempdir(), name)
+        self.cache_dir = os.path.join(nornir_imageregistration.gettempdir(), name)
         self._creation_function = creation_function
         self._dtype = dtype if dtype is not None else nornir_imageregistration.default_depth_image_dtype()
         self._loaded_images = dict()

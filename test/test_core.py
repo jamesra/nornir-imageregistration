@@ -332,7 +332,7 @@ class TestCore(setup_imagetest.ImageTestBase):
 #
 #        image = imread(self.FixedImagePath)
 #
-#        paddedimage = nornir_imageregistration.PadImageForPhaseCorrelation(image)
+#        paddedimage = nornir_imageregistration.pad_image_for_phase_correlation(image)
 #
 #        nornir_imageregistration.ShowGrayscale(paddedimage)
 

@@ -102,8 +102,9 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
     xp = nornir_imageregistration.GetComputationModule()
 
     if _use_memmap():  # use_memmap:
-        full_distance_image_array_path = os.path.join(tempfile.gettempdir(), 'distance_image_%dx%d_%s.npy' % (
-            shape[0], shape[1], GetProcessAndThreadUniqueString()))
+        full_distance_image_array_path = os.path.join(nornir_imageregistration.gettempdir(),
+                                                      'distance_image_%dx%d_%s.npy' % (
+                                                          shape[0], shape[1], GetProcessAndThreadUniqueString()))
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)
         fullImageZbuffer.fill(__MaxZBufferValue(dtype))
         return fullImageZbuffer
@@ -154,7 +155,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
 
     if _use_memmap():  # use_memmap:
         try:
-            fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (
+            fullimage_array_path = os.path.join(nornir_imageregistration.gettempdir(), 'image_%dx%d_%s.npy' % (
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             # print("Open %s" % (fullimage_array_path))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)

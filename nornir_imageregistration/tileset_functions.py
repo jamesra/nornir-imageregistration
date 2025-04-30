@@ -1,4 +1,4 @@
-'''
+"""
 Created on Sep 10, 2019
 
 @author: u0490822
@@ -6,27 +6,27 @@ Created on Sep 10, 2019
 These functions generate tileset image pyramid levels.  The network implementation
 of these functions copies the images locally and writes the output locally before
 moving it to the final output directory.  This saves trips over the network as
-we build the pyramid, which tends to be slow for sometimes hundreds of thousands 
+we build the pyramid, which tends to be slow for sometimes hundreds of thousands
 of small files.  This also helps the image I/O, which at this time is implemented
-by pillow as lots of small I/O requests against the image file. 
-'''
+by pillow as lots of small I/O requests against the image file.
+"""
 
 from PIL import Image
 import numpy
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
 Image.MAX_IMAGE_PIXELS = None
-import tempfile
 import os
 import shutil
 import nornir_pools
 import nornir_shared.files
+import nornir_imageregistration.temporaryfiles as temporaryfiles
 
 
 # import nornir_shared.prettyoutput as prettyoutput
 
 def ClearTempDirectories(level_paths):
-    '''Deletes temporary directories used to generate levels'''
+    """Deletes temporary directories used to generate levels"""
 
     if level_paths is None:
         return
@@ -34,7 +34,7 @@ def ClearTempDirectories(level_paths):
     if len(level_paths) == 0:
         return
 
-    temp_dir = tempfile.gettempdir()
+    temp_dir = temporaryfiles.gettempdir()
 
     pool = nornir_pools.GetGlobalThreadPool()
     for level_path in level_paths:
@@ -46,18 +46,18 @@ def ClearTempDirectories(level_paths):
 
 
 def GetTempPathForTile(fullpath: str):
-    '''
+    """
     Given a tileset image, return the temporary filename for the tile
-    '''
+    """
     LevelDir = os.path.basename(os.path.dirname(fullpath))
-    return os.path.join(tempfile.gettempdir(), LevelDir)
+    return os.path.join(temporaryfiles.gettempdir(), LevelDir)
 
 
 def GetTempDirForLevelDir(fullpath: str):
-    '''
+    """
     Given a tileset level, return the temporary level directory
-    '''
-    return os.path.join(tempfile.gettempdir(), os.path.basename(fullpath))
+    """
+    return os.path.join(temporaryfiles.gettempdir(), os.path.basename(fullpath))
 
 
 def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
@@ -65,25 +65,25 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                               BottomLeft: str, BottomRight: str,
                                               OutputFileFullPath: str, input_level_temp_dir: str | None,
                                               output_level_temp_dir: str | None):
-    '''Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots 
-       of small IO calls instead of reading the entire file. 
+    """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
+       of small IO calls instead of reading the entire file.
        The temporary files are not removed so the next tileset level can utilize the local data.
        Use ClearTempDirectories to clean up the temporary data
 
        :param input_level_temp_dir: Input temporary directory.  If passed, it is assumed the directory exists
        :param output_level_temp_dir: Output temporary directory.  If passed, it is assumed the directory exists
-       '''
+       """
 
     if input_level_temp_dir is None:
         LevelDir = os.path.basename(os.path.dirname(TopLeft))
-        temp_input_dir = os.path.join(tempfile.gettempdir(), LevelDir)
+        temp_input_dir = os.path.join(temporaryfiles.gettempdir(), LevelDir)
         os.makedirs(temp_input_dir, exist_ok=True)
     else:
         temp_input_dir = input_level_temp_dir
 
     if output_level_temp_dir is None:
         output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
-        temp_output_dir = os.path.join(tempfile.gettempdir(), output_level_dir)
+        temp_output_dir = os.path.join(temporaryfiles.gettempdir(), output_level_dir)
         os.makedirs(temp_output_dir, exist_ok=True)
     else:
         temp_output_dir = output_level_temp_dir
@@ -170,13 +170,13 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
 def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight, BottomLeft, BottomRight,
                                    OutputFileFullPath):
-    '''Create a single tile by merging four tiles from a higher resolution and downsampling
+    """Create a single tile by merging four tiles from a higher resolution and downsampling
     :param TopLeft:
     :param TopRight:
     :param BottomLeft:
     :param BottomRight:
     :param OutputFileFullPath:
-    :param tuple TileDims: (Height, Width) of tiles'''
+    :param tuple TileDims: (Height, Width) of tiles"""
 
     TileSize = numpy.asarray((TileDims[1], TileDims[0]), dtype=numpy.int64)  # Pillow uses the opposite ordering of axis
     DoubleTileSize = TileSize * 2  # Double the size

@@ -110,11 +110,11 @@ def Execute(ExecArgs=None):
     cropped_fixed_image = core.CropImageRect(target_image, fixed_control_points_bbox, cval=0)
     cropped_warped_image = core.CropImageRect(source_image, warped_control_points_bbox, cval=0)
 
-    # cropped_fixed_padded_image = core.PadImageForPhaseCorrelation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
+    # cropped_fixed_padded_image = core.pad_image_for_phase_correlation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
 
-    control_point_align_record = nornir_imageregistration.phasecorrelation.FindOffset(cropped_fixed_image,
-                                                                                      cropped_warped_image,
-                                                                                      MinOverlap=0.5)
+    control_point_align_record = nornir_imageregistration.phasecorrelation.find_offset(cropped_fixed_image,
+                                                                                       cropped_warped_image,
+                                                                                       min_overlap=0.5)
 
     print("Control point alignment: %s" % str(control_point_align_record))
 

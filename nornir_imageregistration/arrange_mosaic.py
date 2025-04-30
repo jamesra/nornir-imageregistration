@@ -709,7 +709,7 @@ def __get_overlapping_image(imageparam,
     else:
         return cropped
 
-    # return nornir_imageregistration.PadImageForPhaseCorrelation(cropped, MinOverlap=1.0, PowerOfTwo=True)
+    # return nornir_imageregistration.pad_image_for_phase_correlation(cropped, MinOverlap=1.0, PowerOfTwo=True)
 
 
 def __tile_offset_remote(A_Filename: str, B_Filename: str,
@@ -764,14 +764,14 @@ def __tile_offset_remote(A_Filename: str, B_Filename: str,
             OverlappingRegionB_extremaMask.shape[0] * OverlappingRegionB_extremaMask.shape[1])
     valid_mask_fraction_scalar = min(valid_mask_fraction_A, valid_mask_fraction_B)
 
-    OverlappingRegionA = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(
+    OverlappingRegionA = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
         OverlappingRegionA_original,
-        MinOverlap=MinOverlap,
-        OriginalShape=scaled_overlapping_source_rect_A.Dimensions)
-    OverlappingRegionB = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(
+        min_overlap=MinOverlap,
+        original_shape=scaled_overlapping_source_rect_A.Dimensions)
+    OverlappingRegionB = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
         OverlappingRegionB_original,
-        MinOverlap=MinOverlap,
-        OriginalShape=scaled_overlapping_source_rect_B.Dimensions)
+        min_overlap=MinOverlap,
+        original_shape=scaled_overlapping_source_rect_B.Dimensions)
 
     if ShowImages:
         o_a = __get_overlapping_image(A, scaled_overlapping_source_rect_A, excess_scalar=1.0, cval=0, dtype=dtype)
@@ -809,14 +809,14 @@ def __tile_offset_remote(A_Filename: str, B_Filename: str,
 
     # nornir_imageregistration.ShowGrayscale([OverlappingRegionA, OverlappingRegionB]) nornir_imageregistration.ShowGrayscale([[o_a, o_b],[OverlappingRegionA, OverlappingRegionB]])
 
-    record = nornir_imageregistration.phasecorrelation.FindOffset(OverlappingRegionA,
-                                                                  OverlappingRegionB,
-                                                                  MinOverlap=MinOverlap,
-                                                                  MaxOverlap=MaxOverlap,
-                                                                  target_shape=scaled_overlapping_source_rect_A.Dimensions,
-                                                                  source_shape=scaled_overlapping_source_rect_B.Dimensions,
-                                                                  FFT_Required=True,
-                                                                  correlation_coefficient=correlation_coefficient)  # , FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
+    record = nornir_imageregistration.phasecorrelation.find_offset(OverlappingRegionA,
+                                                                   OverlappingRegionB,
+                                                                   min_overlap=MinOverlap,
+                                                                   max_overlap=MaxOverlap,
+                                                                   target_shape=scaled_overlapping_source_rect_A.Dimensions,
+                                                                   source_shape=scaled_overlapping_source_rect_B.Dimensions,
+                                                                   fft_required=True,
+                                                                   correlation_coefficient=correlation_coefficient)  # , FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
 
     # overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.translate(scaled_overlapping_source_rect_B, -record.peak)
     # overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, scaled_overlapping_source_rect_A.Size)

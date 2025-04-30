@@ -208,8 +208,8 @@ def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imag
                 continue
 
             try:
-                record = nornir_imageregistration.phasecorrelation.FindOffset(A_tiles[iRow, iCol], B_tiles[iRow, iCol],
-                                                                              FFT_Required=True)
+                record = nornir_imageregistration.phasecorrelation.find_offset(A_tiles[iRow, iCol], B_tiles[iRow, iCol],
+                                                                               FFT_Required=True)
             except Exception as e:
                 prettyoutput.LogErr(f'Exception on row: {iRow} col: {iCol} when finding offset:\n{e}')
                 net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])

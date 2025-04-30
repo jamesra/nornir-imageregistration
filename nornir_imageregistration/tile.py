@@ -143,7 +143,7 @@ class Tile:
     def PaddedImage(self) -> NDArray:
         """The padded version of the image that can be used for phase correlation"""
         if self._paddedimage is None:
-            self._paddedimage = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(self.Image)
+            self._paddedimage = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(self.Image)
 
         return self._paddedimage
 

@@ -176,17 +176,19 @@ def SliceToSliceRigidRegistration(target_image: nornir_imageregistration.ImageLi
     target_image_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask)
 
     if estimate_angle and method == SliceToSliceMethod.LogPolar:
-        raise ValueError("LogPolar method is redundant with setting estimate_angle to true")
+        estimate_angle = False
+        # raise ValueError("LogPolar method is redundant with setting estimate_angle to true")
 
     if estimate_angle:
         # Estimate the angle and scale
-        best_match = _find_angle_and_scale_with_logpolar(source_image=source_image_data.ImageWithMaskAsNoise,
-                                                         target_image=target_image_data.ImageWithMaskAsNoise,
-                                                         source_stats=source_image_data.Stats,
-                                                         target_stats=target_image_data.Stats,
-                                                         min_overlap=MinOverlap)
-        if abs(best_match.angle) > 0.25:
-            AngleSearchRange.add(best_match.angle)
+        estimated_angle_best_match = _find_angle_and_scale_with_logpolar(
+            source_image=source_image_data.ImageWithMaskAsNoise,
+            target_image=target_image_data.ImageWithMaskAsNoise,
+            source_stats=source_image_data.Stats,
+            target_stats=target_image_data.Stats,
+            min_overlap=MinOverlap)
+        if abs(estimated_angle_best_match.angle) > 0.25:
+            AngleSearchRange.add(estimated_angle_best_match.angle)
 
     settings = StosBruteSettings(method=method,
                                  angles=AngleSearchRange,
@@ -422,7 +424,7 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         TargetWidth = max([padded_target.shape[1], rotated_source.shape[1]])
 
         # Why is MinOverlap hard-coded to 1.0?  To prevent padded_target from growing larger than the largest of the input dimensions
-        # PadImageForPhaseCorrelation will always return a copy, so don't call it unless we need to
+        # pad_image_for_phase_correlation will always return a copy, so don't call it unless we need to
         if not np.array_equal(im_target.shape, np.array((TargetHeight, TargetWidth))):
             padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(im_target,
                                                                                                       new_width=TargetWidth,
@@ -602,7 +604,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     shift_scale = np.exp(angle_scale_peak.scaled_offset[1] / klog)
 
     # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle, reshape=True)
-    # rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_source,
+    # rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(rotated_source,
     #                                                                                               MinOverlap=min_overlap,
     #                                                                                               ImageMedian=source_stats.median,
     #                                                                                               ImageStdDev=source_stats.std,
@@ -658,7 +660,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     original_correlation = nornir_imageregistration.fft_phase_correlation(fft_target_ref, fft_source_ref)
 
     # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle + 180, reshape=True)
-    # rotated_padded_source = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(rotated_source,
+    # rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(rotated_source,
     #                                                                                               MinOverlap=min_overlap,
     #                                                                                               ImageMedian=source_stats.median,
     #                                                                                               ImageStdDev=source_stats.std,
@@ -739,8 +741,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
         #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
         #    MinRotatedDimension = max(min(imFixed), min(imWarped))
         #
-        #    SmallPaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
-        #    LargePaddedFixed = PadImageForPhaseCorrelation(imFixed, MaxOffset=0.1)
+        #    SmallPaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
+        #    LargePaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
 
         padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(target_image,
                                                                                                   min_overlap=min_overlap,

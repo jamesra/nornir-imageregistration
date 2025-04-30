@@ -179,13 +179,13 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         imMoving = core.LoadImage(os.path.join(self.TilesPath, TileBFilename),
                                   dtype=nornir_imageregistration.default_image_dtype())
 
-        imFixedPadded = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(imFixed,
-                                                                                              MinOverlap=min_overlap)
-        imMovingPadded = nornir_imageregistration.phasecorrelation.PadImageForPhaseCorrelation(imMoving,
-                                                                                               MinOverlap=min_overlap)
+        imFixedPadded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(imFixed,
+                                                                                                  MinOverlap=min_overlap)
+        imMovingPadded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(imMoving,
+                                                                                                   MinOverlap=min_overlap)
 
         alignrecord = nornir_imageregistration.phasecorrelation.FindOffset(imFixedPadded, imMovingPadded,
-                                                                           MinOverlap=0.05, MaxOverlap=0.5,
+                                                                           min_overlap=0.05, max_overlap=0.5,
                                                                            target_shape=imFixed.shape,
                                                                            source_shape=imMoving.shape)
 
