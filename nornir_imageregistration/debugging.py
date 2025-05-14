@@ -1,6 +1,7 @@
+import sys
 import os
 
-if 'DEBUG' in os.environ:
+if 'DEBUG' in os.environ or sys.gettrace() is not None:
     try:
         value = os.environ['DEBUG']
         if value:
