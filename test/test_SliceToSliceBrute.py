@@ -9,8 +9,6 @@ import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
 
-matplotlib.use('qtAgg')
-
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
     import cupy as cp

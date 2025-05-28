@@ -1,8 +1,8 @@
-'''
+"""
 Created on Oct 28, 2013
 
 @author: u0490822
-'''
+"""
 import os
 from typing import AnyStr
 
@@ -541,12 +541,12 @@ class IDOCTests(TestMosaicAssemble):
         self.AssembleMosaic(MosaicFile1, tilesDir, 'ParallelAssembleOneMosaicType', parallel=True)
 
     def test_AssembleOptimizedTilesIDoc(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=False)
 
     def test_AssembleOptimizedTilesIDoc_GPU(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         if not nornir_imageregistration.HasCupy():
             return
 
@@ -554,7 +554,7 @@ class IDOCTests(TestMosaicAssemble):
         self.runAssembleOptimizedTilesIDoc(use_cluster=False)
 
     def test_AssembleOptimizedTilesIDoc_Cluster(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runAssembleOptimizedTilesIDoc(use_cluster=True)
 
@@ -579,7 +579,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTileTwo(mosaicTileset)
 
     def test_AssembleAndTransformTileIDoc(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '004'
 
@@ -595,7 +595,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleAndTransformTileIDoc_GPU(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         if not nornir_imageregistration.HasCupy():
             return
 
@@ -615,7 +615,7 @@ class IDOCTests(TestMosaicAssemble):
                                          SingleThread=True)
 
     def test_AssembleOptimizedTileIDoc(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '004'
 
@@ -630,7 +630,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleOptimizedTileIDoc_DS1_MultiThread(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '001'
 
@@ -645,7 +645,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath))
 
     def test_AssembleOptimizedTileIDoc_DS1_SingleThread(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         downsamplePath = '001'
 
@@ -660,7 +660,7 @@ class IDOCTests(TestMosaicAssemble):
         self.CreateAssembleOptimizedTile(mosaicFiles[0], tilesDir, float(downsamplePath), SingleThread=True)
 
     def test_AssembleOptimizedTileIDoc_DS1_GPU(self):
-        '''Assemble small 512x512 tiles from a transform and image in a mosaic'''
+        """Assemble small 512x512 tiles from a transform and image in a mosaic"""
         if not nornir_imageregistration.HasCupy():
             return
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
