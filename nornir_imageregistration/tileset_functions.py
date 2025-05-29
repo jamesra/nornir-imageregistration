@@ -185,6 +185,10 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight,
 
     try:
         with Image.open(TopLeft) as imTopLeft:
+            if imTopLeft.size[0] != TileSize[0] or imTopLeft.size[1] != TileSize[1]:
+                raise ValueError(
+                    f"Existing tile size {imTopLeft.size} does not match requested size {TileSize} at {TopLeft}")
+
             if imComposite is None:
                 imComposite = Image.new(imTopLeft.mode, size=(DoubleTileSize[0], DoubleTileSize[1]), color=0)
             imComposite.paste(imTopLeft, box=(0, 0))
@@ -194,6 +198,10 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight,
 
     try:
         with Image.open(TopRight) as imTopRight:
+            if imTopRight.size[0] != TileSize[0] or imTopRight.size[1] != TileSize[1]:
+                raise ValueError(
+                    f"Existing tile size {imTopRight.size} does not match requested size {TileSize} at {TopRight}")
+
             if imComposite is None:
                 imComposite = Image.new(imTopRight.mode, size=(DoubleTileSize[0], DoubleTileSize[1]), color=0)
             imComposite.paste(imTopRight, box=(TileSize[0], 0))
@@ -203,6 +211,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight,
 
     try:
         with Image.open(BottomLeft) as imBottomLeft:
+            if imBottomLeft.size[0] != TileSize[0] or imBottomLeft.size[1] != TileSize[1]:
+                raise ValueError(
+                    f"Existing tile size {imBottomLeft.size} does not match requested size {TileSize} at {BottomLeft}")
             if imComposite is None:
                 imComposite = Image.new(imBottomLeft.mode, size=(DoubleTileSize[0], DoubleTileSize[1]), color=0)
             imComposite.paste(imBottomLeft, box=(0, TileSize[1]))
@@ -212,6 +223,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft, TopRight,
 
     try:
         with Image.open(BottomRight) as imBottomRight:
+            if imTopLeft.size[0] != TileSize[0] or imTopLeft.size[1] != TileSize[1]:
+                raise ValueError(
+                    f"Existing tile size {imBottomRight.size} does not match requested size {imBottomRight} at {BottomRight}")
             if imComposite is None:
                 imComposite = Image.new(imBottomRight.mode, size=(DoubleTileSize[0], DoubleTileSize[1]), color=0)
             imComposite.paste(imBottomRight, box=(TileSize[0], TileSize[1]))
