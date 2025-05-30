@@ -45,7 +45,10 @@ except ImportError:
 Image.MAX_IMAGE_PIXELS = None
 
 import collections.abc
+import matplotlib
 import matplotlib.pyplot as plt
+
+matplotlib.use('qtAgg')
 
 plt.ioff()
 

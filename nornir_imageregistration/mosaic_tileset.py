@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 import logging
 import os
@@ -338,42 +338,64 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
         task_timer = nornir_shared.tasktimer.TaskTimer()
 
-        iColumn = 0
-        while iColumn < grid_dims[1]:
-            # Assemble a strip of images, divide them up and save
-            origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
+        with ThreadPoolExecutor(
+                max_workers=1) as executor:  # max_workers=1 because we only want to assemble one column at a time, but want to generate results while the tasks complete
+            iColumn = 0
+            assemble_tasks = []
+            while iColumn < grid_dims[1]:
+                # Assemble a strip of images, divide them up and save
+                origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
 
-            working_image_shape = template_image_shape
-            working_image_grid_dims = template_image_grid_dims
-            # If we are on the final column don't make it larger than necessary
-            if working_image_grid_dims[1] + iColumn > grid_dims[1]:
-                working_image_grid_dims[1] = grid_dims[1] - iColumn
-                working_image_shape[1] = working_image_grid_dims[1] * scaled_tile_dims[1]
-                assert (working_image_shape[1] > 0)
+                working_image_shape = template_image_shape
+                working_image_grid_dims = template_image_grid_dims
+                # If we are on the final column don't make it larger than necessary
+                if working_image_grid_dims[1] + iColumn > grid_dims[1]:
+                    working_image_grid_dims[1] = grid_dims[1] - iColumn
+                    working_image_shape[1] = working_image_grid_dims[1] * scaled_tile_dims[1]
+                    assert (working_image_shape[1] > 0)
 
-            fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)
+                fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)
 
-            (working_image, _mask) = self.AssembleImage(
-                FixedRegion=fixed_region,
-                usecluster=usecluster,
-                target_space_scale=target_space_scale)
-            # source_space_scale=source_space_scale)
+                # (working_image, _mask) = self.AssembleImage(
+                #     FixedRegion=fixed_region,
+                #     usecluster=usecluster,
+                #     target_space_scale=target_space_scale)
 
-            del _mask
+                assemble_column_task = executor.submit(self.AssembleImage,
+                                                       FixedRegion=fixed_region,
+                                                       usecluster=usecluster,
+                                                       target_space_scale=target_space_scale)
+                assemble_column_task.iColumn = iColumn  # Store the column index in the task for later use
+                assemble_column_task.working_image_grid_dims = working_image_grid_dims
+                assemble_tasks.append(assemble_column_task)
 
-            task_timer.Start(
-                f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
-            (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
-                                                                       tile_size=tile_dims,
-                                                                       grid_shape=working_image_grid_dims,
-                                                                       coord_offset=(0, iColumn)))
-            task_timer.End(
-                f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
-            del working_image
+                iColumn += working_image_grid_dims[1]
 
-            iColumn += working_image_grid_dims[1]
+                # source_space_scale=source_space_scale)
 
-        return
+                # del _mask
+
+            # As each task completes, yield results via the generator
+            for task in as_completed(assemble_tasks):
+                (working_image, _) = task.result()
+
+                working_image_grid_dims = task.working_image_grid_dims
+                iColumn = task.iColumn
+
+                task_timer.Start(
+                    f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+
+                (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
+                                                                           tile_size=tile_dims,
+                                                                           grid_shape=working_image_grid_dims,
+                                                                           coord_offset=(0, iColumn)))
+                task_timer.End(
+                    f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                del working_image
+
+                iColumn += working_image_grid_dims[1]
+
+            return
 
     def ArrangeTilesWithTranslate(self,
                                   config: nornir_imageregistration.settings.TranslateSettings):
