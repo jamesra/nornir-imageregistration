@@ -7,7 +7,7 @@ If it is not specified the output of tempfile.TemporaryDirectory() is used.
 import os
 import tempfile
 
-__first_call = True
+__tempdir = None
 
 
 def gettempdir() -> str:
@@ -17,13 +17,14 @@ def gettempdir() -> str:
     Otherwise, use the default temporary directory.
     :return:
     """
-    tempdir = os.environ.get("NORNIR_TEMP_DIR", tempfile.gettempdir())
-    global __first_call
-    if __first_call:
+    global __tempdir
 
-        if not os.path.exists(tempdir):
-            os.makedirs(tempdir, exist_ok=True)
+    if __tempdir is not None:
+        return __tempdir
 
-        __first_call = False
+    if "NORNIR_TEMP_DIR" in os.environ:
+        __tempdir = os.environ["NORNIR_TEMP_DIR"]
+    else:
+        __tempdir = tempfile.gettempdir()
 
-    return tempdir
+    return __tempdir
