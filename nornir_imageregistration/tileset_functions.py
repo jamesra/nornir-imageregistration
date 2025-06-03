@@ -76,6 +76,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                               TopLeft: str, TopRight: str,
                                               BottomLeft: str, BottomRight: str,
                                               OutputFileFullPath: str,
+                                              temp_input_dir: str | None,
                                               output_level_temp_dir: str | None,
                                               executor: ThreadPoolExecutor | None = None):
     """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
@@ -96,8 +97,11 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
     try:
         LevelDir = os.path.basename(os.path.dirname(TopLeft))
-        temp_input_dir = os.path.join(temporaryfiles.gettempdir(), LevelDir)
-        input_temp_dir_exists = os.path.exists(temp_input_dir)
+        if temp_input_dir is not None:
+            temp_level_input_dir = temp_input_dir
+            input_temp_dir_exists = True
+        else:
+            input_temp_dir_exists = False
 
         if output_level_temp_dir is None:
             output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
@@ -111,15 +115,16 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         BottomLeftBase = os.path.basename(BottomLeft)
         BottomRightBase = os.path.basename(BottomRight)
 
-        temp_TopLeft = os.path.join(temp_input_dir, TopLeftBase)
-        temp_TopRight = os.path.join(temp_input_dir, TopRightBase)
-        temp_BottomLeft = os.path.join(temp_input_dir, BottomLeftBase)
-        temp_BottomRight = os.path.join(temp_input_dir, BottomRightBase)
+        if input_temp_dir_exists:
+            temp_TopLeft = os.path.join(temp_level_input_dir, TopLeftBase)
+            temp_TopRight = os.path.join(temp_level_input_dir, TopRightBase)
+            temp_BottomLeft = os.path.join(temp_level_input_dir, BottomLeftBase)
+            temp_BottomRight = os.path.join(temp_level_input_dir, BottomRightBase)
 
-        use_temp_dir = input_temp_dir_exists and any(
-            os.path.exists(x) for x in [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
-
-        if not use_temp_dir:
+            use_temp_dir = input_temp_dir_exists and any(
+                os.path.exists(x) for x in [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
+        else:
+            use_temp_dir = False
             temp_TopLeft = TopLeft
             temp_TopRight = TopRight
             temp_BottomLeft = BottomLeft
@@ -144,7 +149,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                           [TopLeft, TopRight, BottomLeft, BottomRight],
                                           [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
 
-            for copied in copy_task_iter:
+            for _ in copy_task_iter:
                 pass
 
         outputbase = os.path.basename(OutputFileFullPath)
