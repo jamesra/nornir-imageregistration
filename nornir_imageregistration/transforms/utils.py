@@ -59,14 +59,11 @@ def RotationMatrix(rangle: float) -> NDArray[np.floating]:
     """
     if rangle is None:
         raise ValueError("Angle must not be none")
-
     xp = nornir_imageregistration.GetComputationModule()
-
-    # The columns of this rotation matrix are swapped because we swap the input from X,Y to Y,X
-    rot_mat = xp.array([[np.cos(rangle), np.sin(rangle), 0],
-                        [-np.sin(rangle), np.cos(rangle), 0],
-                        [0, 0, 1]])
-
+    a = float(rangle)
+    # Use Python floats so CuPy's array() does not reject numpy scalars
+    c, s = float(np.cos(a)), float(np.sin(a))
+    rot_mat = xp.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
     return rot_mat
 
     # interchange = np.array([[ 0,  1,  0],
@@ -89,12 +86,13 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.float
     """
     :param offset: An offset to translate by, either tuple of (Y,X) or an array
     """
-
+    xp = nornir_imageregistration.GetComputationModule()
     if offset is None:
         raise ValueError("Angle must not be none")
-    elif hasattr(offset, "__iter__"):
-        return np.array([[1, 0, offset[0]], [0, 1, offset[1]], [0, 0, 1]])
-
+    if hasattr(offset, "__iter__"):
+        # Coerce to Python floats so CuPy's array() does not reject numpy scalars
+        x0, x1 = float(offset[0]), float(offset[1])
+        return xp.array([[1, 0, x0], [0, 1, x1], [0, 0, 1]])
     raise NotImplementedError("Unexpected argument")
 
 
@@ -106,15 +104,12 @@ def ScaleMatrixXY(scale: float | Sequence[float]) -> NDArray[np.floating]:
     xp = nornir_imageregistration.GetComputationModule()
     if scale is None:
         raise ValueError("Angle must not be none")
-    elif isinstance(scale, float):
-        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
-    elif isinstance(scale, np.floating):
-        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]])
-    elif isinstance(scale, int):
-        return xp.array([[scale, 0, 0], [0, scale, 0], [0, 0, 1]], float)
-    elif hasattr(scale, "__iter__"):
-        return xp.array([[scale[0], 0, 0], [0, scale[1], 0], [0, 0, 1]])
-
+    if isinstance(scale, (float, np.floating, int)):
+        s = float(scale)
+        return xp.array([[s, 0, 0], [0, s, 0], [0, 0, 1]])
+    if hasattr(scale, "__iter__"):
+        s0, s1 = float(scale[0]), float(scale[1])
+        return xp.array([[s0, 0, 0], [0, s1, 0], [0, 0, 1]])
     raise NotImplementedError(f"Unexpected argument: {scale} is a {type(scale)}")
 
 

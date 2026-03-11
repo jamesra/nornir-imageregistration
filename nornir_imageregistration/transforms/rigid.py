@@ -304,11 +304,14 @@ class Rigid(base.ITransformSourceRotation, base.ITransfomFlip, RigidTranslation)
         self.forward_matrix = self._forward_translation_matrix @ self._forward_center_of_rotation_translation @ \
                               self._flip_y_matrix @ self._forward_rotation_matrix @ \
                               self._inverse_center_of_rotation_translation @ self._forward_scale_matrix
-        self.inverse_matrix = np.linalg.inv(self.forward_matrix)
+        xp = cp.get_array_module(self.forward_matrix)
+        self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
         self.alt_inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
                                   self._inverse_rotation_matrix @ self._flip_y_matrix @ \
                                   self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
-        np.testing.assert_allclose(self.inverse_matrix, self.alt_inverse_matrix, rtol=1e-5, atol=1e-5)
+        inv_np = self.inverse_matrix.get() if hasattr(self.inverse_matrix, 'get') else self.inverse_matrix
+        alt_np = self.alt_inverse_matrix.get() if hasattr(self.alt_inverse_matrix, 'get') else self.alt_inverse_matrix
+        np.testing.assert_allclose(inv_np, alt_np, rtol=1e-5, atol=1e-5)
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:

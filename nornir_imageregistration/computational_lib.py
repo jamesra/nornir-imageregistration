@@ -16,6 +16,13 @@ try:
     import cupy as cp
     _has_cupy = True
     _active_lib = ComputationLib.cupy if _active_lib is None else _active_lib
+    # Probe CUDA and cuBLAS; if libraries are missing (e.g. cublasLt), fall back to numpy
+    if _active_lib == ComputationLib.cupy:
+        try:
+            a = cp.array([[1.0, 0.0], [0.0, 1.0]])
+            cp.linalg.inv(a)
+        except Exception:
+            _active_lib = ComputationLib.numpy
 except ModuleNotFoundError:
     cp = None
     _has_cupy = False
