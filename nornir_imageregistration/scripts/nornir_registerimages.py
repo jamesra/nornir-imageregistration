@@ -11,6 +11,7 @@ import sys
 
 import numpy
 
+import nornir_imageregistration
 import nornir_imageregistration.core as core
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.spatial as spatial
@@ -59,6 +60,7 @@ def __CreateArgParser(ExecArgs=None):
 
 
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the registerimages script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -68,6 +70,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -78,6 +81,7 @@ def OnUseError(message):
 
 
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure."""
     if not os.path.exists(Args.fixedpath):
         OnUseError("Fixed image file not found: " + Args.fixedpath)
 
@@ -86,6 +90,7 @@ def ValidateArgs(Args):
 
 
 def Execute(ExecArgs=None):
+    """Run the registerimages script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
 
@@ -95,7 +100,7 @@ def Execute(ExecArgs=None):
 
     target_image = core.LoadImage(Args.fixedpath)
     source_image = core.LoadImage(Args.warpedpath)
-
+    assert target_image is not None and source_image is not None, "Failed to load images"
     # align_record = core.FindOffset(target_image, source_image)
 
     # print("Overall alignment: %s" % str(align_record))
@@ -112,14 +117,14 @@ def Execute(ExecArgs=None):
 
     # cropped_fixed_padded_image = core.pad_image_for_phase_correlation(cropped_fixed_image, 0, NewWidth=warped_control_points_bbox.Width, NewHeight=warped_control_points_bbox.Height)
 
-    control_point_align_record = nornir_imageregistration.phasecorrelation.find_offset(cropped_fixed_image,
-                                                                                       cropped_warped_image,
-                                                                                       min_overlap=0.5)
+    control_point_align_record = nornir_imageregistration.phasecorrelation.find_offset(
+        cropped_fixed_image, cropped_warped_image, min_overlap=0.5)  # type: ignore[arg-type]
 
     print("Control point alignment: %s" % str(control_point_align_record))
 
-    core.ShowGrayscale((target_image, source_image, cropped_fixed_image, cropped_warped_image),
-                       title="Control point regions")
+    nornir_imageregistration.ShowGrayscale(
+        (target_image, source_image, cropped_fixed_image, cropped_warped_image),  # type: ignore[arg-type]
+        title="Control point regions")
 
 
 if __name__ == '__main__':

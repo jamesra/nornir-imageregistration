@@ -8,13 +8,14 @@ def build_grid_rois(grid: IGrid):
     """Build a list of rois for a grid"""
     source_rois = []
     target_rois = []
+    cell_size = tuple(float(x) for x in grid.cell_size)
 
     for point in grid.SourcePoints:
-        source_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(point, grid.cell_size)
+        source_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(point, cell_size)
         source_rois.append(source_rect)
 
     for point in grid.TargetPoints:
-        target_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(point, grid.cell_size)
+        target_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(point, cell_size)
         target_rois.append(target_rect)
 
     return source_rois, target_rois
@@ -25,10 +26,10 @@ def ShowGridRefinement(settings: settings.GridRefinement, grid: IGrid, passfail:
     source_rois, target_rois = build_grid_rois(grid)
 
     nornir_imageregistration.ShowGrayscale(
-        input_params=[settings.source_image, settings.source_mask, settings.target_image, settings.target_mask],
+        input_params=[settings.source_image, settings.source_mask, settings.target_image, settings.target_mask],  # type: ignore[arg-type]
         title="Masked Grid, Source and Target Images with grid cells overlayed, target rectangles are not rotated",
         image_titles=["Source", "Source Mask", "Target", "Target Mask"],
-        rois=[source_rois, source_rois, target_rois, target_rois],
+        rois=[source_rois, source_rois, target_rois, target_rois],  # type: ignore[arg-type]
         PassFail=passfail,
         filename=filename)
     return

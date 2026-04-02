@@ -1,6 +1,6 @@
 import numpy
 
-from .indicies import *
+from .indices import *
 
 
 def PointBoundingBox(points):

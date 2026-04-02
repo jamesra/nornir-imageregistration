@@ -58,7 +58,7 @@ class ImageStats:
 
     @property
     def median(self) -> float:
-        return self._median
+        return self._median  # type: ignore[return-value]
 
     @median.setter
     def median(self, val: float):
@@ -66,7 +66,7 @@ class ImageStats:
 
     @property
     def mean(self) -> float:
-        return self._mean
+        return self._mean  # type: ignore[return-value]
 
     @mean.setter
     def mean(self, val: float):
@@ -74,7 +74,7 @@ class ImageStats:
 
     @property
     def std(self) -> float:
-        return self._std
+        return self._std  # type: ignore[return-value]
 
     @std.setter
     def std(self, val: float):
@@ -82,7 +82,7 @@ class ImageStats:
 
     @property
     def min(self) -> float:
-        return self._min
+        return self._min  # type: ignore[return-value]
 
     @min.setter
     def min(self, val: float):
@@ -90,7 +90,7 @@ class ImageStats:
 
     @property
     def max(self) -> float:
-        return self._max
+        return self._max  # type: ignore[return-value]
 
     @max.setter
     def max(self, val: float):
@@ -114,7 +114,7 @@ class ImageStats:
         self.__dict__.update(state)
 
     @classmethod
-    def CalcStats(cls, image: nornir_imageregistration.ImageLike) -> ImageStats:
+    def CalcStats(cls, image: nornir_imageregistration.ImageLike) -> ImageStats:  # type: ignore[invalid-type]
         return ImageStats.Create(image)
 
     @classmethod
@@ -191,11 +191,11 @@ class ImageStats:
             width = shape[1] if not one_d_result else 1
             size = int(shape) if one_d_result else shape.shape
 
-        use_cp = nornir_imageregistration.UsingCupy()
-
-        xp = cp if use_cp else numpy
-        with nornir_imageregistration.IgnoreUnderAndOverflow():
-            data = ((random.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
+        xp = nornir_imageregistration.GetComputationModule()
+        with nornir_imageregistration.IgnoreUnderAndOverflow():  # type: ignore[attr-defined]
+            # Use backend that passed startup probe (computational_lib); avoid cupy.random when curand is missing
+            rng = xp.random
+            data = ((rng.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
 
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
 
@@ -215,7 +215,7 @@ def Prune(filenames: str | Sequence[str], MaxOverlap: float | None = None):
 
     assert isinstance(listfilenames, list)
 
-    FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__PruneFileSciPy__, MaxOverlap=MaxOverlap)
+    FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__PruneFileSciPy__, MaxOverlap=MaxOverlap)  # type: ignore[arg-type]
 
     # Convert results to a float
     for k in FilenameToResult.keys():
@@ -242,8 +242,8 @@ def __InvokeFunctionOnImageList__(listfilenames: Sequence[str],
     TileToScore = dict()
     tasklist = []
     for filename in listfilenames:
-        task = TPool.add_task('Calc Feature Score: ' + os.path.basename(filename), Function, filename, **kwargs)
-        task.filename = filename
+        task = TPool.add_task('Calc Feature Score: ' + os.path.basename(filename), Function, filename, **kwargs)  # type: ignore[arg-type]
+        task.filename = filename  # type: ignore[attr-defined]
         tasklist.append(task)
 
     TPool.wait_completion()
@@ -269,7 +269,7 @@ def __InvokeFunctionOnImageList__(listfilenames: Sequence[str],
     return TileToScore
 
 
-def ScoreImageWithPowerSpectralDensity(image: nornir_imageregistration.ImageLike) -> float:
+def ScoreImageWithPowerSpectralDensity(image: nornir_imageregistration.ImageLike) -> float:  # type: ignore[invalid-type]
     # Find all NaN values and replace with median value
     # finite_mask = numpy.isfinite(image)
     # infinite_mask = numpy.logical_not(finite_mask)
@@ -282,14 +282,14 @@ def ScoreImageWithPowerSpectralDensity(image: nornir_imageregistration.ImageLike
     Im_centered = image
 
     fft = fftpack.fft2(Im_centered)
-    rfft = np.real(fft)
+    rfft = np.real(fft)  # type: ignore[call-overload]
     # fft = numpy.fft.fftshift(fft) 
     total_amp = numpy.sum(numpy.abs(rfft))
     score = total_amp / numpy.prod(Im_centered.shape)
     return score
 
 
-def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,
+def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,  # type: ignore[invalid-type]
                                    cell_size: tuple[int, int] | None = None,
                                    feature_coverage_percent: float | None = None, **kwargs) -> float:
     """
@@ -354,25 +354,25 @@ def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,
 
     if cell_size is None:
         # cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
-        cell_size = numpy.asarray((64, 64), dtype=numpy.int32)
+        cell_size = numpy.asarray((64, 64), dtype=numpy.int32)  # type: ignore[assignment]
 
-    grid = nornir_imageregistration.CenteredGridDivision(Im.shape, cell_size=cell_size)
+    grid = nornir_imageregistration.CenteredGridDivision(Im.shape, cell_size=cell_size)  # type: ignore[arg-type]
 
-    cell_area = numpy.prod(cell_size)
+    cell_area = numpy.prod(cell_size)  # type: ignore[arg-type]
 
     score_list = []
 
     for iPoint in range(0, grid.num_points):
         rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(grid.SourcePoints[iPoint, :],
-                                                                               grid.cell_size)
+                                                                               grid.cell_size)  # type: ignore[arg-type]
         subset = nornir_imageregistration.CropImageRect(Im, rect, cval=numpy.nan)
-        finite_mask = numpy.isfinite(subset)
-        finite_subset = subset[finite_mask]
+        finite_mask = numpy.isfinite(subset)  # type: ignore[arg-type]
+        finite_subset = subset[finite_mask]  # type: ignore[index]
         if len(finite_subset) < (cell_area / 2.0):
             continue
 
         not_finite_subset = np.logical_not(finite_mask)
-        subset[not_finite_subset] = subset[finite_mask].mean()
+        subset[not_finite_subset] = subset[finite_mask].mean()  # type: ignore[index]
 
         std_val = ScoreImageWithPowerSpectralDensity(subset)
 
@@ -551,7 +551,7 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: flo
 
         # FilenameToResult[f] = [histogram, None, None]
 
-    if Bpp > 8:
+    if Bpp > 8:  # type: ignore[operator]
         HistogramComposite = nornir_shared.histogram.Histogram.Trim(HistogramComposite)
     # del threadTasks
 
@@ -579,8 +579,8 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: flo
 
 
 def __Get_Histogram_For_Image_From_ImageMagick(filename: str, Bpp: int | None = None, Scale: float | None = None):
-    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
-    raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)
+    Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)  # type: ignore[arg-type]
+    raw_output = __HistogramFileImageMagick__(filename, ProcPool, Bpp, Scale)  # type: ignore[name-defined]
 
 
 def __HistogramFileSciPy__(filename: str,
@@ -629,11 +629,11 @@ def HistogramOfArray(input: NDArray,
         max_val = (1 << bpp) - 1
 
     if num_bins is None:
-        num_bins = (max_val - min_val) + 1
+        num_bins = (max_val - min_val) + 1  # type: ignore[assignment]
     else:
         assert (isinstance(num_bins, int))
         if num_bins > (max_val - min_val) + 1:
-            num_bins = (max_val - min_val) + 1
+            num_bins = (max_val - min_val) + 1  # type: ignore[assignment]
 
     # if(not Scale is None):
     #    if(Scale != 1.0):
@@ -648,7 +648,7 @@ def HistogramOfArray(input: NDArray,
     elif num_samples > Height * Width:
         num_samples = Height * Width
 
-    step_size = int(float(num_pixels) / float(num_samples))
+    step_size = int(float(num_pixels) / float(num_samples))  # type: ignore[arg-type]
 
     if step_size > 1:
         Samples = random.random_integers(0, num_pixels - 1, num_samples)
@@ -656,10 +656,10 @@ def HistogramOfArray(input: NDArray,
 
     # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     # In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=num_bins, range=(min_val, max_val + 1))
+    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=num_bins, range=(min_val, max_val + 1))  # type: ignore[arg-type]
     binWidth = bin_edges[1] - bin_edges[0]  # (MaxVal - MinVal) / len(histogram_array)
     assert (binWidth > 0)
-    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)
+    histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)  # type: ignore[arg-type]
 
     return histogram_obj
 
@@ -682,7 +682,7 @@ def __HistogramFilePillow__(filename: str, Bpp: int | None = None, Scale: float 
 
     im = Image.open(filename).convert('I')
     histogram_array = im.histogram()
-    binWidth = (1 << Bpp) // len(histogram_array)
+    binWidth = (1 << Bpp) // len(histogram_array)  # type: ignore[operator]
 
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, 0, binWidth)
 
@@ -704,7 +704,7 @@ def __HistogramFileImageMagick__(filename: str,
         Scale = 1
 
     Cmd = __CreateImageMagickCommandLineForHistogram(filename, Scale)
-    task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True)
+    task = ProcPool.add_process(os.path.basename(filename), Cmd, shell=True)  # type: ignore[union-attr]
 
     return task
 

@@ -4,8 +4,7 @@ __all__ = ['iPoint', 'iRect', 'iArea', 'iPoint3', 'iBox', 'iVolume', 'BoundingBo
            'BoundsArrayFromPoints', 'Rectangle', 'RectangleSet', 'ArcAngle', 'PointBoundingBox', 'IsValidBoundingBox',
            'IsValidRectangleInputArray']
 
-from nornir_imageregistration.spatial.indicies import iArea, iBox, iPoint, iPoint3, iRect, iVolume
-import nornir_imageregistration.spatial.indicies as indicies
+from nornir_imageregistration.spatial.indices import iArea, iBox, iPoint, iPoint3, iRect, iVolume
 from nornir_imageregistration.spatial.point import *
 import nornir_imageregistration.spatial.point as point
 from nornir_imageregistration.spatial.rectangle import Rectangle, RectangleSet, IsValidRectangleInputArray, \

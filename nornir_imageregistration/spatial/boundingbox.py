@@ -6,9 +6,10 @@ points are represented as (Y,X)
 '''
 
 import numpy as np
-from numpy.typing import *
+from numpy.typing import NDArray, ArrayLike
 
 from nornir_imageregistration.spatial import Rectangle, iBox, iPoint, iPoint3, iVolume
+from nornir_imageregistration.spatial.converters import BoundsArrayFromPoints
 
 
 class BoundingBox(object):
@@ -58,7 +59,7 @@ class BoundingBox(object):
     def ToArray(self) -> NDArray:
         return np.array(self._bounds)
 
-    def ToTuple(self) -> (float, float, float, float, float, float):
+    def ToTuple(self) -> tuple[float, float, float, float, float, float]:
         return (self._bounds[iBox.MinZ],
                 self._bounds[iBox.MinY],
                 self._bounds[iBox.MinX],

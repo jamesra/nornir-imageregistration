@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 import nornir_imageregistration.phasecorrelation
-from nornir_imageregistration.transforms.base import IDiscreteTransform
+from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformTranslation
 from nornir_shared import prettyoutput
 
 
@@ -25,15 +25,13 @@ class Tile:
 
     __nextID: int = 0  # Next generated unique ID for a tile
     _ID: int  # Unique identifier for the tile
-    _transform: nornir_imageregistration.ITransformTranslation  # The transform for the tile
+    _transform: nornir_imageregistration.ITransform  # The transform for the tile
     _source_bounding_box: nornir_imageregistration.Rectangle | None
     _target_bounding_box: nornir_imageregistration.Rectangle | None
-    _transform: nornir_imageregistration.ITransform  # The transform for the tile
     _image: NDArray | None  # The image data
     _paddedimage: NDArray[np.floating] | None  # The padded image data used for registration
-    _image_size: NDArray[
-                     np.floating] | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
-    _fftimage: NDArray[np.floating] | None  # The FFT of the padded image data
+    _image_size: NDArray | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
+    _fftimage: NDArray | None  # The FFT of the padded image data
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
 
     def TryEstimateImageToSourceSpaceScalar(self):
@@ -89,23 +87,23 @@ class Tile:
     @property
     def FullResolutionImageSize(self) -> Tuple[float, float]:
         dims = self.MappedBoundingBox
-        return (dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY],
-                dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
+        return (float(dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY]),
+                float(dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY]))
 
     @property
     def WarpedImageSize(self) -> Tuple[float, float]:
         dims = self.FixedBoundingBox
-        return (dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY],
-                dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY])
+        return (float(dims[nornir_imageregistration.iRect.MaxY] - dims[nornir_imageregistration.iRect.MinY]),
+                float(dims[nornir_imageregistration.iRect.MaxX] - dims[nornir_imageregistration.iRect.MinY]))
 
     @property
-    def Transform(self) -> nornir_imageregistration.ITransformTranslation:
-        """A string encoding our tile's transform"""
+    def Transform(self) -> nornir_imageregistration.ITransform:
+        """The spatial transform for this tile"""
         return self._transform
 
     @Transform.setter
-    def Transform(self, val: nornir_imageregistration.ITransformTranslation):
-        """A string encoding our tile's transform"""
+    def Transform(self, val: nornir_imageregistration.ITransform):
+        """The spatial transform for this tile"""
         self._transform = val
         # Reset the bounding box of the target and source space
         self._target_bounding_box = None
@@ -115,12 +113,14 @@ class Tile:
     def Image(self) -> NDArray:
         if self._image is None:
             try:
+                assert self._imagepath is not None
                 self._image = nornir_imageregistration.LoadImage(self._imagepath,
                                                                  dtype=nornir_imageregistration.default_image_dtype())
             except IOError:
                 prettyoutput.LogErr(f'Unable to load {self._imagepath}')
                 raise
 
+        assert self._image is not None
         return self._image
 
     @property
@@ -132,6 +132,7 @@ class Tile:
 
         if self._image_size is None:
             if self._image is None:
+                assert self._imagepath is not None
                 self._image_size = np.array(nornir_imageregistration.GetImageSize(self._imagepath), np.int64)
             else:
                 self._image_size = np.array(self._image.shape, np.int64)
@@ -148,7 +149,7 @@ class Tile:
         return self._paddedimage
 
     @property
-    def ImagePath(self) -> str:
+    def ImagePath(self) -> str | None:
         """
         Path to the image data on disk.  This should be populated, but is rarely
         None for some unit tests if an image array is passed to the constructor
@@ -160,6 +161,7 @@ class Tile:
         if self._fftimage is None:
             self._fftimage = np.fft.rfft2(self.PaddedImage)
 
+        assert self._fftimage is not None
         return self._fftimage
 
     def PrecalculateImages(self):
@@ -190,7 +192,8 @@ class Tile:
         an origin at (0,0) for image generation
         """
 
-        self.Transform.TranslateFixed(offset)
+        if isinstance(self.Transform, ITransformTranslation):
+            self.Transform.TranslateFixed(offset)
         if self._target_bounding_box is not None:
             self._target_bounding_box = nornir_imageregistration.Rectangle.translate(self._target_bounding_box, offset)
 
@@ -198,7 +201,7 @@ class Tile:
                                     overlapping_target_rect: nornir_imageregistration.Rectangle) -> nornir_imageregistration.Rectangle:
         """:return: Rectangle describing which region of the tile_obj image is contained in the overlapping_rect from volume space"""
         source_space_points = self.Transform.InverseTransform(overlapping_target_rect.Corners)
-        return nornir_imageregistration.BoundingPrimitiveFromPoints(source_space_points)
+        return nornir_imageregistration.BoundingPrimitiveFromPoints(source_space_points)  # type: ignore[return-value]
 
     def _GetOrCalculateSourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """
@@ -206,7 +209,7 @@ class Tile:
         Limited to the full-resolution image dimensions if it is a continuous transform
         """
         if isinstance(self.Transform, IDiscreteTransform):
-            return self._transform.MappedBoundingBox
+            return self.Transform.MappedBoundingBox
 
         adjusted_image_size = self.ImageSize * self.image_to_source_space_scale
         # image_size = np.array(image_size, dtype=np.int32) * (1.0 / self.source_space_scale)
@@ -218,7 +221,7 @@ class Tile:
         Limited to the full-resolution image dimensions if it is a continuous transform
         """
         if isinstance(self.Transform, IDiscreteTransform):
-            return self._transform.FixedBoundingBox
+            return self.Transform.FixedBoundingBox
 
         source_bbox = self.MappedBoundingBox
         target_bbox_corners = self.Transform.Transform(source_bbox.Corners)
@@ -278,11 +281,11 @@ class Tile:
         else:
             raise ValueError("imagepath must be str or ndarray type")
 
-        self._paddedimage = None  # type: NDArray | None
-        self._fftimage = None  # type: NDArray | None
+        self._paddedimage = None
+        self._fftimage = None
 
-        self._source_bounding_box = None  # type: nornir_imageregistration.Rectangle | None
-        self._target_bounding_box = None  # type: nornir_imageregistration.Rectangle | None
+        self._source_bounding_box = None
+        self._target_bounding_box = None
 
         self._image_size = None
 

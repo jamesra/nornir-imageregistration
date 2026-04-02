@@ -25,6 +25,7 @@ class TransformWarpView:
             transform = nornir_imageregistration.StosFile.Load(transform)
 
         if isinstance(transform, nornir_imageregistration.StosFile):
+            assert transform.Transform is not None
             transform = factory.LoadTransform(transform.Transform, 1)
 
         if not isinstance(transform, ITriangulatedTargetSpace):
@@ -74,9 +75,9 @@ class TransformWarpView:
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
         if RenderToSourceSpace:
-            points = self.transform.SourcePoints
+            points = self.transform.SourcePoints  # type: ignore[reportAttributeAccessIssue]
         else:
-            points = self.transform.TargetPoints
+            points = self.transform.TargetPoints  # type: ignore[reportAttributeAccessIssue]
 
         # plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], self.transform.FixedTriangles)
 
@@ -89,7 +90,7 @@ class TransformWarpView:
         ax1.set_aspect('equal')
         ax1.axis('off')
         # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:, 1], points[:, 0], self.transform.FixedTriangles, measurement, vmin=0,
+        tpc = ax1.tripcolor(points[:, 1], points[:, 0], self.transform.FixedTriangles, measurement, vmin=0,  # type: ignore[reportCallIssue, reportAttributeAccessIssue]
                             vmax=maxAngle, shading='gouraud')
 
         cbar = fig1.colorbar(tpc)
@@ -141,7 +142,7 @@ class TransformWarpView:
         numbins = 120  # A bin every 1/2 degree
 
         h = nornir_shared.histogram.Histogram.Init(0, maxVal, numbins)
-        h.Add(measurement)
+        h.Add(measurement)  # type: ignore[arg-type]
         return h
 
 
@@ -158,9 +159,10 @@ class StosTransformWarpView(TransformWarpView):
                 if not isinstance(val, nornir_imageregistration.StosFile):
                     raise ValueError("stos attribute must be a StosFile object")
 
-                self.transform = factory.LoadTransform(val.Transform, 1)
+                assert val.Transform is not None
+                self.transform = factory.LoadTransform(val.Transform, 1)  # type: ignore[reportAttributeAccessIssue]
             else:
-                self.transform = None
+                self.transform = None  # type: ignore[reportAttributeAccessIssue]
 
             self.__stos = val
 
@@ -180,7 +182,7 @@ class StosTransformWarpView(TransformWarpView):
         maxVal = numpy.max(list(map(numpy.max, self.angle_delta)))
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
-        points = self.transform.FixedPoints
+        points = self.transform.FixedPoints  # type: ignore[reportAttributeAccessIssue]
 
 
 if __name__ == '__main__':

@@ -7,29 +7,69 @@ A helper class to marshal large images using the file system instead of in-memor
 '''
 from __future__ import annotations
 
-from typing import Tuple
+from dataclasses import dataclass
+from typing import Any, Mapping, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
-from nornir_imageregistration.transformed_image_data import ITransformedImageData
+from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState
+
+
+@dataclass
+class _InMemoryImageState:
+    image: NDArray
+
+
+@dataclass
+class _SharedMemoryImageState:
+    metadata: Shared_Mem_Metadata
+    image: NDArray | None = None
+
+
+class _ClearedImageState:
+    pass
+
+
+_CLEARED_IMAGE_STATE = _ClearedImageState()
+_ImageState = _InMemoryImageState | _SharedMemoryImageState | _ClearedImageState
 
 
 class TransformedImageDataViaSharedMemory(ITransformedImageData):
-    _image_shared_mem_meta: Shared_Mem_Metadata
-    _center_distance_image_shared_mem_meta: Shared_Mem_Metadata
-    _image: NDArray[np.floating]
-    _centerDistanceImage: NDArray[np.floating]
+    _image_state: _ImageState
+    _center_distance_image_state: _ImageState
     _source_space_scale: float
     _target_space_scale: float
+    _rendered_target_space_origin: NDArray[np.float32]
+    _transform: Any | None
+    _errmsg: str | None
 
-    # _transform: nornir_imageregistration.ITransform
+    @staticmethod
+    def _state_from_input(value: NDArray | Shared_Mem_Metadata) -> _ImageState:
+        if isinstance(value, Shared_Mem_Metadata):
+            return _SharedMemoryImageState(metadata=value)
+        return _InMemoryImageState(image=value)
+
+    @staticmethod
+    def _metadata_only_state(value: _ImageState) -> _ImageState:
+        if isinstance(value, _SharedMemoryImageState):
+            return _SharedMemoryImageState(metadata=value.metadata)
+        return value
 
     @property
     def errormsg(self) -> str | None:
-        return None
+        return self._errmsg
+
+    @property
+    def state(self) -> TransformedImageDataState:
+        if isinstance(self._image_state, _ClearedImageState) or isinstance(self._center_distance_image_state, _ClearedImageState):
+            return TransformedImageDataState.CLEARED
+        if isinstance(self._image_state, _SharedMemoryImageState) or isinstance(self._center_distance_image_state,
+                                                                                _SharedMemoryImageState):
+            return TransformedImageDataState.SHARED_MEMORY
+        return TransformedImageDataState.IN_MEMORY
 
     '''
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient.
@@ -38,35 +78,46 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     memmap_threshold: int = 64 * 64
 
     @property
-    def image_shared_mem_meta(self) -> Shared_Mem_Metadata:
-        return self._image_shared_mem_meta
+    def image_shared_mem_meta(self) -> Shared_Mem_Metadata | None:
+        if isinstance(self._image_state, _SharedMemoryImageState):
+            return self._image_state.metadata
+        return None
 
     @property
     def image(self) -> NDArray:
-        if self._image is None:
-            if self._image_shared_mem_meta is not None:
-                self._image = nornir_imageregistration.ImageParamToImageArray(self._image_shared_mem_meta)
+        if isinstance(self._image_state, _InMemoryImageState):
+            return self._image_state.image
 
-        if self._image is None:
-            raise ValueError("No image associated with TransformedImageData")
+        if isinstance(self._image_state, _SharedMemoryImageState):
+            shared_state = self._image_state
+            image = shared_state.image
+            if image is None:
+                image = nornir_imageregistration.ImageParamToImageArray(shared_state.metadata)
+                self._image_state = _SharedMemoryImageState(metadata=shared_state.metadata, image=image)
+            return image
 
-        return self._image
+        raise ValueError("No image associated with TransformedImageData")
 
     @property
-    def center_distance_image_mem_meta(self) -> Shared_Mem_Metadata:
-        return self._center_distance_image_shared_mem_meta
+    def center_distance_image_mem_meta(self) -> Shared_Mem_Metadata | None:
+        if isinstance(self._center_distance_image_state, _SharedMemoryImageState):
+            return self._center_distance_image_state.metadata
+        return None
 
     @property
     def centerDistanceImage(self) -> NDArray:
-        if self._centerDistanceImage is None:
-            if self._center_distance_image_shared_mem_meta is not None:
-                self._centerDistanceImage = nornir_imageregistration.ImageParamToImageArray(
-                    self._center_distance_image_shared_mem_meta)
+        if isinstance(self._center_distance_image_state, _InMemoryImageState):
+            return self._center_distance_image_state.image
 
-        if self._centerDistanceImage is None:
-            raise ValueError("No distance image associated with TransformedImageData")
+        if isinstance(self._center_distance_image_state, _SharedMemoryImageState):
+            shared_state = self._center_distance_image_state
+            image = shared_state.image
+            if image is None:
+                image = nornir_imageregistration.ImageParamToImageArray(shared_state.metadata)
+                self._center_distance_image_state = _SharedMemoryImageState(metadata=shared_state.metadata, image=image)
+            return image
 
-        return self._centerDistanceImage
+        raise ValueError("No distance image associated with TransformedImageData")
 
     @property
     def source_space_scale(self) -> float:
@@ -77,7 +128,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         return self._target_space_scale
 
     @property
-    def rendered_target_space_origin(self):
+    def rendered_target_space_origin(self) -> NDArray[np.float32]:
         """
         The bottom left origin of the transformed data.  When requesting an assembled image for a target region
         rounding sometimes can occur this property contains the actual bottom left coordinate of the image data
@@ -91,33 +142,17 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     #    return self._transform
 
     @classmethod
-    def Create(cls, image: NDArray, centerDistanceImage: NDArray,
+    def Create(cls, image: NDArray | Shared_Mem_Metadata, centerDistanceImage: NDArray | Shared_Mem_Metadata,
                transform,
                source_space_scale: float, target_space_scale: float,
                rendered_target_space_origin: Tuple[float, float],
                SingleThreadedInvoke: bool) -> TransformedImageDataViaSharedMemory:
-        o = TransformedImageDataViaSharedMemory()
-
-        if isinstance(image, nornir_imageregistration.Shared_Mem_Metadata):
-            o._image_shared_mem_meta = image
-            o._image = None
-        else:
-            o._image = image
-            o._image_shared_mem_meta = None
-
-        if isinstance(centerDistanceImage, nornir_imageregistration.Shared_Mem_Metadata):
-            o._centerDistanceImage = None
-            o._center_distance_image_shared_mem_meta = centerDistanceImage
-        else:
-            o._centerDistanceImage = centerDistanceImage
-            o._center_distance_image_shared_mem_meta = None
-
-        # o._image_path = None
-        # o._centerDistanceImage_path = None
-        o._source_space_scale = source_space_scale
-        o._target_space_scale = target_space_scale
-        o._rendered_target_space_origin = np.array(rendered_target_space_origin, dtype=np.float32)
-        # o._transform = transform
+        o = TransformedImageDataViaSharedMemory(source_space_scale=source_space_scale,
+                                                target_space_scale=target_space_scale,
+                                                rendered_target_space_origin=rendered_target_space_origin)
+        o._image_state = cls._state_from_input(image)
+        o._center_distance_image_state = cls._state_from_input(centerDistanceImage)
+        o._transform = transform
 
         # if not SingleThreadedInvoke:
         #    o.ConvertToMemmapIfLarge()
@@ -125,21 +160,22 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         return o
 
     def ConvertToSharedMemory(self):
-        if self._image_shared_mem_meta is None and self._image is not None:
-            self._image_shared_mem_meta, self._image = nornir_imageregistration.npArrayToSharedArray(self._image)
+        if isinstance(self._image_state, _InMemoryImageState):
+            metadata, image = nornir_imageregistration.npArrayToSharedArray(self._image_state.image)
+            self._image_state = _SharedMemoryImageState(metadata=metadata, image=image)
 
-        if self._center_distance_image_shared_mem_meta is None and self._centerDistanceImage is not None:
-            self._center_distance_image_shared_mem_meta, self._centerDistanceImage = nornir_imageregistration.npArrayToSharedArray(
-                self._centerDistanceImage)
+        if isinstance(self._center_distance_image_state, _InMemoryImageState):
+            metadata, image = nornir_imageregistration.npArrayToSharedArray(self._center_distance_image_state.image)
+            self._center_distance_image_state = _SharedMemoryImageState(metadata=metadata, image=image)
 
     def Clear(self):
-        if self._image_shared_mem_meta is not None:
-            nornir_imageregistration.unlink_shared_memory(self._image_shared_mem_meta)
-            self._image_shared_mem_meta = None
+        if isinstance(self._image_state, _SharedMemoryImageState):
+            nornir_imageregistration.unlink_shared_memory(self._image_state.metadata)
+        self._image_state = _CLEARED_IMAGE_STATE
 
-        if self._center_distance_image_shared_mem_meta is not None:
-            nornir_imageregistration.unlink_shared_memory(self._center_distance_image_shared_mem_meta)
-            self._center_distance_image_shared_mem_meta = None
+        if isinstance(self._center_distance_image_state, _SharedMemoryImageState):
+            nornir_imageregistration.unlink_shared_memory(self._center_distance_image_state.metadata)
+        self._center_distance_image_state = _CLEARED_IMAGE_STATE
 
     # def ConvertToMemmapIfLarge(self):
     #     if np.prod(self._image.shape) > TransformedImageData.memmap_threshold:
@@ -156,13 +192,16 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     #
     #     return
 
-    def __init__(self, errorMsg: str | None = None):
-        self._image_shared_mem_meta = None
-        self._center_distance_image_shared_mem_meta = None
-        self._image = None
-        self._centerDistanceImage = None
-        self._source_space_scale = None
-        self._target_space_scale = None
+    def __init__(self,
+                 source_space_scale: float = 0.0,
+                 target_space_scale: float = 0.0,
+                 rendered_target_space_origin: Tuple[float, float] = (0.0, 0.0),
+                 errorMsg: str | None = None):
+        self._image_state = _CLEARED_IMAGE_STATE
+        self._center_distance_image_state = _CLEARED_IMAGE_STATE
+        self._source_space_scale = source_space_scale
+        self._target_space_scale = target_space_scale
+        self._rendered_target_space_origin = np.asarray(rendered_target_space_origin, dtype=np.float32)
         self._transform = None
         self._errmsg = errorMsg
         # self._image_path = None
@@ -175,14 +214,32 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
 
     def __getstate__(self):
         self.ConvertToSharedMemory()
-        odict = {}
-        odict.update(self.__dict__)
-        del odict['_image']
-        del odict['_centerDistanceImage']
-
-        return odict
+        return {
+            "_image_state": self._metadata_only_state(self._image_state),
+            "_center_distance_image_state": self._metadata_only_state(self._center_distance_image_state),
+            "_source_space_scale": self._source_space_scale,
+            "_target_space_scale": self._target_space_scale,
+            "_rendered_target_space_origin": self._rendered_target_space_origin,
+            "_transform": self._transform,
+            "_errmsg": self._errmsg,
+        }
 
     def __setstate__(self, state):
-        self.__dict__.update(state)
-        self._image = None
-        self._centerDistanceImage = None
+        if not isinstance(state, Mapping):
+            raise TypeError(f"Invalid state type: {type(state)!r}")
+
+        self._image_state = state.get("_image_state", _CLEARED_IMAGE_STATE)
+        if "_image_state" not in state and isinstance(state.get("_image_shared_mem_meta"), Shared_Mem_Metadata):
+            self._image_state = _SharedMemoryImageState(state["_image_shared_mem_meta"])
+
+        self._center_distance_image_state = state.get("_center_distance_image_state", _CLEARED_IMAGE_STATE)
+        if "_center_distance_image_state" not in state and isinstance(state.get("_center_distance_image_shared_mem_meta"),
+                                                                        Shared_Mem_Metadata):
+            self._center_distance_image_state = _SharedMemoryImageState(state["_center_distance_image_shared_mem_meta"])
+
+        self._source_space_scale = float(state.get("_source_space_scale", 0.0))
+        self._target_space_scale = float(state.get("_target_space_scale", 0.0))
+        self._rendered_target_space_origin = np.asarray(state.get("_rendered_target_space_origin", (0.0, 0.0)),
+                                                        dtype=np.float32)
+        self._transform = state.get("_transform")
+        self._errmsg = state.get("_errmsg")

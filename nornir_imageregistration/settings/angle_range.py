@@ -9,11 +9,11 @@ class AngleSearchRange(BaseModel):
     angle_step_size: float = 3  # Number of degrees to step between search angles
 
     @property
-    def angle_range(self) -> NDArray[float]:
+    def angle_range(self) -> NDArray[np.floating]:
         if self.max_angle is None:
-            angles = np.arange(start=-180, stop=180, step=self.angle_step_size)
+            angles = np.arange(-180, stop=180, step=self.angle_step_size)
         else:
-            angles = np.arange(start=-self.max_angle,
+            angles = np.arange(-self.max_angle,
                                stop=self.max_angle + self.angle_step_size,
                                step=self.angle_step_size)  # numpy.linspace(-7.5, 7.5, 11)
 
@@ -22,3 +22,4 @@ class AngleSearchRange(BaseModel):
 
     def __iter__(self):
         return iter(self.angle_range)
+

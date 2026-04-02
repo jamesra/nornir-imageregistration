@@ -1,7 +1,6 @@
 import os
 
-from nornir_imageregistration.mathfuncs import calculate_deviation
-import nornir_imageregistration.mathfuncs.plotproperties
+from nornir_imageregistration.mathfuncs import CutoffMethod, calculate_deviation, estimate_cutoff
 import nornir_imageregistration.type_info
 
 import setup_imagetest
@@ -31,7 +30,7 @@ class Test(setup_imagetest.TestBase):
         # Here we find the inflection point with the highest x value.
         # We then calculate the deviation of the values from the line at that point to max(x)
         # The point with the largest deviation has the largest magnitude of cross product.  Negative values are below the line, positive are above.
-        inflection_indicies, inflection_points = find_inflection_points(percentile, y_fit)
+        inflection_indices, inflection_points = find_inflection_points(percentile, y_fit)
         highest_inflection_point = int(inflection_points[-1])
         cross_products = calculate_deviation(values=percentile_values, above_index=highest_inflection_point)
         cutoff_percentile_index = np.argmax(abs(cross_products[:, 1])) + highest_inflection_point
@@ -51,10 +50,10 @@ class Test(setup_imagetest.TestBase):
         # Test data contains
         weight_distance_composite_scores = test_data['weight_distance_composite_scores']
 
-        cutoff_percentile, inflection_percentile, cutoff_value_this_pass, polyfit_weights = nornir_imageregistration.mathfuncs.plotproperties.estimate_cutoff(
+        cutoff_percentile, inflection_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
             weight_distance_composite_scores[:, 0],
-            method=nornir_imageregistration.mathfuncs.plotproperties.CutoffMethod.Polyfit)
+            method=CutoffMethod.Polyfit)
 
         nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
                                                         title=f"Value at percentile",
-                                                        horz_line_pos_list=[cutoff_value_this_pass])
+                                                        horz_line_pos_list=[(cutoff_value_this_pass, {})])

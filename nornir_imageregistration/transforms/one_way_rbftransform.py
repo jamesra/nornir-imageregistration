@@ -11,19 +11,16 @@ from numpy.typing import NDArray
 
 try:
     import cupy as cp
-    # import cupyx
-    import cupyx.scipy.spatial as cuspatial
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    # import nornir_imageregistration.cupyx_thunk as cupyx
+
 import scipy.interpolate
 import scipy.linalg
-import scipy.spatial
 
 import nornir_imageregistration
+from nornir_imageregistration.spatial_distance import array_to_numpy_host, cdist as pairwise_cdist
 import nornir_pools
 from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation, Triangulation_GPUComponent
@@ -48,16 +45,17 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
     def __getstate__(self):
         odict = super(OneWayRBFWithLinearCorrection, self).__getstate__()
-        odict['_weights'] = self._weights
+        odict['_weights'] = self._weights  # type: ignore[assignment]
 
         if '_rigid_transform' not in odict:
-            odict['_rigid_transform'] = self._rigid_transform.ToITKString() if self.UseRigidTransform else None
+            odict['_rigid_transform'] = self._rigid_transform.ToITKString() if self.UseRigidTransform else None  # type: ignore[assignment, union-attr]
 
         return odict
 
     @property
     def Weights(self):
         if self._weights is None:
+            assert self.BasisFunction is not None
             self._weights, use_rigid_transform = self.CalculateRBFWeights(self.SourcePoints, self.TargetPoints,
                                                                           self.BasisFunction)
             if use_rigid_transform:
@@ -102,7 +100,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
         if NumPts <= MaxChunkSize:
-            Distances = scipy.spatial.distance.cdist(Points, WarpedPoints)
+            Distances = pairwise_cdist(Points, WarpedPoints)
 
             # VectorBasisFunc = np.vectorize( self.BasisFunction)
             # FuncValues = VectorBasisFunc(Distances)
@@ -157,7 +155,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         NumCtrlPts = len(self.TargetPoints)
 
         if self.UseRigidTransform:
-            return self._rigid_transform.Transform(Points)
+            return self._rigid_transform.Transform(Points)  # type: ignore[union-attr]
             # NumPts = Points.shape[0]
             # MatrixWeightSumX = np.zeros((1, NumPts))
             # MatrixWeightSumY = np.zeros((1, NumPts))
@@ -216,7 +214,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return MatrixOutpoints
 
     def InverseTransform(self, Points: NDArray, **kwargs):
-        raise NotImplemented("RBF Transform does not support inverse transformations")
+        raise NotImplementedError("RBF Transform does not support inverse transformations")
 
     @staticmethod
     def CreateSolutionMatricies(ControlPoints: NDArray):
@@ -232,7 +230,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         return ResultMatrixX, ResultMatrixY
 
     @staticmethod
-    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] = None):
+    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         # if BasisFunction is None:
         #    BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
 
@@ -244,14 +242,14 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
             if (iPointA + 1) < NumPts:
                 p = points[list(range((iPointA + 1), NumPts))]
-                dList = scipy.spatial.distance.cdist([points[iPointA]], p)
+                dList = pairwise_cdist(np.atleast_2d(points[iPointA]), p)
 
                 dList = dList.ravel()
                 if dList.shape[0] >= 1:
                     if np.min(dList) <= 0:
                         raise ValueError("Cannot have duplicate points in transform")
 
-                valueList = BasisFunction(dList)
+                valueList = BasisFunction(dList)  # type: ignore[misc]
                 # valueList = np.power(dList, 2)
                 # valueList = np.multiply(valueList, np.log(dList))
                 # valueList = valueList.ravel()
@@ -429,16 +427,17 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     def __getstate__(self):
         odict = super(OneWayRBFWithLinearCorrection_GPUComponent, self).__getstate__()
-        odict['_weights'] = self._weights
+        odict['_weights'] = self._weights  # type: ignore[assignment]
 
         if '_rigid_transform' not in odict:
-            odict['_rigid_transform'] = self._rigid_transform.ToITKString() if self.UseRigidTransform else None
+            odict['_rigid_transform'] = self._rigid_transform.ToITKString() if self.UseRigidTransform else None  # type: ignore[assignment, union-attr]
 
         return odict
 
     @property
     def Weights(self):
         if self._weights is None:
+            assert self.BasisFunction is not None
             self._weights, use_rigid_transform = self.CalculateRBFWeights(self.SourcePoints, self.TargetPoints,
                                                                           self.BasisFunction)
             if use_rigid_transform:
@@ -455,7 +454,9 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def DefaultBasisFunction(distance: NDArray[np.floating]) -> NDArray[np.floating]:
-        return cp.multiply(cp.power(distance, 2), cp.log(distance))
+        # cdist / host paths may pass NumPy; CuPy ufuncs reject ndarray without an explicit transfer.
+        d = cp.asarray(distance)
+        return cp.multiply(cp.power(d, 2), cp.log(d))
 
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
                  BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
@@ -483,14 +484,17 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
         # This calculation has an NumPoints X NumWarpedPoints memory footprint when there are a large number of points
         if NumPts <= MaxChunkSize:
-            Distances = cuspatial.distance.cdist(Points, WarpedPoints)
+            Distances = pairwise_cdist(Points, WarpedPoints)
+            # pairwise_cdist can return NumPy even when inputs are CuPy; keep masks/ops on-device.
+            if cp.get_array_module(Points) is cp:
+                Distances = cp.asarray(Distances)
 
             # VectorBasisFunc = np.vectorize( self.BasisFunction)
             # FuncValues = VectorBasisFunc(Distances)
 
             # We have to check for zeros so we don't crash if the transformed point exactly matches our control point
             nonzero = Distances != 0
-            FuncValues = cp.zeros(Distances.shape)
+            FuncValues = cp.zeros(Distances.shape, dtype=Distances.dtype)
 
             if cp.all(nonzero):
                 FuncValues = cp.multiply(cp.power(Distances, 2.0), cp.log(Distances))
@@ -596,7 +600,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         return MatrixOutpoints
 
     def InverseTransform(self, Points: NDArray, **kwargs):
-        raise NotImplemented("RBF Transform does not support inverse transformations")
+        raise NotImplementedError("RBF Transform does not support inverse transformations")
 
     @staticmethod
     def CreateSolutionMatricies(ControlPoints: NDArray):
@@ -613,7 +617,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         return ResultMatrixX, ResultMatrixY
 
     @staticmethod
-    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] = None):
+    def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         # if BasisFunction is None:
         #    BasisFunction = OneWayRBFWithLinearCorrection_GPUComponent.DefaultBasisFunction
 
@@ -628,14 +632,16 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
             if (iPointA + 1) < NumPts:
                 p = points[list(range((iPointA + 1), NumPts))]
-                dList = cuspatial.distance.cdist([points[iPointA]], p)
+                # Both args on the same array module so cdist stays on-device; BasisFunction uses CuPy ufuncs.
+                dList = pairwise_cdist(cp.atleast_2d(points[iPointA]), cp.asarray(p)).ravel()
+                if cp.get_array_module(dList) is np:
+                    dList = cp.asarray(dList)
 
-                dList = dList.ravel()
                 if dList.shape[0] >= 1:
-                    if np.min(dList) <= 0:
+                    if float(cp.min(dList)) <= 0:
                         raise ValueError("Cannot have duplicate points in transform")
 
-                valueList = BasisFunction(dList)
+                valueList = BasisFunction(dList)  # type: ignore[misc]
                 # valueList = np.power(dList, 2)
                 # valueList = np.multiply(valueList, np.log(dList))
                 # valueList = valueList.ravel()
@@ -704,19 +710,21 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
             return cp.hstack([WeightsX, WeightsY]), use_rigid_transform
         except cp.linalg.LinAlgError as e:
             if e.args[0] == 'Matrix is singular.':
-                # This is a distraction for now, but I should be able to fill in these weights correctly
-                source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
-                    ControlPoints, WarpedPoints)
+                wp_np = array_to_numpy_host(WarpedPoints)
+                cc_np = array_to_numpy_host(ControlPoints)
+                result = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
+                    cc_np, wp_np)
+                rotation_matrix = nornir_imageregistration.transforms.RotationMatrix(np.radians(result.angle))
 
                 WeightsY = cp.zeros(SolutionMatrix_Y.shape)
-                WeightsY[-3] = rotation_matrix[1, 0]
-                WeightsY[-2] = scale
-                WeightsY[-1] = translation[0]
+                WeightsY[-3] = rotation_matrix[0, 1]
+                WeightsY[-2] = result.scale
+                WeightsY[-1] = result.translation[0]
 
                 WeightsX = cp.zeros(SolutionMatrix_X.shape)
                 WeightsX[-3] = rotation_matrix[0, 0]
-                WeightsX[-2] = scale
-                WeightsX[-1] = translation[1]
+                WeightsX[-2] = result.scale
+                WeightsX[-1] = result.translation[1]
 
                 return cp.hstack([WeightsX, WeightsY]), True
             else:
@@ -725,6 +733,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
     @property
     def LinearComponents(self):
         """The angle of rotation for the linear portion of the transform"""
+        xp = cp.get_array_module(self.Weights)
         nPoints = self.points.shape[0]
         rotate_x_component = self.Weights[nPoints]
         scale_x_component = self.Weights[nPoints + 1]
@@ -735,11 +744,11 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         scale_y_component = self.Weights[axis_offset + nPoints + 1]
         translate_y_component = self.Weights[axis_offset + nPoints + 2]
 
-        angle = np.arctan2(rotate_x_component, rotate_y_component)
+        angle = xp.arctan2(rotate_x_component, rotate_y_component)
         scale = [scale_y_component, scale_x_component]
         rotate = [rotate_y_component, rotate_x_component]
         translate = [translate_y_component, translate_x_component]
-        source_rotation_center = np.mean(self.points[:, 2:], 0)
+        source_rotation_center = xp.mean(self.points[:, 2:], axis=0)
 
         return source_rotation_center, angle, translate, scale
 

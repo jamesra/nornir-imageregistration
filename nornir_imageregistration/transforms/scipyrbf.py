@@ -6,25 +6,31 @@ Created on Oct 18, 2012
 
 import numpy
 import scipy.interpolate
+from scipy.interpolate import Rbf
 
+import nornir_imageregistration
 from nornir_imageregistration.spatial import iPoint
 from nornir_imageregistration.transforms import triangulation
 
 
 class ScipyRbf(triangulation.Triangulation):
+    _ForwardRbfiX: Rbf | None
+    _ForwardRbfiY: Rbf | None
+    _ReverseRbfiX: Rbf | None
+    _ReverseRbfiY: Rbf | None
 
     def __getstate__(self):
         odict = super(ScipyRbf, self).__getstate__()
 
-        odict['_ForwardRbfiX'] = self._ForwardRbfiX
-        odict['_ForwardRbfiY'] = self._ForwardRbfiY
-        odict['_ReverseRbfiX'] = self._ReverseRbfiX
-        odict['_ReverseRbfiY'] = self._ReverseRbfiY
+        odict['_ForwardRbfiX'] = self._ForwardRbfiX  # type: ignore[assignment]
+        odict['_ForwardRbfiY'] = self._ForwardRbfiY  # type: ignore[assignment]
+        odict['_ReverseRbfiX'] = self._ReverseRbfiX  # type: ignore[assignment]
+        odict['_ReverseRbfiY'] = self._ReverseRbfiY  # type: ignore[assignment]
 
         return odict
 
     @property
-    def ForwardRbfiX(self):
+    def ForwardRbfiX(self) -> Rbf:
         if self._ForwardRbfiX is None:
             self._ForwardRbfiX = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X],
                                                        self.SourcePoints[:, iPoint.X])
@@ -32,7 +38,7 @@ class ScipyRbf(triangulation.Triangulation):
         return self._ForwardRbfiX
 
     @property
-    def ForwardRbfiY(self):
+    def ForwardRbfiY(self) -> Rbf:
         if self._ForwardRbfiY is None:
             self._ForwardRbfiY = scipy.interpolate.Rbf(self.TargetPoints[:, iPoint.Y], self.TargetPoints[:, iPoint.X],
                                                        self.SourcePoints[:, iPoint.Y])
@@ -40,7 +46,7 @@ class ScipyRbf(triangulation.Triangulation):
         return self._ForwardRbfiY
 
     @property
-    def ReverseRbfiX(self):
+    def ReverseRbfiX(self) -> Rbf:
         if self._ReverseRbfiX is None:
             self._ReverseRbfiX = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X],
                                                        self.TargetPoints[:, iPoint.X])
@@ -48,7 +54,7 @@ class ScipyRbf(triangulation.Triangulation):
         return self._ReverseRbfiX
 
     @property
-    def ReverseRbfiY(self):
+    def ReverseRbfiY(self) -> Rbf:
         if self._ReverseRbfiY is None:
             self._ReverseRbfiY = scipy.interpolate.Rbf(self.SourcePoints[:, iPoint.Y], self.SourcePoints[:, iPoint.X],
                                                        self.TargetPoints[:, iPoint.Y])

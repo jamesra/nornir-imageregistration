@@ -46,13 +46,13 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
         '''Translate all fixed points by the specified amount'''
         self._post_transform_translation += offset
         self.OnTransformChanged()
-        raise NotImplemented("This implementation is untested")
+        raise NotImplementedError("This implementation is untested")
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         self._pre_transform_translation -= offset
         self.OnTransformChanged()
-        raise NotImplemented("This implementation is untested")
+        raise NotImplementedError("This implementation is untested")
 
     def __init__(self,
                  matrix: NDArray,
@@ -66,7 +66,7 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
         '''
 
         self._matrix = matrix
-        self._inverse_matrix = None  # type: NDArray
+        self._inverse_matrix: NDArray | None = None
         self._pre_transform_translation = pre_transform_translation
         self._post_transform_translation = post_transform_translation
 
@@ -80,7 +80,7 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
 
         self._pre_transform_translation = np.asarray(self._pre_transform_translation, dtype=np.float64)
         self._post_transform_translation = np.asarray(self._post_transform_translation, dtype=np.float64)
@@ -89,13 +89,13 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
         self.OnTransformChanged()
 
     @staticmethod
-    def Load(TransformString: str, pixelSpacing: float = None):
-        return nornir_imageregistration.transforms.factory.ParseFixedCenterOfRotationAffineTransform(TransformString,
+    def Load(TransformString: str, pixelSpacing: float | None = None):
+        return nornir_imageregistration.transforms.factory.ParseFixedCenterOfRotationAffineTransform(TransformString,  # type: ignore[arg-type]
                                                                                                      pixelSpacing)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {pre_transform_translation[1]} {pre_transform_translation[0]}"
+        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {self._pre_transform_translation[1]} {self._pre_transform_translation[0]}"
 
     def Transform(self, points, **kwargs):
         p1 = points + self._pre_transform_translation
@@ -142,13 +142,13 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
         '''Translate all fixed points by the specified amount'''
         self._post_transform_translation = self._post_transform_translation + cp.array(offset)
         self.OnTransformChanged()
-        raise NotImplemented("This implementation is untested")
+        raise NotImplementedError("This implementation is untested")
 
     def TranslateWarped(self, offset):
         '''Translate all warped points by the specified amount'''
         self._pre_transform_translation = self._pre_transform_translation - cp.array(offset)
         self.OnTransformChanged()
-        raise NotImplemented("This implementation is untested")
+        raise NotImplementedError("This implementation is untested")
 
     def __init__(self,
                  matrix: NDArray,
@@ -162,7 +162,7 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
         '''
 
         self._matrix = matrix
-        self._inverse_matrix = None  # type: NDArray
+        self._inverse_matrix: NDArray | None = None
         self._pre_transform_translation = pre_transform_translation
         self._post_transform_translation = post_transform_translation
 
@@ -176,7 +176,7 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
 
         self._pre_transform_translation = cp.asarray(self._pre_transform_translation, dtype=np.float64)
         self._post_transform_translation = cp.asarray(self._post_transform_translation, dtype=np.float64)
@@ -185,13 +185,13 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
         self.OnTransformChanged()
 
     @staticmethod
-    def Load(TransformString: str, pixelSpacing: float = None):
-        return nornir_imageregistration.transforms.factory.ParseFixedCenterOfRotationAffineTransform(TransformString,
+    def Load(TransformString: str, pixelSpacing: float | None = None):
+        return nornir_imageregistration.transforms.factory.ParseFixedCenterOfRotationAffineTransform(TransformString,  # type: ignore[arg-type]
                                                                                                      pixelSpacing)
 
     def ToITKString(self):
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {pre_transform_translation[1]} {pre_transform_translation[0]}"
+        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {self._pre_transform_translation[1]} {self._pre_transform_translation[0]}"
 
     def Transform(self, points, **kwargs):
         points = cp.array(points) if not isinstance(points, cp.ndarray) else points

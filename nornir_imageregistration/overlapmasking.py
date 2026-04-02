@@ -14,9 +14,9 @@ from nornir_imageregistration import Rectangle, ShapeLike
 __known_overlap_masks = {}
 
 
-def __CreateMaskLookupIndex(target_image_shape: NDArray[int],
-                            source_image_shape: NDArray[int],
-                            correlation_image_shape: NDArray[int],
+def __CreateMaskLookupIndex(target_image_shape: NDArray[np.integer],
+                            source_image_shape: NDArray[np.integer],
+                            correlation_image_shape: NDArray[np.integer],
                             min_overlap: float, max_overlap: float) -> tuple[
     int, int, int, int, int, int, float, float]:
     """
@@ -43,9 +43,9 @@ def GetOverlapMask(target_image_shape: ShapeLike,
 
     global __known_overlap_masks
 
-    target_image_shape = np.asarray(target_image_shape, dtype=int)
-    source_image_shape = np.asarray(source_image_shape, dtype=int)
-    correlation_image_size = np.asarray(correlation_image_size, dtype=int)
+    target_image_shape = np.asarray([int(x) for x in target_image_shape], dtype=np.int64)
+    source_image_shape = np.asarray([int(x) for x in source_image_shape], dtype=np.int64)
+    correlation_image_size = np.asarray([int(x) for x in correlation_image_size], dtype=np.int64)
 
     if MinOverlap == 0.0 and MaxOverlap == 1.0:  # and np.array_equal(FixedImageSize, MovingImageSize) and np.array_equal(FixedImageSize, CorrelationImageSize):
         return None
@@ -63,8 +63,8 @@ def GetOverlapMask(target_image_shape: ShapeLike,
     return mask
 
 
-def __CreateFullMaskFromQuadrant(Mask: np.ndarray[bool],
-                                 isOddDimension: np.ndarray[bool]):
+def __CreateFullMaskFromQuadrant(Mask: NDArray[np.bool_],
+                                 isOddDimension: NDArray[np.bool_]):
     """
     Given the top right quadrant of a mask, replicates the mask symetrically around both the X and Y axis to create a full mask
     :param array isOddDimension: True if the axis has an odd dimension in the input.
@@ -122,7 +122,7 @@ def __CreateOverlapMaskBruteForce(FixedImageSize: ShapeLike,
     QuadrantSize = np.ceil(QuadrantSize).astype(np.int32, copy=False)
     Mask = np.zeros(QuadrantSize, dtype=bool)
 
-    Mask = _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)
+    Mask = _PopulateMaskQuadrantOptimized(Mask, FixedImageSize, MovingImageSize, MinOverlap, MaxOverlap)  # type: ignore[arg-type]
     #     for ix in range(0, HalfCorrelationSize[1]):
     #         for iy in range(0, HalfCorrelationSize[0]):
     #             WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
@@ -132,12 +132,12 @@ def __CreateOverlapMaskBruteForce(FixedImageSize: ShapeLike,
     return __CreateFullMaskFromQuadrant(Mask, isOddDimension)
 
 
-def _PopulateMaskQuadrantBruteForce(Mask: NDArray[bool],
-                                    FixedImageSize: NDArray[int],
-                                    MovingImageSize: NDArray[int],
+def _PopulateMaskQuadrantBruteForce(Mask: NDArray[np.bool_],
+                                    FixedImageSize: NDArray[np.integer],
+                                    MovingImageSize: NDArray[np.integer],
                                     MinOverlap: float = 0.0,
-                                    MaxOverlap: float = 1.0) -> NDArray[bool]:
-    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
+                                    MaxOverlap: float = 1.0) -> NDArray[np.bool_]:
+    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)  # type: ignore[arg-type]
     WarpedImageRect = None
 
     # We cannot overlap more than the minimum of each dimension
@@ -148,7 +148,7 @@ def _PopulateMaskQuadrantBruteForce(Mask: NDArray[bool],
 
     for ix in range(0, Mask.shape[1]):
         for iy in range(0, Mask.shape[0]):
-            WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
+            WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)  # type: ignore[arg-type]
 
             overlap_rect = Rectangle.overlap_rect(WarpedImageRect, FixedImageRect)
             overlap = 0
@@ -161,12 +161,12 @@ def _PopulateMaskQuadrantBruteForce(Mask: NDArray[bool],
     return Mask
 
 
-def _PopulateMaskQuadrantBruteForceOptimized(Mask: NDArray[bool],
-                                             FixedImageSize: NDArray[int],
-                                             MovingImageSize: NDArray[int],
+def _PopulateMaskQuadrantBruteForceOptimized(Mask: NDArray[np.bool_],
+                                             FixedImageSize: NDArray[np.integer],
+                                             MovingImageSize: NDArray[np.integer],
                                              MinOverlap: float = 0.0,
-                                             MaxOverlap: float = 1.0) -> NDArray[bool]:
-    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
+                                             MaxOverlap: float = 1.0) -> NDArray[np.bool_]:
+    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)  # type: ignore[arg-type]
     WarpedImageRect = None
 
     # We cannot overlap more than the minimum of each dimension
@@ -175,7 +175,7 @@ def _PopulateMaskQuadrantBruteForceOptimized(Mask: NDArray[bool],
 
     for ix in range(0, Mask.shape[1]):
         for iy in range(0, Mask.shape[0]):
-            WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)
+            WarpedImageRect = Rectangle.CreateFromCenterPointAndArea((iy, ix), MovingImageSize)  # type: ignore[arg-type]
 
             overlap_rect = Rectangle.overlap_rect(WarpedImageRect, FixedImageRect)
             overlap = 0
@@ -193,12 +193,12 @@ def _PopulateMaskQuadrantBruteForceOptimized(Mask: NDArray[bool],
     return Mask
 
 
-def _PopulateMaskQuadrantOptimized(Mask: NDArray[bool],
-                                   FixedImageSize: NDArray[int],
-                                   MovingImageSize: NDArray[int],
+def _PopulateMaskQuadrantOptimized(Mask: NDArray[np.bool_],
+                                   FixedImageSize: NDArray[np.integer],
+                                   MovingImageSize: NDArray[np.integer],
                                    MinOverlap: float = 0.0,
-                                   MaxOverlap: float = 1.0) -> NDArray[bool]:
-    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)
+                                   MaxOverlap: float = 1.0) -> NDArray[np.bool_]:
+    FixedImageRect = Rectangle.CreateFromCenterPointAndArea((0, 0), FixedImageSize)  # type: ignore[arg-type]
     WarpedImageRect = None
 
     # We cannot overlap more than the minimum of each dimension

@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.nornir_image_types import ImageLike
 
 
 class GridRefinement:
@@ -18,12 +19,12 @@ class GridRefinement:
     """
     source_image: NDArray[np.floating]
     target_image: NDArray[np.floating]
-    source_mask: NDArray[np.bool_]
-    target_mask: NDArray[np.bool_]
+    source_mask: NDArray[np.bool_] | None
+    target_mask: NDArray[np.bool_] | None
     cell_size: NDArray[np.integer]
     grid_spacing: NDArray[np.integer]
-    angles_to_search: list[int]
-    final_pass_angles: list[int]
+    angles_to_search: list[int] | Iterable[float] | NDArray[np.floating]
+    final_pass_angles: list[int] | Iterable[float] | NDArray[np.floating]
     num_iterations: int
     max_travel_for_finalization: float
     max_travel_for_finalization_improvement: float
@@ -49,7 +50,8 @@ class GridRefinement:
 
     def __getstate__(self):
         # Return a dict that contains only the name attribute
-        output = {}.update(self.__dict__)
+        output = {}
+        output.update(self.__dict__)
         del output['target_image']
         del output['target_image']
         del output['source_mask']
@@ -60,19 +62,19 @@ class GridRefinement:
     def __setstate__(self, state):
         # Restore the name attribute from the state dict
         self.__dict__.update(state)
-        self.target_image = nornir_imageregistration.ImageParamToImageArray(self.target_image_meta)
-        self.source_image = nornir_imageregistration.ImageParamToImageArray(self.source_image_meta)
-        self.source_mask = nornir_imageregistration.ImageParamToImageArray(self.source_mask_meta)
-        self.target_mask = nornir_imageregistration.ImageParamToImageArray(self.target_mask_meta)
+        self.target_image = nornir_imageregistration.ImageParamToImageArray(self.target_image_meta)  # type: ignore[arg-type]
+        self.source_image = nornir_imageregistration.ImageParamToImageArray(self.source_image_meta)  # type: ignore[arg-type]
+        self.source_mask = nornir_imageregistration.ImageParamToImageArray(self.source_mask_meta)  # type: ignore[arg-type]
+        self.target_mask = nornir_imageregistration.ImageParamToImageArray(self.target_mask_meta)  # type: ignore[arg-type]
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        nornir_imageregistration.unlink_shared_memory(self.target_image_meta)
-        nornir_imageregistration.unlink_shared_memory(self.source_image_meta)
-        nornir_imageregistration.unlink_shared_memory(self.source_mask_meta)
-        nornir_imageregistration.unlink_shared_memory(self.target_mask_meta)
+        nornir_imageregistration.unlink_shared_memory(self.target_image_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.source_image_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.source_mask_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.target_mask_meta)  # type: ignore[arg-type]
 
     def __init__(self,
                  target_image: NDArray[np.floating],
@@ -81,15 +83,15 @@ class GridRefinement:
                  source_image_stats: nornir_imageregistration.ImageStats,
                  target_mask: NDArray[np.bool_] | None = None,
                  source_mask: NDArray[np.bool_] | None = None,
-                 num_iterations: int = None,
-                 cell_size: int | NDArray[int] | Iterable[int] | None = None,
-                 grid_spacing: int | NDArray[int] | Iterable[int] | None = None,
-                 angles_to_search: Iterable[float] | NDArray[float] | None = None,
-                 final_pass_angles: Iterable[float] | NDArray[float] | None = None,
-                 max_travel_for_finalization: float = None,
-                 max_travel_for_finalization_improvement: float = None,
-                 min_alignment_overlap: float = None,
-                 min_unmasked_area: float = None,
+                 num_iterations: int | None = None,
+                 cell_size: int | NDArray[np.integer] | Iterable[int] | None = None,
+                 grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
+                 angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
+                 final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                 max_travel_for_finalization: float | None = None,
+                 max_travel_for_finalization_improvement: float | None = None,
+                 min_alignment_overlap: float | None = None,
+                 min_unmasked_area: float | None = None,
                  single_thread_processing: bool = False):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
@@ -156,8 +158,8 @@ class GridRefinement:
         if not self._single_thread_processing:
             self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToSharedArray(self.source_image)
             self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToSharedArray(self.target_image)
-            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)
-            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToSharedArray(self.target_mask)
+            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)  # type: ignore[arg-type]
+            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToSharedArray(self.target_mask)  # type: ignore[arg-type]
         else:
             self.source_image_meta = self.source_image
             self.target_image_meta = self.target_image
@@ -168,7 +170,7 @@ class GridRefinement:
         self.final_pass_angles = [0] if final_pass_angles is None else final_pass_angles
         self.num_iterations = 10 if num_iterations is None else num_iterations
         self.max_travel_for_finalization = np.sqrt(
-            np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization
+            np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization  # type: ignore[arg-type]
         self.max_travel_for_finalization_improvement = float(
             "inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
         self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
@@ -177,15 +179,15 @@ class GridRefinement:
     @staticmethod
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
                                      source_img_data: nornir_imageregistration.ImagePermutationHelper,
-                                     num_iterations: int = None,
-                                     cell_size: int | NDArray[int] | Iterable[int] | None = None,
-                                     grid_spacing: int | NDArray[int] | Iterable[int] | None = None,
-                                     angles_to_search: Iterable[float] | NDArray[float] | None = None,
-                                     final_pass_angles: Iterable[float] | NDArray[float] | None = None,
-                                     max_travel_for_finalization: float = None,
-                                     max_travel_for_finalization_improvement: float = None,
-                                     min_alignment_overlap: float = None,
-                                     min_unmasked_area: float = None,
+                                     num_iterations: int | None = None,
+                             cell_size: int | NDArray[np.integer] | Iterable[int] | None = None,
+                             grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
+                             angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
+                             final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                                     max_travel_for_finalization: float | None = None,
+                                     max_travel_for_finalization_improvement: float | None = None,
+                                     min_alignment_overlap: float | None = None,
+                                     min_unmasked_area: float | None = None,
                                      single_thread_processing: bool = False) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
@@ -209,26 +211,26 @@ class GridRefinement:
 
     @staticmethod
     def CreateWithUnproccessedImages(
-            target_image: nornir_imageregistration.ImageLike,
-            source_image: nornir_imageregistration.ImageLike,
-            target_mask: nornir_imageregistration.ImageLike | None = None,
-            source_mask: nornir_imageregistration.ImageLike | None = None,
+            target_image: ImageLike,
+            source_image: ImageLike,
+            target_mask: ImageLike | None = None,
+            source_mask: ImageLike | None = None,
             extrema_mask_size_cuttoff: float | int | NDArray | None = None,
-            num_iterations: int = None,
+            num_iterations: int | None = None,
             cell_size=None,
             grid_spacing=None,
             angles_to_search=None,
             final_pass_angles=None,
-            max_travel_for_finalization: float = None,
-            max_travel_for_finalization_improvement: float = None,
-            min_alignment_overlap: float = None,
-            min_unmasked_area: float = None,
+            max_travel_for_finalization: float | None = None,
+            max_travel_for_finalization_improvement: float | None = None,
+            min_alignment_overlap: float | None = None,
+            min_unmasked_area: float | None = None,
             single_thread_processing: bool = False) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
         target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
-                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
+                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
         source_img_data = nornir_imageregistration.ImagePermutationHelper(source_image, source_mask,
-                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)
+                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
 
         return GridRefinement.CreateWithPreprocessedImages(target_img_data, source_img_data,
                                                            num_iterations=num_iterations,

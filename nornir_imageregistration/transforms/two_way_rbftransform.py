@@ -17,7 +17,7 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
                                     ITransformTargetRotation,
                                     ITransformSourceRotation, IControlPointEdit, DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
-                 BasisFunction: Callable[[float], float] | None = None):
+                 BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         super(TwoWayRBFWithLinearCorrection, self).__init__()
         self._forward_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=WarpedPoints, FixedPoints=FixedPoints,
                                                           BasisFunction=BasisFunction)
@@ -88,32 +88,32 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of mapped space points"""
-        return self._forward_rbf.MappedBoundingBox
+        return self._forward_rbf.MappedBoundingBox  # type: ignore[return-value]
 
     @property
     def SourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of source space points"""
-        return self._forward_rbf.SourceBoundingBox
+        return self._forward_rbf.SourceBoundingBox  # type: ignore[return-value]
 
     @property
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        return self._forward_rbf.FixedBoundingBox
+        return self._forward_rbf.FixedBoundingBox  # type: ignore[return-value]
 
     @property
     def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of target space points"""
-        return self._forward_rbf.TargetBoundingBox
+        return self._forward_rbf.TargetBoundingBox  # type: ignore[return-value]
 
-    def NearestTargetPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestTargetPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         return self._forward_rbf.NearestTargetPoint(points)
 
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestFixedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         return self._forward_rbf.NearestFixedPoint(points)
 
-    def NearestSourcePoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestSourcePoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         return self._forward_rbf.NearestSourcePoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestWarpedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         return self._forward_rbf.NearestWarpedPoint(points)
 
     def Scale(self, scalar: float):
@@ -182,7 +182,7 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self.OnTransformChanged()
 
     def UpdateSourcePointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByPosition(index, points)
+        self._forward_rbf.UpdateSourcePointsByPosition(index, points)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -192,7 +192,7 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self.OnTransformChanged()
 
     def UpdateTargetPointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByPosition(index, points)
+        self._forward_rbf.UpdateTargetPointsByPosition(index, points)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -221,7 +221,7 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
                                                  ITransformSourceRotation, IControlPointEdit,
                                                  DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
-                 BasisFunction: Callable[[float], float] | None = None):
+                 BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         super(TwoWayRBFWithLinearCorrection_GPUComponent, self).__init__()
         self._forward_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=WarpedPoints,
                                                                        FixedPoints=FixedPoints,
@@ -259,6 +259,9 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
     def type(self) -> TransformType:
         return nornir_imageregistration.transforms.transform_type.TransformType.RBF
 
+    def ToITKString(self) -> str:
+        return self._forward_rbf.ToITKString()
+
     @property
     def SourcePoints(self) -> NDArray:
         return self._forward_rbf.SourcePoints
@@ -294,23 +297,31 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """Bounding box of mapped space points"""
-        return self._forward_rbf.MappedBoundingBox
+        return self._forward_rbf.MappedBoundingBox  # type: ignore[return-value]
 
     @property
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        return self._forward_rbf.FixedBoundingBox
+        return self._forward_rbf.FixedBoundingBox  # type: ignore[return-value]
 
-    def NearestTargetPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        return self._forward_rbf.NearestTargetPoint(points)
+    @property
+    def SourceBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        return self._forward_rbf.SourceBoundingBox  # type: ignore[return-value]
 
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        return self._forward_rbf.NearestFixedPoint(points)
+    @property
+    def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        return self._forward_rbf.TargetBoundingBox  # type: ignore[return-value]
 
-    def NearestSourcePoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        return self._forward_rbf.NearestSourcePoint(points)
+    def NearestTargetPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
+        return self._forward_rbf.NearestTargetPoint(points) # type: ignore[return-value]
 
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
-        return self._forward_rbf.NearestWarpedPoint(points)
+    def NearestFixedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
+        return self._forward_rbf.NearestFixedPoint(points) # type: ignore[return-value]
+
+    def NearestSourcePoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
+        return self._forward_rbf.NearestSourcePoint(points) # type: ignore[return-value]
+
+    def NearestWarpedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
+        return self._forward_rbf.NearestWarpedPoint(points) # type: ignore[return-value]
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
@@ -378,7 +389,7 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self.OnTransformChanged()
 
     def UpdateSourcePointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByPosition(index, points)
+        self._forward_rbf.UpdateSourcePointsByPosition(index, points)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -388,7 +399,7 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self.OnTransformChanged()
 
     def UpdateTargetPointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByPosition(index, points)
+        self._forward_rbf.UpdateTargetPointsByPosition(index, points)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -410,3 +421,4 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
     def InitializeDataStructures(self):
         self._forward_rbf.InitializeDataStructures()
         self._inverse_rbf.InitializeDataStructures()
+

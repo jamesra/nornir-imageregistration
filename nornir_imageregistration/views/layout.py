@@ -77,9 +77,10 @@ def __PlotLinkedNodes(layout_obj, ax, min_tension=None, max_tension=None):
 
         weight = nornir_imageregistration.array_distance(layout_obj.PairTensionVector(A_ID, B_ID))
         colorVal = scalarMap.to_rgba(weight)
+        color_tuple = tuple(float(x) for x in colorVal)  # type: ignore[assignment]
 
         # alpha = layout_obj.
-        line = lines.Line2D(xdata, ydata, color=colorVal, lw=1)
+        line = lines.Line2D(xdata, ydata, color=color_tuple, lw=1)  # type: ignore[arg-type]
         ax.add_line(line)
 
     return max_tension

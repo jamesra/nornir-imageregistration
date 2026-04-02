@@ -4,6 +4,7 @@ Created on Apr 23, 2019
 @author: u0490822
 '''
 from PIL import Image
+from PIL.Image import Image as PILImage
 import numpy.typing
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -47,7 +48,7 @@ def _try_estimate_dtype_from_extrema(im):
     if not (mode[0] == 'I' or mode[0] == 'F'):
         raise ValueError('Image mode must be I or F')
 
-    (min_val, max_val) = im.getextrema()
+    (min_val, max_val) = im.getextrema()  # type: ignore[union-attr]
     if mode[0] == 'I':
         if max_val <= 255:
             assert (min_val >= 0)
@@ -72,7 +73,7 @@ def _try_estimate_dtype_from_extrema(im):
     raise ValueError("Unexpected image or mode passed")
 
 
-def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
+def dtype_for_pillow_image(im: PILImage) -> numpy.typing.DTypeLike:
     mode = im.mode
 
     if mode == '1':
@@ -110,9 +111,9 @@ def dtype_for_pillow_image(im: Image) -> numpy.typing.DTypeLike:
 
     if mode[0] == 'F':
         bits = _try_read_bpp_from_pillow_mode(im)
-        if bits <= 8:
+        if bits is not None and bits <= 8:
             return np.float16
-        elif bits <= 16:
+        elif bits is not None and bits <= 16:
             return np.float16
         else:
             return np.float32  # According to Pillow docs the 32-bit integers are signed

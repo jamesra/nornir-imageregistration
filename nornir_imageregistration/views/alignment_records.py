@@ -29,7 +29,7 @@ def PlotWeightHistogram(alignment_records: list[nornir_imageregistration.Enhance
     weights = np.asarray(list(map(lambda a: a.weight, alignment_records)))
     h = nornir_shared.histogram.Histogram.Init(np.min(weights), np.max(weights),
                                                numBins=min(50, len(alignment_records)))
-    h.Add(weights)
+    h.Add(weights.tolist())
     nornir_shared.plot.Histogram(h, Title="Histogram of Weights", xlabel="Weight Value", ImageFilename=filename,
                                  MinCutoffPercent=transform_cutoff, MaxCutoffPercent=finalize_cutoff,
                                  LinePosList=line_pos_list)
@@ -141,11 +141,11 @@ def plot_percentiles(records: NDArray[np.floating],
         # ('normal_unbiased', '-.', 'C6'),
     ]
 
-    percentile_values = np.percentile(a, p, method='linear')
+    percentile_values = np.percentile(a, p, method='linear')  # type: ignore[arg-type]
 
     for method, style, color in lines:
         ax.plot(
-            p, np.percentile(a, p, method=method),
+            p, np.percentile(a, p, method=method),  # type: ignore[arg-type]
             label=method, linestyle=style, color=color)
     ax.set(
         title='Percentiles for different methods',
@@ -162,7 +162,7 @@ def plot_percentiles(records: NDArray[np.floating],
 
     min_a = min(a)
     max_a = max(a)
-    inflection_indicies, inflections = find_inflection_points(x=p, y=y_fit)
+    inflection_indices, inflections = find_inflection_points(x=p, y=y_fit)
     label = 'Inflection Point'
     for inflection in inflections:
         ax.plot([inflection, inflection], [min_a, max_a], 'b--', label=label)

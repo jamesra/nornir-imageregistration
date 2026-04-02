@@ -19,6 +19,7 @@ from numpy.typing import DTypeLike, NDArray
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble as assemble
+import nornir_imageregistration.transformed_image_data
 import nornir_imageregistration.transformed_image_data_temp_files
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
@@ -105,7 +106,7 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
         full_distance_image_array_path = os.path.join(nornir_imageregistration.gettempdir(),
                                                       'distance_image_%dx%d_%s.npy' % (
                                                           shape[0], shape[1], GetProcessAndThreadUniqueString()))
-        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)
+        fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)  # type: ignore[call-overload]
         fullImageZbuffer.fill(__MaxZBufferValue(dtype))
         return fullImageZbuffer
         # fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
@@ -172,7 +173,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
 
 
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
-                 TargetRegion: nornir_imageregistration.Rectangle | List[float] = None,
+                 TargetRegion: nornir_imageregistration.Rectangle | List[float] | None = None,
                  target_space_scale: float | None = None,
                  use_cp: bool = False) -> Tuple[NDArray | None, NDArray | None]:
     """
@@ -221,7 +222,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         raise ValueError("Mosaic Tileset has no tiles.")
     output_dtype = first_tile.Image.dtype
 
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
     for i, tile in enumerate(mosaic_tileset.values()):
@@ -241,23 +242,25 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         # scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
 
         global distance_image_cache
-        distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)
+        distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)  # type: ignore[arg-type]
 
         transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
                                              TargetRegion=regionToRender, SingleThreadedInvoke=True)
-        if transformedImageData.image is None:
-            # logger = logging.getLogger('TilesToImageParallel')
+        try:
+            transformed_image = transformedImageData.image
+            transformed_distance = transformedImageData.centerDistanceImage
+        except ValueError:
             prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
             if transformedImageData.errormsg is not None:
                 prettyoutput.LogErr(transformedImageData.errormsg)
-                continue
+            continue
 
         CompositeOffset = (
-                                  transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_targetRect.BottomLeft
+                                  transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_targetRect.BottomLeft  # type: ignore[operator]
         CompositeOffset = CompositeOffset.astype(np.int64)
 
         CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
-                                  transformedImageData.image, transformedImageData.centerDistanceImage,
+                                  transformed_image, transformed_distance,
                                   CompositeOffset)
 
         del transformedImageData
@@ -277,7 +280,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
 
 
 def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
-                         TargetRegion: nornir_imageregistration.Rectangle | List[float] = None,
+                         TargetRegion: nornir_imageregistration.Rectangle | List[float] | None = None,
                          target_space_scale: float | None = None,
                          pool=None) -> Tuple[NDArray | None, NDArray | None]:
     """Assembles a set of transforms and imagepaths to a single image using parallel techniques.
@@ -333,7 +336,7 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         raise ValueError("Mosaic Tileset has no tiles.")
 
     output_dtype = nornir_imageregistration.default_image_dtype()
-    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(scaled_targetRect.Height, scaled_targetRect.Width,
+    (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
     timer.End('Prep')
@@ -365,10 +368,10 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                              distanceImage=None,
                              target_space_scale=target_space_scale, TargetRegion=regionToRender,
                              SingleThreadedInvoke=False)
-        task.transform = tile.Transform
-        task.regionToRender = regionToRender
+        task.transform = tile.Transform  # type: ignore[attr-defined]
+        task.regionToRender = regionToRender  # type: ignore[attr-defined]
         # task.scaled_region_rendered = scaled_region_rendered
-        task.transform_fixed_rect = transform_target_rect
+        task.transform_fixed_rect = transform_target_rect  # type: ignore[attr-defined]
         tasks.append(task)
 
         if not i % CheckTaskInterval == 0:
@@ -379,7 +382,7 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
             while iTask >= 0:
                 t = tasks[iTask]
                 if t.iscompleted:
-                    transformed_image_data = t.wait_return()  # type: nornir_imageregistration.transformed_image_data.TransformedImageData
+                    transformed_image_data = t.wait_return()
                     __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
                                                         scaled_targetRect)
                     transformed_image_data.Clear()
@@ -441,20 +444,22 @@ def __AddTransformedTileTaskToComposite(task,
         prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
         return
 
-    if transformedImageData.image is None:
-        # logger = logging.getLogger('TilesToImageParallel')
+    try:
+        transformed_image = transformedImageData.image
+        transformed_distance = transformedImageData.centerDistanceImage
+    except ValueError:
         prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
         if transformedImageData.errormsg is not None:
             prettyoutput.LogErr(transformedImageData.errormsg)
-            return fullImage, fullImageZBuffer
+        return fullImage, fullImageZBuffer
 
     CompositeOffset = (
-                              transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft
+                              transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft  # type: ignore[union-attr]
     CompositeOffset = CompositeOffset.astype(np.int32)
 
     try:
         CompositeImageWithZBuffer(fullImage, fullImageZBuffer,
-                                  transformedImageData.image, transformedImageData.centerDistanceImage,
+                                  transformed_image, transformed_distance,
                                   CompositeOffset)
     except ValueError as e:
         # This is frustrating and usually indicates the input transform passed to assemble mapped to negative coordinates.
@@ -477,7 +482,7 @@ def __CreateScalableTransformCopy(transform):
 
 def TransformTile(tile: nornir_imageregistration.Tile,
                   distanceImage: NDArray | None = None,
-                  target_space_scale: float = None,
+                  target_space_scale: float | None = None,
                   TargetRegion: nornir_imageregistration.Rectangle | Tuple[float] | NDArray | None = None,
                   SingleThreadedInvoke: bool = False) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
     """
@@ -498,7 +503,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         if isinstance(TargetRegion, nornir_imageregistration.Rectangle):
             TargetRegionRect = TargetRegion.copy()
         elif isinstance(TargetRegion, Iterable):
-            TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromBounds(TargetRegion)
+            TargetRegionRect = nornir_imageregistration.Rectangle.CreateFromBounds(TargetRegion)  # type: ignore[arg-type]
     else:
         TargetRegion = tile.TargetSpaceBoundingBox
         TargetRegionRect = TargetRegion
@@ -543,12 +548,12 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     else:
         if source_space_scale != 1.0:
             scaledTransform = __CreateScalableTransformCopy(tile.Transform)
-            scaledTransform.ScaleWarped(source_space_scale)
+            scaledTransform.ScaleWarped(source_space_scale)  # type: ignore[attr-defined]
             transform = scaledTransform
 
         if target_space_scale != 1.0:
             scaledTransform = __CreateScalableTransformCopy(tile.Transform)
-            scaledTransform.ScaleFixed(target_space_scale)
+            scaledTransform.ScaleFixed(target_space_scale)  # type: ignore[attr-defined]
             transform = scaledTransform
 
     ############################################################################
@@ -607,7 +612,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     global distance_image_cache
     distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, source_image.shape[0:2])
 
-    (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,
+    (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,  # type: ignore[assignment]
                                                                           [source_image, distanceImage],
                                                                           output_botleft=(target_minY, target_minX),
                                                                           output_area=(target_height, target_width),
@@ -622,8 +627,8 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(fixedImage,
-                                                                                                             centerDistanceImage,
+    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(fixedImage,  # type: ignore[arg-type]
+                                                                                                             centerDistanceImage,  # type: ignore[arg-type]
                                                                                                              transform,
                                                                                                              source_space_scale,
                                                                                                              target_space_scale,

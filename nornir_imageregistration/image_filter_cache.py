@@ -51,11 +51,18 @@ class WindowFilterCache:
     def __del__(self):
         try:
             # Only delete cache directory if we're in the parent process
-            if multiprocessing.current_process().name == 'MainProcess':
-                shutil.rmtree(self.cache_dir)
-        except IOError:
-            prettyoutput.LogErr("Unable to delete filter cache directory: %s" % self.cache_dir)
-            pass
+            if multiprocessing.current_process().name != 'MainProcess':
+                return
+            cache_dir = getattr(self, 'cache_dir', None)
+            if not cache_dir or not os.path.isdir(cache_dir):
+                return
+            shutil.rmtree(cache_dir)
+        except OSError:
+            # Missing dir, permission, or in-use files during interpreter shutdown
+            try:
+                prettyoutput.LogErr("Unable to delete filter cache directory: %s" % getattr(self, 'cache_dir', ''))
+            except Exception:
+                pass
 
     def GetOrCreate(self, image_shape: ShapeLike, **kwargs) -> NDArray[np.floating]:
         """Get or create a cached image filter of the expected shape"""
@@ -128,7 +135,7 @@ class WindowFilterCache:
         return output
 
 
-def CreateWindowFilterCache(window_type: str, dtype: DTypeLike = None) -> WindowFilterCache:
+def CreateWindowFilterCache(window_type: str, dtype: DTypeLike | None = None) -> WindowFilterCache:
     """Create a window of the specified shape and type"""
     dtype = dtype if dtype is not None else nornir_imageregistration.default_image_dtype()
     return WindowFilterCache(window_type,

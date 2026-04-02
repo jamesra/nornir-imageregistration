@@ -2,16 +2,10 @@ import tempfile
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
-try:
-    import cupy as cp
-    # import cupyx
-except ModuleNotFoundError:
-    import nornir_imageregistration.cupy_thunk as cp
-    # import cupyx_thunk as cupyx
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
-    # import cupyx_thunk as cupyx
-
+# Do not import cupy here: package __init__ already selects cupy vs cupy_thunk, and a second
+# eager import can raise AttributeError (partial init / version mismatch) before other except types.
+# This module does not use cp in active code; if uncommenting helpers below, use
+# nornir_imageregistration.GetComputationModule() or import inside the function.
 
 class memmap_metadata(object):
     """meta-data for a memmap array"""
@@ -34,7 +28,7 @@ class memmap_metadata(object):
 
     @property
     def mode(self) -> str:
-        return self._mode
+        return self._mode or ""
 
     @mode.setter
     def mode(self, value: str | None):

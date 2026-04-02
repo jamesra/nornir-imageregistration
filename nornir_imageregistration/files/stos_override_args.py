@@ -104,7 +104,7 @@ class StosOverrideArgs(object):
                 stos = nornir_imageregistration.files.StosFile.Load(Args.inputpath)
 
                 if Args.scalar != 1.0:
-                    stos.scale(Args.scalar)
+                    stos.Scale(Args.scalar)
 
             stosDir = os.path.dirname(Args.inputpath)
             stos.TryConvertRelativePathsToAbsolutePaths(stosDir)

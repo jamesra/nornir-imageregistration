@@ -24,6 +24,7 @@ assemble_tiles
 
 """
 import os
+import types
 from typing import Iterable, Sequence, Any
 
 from PIL import Image
@@ -38,6 +39,11 @@ except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx_thunk
+except AttributeError:
+    # CuPy can fail mid-import (e.g. "partially initialized module ... has no attribute '_util'")
+    # on unsupported Python / driver combos; fall back to NumPy thunk.
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 
@@ -85,22 +91,23 @@ import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
 import nornir_imageregistration.computational_lib
-from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, GetActiveComputationLib, \
+from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, HasCuVS, GetActiveComputationLib, \
     SetActiveComputationLib, UsingCupy, TryInitCupyContext
 
 
-def GetComputationModule():
-    """Return the computational module in use"""
+def GetComputationModule() -> types.ModuleType:
+    """Return the computational module in use (numpy or cupy)."""
     return cp if UsingCupy() else np
 
 
 def ParamToDtype(param: NDArray | DTypeLike) -> DTypeLike:
+    """Return the dtype of param (array or scalar); for arrays, returns array.dtype."""
     if param is None:
         raise ValueError("'None' cannot be converted to a dtype")
 
     dtype = param
     if isinstance(dtype, np.ndarray) or isinstance(dtype, np.nditer):
-        return param.dtype
+        return dtype.dtype
 
     return dtype
 
@@ -121,6 +128,7 @@ def __DetermineDType(array: Sequence[Any] | NDArray) -> DTypeLike:
 
 
 def IsFloatArray(param: NDArray | DTypeLike) -> bool:
+    """Return True if param is or has a floating-point dtype."""
     if param is None:
         return False
 
@@ -128,6 +136,7 @@ def IsFloatArray(param: NDArray | DTypeLike) -> bool:
 
 
 def IsIntArray(param: NDArray | DTypeLike) -> bool:
+    """Return True if param is or has an integer dtype."""
     if param is None:
         return False
 
@@ -135,6 +144,7 @@ def IsIntArray(param: NDArray | DTypeLike) -> bool:
 
 
 def IsBoolArray(param: NDArray | DTypeLike) -> bool:
+    """Return True if param is or has a boolean dtype."""
     if param is None:
         return False
 
@@ -151,6 +161,7 @@ def ImageMaxPixelValue(image: NDArray) -> int:
 
 
 def ImageBpp(image: NDArray) -> int:
+    """Return the bits-per-pixel (depth) of the image array from its dtype itemsize."""
     probable_bpp = int(image.itemsize * 8)
     # if probable_bpp > 8:
     #    if 'i' == dt.kind: #Signed integers we use a smaller probable_bpp
@@ -160,7 +171,7 @@ def ImageBpp(image: NDArray) -> int:
 
 def IndexOfValues(A, values) -> numpy.typing.NDArray:
     """
-    :param array A: Array of length N that we want to return indicies into
+    :param array A: Array of length N that we want to return indices into
     :param array values: Array of length M containing values we need to find in A
     :returns: An array of length M containing the first index in A where the Values occur, or None
     """
@@ -170,6 +181,7 @@ def IndexOfValues(A, values) -> numpy.typing.NDArray:
 
 
 def EnsureArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Convert points to an array using the active computation lib (NumPy or CuPy)."""
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsureCupyArray(points, dtype)
     else:
@@ -177,6 +189,7 @@ def EnsureArray(points: NDArray | Sequence, dtype=None) -> NDArray:
 
 
 def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Convert points to a NumPy array; CuPy arrays are transferred to host."""
     if not isinstance(points, np.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -185,8 +198,8 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
             dtype = __DetermineDType(points)
 
         if HasCupy() and isinstance(points, cp.ndarray):
-            points = points.get()
-            return points.astype(dtype, copy=False)
+            points = points.get()  # type: ignore[union-attr]
+            return points.astype(dtype, copy=False)  # type: ignore[union-attr]
 
         points = np.asarray(points, dtype=dtype)
     elif dtype is not None:
@@ -196,6 +209,7 @@ def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
 
 
 def EnsureCupyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Convert points to a CuPy array (GPU); copies from host if needed."""
     if not isinstance(points, cp.ndarray):
         if not isinstance(points, collections.abc.Iterable):
             raise ValueError("points must be Iterable")
@@ -205,9 +219,9 @@ def EnsureCupyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
 
         points = cp.asarray(points, dtype=dtype)
     elif dtype is not None:
-        points = points.astype(dtype, copy=False)
+        points = points.astype(dtype, copy=False)  # type: ignore[union-attr]
 
-    return points
+    return points  # type: ignore[return-value]
 
 
 def EnsurePointsAre1DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
@@ -220,6 +234,7 @@ def EnsurePointsAre1DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArr
 
 
 def EnsurePointsAre1DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Ensure points are a 1D CuPy array (raveled if needed)."""
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim > 1:
@@ -229,6 +244,7 @@ def EnsurePointsAre1DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArra
 
 
 def EnsurePointsAre1DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Ensure points are a 1D array using the active computation lib."""
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre1DCuPyArray(points, dtype)
     else:
@@ -245,6 +261,7 @@ def EnsurePointsAre2DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArr
 
 
 def EnsurePointsAre2DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Ensure points are a 2D CuPy array (Nx2)."""
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
@@ -254,6 +271,7 @@ def EnsurePointsAre2DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArra
 
 
 def EnsurePointsAre2DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
+    """Ensure points are a 2D array (Nx2) using the active computation lib."""
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre2DCuPyArray(points, dtype)
     else:
@@ -273,6 +291,7 @@ def EnsurePointsAre4xN_NumpyArray(points: NDArray[np.floating] | Sequence[float]
 
 
 def EnsurePointsAre4xN_CuPyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
+    """Ensure points are a CuPy array with 4 columns."""
     points = EnsureCupyArray(points, dtype)
 
     if points.ndim == 1:
@@ -285,6 +304,7 @@ def EnsurePointsAre4xN_CuPyArray(points: NDArray[np.floating] | Sequence[float],
 
 
 def EnsurePointsAre4xN_Array(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
+    """Ensure points are a 4-column array using the active computation lib."""
     if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
         return EnsurePointsAre4xN_CuPyArray(points, dtype)
     else:
@@ -333,7 +353,7 @@ import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms import ITransform, ITransformChangeEvents, ITransformTranslation, \
     IDiscreteTransform, ITransformScaling, IControlPoints, ITransformTargetRotation, ITransformSourceRotation, \
     IGridTransform, ITriangulatedSourceSpace, ITriangulatedTargetSpace, ITransformRelativeScaling, \
-    IRigidTransform, ITransfomFlip, IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit
+    IRigidTransform, ITransfomFlip, ITransformFlip, IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit
 
 import nornir_imageregistration.files as files
 from nornir_imageregistration.files import MosaicFile, StosFile, AddStosTransforms
@@ -370,7 +390,7 @@ from nornir_imageregistration.volume import Volume
 from nornir_imageregistration.overlapmasking import GetOverlapMask
 from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineStosFile, RefineTransform
 
-from nornir_imageregistration.spatial.indicies import *
+from nornir_imageregistration.spatial.indices import *
 from nornir_imageregistration.views import ShowWithPassFail
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
@@ -391,6 +411,7 @@ import nornir_imageregistration.image_filter_cache as image_filter_cache
 # In a remote process we need errors raised, otherwise we crash for the wrong reason and debugging is tougher. 
 np.seterr(divide='raise', over='raise', under='warn', invalid='raise')
 
-__all__ = ['HasCupy', 'image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform',
+# Public API is defined by the imports in this file; __all__ is a subset for tooling.
+__all__ = ['HasCupy', 'HasCuVS', 'image_stats', 'core', 'files', 'views', 'transforms', 'spatial', 'ITransform',
            'ITransformChangeEvents',
            'ITransformTranslation', 'IDiscreteTransform', 'ITransformScaling', 'IControlPoints']

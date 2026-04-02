@@ -81,7 +81,7 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
             maxVal = ActualMax
 
     # If this happens perhaps ImageMagick doesn't sort the output anymore?
-    assert (minVal < maxVal)
+    assert minVal is not None and maxVal is not None and minVal < maxVal
 
     if minVal is None:
         minVal = 0
@@ -94,6 +94,6 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
     for line in lines:
         (intensityVal, count) = ParseHistogramLine(line)
         if not intensityVal is None:
-            hist.IncrementBin(intensityVal, count)
+            hist.IncrementBin(intensityVal, count or 0)
 
     return hist

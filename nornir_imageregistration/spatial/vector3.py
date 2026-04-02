@@ -3,6 +3,7 @@ Copied/modified from Pyglets Vector3 class
 """
 from __future__ import annotations
 
+import math
 import typing
 from typing import Iterator
 
@@ -26,11 +27,11 @@ class Vector3:
         yield self.y
         yield self.z
 
-    @_typing.overload
+    @typing.overload
     def __getitem__(self, item: int) -> float:
         ...
 
-    @_typing.overload
+    @typing.overload
     def __getitem__(self, item: slice) -> tuple[float, ...]:
         ...
 
@@ -73,7 +74,7 @@ class Vector3:
         return Vector3(self.x // scalar, self.y // scalar, self.z // scalar)
 
     def __abs__(self) -> float:
-        return _math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
+        return math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
 
     def __neg__(self) -> Vector3:
         return Vector3(-self.x, -self.y, -self.z)
@@ -129,7 +130,7 @@ class Vector3:
 
     def distance(self, other: Vector3) -> float:
         """Get the distance between this vector and another 3D vector."""
-        return _math.sqrt(((other.x - self.x) ** 2) +
+        return math.sqrt(((other.x - self.x) ** 2) +
                           ((other.y - self.y) ** 2) +
                           ((other.z - self.z) ** 2))
 
@@ -159,3 +160,7 @@ class Vector3:
 
     def __repr__(self) -> str:
         return f"Vector3({self.x}, {self.y}, {self.z})"
+
+
+Vec2 = Vector3
+Vec4 = Vector3

@@ -24,9 +24,9 @@ def _SortArrayByColumn(arr, SortColumn=None):
     else:
         columns = arr[:, SortColumn]
 
-    indicies = np.lexsort(columns)
+    indices = np.lexsort(columns)
 
-    return arr[:, indicies], indicies
+    return arr[:, indices], indices
 
 
 class Volume(object):
@@ -79,9 +79,9 @@ class Volume(object):
 
         (numRows, numCols) = points.shape()
         assert (numCols == 3)
-        sorted_points, unsorted_indicies = _SortArrayByColumn(points, SortColumn=2)
+        sorted_points, unsorted_indices = _SortArrayByColumn(points, SortColumn=2)
 
-        # sectionNumbers, sectionIndicies = np.unique(points[:, 2], return_index=False, return_inverse=True)
+        # sectionNumbers, sectionIndices = np.unique(points[:, 2], return_index=False, return_inverse=True)
         iRow = 0
         while iRow < numRows:
             sectionNumber = sorted_points[iRow, 2]
@@ -90,7 +90,7 @@ class Volume(object):
             sectionPoints = sorted_points[iRow:iEnd, 0:2]
 
             transformedPoints = transformFunc(sectionNumber, sectionPoints)
-            input_array_position = unsorted_indicies[iRow:iEnd]
+            input_array_position = unsorted_indices[iRow:iEnd]
 
             outputPoints[input_array_position, :] = transformedPoints
 
@@ -103,11 +103,11 @@ class Volume(object):
     @property
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
-        return nornir_imageregistration.transforms.utils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.FixedBoundingBox(list(self.SectionToVolumeTransforms.values()))
 
     def IsOriginAtZero(self):
         return nornir_imageregistration.transforms.utils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
-        return nornir_imageregistration.transforms.utils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.TranslateToZeroOrigin(list(self._SectionToVolumeTransforms.values()))

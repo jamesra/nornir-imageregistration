@@ -6,7 +6,7 @@ from nornir_imageregistration.spatial import Rectangle
 from nornir_imageregistration.tile import Tile
 
 
-def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diagonal_overlaps: bool = False):
+def _IterateOverlappingTiles(list_tiles, min_overlap: float | None = None, exclude_diagonal_overlaps: bool = False):
     """Return all tiles which overlap"""
 
     list_rects = [tile.FixedBoundingBox for tile in list_tiles]
@@ -25,7 +25,7 @@ def _IterateOverlappingTiles(list_tiles, min_overlap: float = None, exclude_diag
             yield list_tiles[A], list_tiles[B]
 
 
-def IterateTileOverlaps(list_tiles, image_to_source_space_scale: float = 1.0, min_overlap: float = None,
+def IterateTileOverlaps(list_tiles, image_to_source_space_scale: float = 1.0, min_overlap: float | None = None,
                         inter_tile_distance_scale: float = 1.0, exclude_diagonal_overlaps: bool = False):
     yield from CreateTileOverlaps(list_tiles, image_to_source_space_scale, min_overlap,
                                   inter_tile_distance_scale=inter_tile_distance_scale,
@@ -65,7 +65,7 @@ class TileOverlap(object):
     iB = 1
     _normalized_feature_scores: tuple[float, float] | None = None
     _scaled_overlapping_source_rects: tuple[nornir_imageregistration.Rectangle, nornir_imageregistration.Rectangle] = (
-        None, None)
+        None, None)  # type: ignore[reportAssignmentType]
     _Tiles: tuple[Tile, Tile]
     _feature_scores: tuple[float, float] = (np.nan, np.nan)
     _overlap: float | None = None  # A value from 0 to 1 indicating the overlapping rectangle area divided by the largest tile area
@@ -136,7 +136,7 @@ class TileOverlap(object):
         self._normalized_feature_scores = val
 
     @property
-    def offset(self) -> NDArray[np.floating]:
+    def offset(self) -> NDArray[np.floating] | None:
         """
         The result of B.Center - A.Center.
         """
@@ -147,10 +147,11 @@ class TileOverlap(object):
         """
         The result of B.Center - A.Center.
         """
+        assert self._offset is not None
         return self._offset * self._imageScale
 
     @property
-    def overlapping_target_rect(self) -> Rectangle:
+    def overlapping_target_rect(self) -> Rectangle | None:
         """
         Rectangle describing the overlap in volume (target) space
         """
@@ -213,7 +214,7 @@ class TileOverlap(object):
         return self._overlap
 
     def get_expanded_overlap_rects(self, scale_factor: float):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def __init__(self,
                  A: nornir_imageregistration.Tile,
@@ -234,17 +235,17 @@ class TileOverlap(object):
             A = B
             B = temp
 
-        self._imageScale = 1.0 / image_to_source_space_scale  # type: float
+        self._imageScale = 1.0 / image_to_source_space_scale  
         self._Tiles = (A, B)
         self._feature_scores = np.nan, np.nan
         self._overlap = None
         (overlapping_rect_A, overlapping_rect_B, self._overlapping_target_rect,
          self._offset) = TileOverlap.Calculate_Overlapping_Regions(A, B,
                                                                    inter_tile_distance_scale=inter_tile_distance_scale)
-        self._overlapping_source_rects = (overlapping_rect_A, overlapping_rect_B)
+        self._overlapping_source_rects = (overlapping_rect_A, overlapping_rect_B)  # type: ignore[reportAttributeAccessIssue]
 
-        self._scaled_overlapping_source_rects = TileOverlap.scale_overlapping_rects(overlapping_rect_A,
-                                                                                    overlapping_rect_B,
+        self._scaled_overlapping_source_rects = TileOverlap.scale_overlapping_rects(overlapping_rect_A,  # type: ignore[arg-type]
+                                                                                    overlapping_rect_B,  # type: ignore[arg-type]
                                                                                     scalar=1.0 / image_to_source_space_scale)
 
     def __repr__(self):
@@ -266,7 +267,7 @@ class TileOverlap(object):
                                       inter_tile_distance_scale=1.0) -> tuple[nornir_imageregistration.Rectangle | None,
                                                                               nornir_imageregistration.Rectangle | None,
                                                                               nornir_imageregistration.Rectangle | None,
-    NDArray[np.floating | None]]:
+    NDArray[np.floating] | None]:
         """
         :param nornir_imageregistration.Tile A:
         :param nornir_imageregistration.Tile B:

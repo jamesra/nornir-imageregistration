@@ -1,8 +1,8 @@
-"""
-"""
+"""Alignment records and enhanced records for registration (angle, offset, weight, etc.)."""
 
 from math import pi
 import os
+from typing import Any
 import warnings
 
 import numpy as np
@@ -25,7 +25,7 @@ class AlignmentRecord(object):
 
     """
 
-    _peak = NDArray[np.floating]
+    _peak: NDArray[np.floating]
     _angle: float
     _weight: float
     _flippedud: bool
@@ -119,7 +119,7 @@ class AlignmentRecord(object):
             peak = np.array(peak)
 
         self._scale = scale
-        self._peak = peak  # type: NDArray
+        self._peak = peak
         self._weight = float(weight)
         self._flippedud = flipped_ud
 
@@ -147,7 +147,7 @@ class AlignmentRecord(object):
         """
         Return the corners of a bounding box in the target space after the transform is applied.
         """
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize,
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize.astype(np.floating),  # type: ignore[arg-type]
                                                                                            self.rangle,
                                                                                            self.peak,
                                                                                            self.flippedud)
@@ -266,10 +266,10 @@ class AlignmentRecord(object):
             stos.MappedMaskPath = os.path.dirname(WarpedImageMaskPath)
 
         (ControlHeight, ControlWidth) = nornir_imageregistration.core.GetImageSize(ImagePath)
-        stos.ControlImageDim = (ControlWidth, ControlHeight)
+        stos.ControlImageDim = [ControlWidth, ControlHeight]  # type: ignore[assignment]
 
         (MappedHeight, MappedWidth) = nornir_imageregistration.core.GetImageSize(WarpedImagePath)
-        stos.MappedImageDim = (MappedWidth, MappedHeight)
+        stos.MappedImageDim = [MappedWidth, MappedHeight]  # type: ignore[assignment]
 
         # transformTemplate = "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 %(cos)g %(negsin)g %(sin)g %(cos)g %(x)g %(y)g 1 1 fp 2 %(mapwidth)d %(mapheight)d"
 
@@ -305,11 +305,11 @@ class EnhancedAlignmentRecord(AlignmentRecord):
     """
     An extension of the AlignmentRecord class that also records the Fixed and Warped Points
     """
-    _ID: any
+    _ID: Any
     _TargetPoint: NDArray[np.floating]
     _SourcePoint: NDArray[np.floating]
-    _cutoff_percent: float
-    _cutoff_value: float
+    _cutoff_percent: float | None
+    _cutoff_value: float | None
 
     @property
     def ID(self):

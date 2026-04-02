@@ -47,19 +47,19 @@ def TriangleAngleDelta(transform):
     return numpy.abs(FixedTriAngles - WarpedTriAngles)
 
 
-def TriangleAngles(triangle_indicies: NDArray[numpy.integer], points: NDArray[numpy.floating]) -> NDArray[
+def TriangleAngles(triangle_indices: NDArray[numpy.integer], points: NDArray[numpy.floating]) -> NDArray[
     numpy.floating]:
     '''
     For each triangle in a triangulation transform measure the angles of the control triangle 
     and compare to the angles of the mapped triangle.  Report the differences as a structured 
     array.
 
-    :param numpy.ndarray triangle_indicies: Triangle Indicies, an Nx3 array
+    :param numpy.ndarray triangle_indices: Triangle indices, an Nx3 array
     :param numpy.ndarray points: Vertex positions, an Nx2 array
     :return: A nx3 array of the angle for each triangle
     '''
 
-    triangles = points[triangle_indicies]
+    triangles = points[triangle_indices]
 
     A = triangles[:, 0]
     B = triangles[:, 1]
@@ -100,7 +100,7 @@ def TriangleVertexAngleDelta(transform: ITriangulatedTargetSpace) -> NDArray[num
         values = delta[index]
         VertexValues.append(values)
 
-    return VertexValues
+    return VertexValues  # type: ignore[return-value]
 
 
 if __name__ == '__main__':

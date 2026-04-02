@@ -39,7 +39,7 @@ from nornir_imageregistration.transforms.base import ITransform, ITransformChang
     IDiscreteTransform, ITransformScaling, ITransformRelativeScaling, IControlPoints, ITransformTargetRotation, \
     ITransformSourceRotation, IGridTransform, ITriangulatedTargetSpace, ITriangulatedSourceSpace, \
     IControlPointAddRemove, IControlPointEdit, ISourceSpaceControlPointEdit, ITargetSpaceControlPointEdit, \
-    IRigidTransform, ITransfomFlip
+    IRigidTransform, ITransfomFlip, ITransformFlip
 
 import nornir_imageregistration.transforms.pointrelations as pointrelations
 from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, are_points_colinear, \
@@ -102,6 +102,8 @@ from nornir_imageregistration.transforms.converters import ConvertTransform, Con
 
 import nornir_imageregistration.transforms.addition as addition
 from nornir_imageregistration.transforms.addition import AddTransforms
+
+import nornir_imageregistration.transforms.registrationtree as registrationtree
 
 import nornir_imageregistration.transforms.utils as utils
 from nornir_imageregistration.transforms.utils import BlendWithLinear, RotationMatrix, ScaleMatrixXY, TranslateMatrixXY, \

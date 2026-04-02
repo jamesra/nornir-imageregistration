@@ -20,17 +20,17 @@ except ImportError:
     # import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms.base import ITransform, IControlPoints
+from nornir_imageregistration.transforms.base import ITransform, IControlPoints, IDiscreteTransform, ITransformTranslation
 from nornir_imageregistration.spatial.rectangle import Rectangle
 from nornir_shared import prettyoutput
 from nornir_imageregistration.type_info import ShapeLike, RectLike
 
 
-def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer]]:
-    """Removes rows with a NAN value.
-     :return: A flat array with NaN containing rows removed and set of row indicies that were removed
+def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer], NDArray[np.integer]]:
+    """Remove rows containing NaN.
+    :param points: NxM array of points (e.g. Nx2 or Nx4).
+    :return: Tuple of (points_with_nan_rows_removed, invalid_indices, valid_indices).
     """
-
     if points is None:
         raise ValueError("points must not be None")
 
@@ -40,17 +40,22 @@ def InvalidIndicies(points: NDArray[np.floating]) -> tuple[NDArray[np.floating],
 
     nan1D = xp.isnan(points).any(axis=1)
 
-    invalidIndicies = xp.flatnonzero(nan1D)
-    validIndicies = xp.flatnonzero(~nan1D)
+    invalid_indices = xp.flatnonzero(nan1D)
+    valid_indices = xp.flatnonzero(~nan1D)
 
-    if xp == np:  # If we are using numpy
-        points = xp.delete(points, invalidIndicies, axis=0)
-    else:
-        points = points[validIndicies, :]
+    # Use indexing for both backends: xp.delete is not in older CuPy
+    points = points[valid_indices, :].copy()
 
-    assert (points.shape[0] + invalidIndicies.shape[0] == numPoints)
+    assert (points.shape[0] + invalid_indices.shape[0] == numPoints)
 
-    return points, invalidIndicies, validIndicies
+    return points, invalid_indices, valid_indices
+
+
+# Deprecated: use InvalidIndices (correct spelling).
+InvalidIndicies = InvalidIndices
+
+# Deprecated: use InvalidIndices; implementation is backend-agnostic via get_array_module.
+InvalidIndices_GPU = InvalidIndices
 
 
 def RotationMatrix(rangle: float) -> NDArray[np.floating]:
@@ -66,29 +71,28 @@ def RotationMatrix(rangle: float) -> NDArray[np.floating]:
     rot_mat = xp.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
     return rot_mat
 
-    # interchange = np.array([[ 0,  1,  0],
-    #                        [-1,  0,  0],
-    #                        [ 0,  0,  1]])
-    #
-    # result = interchange @ rot_mat
-    #
-    # return result
+    # Legacy: alternative interchange matrix; unused.
 
 
 def IdentityMatrix() -> NDArray[np.floating]:
+    """Return a 3x3 identity matrix (numpy or cupy depending on active backend).
+
+    :return: 3x3 identity matrix.
     """
-    :return: 3x3 identity matrix
-    """
-    return np.identity(3)
+    xp = nornir_imageregistration.GetComputationModule()
+    return xp.identity(3)
 
 
 def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.floating]:
-    """
-    :param offset: An offset to translate by, either tuple of (Y,X) or an array
+    """Build a 3x3 translation matrix for (Y, X) offset.
+
+    :param offset: Translation offset as (Y, X) tuple or 2-element array.
+    :return: 3x3 translation matrix.
+    :raises ValueError: If offset is None.
     """
     xp = nornir_imageregistration.GetComputationModule()
     if offset is None:
-        raise ValueError("Angle must not be none")
+        raise ValueError("offset must not be none")
     if hasattr(offset, "__iter__"):
         # Coerce to Python floats so CuPy's array() does not reject numpy scalars
         x0, x1 = float(offset[0]), float(offset[1])
@@ -97,13 +101,15 @@ def TranslateMatrixXY(offset: tuple[float, float] | NDArray) -> NDArray[np.float
 
 
 def ScaleMatrixXY(scale: float | Sequence[float]) -> NDArray[np.floating]:
-    """
-    :param scale: scale factor, either a single value for all dimensions or a tuple of (Y,X) scale values
-    :return: 3x3 scale matrix
+    """Build a 3x3 scale matrix for Y and X.
+
+    :param scale: Scale factor (single value for uniform, or (Y, X) for per-axis).
+    :return: 3x3 scale matrix.
+    :raises ValueError: If scale is None.
     """
     xp = nornir_imageregistration.GetComputationModule()
     if scale is None:
-        raise ValueError("Angle must not be none")
+        raise ValueError("scale must not be none")
     if isinstance(scale, (float, np.floating, int)):
         s = float(scale)
         return xp.array([[s, 0, 0], [0, s, 0], [0, 0, 1]])
@@ -152,21 +158,24 @@ def BlendWithLinear(transform: IControlPoints,
         return linear_transform
 
     return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor,
-                           travel_limit=travel_limit)
+                           travel_limit=travel_limit)  # type: ignore[return-value]
 
 
 def BlendTransforms(transform: IControlPoints,
                     linear_transform: ITransform,
                     linear_factor: float | None = None,
                     travel_limit: float | None = None):
-    """
-    Transfrom the control points from transform through both transform and linear_transform.
-    Blend the results according to parameters and return a new transform with the blended
-    point positions as the target space control points.
-    :param linear_factor:  The weight the linearized transform should have in calculating the new points
-    :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
-    :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
-    match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
+    """Blend control-point transform with a linear transform and return a new transform.
+
+    Transforms control points through both transform and linear_transform, blends the
+    results by linear_factor, and returns a new transform (mesh/grid/linear) with the
+    blended target-space control points.
+
+    :param transform: Control-point transform (mesh or grid) to blend.
+    :param linear_transform: Linear transform used in the blend.
+    :param linear_factor: Weight of the linear transform (0–1). None uses travel_limit.
+    :param travel_limit: Max distance for full blend; beyond this, linear blend is reduced.
+    :return: Mesh triangulation, grid triangulation, or linear transform matching input type.
     """
 
     if linear_factor is not None and (linear_factor < 0 or linear_factor > 1.0):
@@ -195,7 +204,7 @@ def BlendTransforms(transform: IControlPoints,
 
         # Arbitrary, but for a first pass points less than half of the travel distance use the transform
         # points more than halfway to the travel_limit have progressively more rigid tranfsorm blended in
-        travel_blend_start_distance = travel_limit / 2
+        travel_blend_start_distance = travel_limit / 2  # type: ignore[operator]
         travel_blend_range = travel_limit - travel_blend_start_distance
         linear_factors = (distances - travel_blend_start_distance) / travel_blend_range
         linear_factors.clip(0, 1.0, out=linear_factors)
@@ -204,8 +213,8 @@ def BlendTransforms(transform: IControlPoints,
         blended_linear_points = (linear_points.swapaxes(0, 1) * linear_factors).swapaxes(0, 1)
         output_target_points = blended_target_points + blended_linear_points
     else:
-        blended_target_points = target_points * (1.0 - linear_factor)
-        blended_linear_points = linear_points * linear_factor
+        blended_target_points = target_points * (1.0 - linear_factor)  # type: ignore[operator]
+        blended_linear_points = linear_points * linear_factor  # type: ignore[operator]
         output_target_points = blended_target_points + blended_linear_points
 
     if isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
@@ -222,11 +231,15 @@ def BlendTransforms(transform: IControlPoints,
         return output
 
 
-def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
-    """
-    This is a fairly specific function to move a mosaic to have an origin at 0,0
-    It handles both discrete and continuous functions the best it can.
-    :return: tuple containing smallest origin offset
+def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[np.floating]:
+    """Compute the smallest fixed-space origin (min Y, min X) across transforms.
+
+    Used to shift a mosaic so its origin is at (0, 0). Supports discrete and
+    continuous transforms.
+
+    :param transforms: Sequence of transforms (discrete or continuous).
+    :return: 2-element array (minY, minX) — smallest origin offset in fixed space.
+    :raises ValueError: If a transform type is not supported.
     """
 
     xp = nornir_imageregistration.GetComputationModule()
@@ -238,14 +251,14 @@ def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[float]:
         elif isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
             mins[i, :] = t._target_offset
         elif hasattr(t, 'FixedBoundingBox'):
-            mins[i, :] = t.FixedBoundingBox.BottomLeft
+            mins[i, :] = t.FixedBoundingBox.BottomLeft  # type: ignore[union-attr]
         else:
             raise ValueError(f"Unexpected transform type {t} at index {i}")
 
     return xp.min(mins, 0)
 
 
-def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_imageregistration.ShapeLike] | None = None):
+def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_imageregistration.ShapeLike] | None = None) -> Rectangle:
     """Calculate the bounding box of the warped position for a set of transforms
     :param list transforms: A list of transforms
     :param list images: A list of image parameters (strings, ndarrays, or 1x2
@@ -254,15 +267,12 @@ def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_image
                         be calculated
     :return: A rectangle describing the bounding box
     """
-
-    # if len(transforms) == 1:
-    #    # Copy the data instead of passing the transforms object
-    #    return nornir_imageregistration.Rectangle(transforms[0].TargetBoundingBox.ToTuple())
+    # Single-transform path omitted; multi-transform path used for consistency.
 
     is_images_param_single_size = False
     if images is not None:
         if isinstance(images, np.ndarray):
-            if images.flat.shape != 2:
+            if images.flat.shape != 2:  # type: ignore[union-attr]
                 raise ValueError("Must use a 1x2 array to specify a universal image size")
             is_images_param_single_size = True
         elif isinstance(images, Iterable):
@@ -290,11 +300,11 @@ def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_image
                 size = nornir_imageregistration.GetImageSize(images[i])
 
             mbb[i, :2] = t_rigid.target_offset
-            mbb[i, 2:] = t_rigid.target_offset + size
-        elif hasattr(t, 'TargetBoundingBox'):
+            mbb[i, 2:] = t_rigid.target_offset + size  # type: ignore[operator]
+        elif isinstance(t, IDiscreteTransform):
             mbb[i, :] = t.TargetBoundingBox.ToArray()
         elif hasattr(t, 'FixedBoundingBox'):
-            mbb[i, :] = t.FixedBoundingBox.ToArray()
+            mbb[i, :] = t.FixedBoundingBox.ToArray()  # type: ignore[union-attr]
         else:
             raise ValueError(f"Unexpected type passed to FixedBoundingBox {t.__class__}")
 
@@ -306,12 +316,12 @@ def FixedBoundingBox(transforms: Sequence[ITransform], images: list[nornir_image
     return nornir_imageregistration.Rectangle((float(minY), float(minX), float(maxY), float(maxX)))
 
 
-def MappedBoundingBox(transforms):
-    """Calculate the bounding box of the original source space positions for a set of transforms"""
+def MappedBoundingBox(transforms: Sequence[ITransform]) -> Rectangle:
+    """Calculate the bounding box of the original source space positions for a set of transforms."""
 
     if len(transforms) == 1:
         # Copy the data instead of passing the transforms object
-        return nornir_imageregistration.Rectangle(transforms[0].MappedBoundingBox.ToTuple())
+        return nornir_imageregistration.Rectangle(transforms[0].MappedBoundingBox.ToTuple())  # type: ignore[union-attr]
 
     discrete_found = False
     mbb = np.zeros((len(transforms), 4))
@@ -344,10 +354,10 @@ def IsOriginAtZero(transforms):
         return True
 
 
-def TranslateToZeroOrigin(transforms):
+def TranslateToZeroOrigin(transforms: Sequence[ITransform]) -> NDArray | None:
     """
-    Translate the fixed space off all passed transforms such that that no point maps to a negative number.  Useful for image coordinates.
-    :return: The offset the mosaic was translated by
+    Translate the fixed space of all passed transforms so no point maps to a negative number. Useful for image coordinates.
+    :return: The offset the mosaic was translated by, or None if no translation was needed.
     """
 
     try:
@@ -363,38 +373,48 @@ def TranslateToZeroOrigin(transforms):
         return
 
     for t in transforms:
-        t.TranslateFixed(-origin)
-
-    # translated_bbox = nornir_imageregistration.Rectangle.translate(bbox, -bbox.BottomLeft)
-    # assert(np.array_equal(translated_bbox.BottomLeft, np.asarray((0,0)))) 
-    # return translated_bbox
+        if isinstance(t, ITransformTranslation):
+            t.TranslateFixed(-origin)
 
     return -origin
 
 
-def FixedBoundingBoxWidth(transforms):
+def FixedBoundingBoxWidth(transforms: Sequence[ITransform]) -> float:
+    """Return the width in fixed (target) space of the bounding box of the given transforms."""
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return np.ceil(maxX) - np.floor(minX)
 
 
-def FixedBoundingBoxHeight(transforms):
+def FixedBoundingBoxHeight(transforms: Sequence[ITransform]) -> float:
+    """Return the height in fixed (target) space of the bounding box of the given transforms."""
     (minY, minX, maxY, maxX) = FixedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)
 
 
 def MappedBoundingBoxWidth(transforms):
+    """Return the width in mapped (source) space of the bounding box of the given transforms."""
     (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxX) - np.floor(minX)
 
 
-def MappedBoundingBoxHeight(transforms):
+def MappedBoundingBoxHeight(transforms: Sequence[ITransform]) -> float:
+    """Return the height in mapped (source) space of the bounding box of the given transforms.
+
+    :param transforms: Sequence of transforms (must include at least one discrete transform).
+    :return: Height (maxY - minY) in mapped space, in pixels (ceiling/floor).
+    """
     (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxY) - np.floor(minY)
 
 
 def GetRotatedBoundaries(shape: ShapeLike,
                          angle: float) -> nornir_imageregistration.Rectangle:
-    """Given a shape and angle, returns the new bounding box if the image is rotated by the angle"""
+    """Return the axis-aligned bounding box after rotating a shape by the given angle.
+
+    :param shape: Image shape (H, W) or Rectangle; non-Rectangle is interpreted as (H, W).
+    :param angle: Rotation angle in radians.
+    :return: Rectangle enclosing the rotated shape.
+    """
 
     if not isinstance(shape, nornir_imageregistration.Rectangle):
         rect = nornir_imageregistration.Rectangle.CreateFromBounds((0, 0, shape[0], shape[1]))
@@ -421,3 +441,4 @@ def GetRotatedBoundaries(shape: ShapeLike,
 
 if __name__ == '__main__':
     pass
+

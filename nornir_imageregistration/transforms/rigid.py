@@ -36,7 +36,7 @@ class RigidTranslation(base.ITransformScaling,
 
     _target_offset: NDArray[np.floating]  # Amount to translate the points after centering and rotation
     _source_space_center_of_rotation: NDArray[np.floating]  # Where the center of rotation lies
-    _angle: float = 0  # Angle in radians, zero for this base class
+    _angle = 0  # Angle in radians, zero for this base class
 
     @property
     def angle(self):
@@ -123,9 +123,9 @@ class RigidTranslation(base.ITransformScaling,
 
     def __getstate__(self):
 
-        cp_arrays = cp.get_array_module(self._target_offset) == cp
-        tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()
-        sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()
+        cp_arrays = cp.get_array_module(self._target_offset) == cp  # type: ignore[operator]
+        tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()  # type: ignore[attr-defined]
+        sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()  # type: ignore[attr-defined]
 
         odict = {'_angle': self._angle, '_target_offset': (tgt_offset[0], tgt_offset[1]),
                  '_source_space_center_of_rotation': (sscr[0],
@@ -134,7 +134,7 @@ class RigidTranslation(base.ITransformScaling,
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
 
         xp = nornir_imageregistration.GetComputationModule()
 
@@ -169,7 +169,7 @@ class RigidTranslation(base.ITransformScaling,
 
         if not (self._angle is None or self._angle == 0):
             # Look at GetTransformedRigidCornerPoints for a possible implementation
-            raise NotImplemented("Rotation is not implemented")
+            raise NotImplementedError("Rotation is not implemented")
 
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
         transformed = points + self._target_offset
@@ -179,7 +179,7 @@ class RigidTranslation(base.ITransformScaling,
 
         if not (self._angle is None or self._angle == 0):
             # Look at GetTransformedRigidCornerPoints for a possible implementation
-            raise NotImplemented("Rotation is not implemented")
+            raise NotImplementedError("Rotation is not implemented")
 
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
         itransformed = points - self._target_offset
@@ -191,7 +191,7 @@ class RigidNoRotation(RigidTranslation):
     pass
 
 
-class Rigid(base.ITransformSourceRotation, base.ITransfomFlip, RigidTranslation):
+class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation):
     """
     Applies a rotation+translation transform
     The order of operations is:
@@ -309,13 +309,13 @@ class Rigid(base.ITransformSourceRotation, base.ITransfomFlip, RigidTranslation)
         self.alt_inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
                                   self._inverse_rotation_matrix @ self._flip_y_matrix @ \
                                   self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
-        inv_np = self.inverse_matrix.get() if hasattr(self.inverse_matrix, 'get') else self.inverse_matrix
-        alt_np = self.alt_inverse_matrix.get() if hasattr(self.alt_inverse_matrix, 'get') else self.alt_inverse_matrix
+        inv_np = self.inverse_matrix.get() if hasattr(self.inverse_matrix, 'get') else self.inverse_matrix  # type: ignore[attr-defined]
+        alt_np = self.alt_inverse_matrix.get() if hasattr(self.alt_inverse_matrix, 'get') else self.alt_inverse_matrix  # type: ignore[attr-defined]
         np.testing.assert_allclose(inv_np, alt_np, rtol=1e-5, atol=1e-5)
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
     def ToITKString(self) -> str:
         # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
@@ -427,7 +427,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
 
     def __init__(self, target_offset: VectorLike,
                  source_rotation_center: VectorLike | None = None,
-                 angle: float = None, scalar: float = None, flip_ud: bool = False):
+                 angle: float | None = None, scalar: float | None = None, flip_ud: bool = False):
         """
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
@@ -441,7 +441,7 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
     def ToITKString(self) -> str:
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,

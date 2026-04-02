@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 import operator
 
 import numpy as np
+from typing import Any
 
 try:
     import cupy as cp
@@ -16,11 +17,11 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.transforms import utils
-from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransfomFlip
+from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransformFlip
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 
-class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, DefaultTransformChangeEvents,
+class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, DefaultTransformChangeEvents,
                        metaclass=ABCMeta):
     def __init__(self, pointpairs: NDArray[np.floating]):
         """
@@ -36,7 +37,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
 
@@ -44,7 +45,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
     def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
         """Returns a bool array indicating which new_points already exist in points"""
 
-        # (new_points, invalid_indicies) = utils.InvalidIndicies(new_points)
+        # (new_points, invalid_indices) = utils.InvalidIndices(new_points)
 
         round_points = np.around(points, 3)
         round_new_points = np.around(new_points, 3)
@@ -52,13 +53,13 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
         sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
         sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1))
 
-        numPoints = sortedpoints.shape[0]
+        numPoints = sortedpoints.shape[0]  # type: ignore[attr-defined]
         numNew = new_points.shape[0]
 
         iPnt = 0
         iNew = 0
 
-        invalid_indicies = np.zeros((1, numNew), dtype=bool)
+        invalid_indices = np.zeros((1, numNew), dtype=bool)
 
         while iNew < numNew:
             testNew = sorted_new_points[iNew]
@@ -68,7 +69,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
 
                 if testPoint[0] == testNew[0]:
                     if testPoint[1] == testNew[1]:
-                        invalid_indicies[iNew] = True
+                        invalid_indices[iNew] = True
                         break
                     elif testPoint[1] > testNew[1]:
                         break
@@ -80,13 +81,13 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
 
             iNew += 1
 
-        return invalid_indicies
+        return invalid_indices
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
         """Returns a copy of the array sorted in fixed space x,y without duplicates"""
 
-        (points, invalid_indicies, valid_indicies) = utils.InvalidIndicies(points)
+        (points, invalid_indices, valid_indices) = utils.InvalidIndices(points)
 
         # The original implementation returned a sorted array.  I had to remove
         # that behavior because the change in index was breaking the existing
@@ -95,18 +96,22 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
         # raise DeprecationWarning("RemoveDuplicateControlPoints needs more testing.")
 
         points = np.around(points, 3)
-        indicies = sorted(range(len(points)), key=lambda k: points[k, 1])
+        indices = sorted(range(len(points)), key=lambda k: points[k, 1])
         sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
-        duplicate_indicies = []
+        duplicate_indices = []
         for i in range(len(sortedpoints) - 1, 0, -1):
             lastP = sortedpoints[i - 1]
             testP = sortedpoints[i]
 
             if lastP[0] == testP[0] and lastP[1] == testP[1]:
                 sortedpoints = np.delete(sortedpoints, i, 0)
-                duplicate_indicies.append(indicies[i])
+                duplicate_indices.append(indices[i])
 
-        unduplicatedPoints = np.delete(points, duplicate_indicies, 0)
+        xp = cp.get_array_module(points)
+        keep = xp.ones(points.shape[0], dtype=bool)
+        if duplicate_indices:
+            keep[xp.asarray(duplicate_indices)] = False
+        unduplicatedPoints = points[keep, :].copy()
         return unduplicatedPoints
 
     @classmethod
@@ -123,7 +128,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransfomFlip, Defaul
         """Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
         """
-        distance, index = self.FixedKDTree.query(new_points)
+        distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
         same = distance <= 0
         return same
 
@@ -322,13 +327,12 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         self._MappedBoundingBox = None
         self._FixedBoundingBox = None
 
-    def __getstate__(self):
-        odict = {'_points': self._points}
-
+    def __getstate__(self) -> dict[str, Any]:
+        odict = {'_points': self._points} 
         return odict
 
     def __setstate__(self, dictionary: dict):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
 
@@ -336,7 +340,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
     def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
         """Returns a bool array indicating which new_points already exist in points"""
 
-        # (new_points, invalid_indicies, valid_indices) = utils.InvalidIndicies_GPU(new_points)
+        # (new_points, invalid_indices, valid_indices) = utils.InvalidIndices_GPU(new_points)
 
         round_points = cp.around(points, 3)
         round_new_points = cp.around(new_points, 3)
@@ -344,13 +348,13 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
         sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1))
 
-        numPoints = sortedpoints.shape[0]
+        numPoints = sortedpoints.shape[0]  # type: ignore[attr-defined]
         numNew = new_points.shape[0]
 
         iPnt = 0
         iNew = 0
 
-        invalid_indicies = cp.zeros((1, numNew), dtype=bool)
+        invalid_indices = cp.zeros((1, numNew), dtype=bool)
 
         while iNew < numNew:
             testNew = sorted_new_points[iNew]
@@ -360,7 +364,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
                 if testPoint[0] == testNew[0]:
                     if testPoint[1] == testNew[1]:
-                        invalid_indicies[iNew] = True
+                        invalid_indices[iNew] = True
                         break
                     elif testPoint[1] > testNew[1]:
                         break
@@ -372,31 +376,35 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
             iNew += 1
 
-        return invalid_indicies
+        return invalid_indices
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
         """Returns a copy of the array sorted in fixed space x,y without duplicates"""
 
-        (points, indicies) = utils.InvalidIndicies(points)
+        (points, _invalid_indices, _valid_indices) = utils.InvalidIndices(points)
 
         # The original implementation returned a sorted array.  I had to remove
         # that behavior because the change in index was breaking the existing
         # triangulations the transform was caching.
 
         points = np.around(points, 3)
-        indicies = sorted(range(len(points)), key=lambda k: points[k, 1])
+        indices = sorted(range(len(points)), key=lambda k: points[k, 1])
         sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
-        duplicate_indicies = []
+        duplicate_indices = []
         for i in range(len(sortedpoints) - 1, 0, -1):
             lastP = sortedpoints[i - 1]
             testP = sortedpoints[i]
 
             if lastP[0] == testP[0] and lastP[1] == testP[1]:
                 sortedpoints = np.delete(sortedpoints, i, 0)
-                duplicate_indicies.append(indicies[i])
+                duplicate_indices.append(indices[i])
 
-        unduplicatedPoints = np.delete(points, duplicate_indicies, 0)
+        xp = cp.get_array_module(points)
+        keep = xp.ones(points.shape[0], dtype=bool)
+        if duplicate_indices:
+            keep[xp.asarray(duplicate_indices)] = False
+        unduplicatedPoints = points[keep, :].copy()
         return unduplicatedPoints
 
     @classmethod
@@ -413,7 +421,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         """Using our control point KDTree, ensure the new points are not duplicates
         :return: An index array of duplicates
         """
-        distance, index = self.FixedKDTree.query(new_points)
+        distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
         same = distance <= 0
         return same
 
@@ -571,7 +579,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[np.floating]):
         """Rotate all points about a center by a given angle"""
 
-        rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0, 0),
+        rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0, 0),  # type: ignore[attr-defined]
                                                            source_rotation_center=rotationCenter,
                                                            angle=rangle)
         rotated = rt.Transform(points)

@@ -3,6 +3,7 @@ Created on Apr 29, 2019
 
 @author: u0490822
 '''
+# pyright: reportCallIssue=false
 from matplotlib.collections import PatchCollection
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
@@ -16,14 +17,14 @@ def _plot_mapped_space_overlap(ax, tile, overlap_rect, color=None):
     if color is None:
         color = 'red'
 
-    patches = [mpatches.Rectangle(numpy.flip(overlap_rect.BottomLeft),
+    patches = [mpatches.Rectangle(tuple(numpy.flip(overlap_rect.BottomLeft)),  # type: ignore[reportCallIssue]
                                   overlap_rect.Width,
                                   overlap_rect.Height,
-                                  color=color), mpatches.Rectangle(numpy.flip(tile.MappedBoundingBox.BottomLeft),
+                                  color=color), mpatches.Rectangle(tuple(numpy.flip(tile.MappedBoundingBox.BottomLeft)),  # type: ignore[reportCallIssue]
                                                                    tile.MappedBoundingBox.Width,
                                                                    tile.MappedBoundingBox.Height,
                                                                    color='gray',
-                                                                   fill=False)]
+                                                                   fill=False)]  # type: ignore[reportCallIssue]
 
     collection = PatchCollection(patches, True, alpha=0.3)
     ax.add_collection(collection)
@@ -34,17 +35,17 @@ def _plot_fixed_space_overlap(ax, overlap, color=None):
     if color is None:
         color = 'red'
 
-    patches = [mpatches.Rectangle(numpy.flip(overlap.A.FixedBoundingBox.BottomLeft),
+    patches = [mpatches.Rectangle(tuple(numpy.flip(overlap.A.FixedBoundingBox.BottomLeft)),  # type: ignore[reportCallIssue]
                                   overlap.A.FixedBoundingBox.Width,
                                   overlap.A.FixedBoundingBox.Height,
                                   color='green',
                                   label='A'),
-               mpatches.Rectangle(numpy.flip(overlap.B.FixedBoundingBox.BottomLeft),
+               mpatches.Rectangle(tuple(numpy.flip(overlap.B.FixedBoundingBox.BottomLeft)),  # type: ignore[reportCallIssue]
                                   overlap.B.FixedBoundingBox.Width,
                                   overlap.B.FixedBoundingBox.Height,
                                   color='blue',
                                   label='B'),
-               mpatches.Rectangle(numpy.flip(overlap.overlapping_target_rect.BottomLeft),
+               mpatches.Rectangle(tuple(numpy.flip(overlap.overlapping_target_rect.BottomLeft)),  # type: ignore[reportCallIssue]
                                   overlap.overlapping_target_rect.Width,
                                   overlap.overlapping_target_rect.Height,
                                   color='red')]
@@ -131,7 +132,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
 
         ax.text(overlap.overlapping_target_rect.Center[1],
                 overlap.overlapping_target_rect.Center[0],
-                label_str,
+                label_str or '',
                 horizontalalignment='center',
                 verticalalignment='center',
                 rotation=text_rotation,

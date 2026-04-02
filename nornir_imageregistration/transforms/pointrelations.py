@@ -65,7 +65,7 @@ def _get_pointset_crossproduct(points: NDArray[np.floating]) -> float:
     # Grid transforms in particular have may colinear points.  So we start our search for a non-zero cross product
     # at the end of the list, and continue until we have two non-zero cross products
     i_max_cross = xp.argmax(abs(cross_products))
-    return cross_products[i_max_cross]
+    return float(cross_products[i_max_cross])
 
 
 def calculate_point_relation(points: NDArray[np.floating]) -> ControlPointRelation:

@@ -13,4 +13,4 @@ AreaLike = Sequence[float] | tuple[float, float] | NDArray[np.floating]
 
 """Describes an array shape or any 2D area using integers"""
 ShapeLike = Sequence[int] | tuple[int, int] | NDArray[np.integer]
-RectLike = NDArray[np.floating | np.integer] | ShapeLike, Sequence[float] | tuple[float, float, float, float]
+RectLike = NDArray[np.floating | np.integer] | ShapeLike | Sequence[float] | tuple[float, float, float, float]

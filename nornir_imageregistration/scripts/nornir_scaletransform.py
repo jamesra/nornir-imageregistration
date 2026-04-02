@@ -47,6 +47,7 @@ def __CreateArgParser(ExecArgs=None):
 
 
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the scaletransform script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -56,6 +57,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -66,17 +68,16 @@ def OnUseError(message):
 
 
 def ValidateArgs(Args):
-    if not os.path.exists(Args.fixedpath):
-        OnUseError("Fixed stos file not found: " + Args.fixedpath)
-
-    if not os.path.exists(Args.warpedpath):
-        OnUseError("Warped stos file not found: " + Args.warpedpath)
+    """Validate parsed args (paths exist, etc.); exits on failure."""
+    if not os.path.exists(Args.inputpath):
+        OnUseError("Input stos file not found: " + Args.inputpath)
 
     if not os.path.exists(os.path.dirname(Args.outputpath)):
         os.makedirs(os.path.dirname(Args.outputpath))
 
 
 def Execute(ExecArgs=None):
+    """Run the scaletransform script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
 
@@ -84,8 +85,9 @@ def Execute(ExecArgs=None):
 
     ValidateArgs(Args)
 
-    MToVStos = stosfile.Scale(Args.scale)
-    MToVStos.Save(Args.outputpath)
+    stos = stosfile.StosFile.Load(Args.inputpath)
+    stos.Scale(Args.scale)
+    stos.Save(Args.outputpath)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)

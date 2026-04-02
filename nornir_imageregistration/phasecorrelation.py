@@ -18,41 +18,41 @@ Key functions:
 This module supports both CPU (numpy) and GPU (cupy) computation, automatically selecting
 the appropriate backend based on availability.
 """
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Tuple, Union, cast
 
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.core import (DimensionWithOverlap, GenRandomData, NearestPowerOfTwoWithOverlap)
-from nornir_imageregistration.mathfuncs import CutoffMethod
+from nornir_imageregistration.mathfuncs import CutoffMethod, estimate_cutoff
 
 try:
     import cupy as cp
     import cupyx
-    import cupy.fft as fftpack
 except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
-    import numpy.fft as fftpack
 
 
 def pad_image_for_phase_correlation(image: NDArray[np.floating],
                                     min_overlap: float = .05,
                                     image_median: Optional[float] = None,
                                     image_stddev: Optional[float] = None,
-                                    original_shape: Optional[Union[Tuple[int, int], NDArray[int]]] = None,
+                                    original_shape: Optional[Union[Tuple[int, int], NDArray[np.integer]]] = None,
                                     new_width: Optional[int] = None,
                                     new_height: Optional[int] = None,
                                     power_of_two: bool = True,
-                                    always_copy: bool = True,
-                                    return_numpy: bool = True) -> NDArray[np.floating]:
+                                    always_copy: bool = True) -> NDArray[np.floating]:
     """
     Prepare an image for use with the phase correlation operation.
 
     Padded areas are filled with noise matching the histogram of the original image.
     This ensures that the phase correlation algorithm works correctly by avoiding
     edge artifacts.
+
+    The result uses the same array module (NumPy vs CuPy) as *image* — see
+    ``cupy.get_array_module``.
 
     :param image: Input image to be padded
     :param min_overlap: Minimum overlap allowed between the input image and images it will be registered to, defaults to 0.05
@@ -63,7 +63,6 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     :param new_height: Pad input image to this height if not None, defaults to None
     :param power_of_two: Pad the image to a power of two if True, defaults to True
     :param always_copy: If True, always copy the image even if no padding is needed, defaults to True
-    :param return_numpy: If True, ensure the returned array is a numpy array (not used currently), defaults to True
     :return: An image with the input image centered surrounded by noise
     :rtype: NDArray[np.floating]
     """
@@ -77,9 +76,9 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     original_height = height
     original_width = width
 
-    use_cp = nornir_imageregistration.UsingCupy()
-    image = nornir_imageregistration.EnsureArray(image)
     xp = cp.get_array_module(image)
+    image = xp.asarray(image)
+    on_gpu = xp is not np
 
     if original_shape is not None:
         original_width = original_shape[1]
@@ -87,15 +86,15 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
 
     if new_height is None:
         if power_of_two:
-            new_height = NearestPowerOfTwoWithOverlap(original_height, min_overlap)
+            new_height = int(NearestPowerOfTwoWithOverlap(original_height, min_overlap))
         else:
-            new_height = DimensionWithOverlap(original_height, min_overlap)
+            new_height = int(DimensionWithOverlap(original_height, min_overlap))
 
     if new_width is None:
         if power_of_two:
-            new_width = NearestPowerOfTwoWithOverlap(original_width, min_overlap)
+            new_width = int(NearestPowerOfTwoWithOverlap(original_width, min_overlap))
         else:
-            new_width = DimensionWithOverlap(original_width, min_overlap)
+            new_width = int(DimensionWithOverlap(original_width, min_overlap))
 
     # If we need a smaller size than we already are (from padding an image a 2nd time) then keep current size
     if new_width < image.shape[1]:
@@ -112,12 +111,12 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
 
     if image_median is None or image_stddev is None:
         image_1d = image.astype(xp.float64, copy=False)
-        image_1d = image_1d.ravel() if use_cp else image_1d.flat
+        image_1d = image_1d.ravel() if on_gpu else image_1d.flat
 
         if image_median is None:
-            image_median = xp.median(image_1d)
+            image_median = float(xp.median(image_1d))
         if image_stddev is None:
-            image_stddev = xp.std(image_1d)
+            image_stddev = float(xp.std(image_1d))
 
         del image_1d
 
@@ -125,19 +124,21 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     if np.finfo(desired_type).max < max_val:
         desired_type = np.float32
 
-    padded_image = xp.zeros((int(new_height), int(new_width)), dtype=desired_type)
+    assert new_height is not None and new_width is not None
+    nh, nw = cast(int, new_height), cast(int, new_width)
+    padded_image = xp.zeros((nh, nw), dtype=np.dtype(desired_type))
 
-    padded_image_x_offset = int(np.floor((new_width - width) / 2.0))
-    padded_image_y_offset = int(np.floor((new_height - height) / 2.0))
+    padded_image_x_offset = int(np.floor((nw - width) / 2.0))
+    padded_image_y_offset = int(np.floor((nh - height) / 2.0))
 
     # Copy image into padded image
     padded_image[padded_image_y_offset:padded_image_y_offset + height,
     padded_image_x_offset:padded_image_x_offset + width] = image[:, :]
 
-    if not width == new_width:
-        left_border = GenRandomData(new_height, padded_image_x_offset, image_median, image_stddev, min_val, max_val)
-        right_border = GenRandomData(new_height, new_width - (width + padded_image_x_offset),
-                                     image_median, image_stddev, min_val, max_val)
+    if not width == nw:
+        left_border = GenRandomData(nh, padded_image_x_offset, image_median, image_stddev, min_val, max_val, xp=xp)
+        right_border = GenRandomData(nh, nw - (width + padded_image_x_offset),
+                                     image_median, image_stddev, min_val, max_val, xp=xp)
 
         padded_image[:, 0:padded_image_x_offset] = left_border
         padded_image[:, width + padded_image_x_offset:] = right_border
@@ -145,10 +146,11 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
         del left_border
         del right_border
 
-    if not height == new_height:
-        top_border = GenRandomData(padded_image_y_offset, width, image_median, image_stddev, min_val, max_val)
-        bottom_border = GenRandomData(new_height - (height + padded_image_y_offset), width,
-                                      image_median, image_stddev, min_val, max_val)
+    if not height == nh:
+        top_border = GenRandomData(padded_image_y_offset, width, image_median, image_stddev, min_val, max_val,
+                                   xp=xp)
+        bottom_border = GenRandomData(nh - (height + padded_image_y_offset), width,
+                                      image_median, image_stddev, min_val, max_val, xp=xp)
 
         padded_image[0:padded_image_y_offset,
         padded_image_x_offset:padded_image_x_offset + width] = top_border
@@ -198,18 +200,18 @@ def image_phase_correlation(target_image: NDArray[np.floating],
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
     if target_mean is None:
-        target_mean = xp.mean(target_image)
+        target_mean = float(xp.mean(target_image))
     if source_mean is None:
-        source_mean = xp.mean(source_image)
+        source_mean = float(xp.mean(source_image))
 
-    target_fft = fftpack.fft2(target_image - target_mean)
-    source_fft = fftpack.fft2(source_image - source_mean)
+    target_fft = xp.fft.fft2(target_image - target_mean)
+    source_fft = xp.fft.fft2(source_image - source_mean)
 
     return fft_phase_correlation(target_fft, source_fft, True, correlation_coefficient=correlation_coefficient)
 
 
-def fft_phase_correlation(fft_target: NDArray[np.floating],
-                          fft_source: NDArray[np.floating],
+def fft_phase_correlation(fft_target: NDArray[Any],
+                          fft_source: NDArray[Any],
                           delete_input: bool = False,
                           correlation_coefficient: Optional[float] = None) -> NDArray[np.floating]:
     """
@@ -252,7 +254,6 @@ def fft_phase_correlation(fft_target: NDArray[np.floating],
 
     # Get the array module (numpy or cupy) based on the input arrays
     xp = cp.get_array_module(fft_target)
-
     # Step 1: Calculate the complex conjugate of the target FFT
     conj_fft_target = xp.conjugate(fft_target)
     if delete_input:
@@ -281,7 +282,7 @@ def fft_phase_correlation(fft_target: NDArray[np.floating],
     del abs_conj_target_fft
 
     # Step 4: Inverse FFT to get the correlation image
-    correlation_image = xp.real(fftpack.ifft2(conj_fft_target))
+    correlation_image = xp.real(xp.fft.ifft2(conj_fft_target))
     del conj_fft_target  # Free memory
 
     return correlation_image
@@ -303,7 +304,7 @@ class FindPeakResult(NamedTuple):
 
 
 def find_peak(image: NDArray[np.floating],
-              overlap_mask: Optional[NDArray[bool]] = None,
+              overlap_mask: Optional[NDArray[np.bool_]] = None,
               cutoff: Optional[float] = None) -> FindPeakResult:
     """
     Find the offset of the strongest response in a phase correlation image.
@@ -335,15 +336,15 @@ def find_peak(image: NDArray[np.floating],
         try:
             # Use the estimate_cutoff function to automatically determine the best cutoff
             if overlap_mask is not None:
-                result = nornir_imageregistration.mathfuncs.estimate_cutoff(
-                    image[overlap_mask].flat,
+                result = estimate_cutoff(
+                    image[overlap_mask].ravel(),
                     percentiles,
                     polyfit_degree=2,
                     method=CutoffMethod.Raw
                 )
             else:
-                result = nornir_imageregistration.mathfuncs.estimate_cutoff(
-                    image.flat,
+                result = estimate_cutoff(
+                    image.ravel(),
                     percentiles,
                     polyfit_degree=2,
                     method=CutoffMethod.Raw
@@ -367,18 +368,18 @@ def find_peak(image: NDArray[np.floating],
 
     # If no labels were found, there are no peaks
     if num_labels == 0:
-        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
+        scaled_offset = tuple((np.asarray(image.shape, dtype=np.float32) / 2.0).tolist())
         peak_strength = 0
-        return FindPeakResult(scaled_offset, peak_strength, 0, 0)
+        return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
     label_sums = sp.ndimage.sum_labels(threshold_image, label_image, xp.array(range(1, num_labels + 1)))
 
     if label_sums.sum() == 0:  # There are no peaks identified
-        scaled_offset = (np.asarray(image.shape, dtype=np.float32) / 2.0)
+        scaled_offset = tuple((np.asarray(image.shape, dtype=np.float32) / 2.0).tolist())
         peak_strength = 0
-        return FindPeakResult(scaled_offset, peak_strength, 0, 0)
+        return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
     else:
         # Find the label with the highest sum (strongest peak)
         peak_value_index = label_sums.argmax()
@@ -392,21 +393,24 @@ def find_peak(image: NDArray[np.floating],
         mean_pixel = xp.mean(image[overlap_mask])
         peak_pixel = sp.ndimage.maximum(threshold_image, label_image, int(peak_value_index + 1))
         signal_to_noise = peak_pixel / mean_pixel
-
-        # Convert from cupy to numpy if using cupy
-        if nornir_imageregistration.UsingCupy():
-            peak_center_of_mass = np.array((cp.asnumpy(peak_center_of_mass[0]), cp.asnumpy(peak_center_of_mass[1])))
-
-        # Calculate the offset from the center of the image
-        # The center of mass is in (y,x) format, and the offset is from the center of the image
-        scaled_offset = (np.asarray(image.shape) / 2.0) - peak_center_of_mass
+        # Calculate the offset from the center of the image using the same array module as the input.
+        # This avoids implicit CuPy->NumPy conversions for 0-d cupy.ndarray center-of-mass components.
+        scaled_offset_arr = (
+            xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
+        ) - xp.asarray(peak_center_of_mass, dtype=xp.float32)
 
         # Clean up memory
         del label_image
         del threshold_image
         del label_sums
 
-        return FindPeakResult(scaled_offset, signal_to_noise, cutoff_value, cutoff_percent)
+        scaled_offset = tuple(nornir_imageregistration.EnsureNumpyArray(scaled_offset_arr).tolist())
+        return FindPeakResult(
+            scaled_offset,
+            float(signal_to_noise),
+            float(cutoff_value),
+            float(cutoff_percent),
+        )
 
 
 def find_offset(target_image: NDArray[np.floating],
@@ -414,8 +418,8 @@ def find_offset(target_image: NDArray[np.floating],
                 min_overlap: float = 0.0,
                 max_overlap: float = 1.0,
                 fft_required: bool = True,
-                target_shape: Optional[Union[Tuple[int, int], NDArray[int]]] = None,
-                source_shape: Optional[Union[Tuple[int, int], NDArray[int]]] = None,
+                target_shape: Optional[Union[Tuple[int, int], NDArray[np.integer]]] = None,
+                source_shape: Optional[Union[Tuple[int, int], NDArray[np.integer]]] = None,
                 correlation_coefficient: Optional[float] = None) -> nornir_imageregistration.AlignmentRecord:
     """
     Find the alignment between two images using phase correlation.
@@ -554,3 +558,4 @@ if __name__ == '__main__':
     pr = pstats.Stats('CoreProfile.pr')
     pr.sort_stats('time')
     print(str(pr.print_stats(.5)))
+

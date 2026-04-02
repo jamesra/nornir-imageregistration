@@ -5,6 +5,7 @@ Created on Oct 18, 2012
 """
 
 import numpy
+from typing import Any
 
 try:
     import cupy as cp
@@ -29,6 +30,13 @@ from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_
 from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
+def _ensure_float32_64(arr, xp):
+    """Ensure array has float32 or float64 dtype for RBF; use xp (numpy or cupy) so CuPy arrays stay on device."""
+    if arr.dtype == xp.float32 or arr.dtype == xp.float64:
+        return arr
+    return xp.asarray(arr, dtype=xp.float32)
+
+
 class MeshWithRBFFallback(Triangulation):
     """
     classdocs
@@ -41,8 +49,8 @@ class MeshWithRBFFallback(Triangulation):
     def __getstate__(self):
 
         odict = super(MeshWithRBFFallback, self).__getstate__()
-        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
-        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
@@ -114,25 +122,23 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies, valid_indicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if len(points) > 1:
-                InvalidIndicies = nornir_imageregistration.EnsureNumpyArray(InvalidIndicies)
-                # print InvalidIndicies;
-                BadPoints = points[InvalidIndicies]
+                invalid_indices = nornir_imageregistration.EnsureNumpyArray(invalid_indices)
+                # print invalid_indices;
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points
 
-        BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = _ensure_float32_64(BadPoints, numpy)
 
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
@@ -151,23 +157,22 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies, valid_indicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if points.ndim > 1:
-                InvalidIndicies = nornir_imageregistration.EnsureNumpyArray(InvalidIndicies)
-                BadPoints = points[InvalidIndicies]
+                invalid_indices = nornir_imageregistration.EnsureNumpyArray(invalid_indices)
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = numpy.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = _ensure_float32_64(BadPoints, numpy)
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def __init__(self, pointpairs):
@@ -196,8 +201,8 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
     def __getstate__(self):
 
         odict = super(MeshWithRBFFallback_GPUComponent, self).__getstate__()
-        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
-        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
@@ -275,26 +280,24 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print InvalidIndicies;
-                BadPoints = points[InvalidIndicies]
+                # print invalid_indices;
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points
 
-        # BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = _ensure_float32_64(BadPoints, cp)
 
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
@@ -315,24 +318,23 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, InvalidIndicies, ValidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[InvalidIndicies]
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        if not (BadPoints.dtype == numpy.float32 or BadPoints.dtype == numpy.float64):
-            BadPoints = cp.asarray(BadPoints, dtype=numpy.float32)
+        BadPoints = _ensure_float32_64(BadPoints, cp)
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def __init__(self, pointpairs):
@@ -361,8 +363,8 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
     def __getstate__(self):
 
         odict = super(MeshWithRBFInterpolator_GPU, self).__getstate__()
-        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
-        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
@@ -371,14 +373,14 @@ class MeshWithRBFInterpolator_GPU(Landmark_GPU):
     @property
     def ReverseRBFInstance(self):
         if self._ReverseRBFInstance is None:
-            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_GPU, self).InverseInterpolator()
+            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_GPU, self).InverseInterpolator
 
         return self._ReverseRBFInstance
 
     @property
     def ForwardRBFInstance(self):
         if self._ForwardRBFInstance is None:
-            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_GPU, self).ForwardInterpolator()
+            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_GPU, self).ForwardInterpolator
 
         return self._ForwardRBFInstance
 
@@ -451,8 +453,8 @@ class MeshWithRBFInterpolator_CPU(Landmark_CPU):
     def __getstate__(self):
 
         odict = super(MeshWithRBFInterpolator_CPU, self).__getstate__()
-        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
-        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
@@ -461,14 +463,14 @@ class MeshWithRBFInterpolator_CPU(Landmark_CPU):
     @property
     def ReverseRBFInstance(self):
         if self._ReverseRBFInstance is None:
-            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_CPU, self).InverseInterpolator()
+            self._ReverseRBFInstance = super(MeshWithRBFInterpolator_CPU, self).InverseInterpolator
 
         return self._ReverseRBFInstance
 
     @property
     def ForwardRBFInstance(self):
         if self._ForwardRBFInstance is None:
-            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_CPU, self).ForwardInterpolator()
+            self._ForwardRBFInstance = super(MeshWithRBFInterpolator_CPU, self).ForwardInterpolator
 
         return self._ForwardRBFInstance
 
@@ -550,7 +552,7 @@ if __name__ == '__main__':
                      [10, 10, -10, -10]])
 
     (Fixed, Moving) = numpy.hsplit(p, 2)
-    T = OneWayRBFWithLinearCorrection(Fixed, Moving)
+    T: Any = OneWayRBFWithLinearCorrection(Fixed, Moving)
 
     warpedPoints = [[0, 0], [-5, -5]]
     fp = T.Transform(warpedPoints)

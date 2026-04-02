@@ -492,7 +492,7 @@ class TestLayout(setup_imagetest.TestBase):
     @classmethod
     def flood_fill(cls, bit_mask, origin, checked_mask=None, desired_value=None):
         """
-        An iterator that yields all indicies connected to true bits of the mask
+        An iterator that yields all indices connected to true bits of the mask
         If the origin is over a false bit, then only the origin is returned
         """
 

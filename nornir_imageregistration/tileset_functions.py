@@ -1,15 +1,13 @@
-"""
-Created on Sep 10, 2019
+"""Generate tileset image pyramid levels and manage temp paths for tiles.
 
-@author: u0490822
-
-These functions generate tileset image pyramid levels.  The network implementation
+Created on Sep 10, 2019. The network implementation
 of these functions copies the images locally and writes the output locally before
 moving it to the final output directory.  This saves trips over the network as
 we build the pyramid, which tends to be slow for sometimes hundreds of thousands
 of small files.  This also helps the image I/O, which at this time is implemented
 by pillow as lots of small I/O requests against the image file.
 """
+from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 import concurrent.futures
 
@@ -37,8 +35,8 @@ class Quadrant(enum.IntEnum):
 
 # import nornir_shared.prettyoutput as prettyoutput
 
-def ClearTempDirectories(level_paths):
-    """Deletes temporary directories used to generate levels"""
+def ClearTempDirectories(level_paths: Sequence[str] | None) -> None:
+    """Delete temporary directories used to generate pyramid levels. Returns None."""
 
     if level_paths is None:
         return
@@ -58,17 +56,13 @@ def ClearTempDirectories(level_paths):
 
 
 def GetTempPathForTile(fullpath: str):
-    """
-    Given a tileset image, return the temporary filename for the tile
-    """
+    """Return the temporary directory path for a tile given its full path."""
     LevelDir = os.path.basename(os.path.dirname(fullpath))
     return os.path.join(temporaryfiles.gettempdir(), LevelDir)
 
 
 def GetTempDirForLevelDir(fullpath: str):
-    """
-    Given a tileset level, return the temporary level directory
-    """
+    """Return the temporary level directory path for a tileset level given its full path."""
     return os.path.join(temporaryfiles.gettempdir(), os.path.basename(fullpath))
 
 
@@ -177,7 +171,8 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                 pass
 
             try:
-                os.rmdir(temp_input_dir)
+                if temp_input_dir is not None:
+                    os.rmdir(temp_input_dir)
             except IOError:
                 pass
 
@@ -268,11 +263,11 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
 
         if imComposite is not None:
             resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
-            with imComposite.resize(resize_size, resample=Image.LANCZOS) as imFinal:
-                try:
-                    imFinal.save(OutputFileFullPath, optimize=True)
-                except FileExistsError:
-                    pass
+            imFinal = imComposite.resize(resize_size, resample=Image.Resampling.LANCZOS)  # type: ignore[union-attr]
+            try:
+                imFinal.save(OutputFileFullPath, optimize=True)
+            except FileExistsError:
+                pass
 
             del imComposite
 

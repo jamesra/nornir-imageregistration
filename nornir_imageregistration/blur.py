@@ -56,8 +56,8 @@ def create_gaussian_kernel(size: int, sigma: float) -> np.ndarray:
     return kernel
 
 
-def smart_blur(image: nornir_imageregistration.ImageLike,
-               config: SmartBlurConfig) -> nornir_imageregistration.ImageLike:
+def smart_blur(image: nornir_imageregistration.ImageLike,  # type: ignore[valid-type]
+               config: SmartBlurConfig) -> nornir_imageregistration.ImageLike:  # type: ignore[valid-type]
     """
     Apply a smart blur to the image.  This filter only includes pixels that are within a threshold range of the center point in the gaussian kernel
     """

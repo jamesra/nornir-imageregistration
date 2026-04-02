@@ -104,7 +104,7 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         new_points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(pointpair)
         self.AddPoints(new_points)
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
@@ -112,7 +112,7 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
     def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
@@ -120,37 +120,40 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
-        distance, index = self.NearestFixedPoint(points)
+        distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
         return index
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateFixedPoints(index, points)
+        return self.UpdateFixedPoints(index, points)  # type: ignore[arg-type]
 
     def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        Distance, index = self.NearestTargetPoint(old_points)
+        Distance, index = self.NearestTargetPoint(old_points)  # type: ignore[misc]
         return self.UpdateTargetPointsByIndex(index, points)
 
     def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
-        int]:
-        self._points[index, 2:4] = points
+        np.integer]:
+        self._points[index, 2:4] = points  # type: ignore[index]
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 
-        distance, index = self.NearestWarpedPoint(points)
-        return index
+        distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
+        return index  # type: ignore[return-value]
 
     def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         return self.UpdateWarpedPoints(index, point)
 
     def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        distance, index = self.NearestSourcePoint(old_points)
+        distance, index = self.NearestSourcePoint(old_points)  # type: ignore[misc]
         return self.UpdateSourcePointsByIndex(index, points)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
-        self._points = np.delete(self._points, index, 0)
+        xp = cp.get_array_module(self._points)
+        keep = xp.ones(self._points.shape[0], dtype=bool)
+        keep[index] = False
+        self._points = self._points[keep, :].copy()
         # self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
@@ -219,12 +222,12 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
 
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 2:4] = ControlPointBase_GPUComponent.RotatePoints(self.SourcePoints, rangle, rotation_center)
+        self._points[:, 2:4] = ControlPointBase_GPUComponent.RotatePoints(self.SourcePoints, rangle, rotation_center)  # type: ignore[arg-type]
         self.OnTransformChanged()
 
     def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotation_center)
+        self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotation_center)  # type: ignore[arg-type]
         self.OnTransformChanged()
 
     def FlipWarped(self, flip_center=None):
@@ -232,7 +235,7 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         Flips the X coordinates along the vertical line passing through flip_center.  If flip_center is None the center of the bounding box of the points is used.
         '''
         if flip_center is None:
-            flip_center = self.MappedBoundingBox.Center
+            flip_center = self.MappedBoundingBox.Center  # type: ignore[attr-defined]
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]
@@ -357,7 +360,7 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
@@ -365,7 +368,7 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         self._points = Landmark_CPU.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
-        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])
+        Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
     def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
@@ -373,37 +376,40 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
-        distance, index = self.NearestFixedPoint(points)
+        distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
         return index
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateFixedPoints(index, points)
+        return self.UpdateFixedPoints(index, points)  # type: ignore[arg-type]
 
     def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        Distance, index = self.NearestTargetPoint(old_points)
+        Distance, index = self.NearestTargetPoint(old_points)  # type: ignore[misc]
         return self.UpdateTargetPointsByIndex(index, points)
 
     def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
-        int]:
-        self._points[index, 2:4] = points
+        np.integer]:
+        self._points[index, 2:4] = points  # type: ignore[index]
         self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 
-        distance, index = self.NearestWarpedPoint(points)
-        return index
+        distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
+        return index  # type: ignore[return-value]
 
     def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
         return self.UpdateWarpedPoints(index, point)
 
     def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        distance, index = self.NearestSourcePoint(old_points)
+        distance, index = self.NearestSourcePoint(old_points)  # type: ignore[misc]
         return self.UpdateSourcePointsByIndex(index, points)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
             return  # Cannot have fewer than three points
 
-        self._points = np.delete(self._points, index, 0)
+        xp = cp.get_array_module(self._points)
+        keep = xp.ones(self._points.shape[0], dtype=bool)
+        keep[index] = False
+        self._points = self._points[keep, :].copy()
         # self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
         self.OnTransformChanged()
 
@@ -472,12 +478,12 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
 
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotation_center)
+        self._points[:, 2:4] = ControlPointBase.RotatePoints(self.SourcePoints, rangle, rotation_center)  # type: ignore[arg-type]
         self.OnTransformChanged()
 
     def RotateTargetPoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         '''Rotate all warped points about a center by a given angle'''
-        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotation_center)
+        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotation_center)  # type: ignore[arg-type]
         self.OnTransformChanged()
 
     def FlipWarped(self, flip_center=None):
@@ -485,7 +491,7 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         Flips the X coordinates along the vertical line passing through flip_center.  If flip_center is None the center of the bounding box of the points is used.
         '''
         if flip_center is None:
-            flip_center = self.MappedBoundingBox.Center
+            flip_center = self.MappedBoundingBox.Center  # type: ignore[attr-defined]
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]

@@ -6,6 +6,9 @@ class DistanceSquaredArray(np.ndarray):
     This returns the distance from any index to the center specified at creation, however it
     uses a function to calculate the distance instead of storing the values in memory
     '''
+    _center: np.ndarray
+    _distances: list
+    _odd_dimension: np.ndarray
 
     def __new__(cls, shape, *args, **kwargs):
         obj = np.empty(shape, dtype=np.float32).view(cls)

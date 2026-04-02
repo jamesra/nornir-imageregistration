@@ -1,24 +1,36 @@
 import logging
+from typing import Any, cast
 
 import numpy as np
 
 try:
     import cupy as cp
-    # import cupyx
-    from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
-    from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
 except ModuleNotFoundError:
     import nornir_imageregistration.cupy_thunk as cp
-    # import nornir_imageregistration.cupyx_thunk as cupyx
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
-    # import nornir_imageregistration.cupyx_thunk as cupyx
+
+# Optional: older CuPy / builds may lack cupyx.scipy.interpolate (use SciPy on CPU below).
+cuRegularGridInterpolator: Any | None = None
+cuRBFInterpolator: Any | None = None
+try:
+    from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
+    from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+except ImportError:
+    pass
+
 from numpy.typing import NDArray
 import scipy
 from scipy.interpolate import LinearNDInterpolator, RegularGridInterpolator
+
+try:
+    from scipy.interpolate import RBFInterpolator as SciPyRBFInterpolator
+except ImportError:
+    SciPyRBFInterpolator = None
 import scipy.spatial
 
 import nornir_imageregistration
+from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
@@ -42,7 +54,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     @property
     def grid_dims(self) -> tuple[int, int]:
-        return self._grid.grid_dims
+        rows, cols = self._grid.grid_dims
+        return int(rows), int(cols)
 
     def Load(self, TransformString: str, pixelSpacing=None):
         """
@@ -57,7 +70,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
 
@@ -111,14 +124,14 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = scipy.spatial.cKDTree(self.SourcePoints)
+            self._WarpedKDTree = build_nearest_neighbor_index(self.SourcePoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = scipy.spatial.cKDTree(self.TargetPoints)
+            self._FixedKDTree = build_nearest_neighbor_index(self.TargetPoints)
 
         return self._FixedKDTree
 
@@ -309,7 +322,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
 
     def OnFixedPointChanged(self):
         super(GridTransform, self).OnFixedPointChanged()
@@ -346,7 +359,8 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     @property
     def grid_dims(self) -> tuple[int, int]:
-        return self._grid.grid_dims
+        rows, cols = self._grid.grid_dims
+        return int(rows), int(cols)
 
     def Load(self, TransformString: str, pixelSpacing=None):
         """
@@ -361,7 +375,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
 
@@ -382,6 +396,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._FixedKDTree = None
         self._WarpedKDTree = None
         self._fixedtri = None
+        self._scipy_forward_grid = False
         pass
 
     def ToITKString(self):
@@ -412,14 +427,14 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def WarpedKDTree(self):
         if self._WarpedKDTree is None:
-            self._WarpedKDTree = scipy.spatial.cKDTree(self.SourcePoints)
+            self._WarpedKDTree = build_nearest_neighbor_index(self.SourcePoints)
 
         return self._WarpedKDTree
 
     @property
     def FixedKDTree(self):
         if self._FixedKDTree is None:
-            self._FixedKDTree = scipy.spatial.cKDTree(self.TargetPoints)
+            self._FixedKDTree = build_nearest_neighbor_index(self.TargetPoints)
 
         return self._FixedKDTree
 
@@ -535,11 +550,27 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = cuRegularGridInterpolator(cp.array(self._grid.axis_points),
-                                                                  cp.reshape(self.TargetPoints, (
-                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
-                                                                      2)),
-                                                                  bounds_error=False)
+            if cuRegularGridInterpolator is not None:
+                # axis_points is a list of 1d axis samples (different lengths); never cp.array() the whole list.
+                axes = tuple(cp.asarray(x, dtype=np.float64) for x in self._grid.axis_points)
+                vals = cp.reshape(
+                    cp.asarray(self.TargetPoints, dtype=np.float64),
+                    (int(self._grid.grid_dims[0]), int(self._grid.grid_dims[1]), 2),
+                )
+                self._ForwardInterpolator = cuRegularGridInterpolator(
+                    axes,
+                    vals,
+                    bounds_error=False,
+                )
+                self._scipy_forward_grid = False
+            else:
+                axes = tuple(np.asarray(x) for x in self._grid.axis_points)
+                vals = np.reshape(
+                    nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+                    (int(self._grid.grid_dims[0]), int(self._grid.grid_dims[1]), 2),
+                )
+                self._ForwardInterpolator = RegularGridInterpolator(axes, vals, bounds_error=False)
+                self._scipy_forward_grid = True
 
         return self._ForwardInterpolator
 
@@ -552,11 +583,12 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def Transform(self, points, **kwargs):
         """Map points from the warped space to fixed space"""
-        transPoints = None
-
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        transPoints = self.ForwardInterpolator(points)
-        return transPoints
+        interp = self.ForwardInterpolator
+        if self._scipy_forward_grid:
+            pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+            return cp.asarray(interp(pn))
+        return interp(points)
 
     def InverseTransform(self, points, **kwargs):
         """Map points from the fixed space to the warped space"""
@@ -611,7 +643,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPUComponent, self).OnFixedPointChanged()
@@ -648,7 +680,8 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
     @property
     def grid_dims(self) -> tuple[int, int]:
-        return self._grid.grid_dims
+        rows, cols = self._grid.grid_dims
+        return int(rows), int(cols)
 
     def Load(self, TransformString: str, pixelSpacing=None):
         """
@@ -663,7 +696,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         return odict
 
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
 
@@ -681,11 +714,13 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
+        self._scipy_forward_grid = False
+        self._scipy_inverse_interp = False
         pass
 
     def ToITKString(self):
         numPoints = self.SourcePoints.shape[0]
-        (bottom, left, top, right) = self.MappedBoundingBox.ToTuple()
+        bottom, left, top, right = cast(tuple[float, float, float, float], self.MappedBoundingBox.ToTuple())
         image_width = (
                 right - left)  # We remove one because a 10x10 image is mappped from 0,0 to 10,10, which means the bounding box will be Left=0, Right=10, and width is 11 unless we correct for it.
         image_height = (top - bottom)
@@ -794,40 +829,73 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            self._ForwardInterpolator = cuRegularGridInterpolator(self._grid.axis_points,
-                                                                  cp.reshape(self.TargetPoints, (
-                                                                      self._grid.grid_dims[0], self._grid.grid_dims[1],
-                                                                      2)),
-                                                                  bounds_error=False)
+            if cuRegularGridInterpolator is not None:
+                axes = tuple(cp.asarray(x, dtype=np.float64) for x in self._grid.axis_points)
+                vals = cp.reshape(
+                    cp.asarray(self.TargetPoints, dtype=np.float64),
+                    (int(self._grid.grid_dims[0]), int(self._grid.grid_dims[1]), 2),
+                )
+                self._ForwardInterpolator = cuRegularGridInterpolator(
+                    axes,
+                    vals,
+                    bounds_error=False,
+                )
+                self._scipy_forward_grid = False
+            else:
+                axes = tuple(np.asarray(x) for x in self._grid.axis_points)
+                vals = np.reshape(
+                    nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+                    (int(self._grid.grid_dims[0]), int(self._grid.grid_dims[1]), 2),
+                )
+                self._ForwardInterpolator = RegularGridInterpolator(axes, vals, bounds_error=False)
+                self._scipy_forward_grid = True
 
         return self._ForwardInterpolator
 
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            self._InverseInterpolator = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+            if cuRBFInterpolator is not None:
+                self._InverseInterpolator = cuRBFInterpolator(self.TargetPoints, self.SourcePoints)
+                self._scipy_inverse_interp = False
+            else:
+                tgt = nornir_imageregistration.EnsureNumpyArray(self.TargetPoints)
+                src = nornir_imageregistration.EnsureNumpyArray(self.SourcePoints)
+                if SciPyRBFInterpolator is not None:
+                    try:
+                        self._InverseInterpolator = SciPyRBFInterpolator(tgt, src)
+                    except Exception:
+                        tri = scipy.spatial.Delaunay(tgt)
+                        self._InverseInterpolator = LinearNDInterpolator(tri, src)
+                else:
+                    tri = scipy.spatial.Delaunay(tgt)
+                    self._InverseInterpolator = LinearNDInterpolator(tri, src)
+                self._scipy_inverse_interp = True
 
         return self._InverseInterpolator
 
     def Transform(self, points, **kwargs):
         """Map points from the warped space to fixed space"""
-        transPoints = None
-
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        transPoints = self.ForwardInterpolator(points)
-        return transPoints
+        interp = self.ForwardInterpolator
+        if self._scipy_forward_grid:
+            pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+            return cp.asarray(interp(pn))
+        return interp(points)
 
     def InverseTransform(self, points, **kwargs):
         """Map points from the fixed space to the warped space"""
-        transPoints = None
-
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        transPoints = self.InverseInterpolator(points)
-        return transPoints
+        interp = self.InverseInterpolator
+        if self._scipy_inverse_interp:
+            pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+            return cp.asarray(interp(pn))
+        return interp(points)
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         """Rotate all warped points about a center by a given angle"""
-        self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, rotationCenter)
+        center = rotationCenter if rotationCenter is not None else np.mean(self.TargetPoints, axis=0)
+        self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, center)
         self.OnTransformChanged()
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
@@ -841,8 +909,12 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
                                                                                                                   np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-        distance, index = self.NearestFixedPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, points)
+        query_result = cast(
+            tuple[float | NDArray[np.floating], int | NDArray[np.integer]],
+            self.NearestFixedPoint(old_points),
+        )
+        distance, index = query_result
+        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPU, self).OnFixedPointChanged()

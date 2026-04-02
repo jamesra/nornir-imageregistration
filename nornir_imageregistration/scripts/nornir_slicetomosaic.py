@@ -69,6 +69,7 @@ def __CreateArgParser(ExecArgs=None):
 
 
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the slicetomosaic script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -78,6 +79,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -88,6 +90,7 @@ def OnUseError(message):
 
 
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure."""
     if not os.path.exists(Args.inputpath):
         OnUseError("Input stos file not found: " + Args.inputpath)
 
@@ -107,6 +110,7 @@ def ValidateArgs(Args):
 
 
 def Execute(ExecArgs=None):
+    """Run the slicetomosaic script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
 

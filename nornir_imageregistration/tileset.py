@@ -163,7 +163,7 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
 
         t = pool.add_task(imageFilename, __CorrectBrightfieldShadingOneImage, imagepath, outputFilename, imagescalar,
                           bpp=bpp)
-        t.output_fullpath = outputFilename
+        t.output_fullpath = outputFilename  # type: ignore[reportAttributeAccessIssue]
 
         # Shadeimage is the max of all tiles.  Figure out what the multiplier is for each pixel.
         # invertedimage = 1.0 - shadeimage

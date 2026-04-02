@@ -27,30 +27,30 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
     def __getstate__(self):
         odict = super(DiscreteWithContinuousFallback, self).__getstate__()
-        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance
-        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance
+        odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[attr-defined]
+        odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[attr-defined]
         return odict
 
     def __setstate__(self, dictionary):
         super(DiscreteWithContinuousFallback, self).__setstate__(dictionary)
 
     def InitializeDataStructures(self):
-        self._continous_transform.InitializeDataStructures()
-        self._discrete_transform.InitializeDataStructures()
+        self._continuous_transform.InitializeDataStructures()  # type: ignore[union-attr]
+        self._discrete_transform.InitializeDataStructures()  # type: ignore[union-attr]
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
            Clear out our data structures so we do not use bad data"""
-        self._continous_transform.ClearDataStructures()
-        self._discrete_transform.ClearDataStructures()
+        self._continuous_transform.ClearDataStructures()  # type: ignore[union-attr]
+        self._discrete_transform.ClearDataStructures()  # type: ignore[union-attr]
 
     def OnFixedPointChanged(self):
-        self._continous_transform.OnFixedPointChanged()
-        self._discrete_transform.OnFixedPointChanged()
+        self._continuous_transform.OnFixedPointChanged()  # type: ignore[union-attr]
+        self._discrete_transform.OnFixedPointChanged()  # type: ignore[union-attr]
 
     def OnWarpedPointChanged(self):
-        self._continous_transform.OnWarpedPointChanged()
-        self._discrete_transform.OnWarpedPointChanged()
+        self._continuous_transform.OnWarpedPointChanged()  # type: ignore[union-attr]
+        self._discrete_transform.OnWarpedPointChanged()  # type: ignore[union-attr]
 
     def Transform(self, points: NDArray[np.floating], **kwargs) -> NDArray[np.floating]:
         """
@@ -58,7 +58,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DnpArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
 
         if points.shape[0] == 0:
             return np.empty((0, 2), dtype=points.dtype)
@@ -68,14 +68,13 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, _valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print InvalidIndicies;
-                BadPoints = points[InvalidIndicies]
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points
 
@@ -85,7 +84,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
@@ -104,13 +103,13 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, InvalidIndicies) = utils.InvalidIndicies(TransformedPoints)
+        (GoodPoints, invalid_indices, _valid_indices) = utils.InvalidIndices(TransformedPoints)
 
-        if len(InvalidIndicies) == 0:
+        if len(invalid_indices) == 0:
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[InvalidIndicies]
+                BadPoints = points[invalid_indices]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -119,7 +118,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
 
-        TransformedPoints[InvalidIndicies] = FixedPoints
+        TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
 
     def __init__(self, continuous_transform: ITransform, discrete_transform: IDiscreteTransform):
@@ -170,14 +169,14 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
     def points(self) -> NDArray:
         return self._discrete_transform.points
 
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestFixedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         '''
         Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
         return self._discrete_transform.NearestFixedPoint(points)
 
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestWarpedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         '''
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -210,7 +209,7 @@ if __name__ == '__main__':
                      [10, 10, -10, -10]])
 
     (Fixed, Moving) = np.hsplit(p, 2)
-    T = OneWayRBFWithLinearCorrection(Fixed, Moving)
+    T = OneWayRBFWithLinearCorrection(Fixed, Moving)  # type: ignore[name-defined]
 
     warpedPoints = [[0, 0], [-5, -5]]
     fp = T.ViewTransform(warpedPoints)
@@ -262,3 +261,4 @@ if __name__ == '__main__':
 
     print("\nFixedPointsInRect")
     print(T.GetFixedPointsRect([-1, -1, 14, 4]))
+

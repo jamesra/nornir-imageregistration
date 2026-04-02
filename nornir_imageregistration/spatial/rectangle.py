@@ -42,7 +42,7 @@ class RectangleSet:
     active_dtype = np.dtype([('Value', 'f4'), ('ID', 'u8'), ('InBounds', 'u1')])
 
     @classmethod
-    def _create_bounds_array(cls, rects: Sequence[Rectangle]) -> NDArray[active_dtype]:
+    def _create_bounds_array(cls, rects: Sequence[Rectangle]) -> NDArray[np.void]:
         """Create a single numpy array containing the boundaries for each rectangle, with an additional 5th column containing  the index of the rectangle in the original set"""
         rect_array = np.empty(len(rects), dtype=cls.rect_dtype)
         for (i, rect) in enumerate(rects):
@@ -52,7 +52,7 @@ class RectangleSet:
         return rect_array
 
     @classmethod
-    def _create_sweep_arrays(cls, rect_array: Sequence[Rectangle]) -> (NDArray[active_dtype], NDArray[active_dtype]):
+    def _create_sweep_arrays(cls, rect_array: Sequence[Rectangle]) -> tuple[NDArray[np.void], NDArray[np.void]]:
         """
         Create lists that sort the beginning and end values for rectangles along each axis
         """
@@ -91,7 +91,7 @@ class RectangleSet:
     def Create(cls, rects: Sequence[Rectangle]):
 
         rects_array = cls._create_bounds_array(rects)
-        rset = RectangleSet(rects_array)
+        rset = RectangleSet(rects_array)  # type: ignore[arg-type]
         return rset
 
     #
@@ -166,7 +166,7 @@ class RectangleSet:
 
     def EnumerateOverlapping(self) -> Generator[tuple[int, int]]:
         """
-        :return: A set of tuples containing the indicies of overlapping rectangles passed to the Create function
+        :return: A set of tuples containing the indices of overlapping rectangles passed to the Create function
         """
 
         OverlapSet = {}  # type: dict[int, set[int]]
@@ -180,7 +180,7 @@ class RectangleSet:
         for (ID, overlappingIDs) in OverlapSet.items():
             for MatchingID in overlappingIDs:
                 if MatchingID != ID:
-                    key: (int, int)
+                    key: tuple[int, int]
                     if ID < MatchingID:
                         key = (ID, MatchingID)
                     else:
@@ -193,10 +193,10 @@ class RectangleSet:
                     yield key
 
     @staticmethod
-    def SweepAlongAxis(sweep_array: NDArray[active_dtype]) -> Generator[int, set[int]]:
+    def SweepAlongAxis(sweep_array: NDArray[np.void]) -> Generator[tuple[int, set[int]], None, None]:
         """
         :param ndarray sweep_array: Array of active_dtype
-        :return: A set of tuples containing the indicies of overlapping rectangles on the axis
+        :return: A set of tuples containing the indices of overlapping rectangles on the axis
         """
         if sweep_array is None:
             raise ValueError("sweep_array must not be None")
@@ -310,7 +310,7 @@ class Rectangle:
         return np.asarray([self.Height, self.Width], np.float64)
 
     @property
-    def shape(self) -> NDArray[np.floating]:
+    def shape(self) -> NDArray[np.integer]:
         """
         The [height, width] of the rectangle
         """
@@ -343,10 +343,10 @@ class Rectangle:
         self._bounds.__setitem__(i, sequence)
 
     def __getslice__(self, i, j):
-        return self._bounds.__getslice__(i, j)
+        return self._bounds.__getslice__(i, j)  # type: ignore[attr-defined]
 
     def __setslice__(self, i, j, sequence):
-        self._bounds.__setslice__(i, j, sequence)
+        self._bounds.__setslice__(i, j, sequence)  # type: ignore[attr-defined]
 
     def __delslice__(self, i, j, sequence):
         raise Exception("Spatial objects should not have elements deleted from the array")
@@ -483,10 +483,10 @@ class Rectangle:
         :param tuple area: (Height, Area)
         :rtype: Rectangle
         """
-        if not isinstance(area, np.ndarray):
-            area = np.asarray(area)
-
-        point = nornir_imageregistration.EnsurePointsAre1DArray(point)
+        # Host NumPy only: overlap mask and other callers mix NumPy shapes with global CuPy;
+        # EnsurePointsAre1DArray would upgrade the center to CuPy and break np.array(bounds).
+        area = np.asarray(nornir_imageregistration.EnsureNumpyArray(area), dtype=np.float64).ravel()
+        point = np.asarray(nornir_imageregistration.EnsureNumpyArray(point), dtype=np.float64).ravel()
 
         half_area = area / 2.0
 
@@ -512,7 +512,7 @@ class Rectangle:
             point[iPoint.X] + area[iArea.Width]))
 
     @staticmethod
-    def CreateFromBounds(bounds: NDArray[np.floating]) -> Rectangle:
+    def CreateFromBounds(bounds: NDArray[np.floating] | tuple) -> Rectangle:
         """
         :param bounds: (MinY,MinX,MaxY,MaxX)
         """
@@ -521,7 +521,7 @@ class Rectangle:
         return Rectangle(bounds)
 
     @classmethod
-    def PrimitiveToRectangle(cls, primitive: RectLike) -> Rectangle:
+    def PrimitiveToRectangle(cls, primitive: RectLike | Rectangle) -> Rectangle:
         """Primitive can be a list of (Y,X) or (MinY, MinX, MaxY, MaxX) or a Rectangle"""
 
         if isinstance(primitive, Rectangle):
@@ -529,7 +529,7 @@ class Rectangle:
 
         if isinstance(primitive, np.void):
             if primitive.dtype == RectangleSet.rect_dtype:
-                return Rectangle((primitive[0], primitive[1], primitive[2], primitive[3]))
+                return Rectangle((primitive[0], primitive[1], primitive[2], primitive[3]))  # type: ignore[index]
 
         if isinstance(primitive, Sequence) | isinstance(primitive, np.ndarray):
             if len(primitive) == 2:
@@ -551,22 +551,22 @@ class Rectangle:
         A = Rectangle.PrimitiveToRectangle(A)
 
         if isinstance(B, Sequence) | isinstance(B, np.ndarray):
-            if len(B) == 2:
+            if len(B) == 2:  # type: ignore[arg-type]
                 y, x = B
                 return \
                         A.BoundingBox[nornir_imageregistration.iRect.MinX] <= x <= A.BoundingBox[
                         nornir_imageregistration.iRect.MaxX] and \
                         A.BoundingBox[nornir_imageregistration.iRect.MinY] <= y <= A.BoundingBox[
                         nornir_imageregistration.iRect.MaxY]
-            elif len(B) == 4:
+            elif len(B) == 4:  # type: ignore[arg-type]
                 B = Rectangle(B)
             else:
                 raise ValueError(f"Unrecognized input to parameter B: {B}")
 
-        if (A.BoundingBox[iRect.MaxX] <= B.BoundingBox[iRect.MinX] or
-                A.BoundingBox[iRect.MinX] >= B.BoundingBox[iRect.MaxX] or
-                A.BoundingBox[iRect.MaxY] <= B.BoundingBox[iRect.MinY] or
-                A.BoundingBox[iRect.MinY] >= B.BoundingBox[iRect.MaxY]):
+        if (A.BoundingBox[iRect.MaxX] <= B.BoundingBox[iRect.MinX] or  # type: ignore[union-attr]
+                A.BoundingBox[iRect.MinX] >= B.BoundingBox[iRect.MaxX] or  # type: ignore[union-attr]
+                A.BoundingBox[iRect.MaxY] <= B.BoundingBox[iRect.MinY] or  # type: ignore[union-attr]
+                A.BoundingBox[iRect.MinY] >= B.BoundingBox[iRect.MaxY]):  # type: ignore[union-attr]
             return False
 
         return True
@@ -583,7 +583,7 @@ class Rectangle:
         """
         :returns: The maximum area the rectangles can overlap
         """
-        return np.prod(cls.max_overlap_dimensions(A, B))
+        return float(np.prod(cls.max_overlap_dimensions(A, B)))
 
     @classmethod
     def overlap_rect(cls, A: Rectangle | RectLike, B: Rectangle | RectLike) -> Rectangle | None:

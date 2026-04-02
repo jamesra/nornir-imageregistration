@@ -47,8 +47,8 @@ class RegistrationTreeNode(object):
     # def SetParent(self, sectionNumber):
     #    self.Parent = sectionNumber
 
-    def AddChild(self, childSectionNumber: int):
-        self.Children.append(childSectionNumber)
+    def AddChild(self, child: RegistrationTreeNode):
+        self.Children.append(child)
         self.Children.sort(key=operator.attrgetter('SectionNumber'))
 
     def __repr__(self):
@@ -74,7 +74,7 @@ class RegistrationTreeNode(object):
 
         direction = mappedsection - center
 
-        nodes_to_check = [self]
+        nodes_to_check: list[RegistrationTreeNode] = [self]
 
         while True:
             node_to_check = nodes_to_check.pop(0)
@@ -274,7 +274,7 @@ class RegistrationTree(object):
         rtnode = list(self.RootNodes.values())[0]
         if center:
             center = NearestSection(self.SectionNumbers, center)
-            rtnode = self.Nodes[center]
+            rtnode = self.Nodes[center]  # type: ignore[arg-type]
 
         for sectionNumber in sectionNumbers:
             parent = rtnode.FindControlForMapped(sectionNumber)
@@ -329,7 +329,7 @@ class RegistrationTree(object):
 
             return RT
 
-    def GenerateOrderedMappingsToRoots(self) -> (RegistrationTreeNode, RegistrationTreeNode):
+    def GenerateOrderedMappingsToRoots(self) -> Generator[MappedToRootWalkTuple, None, None]:
         """
         Yields mappings to all root nodes in root -> leaf order.
         For any given mapped section N the root and any intermediate section
@@ -340,8 +340,7 @@ class RegistrationTree(object):
         for root in self.RootNodes.values():
             yield from self.GenerateOrderedMappingsToRootNode(root)
 
-    def GenerateOrderedMappingsToRootNode(self, rootNode: RegistrationTreeNode) -> (
-            RegistrationTreeNode, RegistrationTreeNode, RegistrationTreeNode):
+    def GenerateOrderedMappingsToRootNode(self, rootNode: RegistrationTreeNode) -> Generator[MappedToRootWalkTuple, None, None]:
         """
         Yields mappings to control sections in root -> leaf order.
         So that for any given mapped section N the root and any intermediate section
@@ -369,7 +368,7 @@ class RegistrationTree(object):
             for mapped in rtNode.Children:
                 yield MappedToRootWalkTuple(rootNode, rtNode, mapped)
                 if mapped.SectionNumber in self.Nodes and mapped.SectionNumber not in alreadyMapped:
-                    nodes_to_walk.append(mapped.SectionNumber)
+                    nodes_to_walk.append(mapped)
 
 
 def NearestSection(sectionNumbers: Sequence[int], reqnumber: int) -> int | None:
@@ -394,6 +393,14 @@ def NearestSection(sectionNumbers: Sequence[int], reqnumber: int) -> int | None:
 
 
 def AdjacentPairs(sectionNumbers, adjacentThreshold, startindex, endindex):
+    """Return (mapped_section, control_section) pairs whose indices are within adjacentThreshold.
+
+    :param sectionNumbers: Sequence of section numbers (indexed by startindex..endindex).
+    :param adjacentThreshold: Maximum index gap for a pair to be considered adjacent.
+    :param startindex: Start index (inclusive) in sectionNumbers.
+    :param endindex: End index (inclusive) in sectionNumbers.
+    :return: List of (mapped_section, control_section) tuples.
+    """
     listAdjacent = []
     if startindex == endindex:
         return listAdjacent

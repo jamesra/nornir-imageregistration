@@ -4,6 +4,7 @@ Created on Aug 4, 2022
 @author: u0490822
 """
 
+import numpy as np
 from numpy.typing import NDArray
 
 
@@ -15,19 +16,19 @@ class TranslateSettings(object):
     min_overlap: float
     max_relax_iterations: int
     max_relax_tension_cutoff: float
-    feature_score_threshold: float
+    feature_score_threshold: float | None
     offset_acceptance_threshold: float
     min_translate_iterations: int
     max_translate_iterations: int
     inter_tile_distance_scale: float
     first_pass_inter_tile_distance_scale: float
     first_pass_excess_scalar: float
-    min_offset_weight: float
-    max_offset_weight: float
+    min_offset_weight: float | None
+    max_offset_weight: float | None
     excess_scalar: float
     use_feature_score: bool
     exclude_diagonal_overlaps: bool
-    known_offsets: list[NDArray[float]]
+    known_offsets: list[NDArray[np.floating]]
     mask_extrema: bool = True
 
     @property
@@ -97,3 +98,4 @@ class TranslateSettings(object):
                 self.max_offset_weight is not None and
                 self.min_offset_weight > self.max_offset_weight):
             raise ValueError("min_offset_weight > max_offset_weight")
+

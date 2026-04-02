@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 import numpy as np
-from numpy.typing import *
+from numpy.typing import NDArray, ArrayLike
 import scipy.spatial
 
 import nornir_imageregistration
@@ -32,6 +32,11 @@ class ITransform(ABC):
         """
         Creates an instance of the transform from the TransformString
         """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def ToITKString(self) -> str:
+        """Serialize the transform to an ITK-compatible string representation."""
         raise NotImplementedError()
 
     @property
@@ -101,6 +106,10 @@ class ITransfomFlip(ABC):
         raise NotImplementedError()
 
 
+# Correct spelling; ITransfomFlip is deprecated.
+ITransformFlip = ITransfomFlip
+
+
 class ITransformRelativeScaling(ABC):
     """Supports scaling of target space or source space independently of each other"""
 
@@ -119,13 +128,19 @@ class IDiscreteTransform(ITransform, ABC):
     @property
     @abc.abstractmethod
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        """Bounding box of mapped space points"""
+        """Bounding box of mapped space points (source-space alias)"""
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def FixedBoundingBox(self) -> nornir_imageregistration.Rectangle:
-        """Bounding box of fixed space points"""
+        """Bounding box of fixed space points (target-space alias)"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def TargetBoundingBox(self) -> nornir_imageregistration.Rectangle:
+        """Bounding box of target space points"""
         raise NotImplementedError()
 
 
@@ -159,7 +174,7 @@ class IControlPoints(ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def NearestFixedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestFixedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         """
         Return the fixed points nearest to the query points
         :return: Distance, Index
@@ -167,7 +182,7 @@ class IControlPoints(ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def NearestWarpedPoint(self, points: NDArray) -> tuple((float | NDArray[np.floating], int | NDArray[np.integer])):
+    def NearestWarpedPoint(self, points: NDArray) -> tuple[float | NDArray[np.floating], int | NDArray[np.integer]]:
         """
         Return the warped points nearest to the query points
         :return: Distance, Index
@@ -256,7 +271,7 @@ class ITargetSpaceControlPointEdit(ABC):
     @abc.abstractmethod
     def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
                                                                                                                   NDArray[
-                                                                                                                      int]:
+                                                                                                                      np.integer]:
         """Move the points closest to old_points to positions at new_points
         :return: The new index of the points
         """
@@ -276,7 +291,7 @@ class ISourceSpaceControlPointEdit(ABC):
     @abc.abstractmethod
     def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
                                                                                                                   NDArray[
-                                                                                                                      int]:
+                                                                                                                      np.integer]:
         """Move the points closest to old_points to positions at new_points
         :return: The new index of the points
         """

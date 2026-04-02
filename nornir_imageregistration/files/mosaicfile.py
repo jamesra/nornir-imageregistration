@@ -7,7 +7,7 @@ import nornir_imageregistration
 
 
 class MosaicFile(object):
-    """description of class"""
+    """Represents mosaic metadata and the image-to-transform map; handles I/O for mosaic description files."""
 
     @classmethod
     def LoadChecksum(cls, path):

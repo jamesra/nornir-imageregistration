@@ -44,6 +44,7 @@ def __CreateArgParser(ExecArgs=None):
 
 
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the translatemosaic script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -53,6 +54,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -63,6 +65,7 @@ def OnUseError(message):
 
 
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure."""
     if not os.path.exists(Args.inputpath):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
 
@@ -82,6 +85,7 @@ def ValidateArgs(Args):
 
 
 def Execute(ExecArgs=None):
+    """Run the translatemosaic script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
 
@@ -93,7 +97,11 @@ def Execute(ExecArgs=None):
 
     # timer = TaskTimer()
     # timer.Start("ArrangeTiles " + Args.tilepath)
-    translated_mosaic_tileset = mosaic.ArrangeTilesWithTranslate(Args.tilepath, usecluster=False)
+    tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(
+        mosaic, image_folder=str(Args.tilepath), image_to_source_space_scale=1.0
+    )
+    config = nornir_imageregistration.settings.TranslateSettings()
+    translated_mosaic_tileset = tileset.ArrangeTilesWithTranslate(config=config)
     # timer.End("ArrangeTiles " + Args.tilepath, True)
     translated_mosaic_tileset.SaveMosaic(Args.outputpath)
 
@@ -104,6 +112,7 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
+    (args, extra) = ParseArgs()
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
     Execute()

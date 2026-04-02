@@ -5,19 +5,22 @@ Created on Jul 18, 2019
 
 A helper class to marshal large images using the file system instead of in-memory.
 '''
+from __future__ import annotations
+
 import atexit
 import logging
 import os
 import shutil
 import tempfile
-from typing import Tuple
+from typing import Any, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
 import nornir_pools
-from nornir_imageregistration.transformed_image_data import ITransformedImageData
+from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
+from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState
 
 
 # When porting to Python 3.10 there was a regression where
@@ -31,14 +34,17 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     """
     Returns data from multiprocessing thread processes.  Uses memory mapped files when there is too much data for pickle to be efficient
     """
-    _image_path: str
-    _centerDistanceImage_path: str
-    _image: NDArray[np.floating]
-    _centerDistanceImage: NDArray[np.floating]
+    _image_path: str | None
+    _centerDistanceImage_path: str | None
+    _image: NDArray[np.floating] | None
+    _centerDistanceImage: NDArray[np.floating] | None
     _source_space_scale: float
     _target_space_scale: float
-    # _transform: nornir_imageregistration.ITransform
-    _errmsg: str
+    _image_state: TransformedImageDataState
+    _center_distance_image_state: TransformedImageDataState
+    _transform: Any | None
+    _errmsg: str | None
+    _rendered_target_space_origin: NDArray[np.float32]
 
     _temp_folder_created = False
     sharedTempRoot = None
@@ -47,7 +53,17 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
 
     @property
     def errormsg(self) -> str | None:
-        return None
+        return self._errmsg
+
+    @property
+    def state(self) -> TransformedImageDataState:
+        if self._image_state == TransformedImageDataState.CLEARED or \
+                self._center_distance_image_state == TransformedImageDataState.CLEARED:
+            return TransformedImageDataState.CLEARED
+        if self._image_state == TransformedImageDataState.TEMP_FILE or \
+                self._center_distance_image_state == TransformedImageDataState.TEMP_FILE:
+            return TransformedImageDataState.TEMP_FILE
+        return TransformedImageDataState.IN_MEMORY
 
     #
     #     def __getstate__(self):
@@ -72,25 +88,35 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
 
     @property
     def image(self) -> NDArray:
-        if self._image is None:
+        if self._image_state == TransformedImageDataState.CLEARED:
+            raise ValueError("No image associated with TransformedImageData")
+
+        image = self._image
+        if image is None:
             if self._image_path is None:
-                return None
+                raise ValueError("No image associated with TransformedImageData")
 
-            self._image = np.load(self._image_path,
-                                  mmap_mode='r')  # np.memmap(self._image_path, mode='c', shape=self._image_shape, dtype=self._image_dtype)
+            image = np.load(self._image_path,
+                            mmap_mode='r')  # np.memmap(self._image_path, mode='c', shape=self._image_shape, dtype=self._image_dtype)
+            self._image = image
 
-        return self._image
+        return image
 
     @property
     def centerDistanceImage(self) -> NDArray:
-        if self._centerDistanceImage is None:
+        if self._center_distance_image_state == TransformedImageDataState.CLEARED:
+            raise ValueError("No distance image associated with TransformedImageData")
+
+        distance_image = self._centerDistanceImage
+        if distance_image is None:
             if self._centerDistanceImage_path is None:
-                return None
+                raise ValueError("No distance image associated with TransformedImageData")
 
-            self._centerDistanceImage = np.load(self._centerDistanceImage_path,
-                                                mmap_mode='r')  # np.memmap(self._centerDistanceImage_path, mode='c', shape=self._centerDistanceImage_shape, dtype=self._centerDistance_dtype)
+            distance_image = np.load(self._centerDistanceImage_path,
+                                     mmap_mode='r')  # np.memmap(self._centerDistanceImage_path, mode='c', shape=self._centerDistanceImage_shape, dtype=self._centerDistance_dtype)
+            self._centerDistanceImage = distance_image
 
-        return self._centerDistanceImage
+        return distance_image
 
     @property
     def source_space_scale(self) -> float:
@@ -101,7 +127,7 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return self._target_space_scale
 
     @property
-    def rendered_target_space_origin(self):
+    def rendered_target_space_origin(self) -> NDArray[np.float32]:
         """
         The bottom left origin of the transformed data.  When requesting an assembled image for a target region
         rounding sometimes can occur this property contains the actual bottom left coordinate of the image data
@@ -115,20 +141,21 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     #    return self._transform
 
     @classmethod
-    def Create(cls, image: NDArray, centerDistanceImage: NDArray,
+    def Create(cls, image: NDArray | Shared_Mem_Metadata, centerDistanceImage: NDArray | Shared_Mem_Metadata,
                transform,
                source_space_scale: float, target_space_scale: float,
                rendered_target_space_origin: Tuple[float, float], SingleThreadedInvoke: bool):
-        o = TransformedImageDataViaTempFile()
-        o._image = image
-        o._centerDistanceImage = centerDistanceImage
+        o = TransformedImageDataViaTempFile(source_space_scale=source_space_scale,
+                                            target_space_scale=target_space_scale,
+                                            rendered_target_space_origin=rendered_target_space_origin)
+        o._image = nornir_imageregistration.ImageParamToImageArray(image)
+        o._centerDistanceImage = nornir_imageregistration.ImageParamToImageArray(centerDistanceImage)
+        o._image_state = TransformedImageDataState.IN_MEMORY
+        o._center_distance_image_state = TransformedImageDataState.IN_MEMORY
         o._transform = transform
 
         o._image_path = None
         o._centerDistanceImage_path = None
-        o._source_space_scale = source_space_scale
-        o._target_space_scale = target_space_scale
-        o._rendered_target_space_origin = np.array(rendered_target_space_origin, dtype=np.float32)
         # o._transform = transform
 
         if not SingleThreadedInvoke:
@@ -160,7 +187,9 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         returned to the caller.
         :return:
         '''
-        if np.prod(self._image.shape) > TransformedImageDataViaTempFile.tempfile_threshold:
+        image = self.image
+        center_distance_image = self.centerDistanceImage
+        if np.prod(image.shape) > TransformedImageDataViaTempFile.tempfile_threshold:
             _image_path_task = None
             _centerDistanceImage_path_task = None
 
@@ -175,13 +204,15 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             # TODO: Replace with a task group once we are on Python 3.11
             pool = nornir_pools.GetGlobalThreadPool()
 
-            _image_path_task = pool.add_task("Image", self.SaveArrayToTemporaryFile, "Image", self._image)
+            _image_path_task = pool.add_task("Image", self.SaveArrayToTemporaryFile, "Image", image)
             self._image = None
+            self._image_state = TransformedImageDataState.TEMP_FILE
 
             _centerDistanceImage_path_task = pool.add_task("Distance",
                                                            self.SaveArrayToTemporaryFile, "Distance",
-                                                           self._centerDistanceImage)
+                                                           center_distance_image)
             self._centerDistanceImage = None
+            self._center_distance_image_state = TransformedImageDataState.TEMP_FILE
 
             self._image_path = _image_path_task.wait_return()
             self._centerDistanceImage_path = _centerDistanceImage_path_task.wait_return()
@@ -189,20 +220,22 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return
 
     def Clear(self):
-        """Sets attributes to None to encourage garbage collection"""
+        """Release loaded arrays and any temporary files."""
         self._image = None
         self._centerDistanceImage = None
-        self._source_space_scale = None
-        self._target_space_scale = None
+        self._image_state = TransformedImageDataState.CLEARED
+        self._center_distance_image_state = TransformedImageDataState.CLEARED
         self._transform = None
 
         # It is hard to delete these temporary files because it is ambiguous on when
         # numpy releases the underlying file
         if self._centerDistanceImage_path is not None or self._image_path is not None:
             pool = nornir_pools.GetGlobalThreadPool()
-            pool.add_task(self._image_path, TransformedImageDataViaTempFile._RemoveTempFiles,
+            pool.add_task(str(self._image_path), TransformedImageDataViaTempFile._RemoveTempFiles,
                           self._centerDistanceImage_path,
                           self._image_path)
+            self._centerDistanceImage_path = None
+            self._image_path = None
 
     @staticmethod
     def _RemoveTempFiles(_centerDistanceImage_path, _image_path):
@@ -224,11 +257,18 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             logging.warning("Could not delete temporary file {0}".format(_image_path))
             pass
 
-    def __init__(self, errorMsg=None):
+    def __init__(self,
+                 source_space_scale: float = 0.0,
+                 target_space_scale: float = 0.0,
+                 rendered_target_space_origin: Tuple[float, float] = (0.0, 0.0),
+                 errorMsg: str | None = None):
         self._image = None
         self._centerDistanceImage = None
-        self._source_space_scale = None
-        self._target_space_scale = None
+        self._source_space_scale = source_space_scale
+        self._target_space_scale = target_space_scale
+        self._rendered_target_space_origin = np.asarray(rendered_target_space_origin, dtype=np.float32)
+        self._image_state = TransformedImageDataState.CLEARED
+        self._center_distance_image_state = TransformedImageDataState.CLEARED
         self._transform = None
         self._errmsg = errorMsg
         self._image_path = None

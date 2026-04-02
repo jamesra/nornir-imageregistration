@@ -5,6 +5,7 @@ __all__ = ['transformwarp', 'alignment_records', 'display_images', 'TransformWar
 import matplotlib
 import matplotlib.pyplot as plt
 
+from nornir_imageregistration.views import transformwarp, alignment_records, display_images
 from nornir_imageregistration.views.alignment_records import PlotPeakList, PlotWeightHistogram, plot_aligned_images, \
     plot_percentiles
 from nornir_imageregistration.views.grid_refinement import ShowGridRefinement, build_grid_rois
@@ -35,12 +36,12 @@ def ShowWithPassFail(fig):
        return True if the pass button is pressed.  Otherwise false
     '''
     callback = PassFailInput(fig)
-    axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
-    axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
+    axprev = plt.axes((0.7, 0.05, 0.1, 0.075))
+    axnext = plt.axes((0.81, 0.05, 0.1, 0.075))
 
-    bnext = matplotlib.widgets.Button(axnext, 'Pass', color='#00FF80')
+    bnext = matplotlib.widgets.Button(axnext, 'Pass', color='#00FF80')  # type: ignore[attr-defined]
     bnext.on_clicked(callback.OnPassButton)
-    bprev = matplotlib.widgets.Button(axprev, 'Fail', color='#FF0000')
+    bprev = matplotlib.widgets.Button(axprev, 'Fail', color='#FF0000')  # type: ignore[attr-defined]
     bprev.on_clicked(callback.OnFailButton)
     fig.show()
 

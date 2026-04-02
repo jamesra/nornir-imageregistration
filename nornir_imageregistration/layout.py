@@ -6,18 +6,19 @@ import warnings
 from operator import itemgetter
 
 import numpy as np
-from numpy.random.mtrand import Sequence
 from numpy.typing import NDArray
 import scipy
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import nornir_imageregistration
+from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 from nornir_imageregistration.tile_overlap import TileOverlap
 import nornir_imageregistration.transforms
 import nornir_imageregistration.type_info
 import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
+from typing import cast
 
 ID_Value = collections.namedtuple('ID_Magnitude', ['ID', 'Value'])
 
@@ -25,8 +26,13 @@ TileOffset = collections.namedtuple('TileOffset', ('A', 'B', 'Y', 'X'))
 
 
 def _sort_array_on_column(a, iCol, ascending=False):
-    """Sort the numpy array on the specfied column"""
+    """Sort a 2D array by the values in the specified column.
 
+    :param a: 2D array to sort.
+    :param iCol: Column index to sort by.
+    :param ascending: If True, ascending order; otherwise descending.
+    :return: Sorted array (same shape as a).
+    """
     iSorted = np.argsort(a[:, iCol], 0)
     if not ascending:
         iSorted = np.flipud(iSorted)
@@ -35,22 +41,28 @@ def _sort_array_on_column(a, iCol, ascending=False):
 
 def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition,
                    B: int | LayoutPosition | None = None) -> tuple[int, int]:
-    """
-    :return: A tuple where the lowest ID number is in the first position and IDs are cast to integers
+    """Form a canonical pair ID (smaller id first, both as integers).
+
+    :param A: First ID or (A, B) sequence/tuple when B is None.
+    :param B: Second ID; must be None if A is a sequence or tuple of two IDs.
+    :return: Tuple (min_id, max_id) as integers.
     """
 
-    if isinstance(A, collections.abc.Sequence) and B is None:
-        if B is not None:
-            raise ValueError("B must not be specified if A is a Sequence")
-        B = A[1]
-        A = A[0]
-    elif isinstance(A, collections.abc.Iterable):
-        B = A[1]
-        A = A[0]
-    elif isinstance(A, tuple):
+    if isinstance(A, tuple):
         if B is not None:
             raise ValueError("B must not be specified if A is a tuple")
-        return A
+        return int(A[0]), int(A[1])
+    if isinstance(A, Sequence) and B is None:
+        if len(A) < 2:
+            raise ValueError("A sequence input must contain at least two items")
+        B = A[1]
+        A = A[0]
+    elif isinstance(A, Iterable):
+        seqA = list(A)
+        if len(seqA) < 2:
+            raise ValueError("An iterable input must contain at least two items")
+        B = seqA[1]
+        A = seqA[0]
     elif isinstance(A, int):
         pass
     else:
@@ -59,6 +71,8 @@ def create_pair_id(A: int | Sequence[int] | tuple[int, int] | LayoutPosition,
     a_id = A.ID if isinstance(A, LayoutPosition) else A
     b_id = B.ID if isinstance(B, LayoutPosition) else B
 
+    if a_id is None or b_id is None:
+        raise ValueError("Both A and B IDs must be defined")
     a_id = int(a_id)
     b_id = int(b_id)
 
@@ -81,13 +95,13 @@ class LayoutPosition:
     iOffsetWeight: int = 3
 
     _ID: int
-    Position: NDArray[np.floating]
+    _position: NDArray[np.floating]
     _OffsetArray: NDArray[np.float64]
     _dims: nornir_imageregistration.type_info.RectLike | None
     _IDToIndex: dict[int, int] | None = None
 
-    _connected_id_cache: NDArray[int] | None = None
-    _irow_cache: None = None
+    _connected_id_cache: NDArray[np.integer] | None = None
+    _irow_cache: NDArray[np.integer] | None = None
 
     # offset_dtype = np.dtype([('ID', int), ('Y', float), ('X', float), ('Weight', float)])
 
@@ -135,7 +149,7 @@ class LayoutPosition:
         self._OffsetArray[:, LayoutPosition.iOffsetWeight] = value
 
     @property
-    def ConnectedIDs(self) -> NDArray[int]:
+    def ConnectedIDs(self) -> NDArray[np.integer]:
         if self._connected_id_cache is None:
             self._connected_id_cache = self._OffsetArray[:, LayoutPosition.iOffsetID].astype(int, copy=False)
 
@@ -155,7 +169,7 @@ class LayoutPosition:
 
     def ContainsOffset(self, ID) -> bool:
         iKnown = self.ConnectedIDs == ID
-        return np.any(iKnown)
+        return bool(np.any(iKnown))
 
     def GetWeight(self, ID) -> float:
         iKnown = self.ConnectedIDs == ID
@@ -174,7 +188,7 @@ class LayoutPosition:
 
         return self._IDToIndex
 
-    def SetOffset(self, ID: int, offset: nornir_imageregistration.typing.PointLike, weight: float):
+    def SetOffset(self, ID: int, offset: nornir_imageregistration.type_info.PointLike, weight: float):
         """Set the offset for the specified Layout position ID.
            This means that when we subtract our position from the other ID's position we hope to obtain this offset value.
         """
@@ -215,10 +229,10 @@ class LayoutPosition:
         Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
         return
 
-    def get_row_indicies(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[int]:
+    def get_row_indicies(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[np.integer]:
         """
         Given a set of connected nodes, return the index into our _OffsetArray
-        :return: A numpy array of row indicies
+        :return: A numpy array of row indices
         """
         if connected_nodes is None:
             if self._irow_cache is None:
@@ -229,16 +243,18 @@ class LayoutPosition:
             return np.array([self.IDToIndex[n.ID] for n in
                              connected_nodes])  # nornir_imageregistration.IndexOfValues(self.ConnectedIDs, connected_IDs)
 
+    get_row_indices = get_row_indicies  # alias with correct spelling
+
     def TensionVectors(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[np.floating]:
         """The difference between the current connected_positions and the expected positions based on our offsets
         :param connected_nodes:
         :param ndarray connected_nodes: [ID Y X] Position of the connected nodes"""
-        if len(connected_nodes) == 0:
+        if connected_nodes is None or len(connected_nodes) == 0:
             return np.zeros((1, 2), dtype=np.float64)
 
         connected_positions = np.vstack([n.Position for n in connected_nodes])
         relative_connected_positions = connected_positions - self.Position
-        iRows = self.get_row_indicies(connected_nodes)
+        iRows = self.get_row_indices(connected_nodes)
 
         return relative_connected_positions - self._OffsetArray[iRows,
                                               LayoutPosition.iOffsetY:LayoutPosition.iOffsetX + 1]
@@ -261,7 +277,7 @@ class LayoutPosition:
 
         # Cannot weight more than 1.0
         # normalized_weight = self._OffsetArray[:,LayoutPosition.iOffsetWeight] / np.max(self._OffsetArray[:,LayoutPosition.iOffsetWeight])
-        iRows = self.get_row_indicies(connected_nodes)
+        iRows = self.get_row_indices(connected_nodes)
         weights = self._OffsetArray[iRows, LayoutPosition.iOffsetWeight]
         total_weight = np.sum(weights)
         if total_weight != 0:
@@ -347,7 +363,7 @@ class LayoutPosition:
 
     def __init__(self,
                  ID: int,
-                 position: nornir_imageregistration.typing.PointLike,
+                 position: nornir_imageregistration.type_info.PointLike,
                  dims: nornir_imageregistration.type_info.RectLike | None = None,
                  *args, **kwargs):
         """
@@ -359,7 +375,7 @@ class LayoutPosition:
             raise TypeError("Node ID must be an integer: {0}".format(ID))
 
         self._ID = ID
-        self.Position = position
+        self.Position = np.asarray(position, dtype=np.float64)
         self._OffsetArray = np.empty((0, 4), dtype=np.float64)  # dtype=LayoutPosition.offset_dtype)
         self._dims = dims
         self._IDToIndex = None
@@ -432,11 +448,11 @@ class Layout:
         :return: A set of tuples of linked IDs, lowest ID value in the first position
         """
         # Return the set of linked nodes
-        pairs = set()
+        pairs: set[tuple[int, int]] = set()
         for node in self.nodes.values():
             # pairs
             # for connected_ID in node.ConnectedIDs:
-            node_pairs = [tuple(sorted([node.ID, connected_ID])) for connected_ID in node.ConnectedIDs]
+            node_pairs = [(min(node.ID, connected_ID), max(node.ID, connected_ID)) for connected_ID in node.ConnectedIDs]
             # node_pairs.append(tuple(sorted([node.ID, connected_ID])))
 
             pairs = pairs.union(node_pairs)
@@ -483,7 +499,8 @@ class Layout:
             return None
 
         i_max = tension_magnitude.argmax()
-        return ID_Value(create_pair_id(tension_vectors[i_max, 0:2]), tension_magnitude[i_max])
+        pair = cast(tuple[int, int], tuple(np.asarray(tension_vectors[i_max, 0:2], dtype=int).tolist()))
+        return ID_Value(create_pair_id(pair), tension_magnitude[i_max])
 
     @property
     def MinTensionMagnitude(self) -> ID_Value | None:
@@ -498,7 +515,8 @@ class Layout:
             return None
 
         i_min = tension_magnitude.argmin()
-        return ID_Value(create_pair_id(tension_vectors[i_min, 0:2]), tension_magnitude[i_min])
+        pair = cast(tuple[int, int], tuple(np.asarray(tension_vectors[i_min, 0:2], dtype=int).tolist()))
+        return ID_Value(create_pair_id(pair), tension_magnitude[i_min])
 
     @property
     def MinWeightedNetTensionMagnitude(self) -> ID_Value:
@@ -572,7 +590,7 @@ class Layout:
         """Return the position array for a set of nodes, sorted by node ID"""
         return self.nodes[ID].Position
 
-    def GetPositions(self, IDs: list[LayoutPosition] | int | NDArray[int] | None = None) -> NDArray[np.floating]:
+    def GetPositions(self, IDs: list[int] | int | NDArray[np.integer] | None = None) -> NDArray[np.floating]:
         """Return the position array for a set of nodes, sorted by node ID"""
 
         if IDs is None:
@@ -582,10 +600,11 @@ class Layout:
         elif isinstance(IDs, int):
             IDs = [IDs]
 
-        if len(IDs) == 0:
+        normalized_ids = [int(tile_id) for tile_id in IDs]
+        if len(normalized_ids) == 0:
             return np.empty((0, 2))
 
-        positions = np.vstack([self.nodes[tileID].Position for tileID in IDs])
+        positions = np.vstack([self.nodes[tileID].Position for tileID in normalized_ids])
         #
         # positions = np.empty((len(IDs), 2))
         # for i, tileID in enumerate(IDs):
@@ -593,7 +612,7 @@ class Layout:
 
         return positions
 
-    def GetNodes(self, IDs: list[LayoutPosition] | int | NDArray[int] | None = None) -> list[LayoutPosition]:
+    def GetNodes(self, IDs: list[int] | int | NDArray[np.integer] | None = None) -> list[LayoutPosition]:
         """Return the sorted subset of nodes by IDs as a list"""
 
         if IDs is None:
@@ -601,7 +620,8 @@ class Layout:
         elif isinstance(IDs, int):
             IDs = [IDs]
 
-        nodes = [self.nodes[tileID] for tileID in IDs]
+        normalized_ids = [int(tile_id) for tile_id in IDs]
+        nodes = [self.nodes[tileID] for tileID in normalized_ids]
 
         return nodes
 
@@ -955,7 +975,7 @@ class Layout:
         return mosaic_tileset.ToMosaic()
 
 
-def OffsetsSortedByWeight(layout):
+def OffsetsSortedByWeight(layout: Layout) -> NDArray:
     """
     Return all of a layouts offsets sorted by weight.
     :return: An array [[TileA_ID, TileB_ID, OffsetY, OffsetX, Weight]] To prevent duplicates we only report offsets where TileA_ID < TileB_ID
@@ -970,7 +990,7 @@ def OffsetsSortedByWeight(layout):
         if not np.any(iNewRows):
             continue
 
-        new_column = np.ones((np.sum(iNewRows), 1)) * node.ID
+        new_column = np.ones((int(np.sum(iNewRows)), 1)) * node.ID
         new_rows = np.hstack((new_column, node.OffsetArray[iNewRows, :]))
         ret_array = np.vstack((ret_array, new_rows))
 
@@ -978,6 +998,7 @@ def OffsetsSortedByWeight(layout):
 
 
 def ScaleOffsetWeightsByPosition(original_layout):
+    """Scale each node's offset weights by the positions of linked nodes. Modifies layout in place; returns None."""
     for node in original_layout.nodes.values():
         linked_node_positions = original_layout.GetNodes(node.ConnectedIDs)
         node.ScaleOffsetWeightsByPosition(linked_node_positions)
@@ -987,9 +1008,15 @@ def ScaleOffsetWeightsByPosition(original_layout):
 
 def NormalizeOffsetWeights(original_layout: Layout,
                            min_allowed_weight: float | None = None,
-                           max_allowed_weight: float | None = None):
-    """
-    Proportionally scale offset weights so the highest weight is 1.0
+                           max_allowed_weight: float | None = None) -> None:
+    """Scale offset weights proportionally so they lie in [min_allowed_weight, max_allowed_weight].
+
+    Modifies nodes in original_layout in place. Isolated nodes are skipped.
+
+    :param original_layout: Layout whose node offset weights to normalize.
+    :param min_allowed_weight: Minimum weight after scaling; default uses layout minimum.
+    :param max_allowed_weight: Maximum weight after scaling; default uses layout maximum.
+    :return: None.
     """
 
     (minWeight, maxWeight) = original_layout.GetOffsetWeightExtrema()
@@ -1026,7 +1053,8 @@ def NormalizeOffsetWeights(original_layout: Layout,
     return
 
 
-def SetOffsetWeights(original_layout, weight_value):
+def SetOffsetWeights(original_layout: Layout, weight_value: float) -> None:
+    """Set all non-isolated nodes' offset weights to weight_value. Modifies layout in place; returns None."""
     for node in original_layout.nodes.values():
         if node.IsIsolated:
             continue
@@ -1036,9 +1064,15 @@ def SetOffsetWeights(original_layout, weight_value):
 
 def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
                                        min_allowed_weight: float = 0,
-                                       max_allowed_weight: float = 1.0):
-    """
-    Remap offset weights so the highest weight is 1.0 and the lowest is 0
+                                       max_allowed_weight: float = 1.0) -> None:
+    """Remap offset weights by population rank so they span [min_allowed_weight, max_allowed_weight].
+
+    Modifies nodes in original_layout in place. Isolated nodes get max_allowed_weight when all weights are equal.
+
+    :param original_layout: Layout whose node offset weights to scale.
+    :param min_allowed_weight: Target minimum weight (must be < max_allowed_weight).
+    :param max_allowed_weight: Target maximum weight.
+    :return: None.
     """
 
     if min_allowed_weight >= max_allowed_weight:
@@ -1079,8 +1113,8 @@ def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
     return
 
 
-def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale=None, min_improvement=0.001,
-                plotting_output_path=None, plotting_interval=None):
+def RelaxLayout(layout_obj: Layout, max_tension_cutoff=None, max_iter=None, vector_scale=None, min_improvement=0.001,
+                plotting_output_path=None, plotting_interval=None) -> Layout:
     """
     :param vector_scale:
     :param plotting_output_path:
@@ -1151,6 +1185,7 @@ def RelaxLayout(layout_obj, max_tension_cutoff=None, max_iter=None, vector_scale
             #                            max_tension=plotting_max_tension)
             layout_obj_copy = layout_obj.copy()
             layout_obj_copy.TranslateToZeroOrigin()
+            assert pool is not None
             pool.add_task("Plot step #%d" % i,
                           nornir_imageregistration.views.plot_layout,
                           layout_obj=layout_obj_copy,
@@ -1241,6 +1276,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
                 # continue
 
             else:
+                assert ALayout is not None
                 ALayout.CreateOffsetNode(A_ID, B_ID, offset, Weight)
 
     # OK, we should have a single list of layouts
@@ -1249,8 +1285,8 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     return LayoutList
 
 
-def MergeDisconnectedLayouts(layout_list):
-    """Given a list of layouts, generate a single layout with all nodes in the same positions"""
+def MergeDisconnectedLayouts(layout_list: list[Layout]) -> Layout:
+    """Given a list of layouts, generate a single layout with all nodes in the same positions."""
     if len(layout_list) == 1:
         return layout_list[0]
 
@@ -1270,7 +1306,7 @@ def MergeDisconnectedLayouts(layout_list):
 
         matrix_B = np.vstack([row[1] for row in B])
 
-        distances = scipy.spatial.distance.cdist(matrix_A, matrix_B, 'sqeuclidean')
+        distances = pairwise_cdist(matrix_A, matrix_B, metric='sqeuclidean')
         A_min = np.min(distances, 1)
         B_min = np.min(distances, 0)
         iA = np.argmin(A_min)
@@ -1289,7 +1325,11 @@ def MergeDisconnectedLayouts(layout_list):
 
 
 def _generate_combinations(list_of_lists):
-    """Given a list of iterables containing integers, returns all of the pairs of numbers without pairs appearing in the same list"""
+    """Yield all pairs (A, B) where A and B come from different lists and A < B.
+
+    :param list_of_lists: List of iterables of integers (e.g. section IDs per group).
+    :return: Iterator of (A, B) pairs.
+    """
     for (iList, id_list) in enumerate(list_of_lists):
         for (iOther, other_list) in enumerate(list_of_lists):
             if iOther <= iList:
@@ -1302,10 +1342,11 @@ def _generate_combinations(list_of_lists):
 
 
 def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
-    """
-    Given a list of layouts, generate a single layout, if possible using the offsets in tile_offset_dict
-    :param layout_list:
-    :param dict tile_offset_dict: Keys are (A,B) values are offsets [Y,X]
+    """Merge multiple layouts into one using optional pairwise tile offsets.
+
+    :param layout_list: List of Layout objects to merge; returns None if empty/None.
+    :param tile_offset_dict: Optional dict mapping (A, B) pair IDs to [Y, X] offsets.
+    :return: Single merged Layout, or None if layout_list is empty/None or has one element (returns that element).
     """
     if layout_list is None or len(layout_list) == 0:
         return None
@@ -1427,8 +1468,8 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
     return MergeDisconnectedLayouts(unmerged_layouts)
 
 
-def GetLayoutForID(listLayouts, ID):
-    """Given a list of tile layouts, returns the layout containing the given ID"""
+def GetLayoutForID(listLayouts: list[Layout], ID: int) -> Layout | None:
+    """Given a list of tile layouts, returns the layout containing the given ID."""
 
     if listLayouts is None:
         return None
@@ -1458,7 +1499,7 @@ def MergeLayoutsWithNodeOffset(layoutA, layoutB, NodeInA, NodeInB, offset, weigh
     layoutA.SetOffset(NodeInA, NodeInB, offset, weight)
 
 
-def MergeLayoutsWithAbsoluteOffset(layoutA, layoutB, offset):
+def MergeLayoutsWithAbsoluteOffset(layoutA: Layout, layoutB: Layout, offset: NDArray | tuple[float, float]) -> None:
     """
     Merge B with A by translating all B transforms by offset.
     Then update the dictionary of A
@@ -1466,3 +1507,4 @@ def MergeLayoutsWithAbsoluteOffset(layoutA, layoutB, offset):
 
     layoutB.Translate(offset)
     layoutA.Merge(layoutB)
+

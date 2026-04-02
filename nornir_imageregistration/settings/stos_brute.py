@@ -3,7 +3,7 @@ import enum
 from numpy.typing import NDArray
 import numpy as np
 from typing import NamedTuple, Sequence, Iterable
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from nornir_imageregistration.settings.angle_range import AngleSearchRange
 
 
@@ -14,9 +14,11 @@ class SliceToSliceMethod(enum.Enum):
 
 class StosBruteSettings(BaseModel):
     """Encodes the settings required or used to invoke StosBrute"""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     angles: AngleSearchRange | Sequence[float] | None = None
     min_overlap: float = 0.75  # The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
-    source_image_scale_factors: tuple[float] | None = None
+    source_image_scale_factors: tuple[float, ...] | NDArray[np.floating] | None = None
     """Amount to scale the warped image before attempting registration,
     this handles cases where multiple scopes are used with slightly differnt magnification values """
 
@@ -33,10 +35,10 @@ class StosBruteSettings(BaseModel):
         self._method = value
 
     def __init__(self,
-                 method: SliceToSliceMethod = None,
+                 method: SliceToSliceMethod | None = None,
                  angles: AngleSearchRange | Sequence[float] | None = None,
                  min_overlap: float = 0.75,
-                 source_image_scale_factors: NDArray[float] | None = None,
+                 source_image_scale_factors: NDArray[np.floating] | None = None,
                  larget_dimension: int | None = 1024,
                  try_flipped: bool = False,
                  ):
@@ -48,7 +50,7 @@ class StosBruteSettings(BaseModel):
         :param try_flipped: If True the algorithm will test the flipped version of the source image too
         """
         super().__init__()
-        self._method = method
+        self._method = method  # type: ignore[assignment]
         self.angles = angles
 
         self.min_overlap = min_overlap
@@ -71,7 +73,7 @@ class StosBruteSettings(BaseModel):
         return self.angles is not None
 
     @property
-    def angle_range(self) -> NDArray[float]:
+    def angle_range(self) -> NDArray[np.floating]:
         """:return: The range of angles to search for the best control point alignment or None if all angles should be searched"""
         if self.angles is None:
             return np.array(range(-178, 182, 2), float)
@@ -90,4 +92,5 @@ class StosBruteSettings(BaseModel):
         if self.source_image_scale_factors is None:
             return False
 
-        return np.any(self.source_image_scale_factors != 1)
+        return bool(np.any(self.source_image_scale_factors != 1))
+

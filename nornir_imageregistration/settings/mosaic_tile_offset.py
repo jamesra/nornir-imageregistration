@@ -67,10 +67,11 @@ class TileOffset(object):
 
 
 def LoadMosaicOffsets(path: str):
+    """Load tile offsets from a text file; returns list of TileOffset."""
     offsets = []
 
     with open(path, 'r') as offsets_file:
-        csvReader = csv.reader(offsets_file, delimiter=' ', skipinitialspace=True, dialect=csv.Dialect.skipinitialspace)
+        csvReader = csv.reader(offsets_file, delimiter=' ', skipinitialspace=True)
         for (line_number, line) in enumerate(csvReader):
             if len(line) == 0:
                 continue
@@ -109,6 +110,7 @@ def LoadMosaicOffsets(path: str):
 
 
 def SaveMosaicOffsets(offsets: list[TileOffset] | None, path: str):
+    """Write tile offsets to a text file. Returns None."""
     if offsets is None:
         offsets = []
 
