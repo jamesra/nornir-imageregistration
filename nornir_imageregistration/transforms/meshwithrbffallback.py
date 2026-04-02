@@ -37,6 +37,26 @@ def _ensure_float32_64(arr, xp):
     return xp.asarray(arr, dtype=xp.float32)
 
 
+def _coerce_to_reference_backend(arr, reference):
+    """Coerce arr to the same array backend as reference (numpy/cupy)."""
+    xp = cp.get_array_module(reference)
+    if xp is cp:
+        return cp.asarray(arr)
+    if hasattr(arr, "get"):
+        return numpy.asarray(arr.get())
+    return numpy.asarray(arr)
+
+
+def _coerce_indices_to_reference_backend(indices, reference):
+    """Coerce indices to an indexing array compatible with the reference backend."""
+    xp = cp.get_array_module(reference)
+    if xp is cp:
+        return cp.asarray(indices, dtype=cp.intp)
+    if hasattr(indices, "get"):
+        indices = indices.get()  # type: ignore[union-attr]
+    return nornir_imageregistration.EnsureNumpyArray(indices).astype(numpy.intp, copy=False)
+
+
 class MeshWithRBFFallback(Triangulation):
     """
     classdocs
@@ -137,6 +157,8 @@ class MeshWithRBFFallback(Triangulation):
         BadPoints = _ensure_float32_64(BadPoints, numpy)
 
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
+        FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
+        invalid_indices = _coerce_indices_to_reference_backend(invalid_indices, TransformedPoints)
 
         TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints
@@ -171,6 +193,8 @@ class MeshWithRBFFallback(Triangulation):
         BadPoints = _ensure_float32_64(BadPoints, numpy)
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
+        FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
+        invalid_indices = _coerce_indices_to_reference_backend(invalid_indices, TransformedPoints)
 
         TransformedPoints[invalid_indices] = FixedPoints
         return TransformedPoints

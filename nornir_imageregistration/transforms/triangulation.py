@@ -33,7 +33,6 @@ from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITra
     ITriangulatedSourceSpace, IControlPointAddRemove
 from .controlpointbase import ControlPointBase
 
-
 class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
                     ITransformSourceRotation,
                     ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
@@ -177,8 +176,11 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         numPts = self.NumControlPoints
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
 
-        duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
+        duplicates = np.atleast_1d(self.FindDuplicateFixedPoints(new_points[:, 0:2]))
+        duplicates = np.ravel(duplicates)
         new_points = new_points[~duplicates, :]
+        if new_points.ndim == 1:
+            new_points = np.reshape(new_points, (1, 4))
 
         if new_points.shape[0] == 0:
             return
@@ -197,7 +199,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
         self.AddPoints(new_points)
 
-        Distance, index = self.NearestFixedPoint((pointpair[0], pointpair[1]))
+        Distance, index = self.NearestFixedPoint((new_points[0, 0], new_points[0, 1]))
         return index
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
