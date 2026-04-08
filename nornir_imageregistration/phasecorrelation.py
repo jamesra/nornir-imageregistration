@@ -24,7 +24,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration.core import (DimensionWithOverlap, GenRandomData, NearestPowerOfTwoWithOverlap)
+from nornir_imageregistration.core import (
+    DimensionWithOverlap,
+    GenRandomData,
+    NearestPowerOfTwoWithOverlap,
+    promote_dtype_for_value_range,
+)
 from nornir_imageregistration.mathfuncs import CutoffMethod, estimate_cutoff
 
 try:
@@ -67,18 +72,20 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     :rtype: NDArray[np.floating]
     """
 
+    xp = cp.get_array_module(image)
+    image = xp.asarray(image)
+    on_gpu = xp is not np
+
     min_val = image.min()
     max_val = image.max()
+    min_v = float(xp.asarray(min_val, dtype=xp.float64).ravel()[0])
+    max_v = float(xp.asarray(max_val, dtype=xp.float64).ravel()[0])
 
     height = image.shape[0]
     width = image.shape[1]
 
     original_height = height
     original_width = width
-
-    xp = cp.get_array_module(image)
-    image = xp.asarray(image)
-    on_gpu = xp is not np
 
     if original_shape is not None:
         original_width = original_shape[1]
@@ -120,9 +127,7 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
 
         del image_1d
 
-    desired_type = image.dtype
-    if np.finfo(desired_type).max < max_val:
-        desired_type = np.float32
+    desired_type = promote_dtype_for_value_range(image.dtype, min_v, max_v)
 
     assert new_height is not None and new_width is not None
     nh, nw = cast(int, new_height), cast(int, new_width)
@@ -136,9 +141,26 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     padded_image_x_offset:padded_image_x_offset + width] = image[:, :]
 
     if not width == nw:
-        left_border = GenRandomData(nh, padded_image_x_offset, image_median, image_stddev, min_val, max_val, xp=xp)
-        right_border = GenRandomData(nh, nw - (width + padded_image_x_offset),
-                                     image_median, image_stddev, min_val, max_val, xp=xp)
+        left_border = GenRandomData(
+            nh,
+            padded_image_x_offset,
+            image_median,
+            image_stddev,
+            min_val,
+            max_val,
+            dtype=desired_type,
+            xp=xp,
+        )
+        right_border = GenRandomData(
+            nh,
+            nw - (width + padded_image_x_offset),
+            image_median,
+            image_stddev,
+            min_val,
+            max_val,
+            dtype=desired_type,
+            xp=xp,
+        )
 
         padded_image[:, 0:padded_image_x_offset] = left_border
         padded_image[:, width + padded_image_x_offset:] = right_border
@@ -147,10 +169,26 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
         del right_border
 
     if not height == nh:
-        top_border = GenRandomData(padded_image_y_offset, width, image_median, image_stddev, min_val, max_val,
-                                   xp=xp)
-        bottom_border = GenRandomData(nh - (height + padded_image_y_offset), width,
-                                      image_median, image_stddev, min_val, max_val, xp=xp)
+        top_border = GenRandomData(
+            padded_image_y_offset,
+            width,
+            image_median,
+            image_stddev,
+            min_val,
+            max_val,
+            dtype=desired_type,
+            xp=xp,
+        )
+        bottom_border = GenRandomData(
+            nh - (height + padded_image_y_offset),
+            width,
+            image_median,
+            image_stddev,
+            min_val,
+            max_val,
+            dtype=desired_type,
+            xp=xp,
+        )
 
         padded_image[0:padded_image_y_offset,
         padded_image_x_offset:padded_image_x_offset + width] = top_border
