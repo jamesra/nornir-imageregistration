@@ -261,6 +261,10 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     xp = cp if use_cp else np
     sp = cupyx.scipy if use_cp else scipy
 
+    # cupyx.scipy.ndimage.map_coordinates (and xp.full) must not receive Python bool: NVRTC sees "False"/"True".
+    if isinstance(cval, (bool, np.bool_)):
+        cval = int(cval)
+
     if output_origin is None:
         output_origin = target_coords.min(0)
 

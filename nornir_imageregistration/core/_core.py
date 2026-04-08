@@ -58,10 +58,11 @@ import scipy.ndimage.measurements
 
 import nornir_imageregistration
 import nornir_imageregistration.image_stats
+
 import nornir_pools
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
-from nornir_imageregistration import IgnoreUnderAndOverflow, ImageLike
+from nornir_imageregistration import ImageLike
 from nornir_imageregistration.mmap_metadata import memmap_metadata
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -632,6 +633,11 @@ def CropImage(imageparam: NDArray | str, Xo: int, Yo: int, Width: int, Height: i
     if isinstance(cval, str) and cval != 'random':
         raise ValueError("'random' is the only supported string argument for cval")
 
+    # CuPy elementwise kernels do not accept Python's "False"/"True" identifiers in generated CUDA C.
+    # Normalize bool (and numpy bool scalars) to 0/1 early so downstream fill paths are numeric.
+    if isinstance(cval, (bool, np.bool_)):
+        cval = int(cval)
+
     if Width < 0:
         raise ValueError("Negative dimensions are not allowed")
 
@@ -794,6 +800,67 @@ def create_shared_memory_array(shape: NDArray[np.integer], dtype: DTypeLike, rea
     return output, shared_array
 
 
+def _value_range_fits_dtype(min_val: float, max_val: float, dtype: DTypeLike) -> bool:
+    """Return True if [min_val, max_val] lies within the finite range of *dtype*."""
+    dt = np.dtype(dtype)
+    if min_val > max_val:
+        return False
+    if np.issubdtype(dt, np.floating):
+        finfo = np.finfo(np.dtype(dt).name)
+        # Use Python floats so comparisons never promote operands to float16 (overflow).
+        lo = float(finfo.min)
+        hi = float(finfo.max)
+        return float(min_val) >= lo and float(max_val) <= hi
+    if np.issubdtype(dt, np.integer):
+        iinfo = np.iinfo(np.dtype(dt).name)
+        return float(min_val) >= float(iinfo.min) and float(max_val) <= float(iinfo.max)
+    return True
+
+
+def promote_dtype_for_value_range(
+    preferred_dtype: DTypeLike,
+    min_val: float,
+    max_val: float,
+) -> np.dtype:
+    """
+    Choose a dtype that can represent *min_val* and *max_val*, preferring types
+    at least as wide as *preferred_dtype* when it is floating.
+
+    For floating preferences, tries float16 → float32 → float64. For integer
+    preferences, tries wider integers then falls back to float promotion.
+    """
+    if min_val > max_val:
+        raise ValueError(f"min_val ({min_val}) must be <= max_val ({max_val})")
+
+    pref = np.dtype(preferred_dtype)
+
+    if np.issubdtype(pref, np.floating):
+        candidates: list = []
+        for name in ("float16", "float32", "float64"):
+            dt = np.dtype(name)
+            if dt.itemsize >= pref.itemsize:
+                candidates.append(dt)
+        if not candidates:
+            candidates = [np.dtype("float64")]
+        for dt in candidates:
+            if _value_range_fits_dtype(min_val, max_val, dt):
+                return dt
+        raise ValueError(
+            f"min_val={min_val} max_val={max_val} cannot be represented in float64"
+        )
+
+    if np.issubdtype(pref, np.integer):
+        if _value_range_fits_dtype(min_val, max_val, pref):
+            return pref
+        for wider_name in ("int32", "int64"):
+            wdt = np.dtype(wider_name)
+            if _value_range_fits_dtype(min_val, max_val, wdt):
+                return wdt
+        return promote_dtype_for_value_range(np.dtype("float32"), min_val, max_val)
+
+    return promote_dtype_for_value_range(np.dtype("float32"), min_val, max_val)
+
+
 def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float,
                   dtype: DTypeLike | None = None,
                   xp: typing.Any | None = None) -> NDArray[np.floating]:
@@ -804,13 +871,17 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     """
     if xp is None:
         xp = nornir_imageregistration.GetComputationModule()
-    dtype = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
+    resolved = nornir_imageregistration.default_image_dtype() if dtype is None else dtype
+    dtype_out = promote_dtype_for_value_range(resolved, float(min_val), float(max_val))
 
-    with IgnoreUnderAndOverflow(
-            "Over/Under flow generating random image.  min_val={min_val} max_val={max_val} mean={mean} standardDev={standardDev}"):
-        image = (xp.random.standard_normal((int(height), int(width))) * standardDev) + mean
-        xp.clip(image, a_min=min_val, a_max=max_val, out=image)
-        image = image.astype(dtype, copy=False)
+    if not math.isfinite(mean) or not math.isfinite(standardDev):
+        raise ValueError(f"mean and standardDev must be finite; got mean={mean!r} standardDev={standardDev!r}")
+
+    image = (xp.random.standard_normal((int(height), int(width))) * standardDev) + mean
+    xp.clip(image, a_min=min_val, a_max=max_val, out=image)
+    # Benign underflow when casting float64 buffer to float16/float32; range already validated above.
+    with np.errstate(under="ignore", invalid="ignore"):
+        image = image.astype(dtype_out, copy=False)
 
     return image
 
