@@ -919,6 +919,38 @@ def ForceGrayscale(image: np.ndarray):
     return image
 
 
+def RgbLikeToGrayscaleLuminance(image: NDArray) -> tuple[NDArray, bool]:
+    """Convert RGB/RGBA (or HxWx2 grayscale+alpha) stacks to a single 2D plane.
+
+    Uses Rec. 601 luma coefficients on the first three channels when ``image`` is HxWx3 or HxWx4.
+    HxWx1 is squeezed to 2D (returns ``False`` — not treated as an RGB file). Already-2D arrays
+    are returned unchanged with ``False``.
+
+    Works with NumPy or CuPy arrays (``cp.get_array_module``).
+    """
+    if image.ndim < 3:
+        return image, False
+    c = int(image.shape[2])
+    xp = cp.get_array_module(image)
+    if c == 1:
+        return xp.squeeze(image, axis=2), False
+    if c == 2:
+        return image[..., 0], True
+    if c == 3:
+        r = image[..., 0].astype(xp.float64, copy=False)
+        g = image[..., 1].astype(xp.float64, copy=False)
+        b = image[..., 2].astype(xp.float64, copy=False)
+        out = r * 0.299 + g * 0.587 + b * 0.114
+        return out.astype(image.dtype, copy=False), True
+    if c == 4:
+        r = image[..., 0].astype(xp.float64, copy=False)
+        g = image[..., 1].astype(xp.float64, copy=False)
+        b = image[..., 2].astype(xp.float64, copy=False)
+        out = r * 0.299 + g * 0.587 + b * 0.114
+        return out.astype(image.dtype, copy=False), True
+    return image[..., 0], True
+
+
 def image_to_uint8(image):
     """Convert image to uint8. If input is float, scale to 0-255; if int and max > 255, scale down."""
     if image.dtype == np.uint8:
