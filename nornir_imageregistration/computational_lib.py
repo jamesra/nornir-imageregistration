@@ -100,6 +100,7 @@ def TryInitCupyContext() -> bool:
     Useful to avoid timeouts in tests. No-op when not using CuPy.
 
     :return: True if CuPy is active and context was used, False otherwise.
+    :raises Exception: Propagated from CuPy/CUDA if GPU initialization or allocations fail.
     """
     
     if UsingCupy():

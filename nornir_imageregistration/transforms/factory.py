@@ -647,17 +647,19 @@ def GetTransformedRigidCornerPoints(size: tuple[float, float] | NDArray[np.float
                                     offset: tuple[float, float] | NDArray[np.floating],
                                     flip_ud: bool = False,
                                     scale: float = 1.0) -> NDArray[np.floating]:
-    '''Returns positions of the four corners of a warped image in a fixed space using the rotation and peak offset.  Rotation occurs at the center.
-       Flip, if requested, is performed before the rotation and translation.
-       
-    :param flip_ud:
-    :param tuple size: (Height, Width)
-    :param float rangle: Angle in radians
-    :param tuple offset: (Y, X)
-    :param float scale: Scale the corners by this factor. Ex: 0.5 produces points that shrink the source space by 50% in target space.
-    :return: Nx2 array of points [[BotLeft], [BotRight], [TopLeft],  [TopRight]]
-    :rtype: numpy.ndarray
-    '''
+    """Return positions of the four corners of a rectangle in fixed space after rigid transform.
+
+    Rotation is about the center (size / 2). If flip_ud is True, flip is applied before
+    rotation and translation.
+
+    :param size: (Height, Width) of the source rectangle.
+    :param rangle: Rotation angle in radians.
+    :param offset: (Y, X) translation in target space.
+    :param flip_ud: If True, flip vertically before rotation and translation.
+    :param scale: Scale factor for corners (only 1.0 is implemented).
+    :return: Nx2 array of corner points: bottom-left, bottom-right, top-left, top-right.
+    :raises NotImplementedError: If scale is not 1.0.
+    """
 
     if scale is not None and scale != 1.0:
         raise NotImplementedError('scale')

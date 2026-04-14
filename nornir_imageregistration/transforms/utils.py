@@ -391,8 +391,12 @@ def FixedBoundingBoxHeight(transforms: Sequence[ITransform]) -> float:
     return np.ceil(maxY) - np.floor(minY)
 
 
-def MappedBoundingBoxWidth(transforms):
-    """Return the width in mapped (source) space of the bounding box of the given transforms."""
+def MappedBoundingBoxWidth(transforms: Sequence[ITransform]) -> float:
+    """Return the width in mapped (source) space of the bounding box of the given transforms.
+
+    :param transforms: Sequence of transforms (must include at least one discrete transform).
+    :return: Width (maxX - minX) in mapped space, in pixels (ceiling/floor).
+    """
     (minY, minX, maxY, maxX) = MappedBoundingBox(transforms).ToTuple()
     return np.ceil(maxX) - np.floor(minX)
 
