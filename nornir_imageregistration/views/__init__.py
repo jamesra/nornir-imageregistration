@@ -5,6 +5,8 @@ __all__ = ['transformwarp', 'alignment_records', 'display_images', 'TransformWar
 import matplotlib
 import matplotlib.pyplot as plt
 
+from nornir_imageregistration.headless import is_headless, save_figure_to_png_artifact
+
 from nornir_imageregistration.views import transformwarp, alignment_records, display_images
 from nornir_imageregistration.views.alignment_records import PlotPeakList, PlotWeightHistogram, plot_aligned_images, \
     plot_percentiles
@@ -35,6 +37,10 @@ def ShowWithPassFail(fig):
     '''Shows the prepared figure with the addition of two "Pass/Fail" buttons
        return True if the pass button is pressed.  Otherwise false
     '''
+    if is_headless():
+        save_figure_to_png_artifact(fig, tag="passfail", dpi=150)
+        return True
+
     callback = PassFailInput(fig)
     axprev = plt.axes((0.7, 0.05, 0.1, 0.075))
     axnext = plt.axes((0.81, 0.05, 0.1, 0.075))

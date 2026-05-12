@@ -22,6 +22,7 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless, save_figure_to_png_artifact
 
 
 def add_rectangle(ax: MplAxes, roi: nornir_imageregistration.Rectangle, **kwargs) -> MplRectangle | None:
@@ -144,6 +145,8 @@ def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None =
         # plt.tight_layout(pad=1.0)
         if filename is not None:
             fig.savefig(filename, dpi=300)
+        elif is_headless():
+            save_figure_to_png_artifact(fig, tag="showgrayscale", dpi=300)
         else:
             fig.show()
     # Do not call clf or we get two windows on the next call 

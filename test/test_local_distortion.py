@@ -23,6 +23,10 @@ except ModuleNotFoundError:
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
+except Exception:
+    # CuPy is installed but CUDA user-mode is unusable (e.g. missing libnvrtc without GPU mount).
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 import nornir_imageregistration
 from nornir_imageregistration import local_distortion_correction

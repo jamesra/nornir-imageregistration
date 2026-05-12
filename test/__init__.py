@@ -5,7 +5,8 @@ from . import settings as settings
 from . import transforms as transforms
 from . import spatial as spatial
 from . import views as views
-from . import test_local_distortion
+# Do not import test_local_distortion here: it initializes CuPy at import time and breaks
+# umbrella pytest collection when CUDA user-mode libs (e.g. libnvrtc) are unavailable.
 from . import test_transform_roi
 from . import test_grid_division
 from . import test_assemble_image_region_transform

@@ -26,6 +26,7 @@ import scipy
 from nornir_shared.tasktimer import TaskTimerContext
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import inspect_png_output, is_headless
 from nornir_imageregistration import AlignmentRecord, alignment_record
 import nornir_imageregistration.core as core
 import nornir_imageregistration.files
@@ -734,7 +735,13 @@ class TestLogPolarStosWithMask(setup_imagetest.ImageTestBase):
         plt.ylabel('measured angle')
         plt.gca().set_aspect('equal')
 
-        plt.show()
+        if is_headless():
+            path = os.path.join(self.TestOutputPath, 'known_rotation_plot_angles.png')
+            plt.savefig(path, dpi=150, bbox_inches='tight')
+            plt.close()
+            inspect_png_output(path)
+        else:
+            plt.show()
 
 
 if __name__ == "__main__":

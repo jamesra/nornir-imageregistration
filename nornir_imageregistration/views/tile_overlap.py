@@ -8,6 +8,8 @@ from matplotlib.collections import PatchCollection
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+
+from nornir_imageregistration.headless import is_headless, save_current_pyplot_figure
 import numpy
 
 import nornir_imageregistration
@@ -81,6 +83,8 @@ def plot_tile_overlap(overlap, OutputFilename=None):
     # plt.tight_layout()
     if OutputFilename is not None:
         plt.savefig(OutputFilename)
+    elif is_headless():
+        save_current_pyplot_figure(tag="plot_tile_overlap", dpi=150)
     else:
         plt.show(block=True)
 
@@ -197,6 +201,8 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
 
     if OutputFilename is not None:
         plt.savefig(OutputFilename)
+    elif is_headless():
+        save_current_pyplot_figure(tag="plot_tile_overlaps", dpi=150)
     else:
         plt.show(block=True)
 

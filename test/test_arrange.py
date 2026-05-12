@@ -18,6 +18,7 @@ from nornir_shared.tasktimer import TaskTimer
 from nornir_imageregistration import mosaic_tileset
 import nornir_pools
 import nornir_imageregistration
+from nornir_imageregistration.headless import inspect_png_output, is_headless
 from nornir_imageregistration import Mosaic
 import nornir_imageregistration.arrange_mosaic as arrange
 import nornir_imageregistration.core as core
@@ -210,13 +211,20 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
         matplotlib.pyplot.hist(weight_scores, int(numBins))
 
+        OutputImageFullPath = None
         if ImageFilename is not None:
             # plt.show()
             OutputImageFullPath = os.path.join(self.TestOutputPath, ImageFilename + '.png')
             matplotlib.pyplot.savefig(OutputImageFullPath)
 
         if openwindow:
-            matplotlib.pyplot.show()
+            if is_headless():
+                if OutputImageFullPath is None:
+                    OutputImageFullPath = os.path.join(self.TestOutputPath, 'layout_weight_histogram.png')
+                    matplotlib.pyplot.savefig(OutputImageFullPath)
+                inspect_png_output(OutputImageFullPath)
+            else:
+                matplotlib.pyplot.show()
 
         matplotlib.pyplot.clf()
 

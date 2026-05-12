@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless, save_figure_to_png_artifact
 from nornir_imageregistration.mathfuncs import find_inflection_points
 import nornir_shared
 import nornir_shared.histogram
@@ -109,7 +110,10 @@ def plot_aligned_images(alignment_record, image_A: NDArray, image_B: NDArray):
     plt.imshow(b, origin='lower', extent=b_extent)
     plt.axis('equal')
     plt.tight_layout()
-    plt.show()
+    if is_headless():
+        save_figure_to_png_artifact(plt.gcf(), tag="plot_aligned_images", dpi=150)
+    else:
+        plt.show()
 
     return
 

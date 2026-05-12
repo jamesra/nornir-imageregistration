@@ -2,7 +2,7 @@ import enum
 
 from numpy.typing import NDArray
 import numpy as np
-from typing import NamedTuple, Sequence, Iterable
+from typing import NamedTuple, Sequence, Iterable, AbstractSet
 from pydantic import BaseModel, ConfigDict
 from nornir_imageregistration.settings.angle_range import AngleSearchRange
 
@@ -16,7 +16,7 @@ class StosBruteSettings(BaseModel):
     """Encodes the settings required or used to invoke StosBrute"""
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    angles: AngleSearchRange | Sequence[float] | None = None
+    angles: AngleSearchRange | Sequence[float] | AbstractSet[float] | None = None
     min_overlap: float = 0.75  # The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
     source_image_scale_factors: tuple[float, ...] | NDArray[np.floating] | None = None
     """Amount to scale the warped image before attempting registration,

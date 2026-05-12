@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless
 
 
 class Test(unittest.TestCase):
@@ -55,6 +56,7 @@ class Test(unittest.TestCase):
         super(Test, self).tearDown()
         pass
 
+    @unittest.skipIf(is_headless(), "interactive Pass/Fail UI (fail button) is not available in headless mode")
     def testShowGrayscaleFailButton(self):
         self.assertFalse(nornir_imageregistration.ShowGrayscale(self.imageA,
                                                                 title="Ensure the FAIL button works by clicking it now\nSelect Pass button for all other tests",

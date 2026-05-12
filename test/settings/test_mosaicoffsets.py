@@ -3,12 +3,7 @@ import unittest
 
 import nornir_imageregistration
 
-try:
-    from test.setup_imagetest import TestBase
-except (ImportError, ModuleNotFoundError):
-    from .setup_imagetest import TestBase
-
-import nornir_imageregistration
+from ..setup_imagetest import TestBase
 
 
 class TestMosaicOffsetSettings(TestBase):

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless, save_current_pyplot_figure
 import nornir_shared.histogram
 import nornir_shared.plot
 from nornir_imageregistration.transforms import factory, ITriangulatedTargetSpace
@@ -107,6 +108,8 @@ class TransformWarpView:
 
             plt.savefig(outputfullpath)
             plt.close()
+        elif is_headless():
+            save_current_pyplot_figure(tag="transformwarp_vertex", dpi=150)
         else:
             plt.show()
 

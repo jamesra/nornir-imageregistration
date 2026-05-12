@@ -7,6 +7,8 @@ import os
 import unittest
 
 import matplotlib.pyplot as plt
+
+from nornir_imageregistration.headless import inspect_png_output, is_headless
 import matplotlib.tri as mtri
 import numpy
 import scipy.interpolate
@@ -60,7 +62,13 @@ class TestTransformMetrics(setup_imagetest.TestBase):
         # ax1.plot(points[:,1], points[:,0], 'o')
         ax1.set_title('Normalized maximum difference in internal triangle angle from control to warped space')
         ax1.invert_yaxis()
-        plt.show()
+        if is_headless():
+            path = os.path.join(self.TestOutputPath, 'TriangleAnglesAndView.png')
+            fig1.savefig(path, dpi=150, bbox_inches='tight')
+            plt.close(fig1)
+            inspect_png_output(path)
+        else:
+            plt.show()
 
         pass
 
@@ -108,7 +116,13 @@ class TestTransformMetrics(setup_imagetest.TestBase):
 
         nornir_shared.plot.Histogram(h, axes=axes[1])
 
-        plt.show()
+        if is_headless():
+            path = os.path.join(self.TestOutputPath, 'TriangleVertexAnglesAndView.png')
+            fig1.savefig(path, dpi=150, bbox_inches='tight')
+            plt.close(fig1)
+            inspect_png_output(path)
+        else:
+            plt.show()
 
         pass
 

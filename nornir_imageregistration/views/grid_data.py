@@ -7,6 +7,7 @@ Created on Feb 27, 2019
 # import numpy as np
 import matplotlib.pyplot as plt
 
+from nornir_imageregistration.headless import is_headless, save_current_pyplot_figure
 
 # import nornir_shared.plot
 
@@ -44,5 +45,7 @@ def PlotGridPositionsAndMask(source_coords, source_image=None, OutputFilename=No
 
     if OutputFilename is not None:
         plt.savefig(OutputFilename, dpi=300)
+    elif is_headless():
+        save_current_pyplot_figure(tag="plot_grid_positions", dpi=300)
     else:
         plt.show()

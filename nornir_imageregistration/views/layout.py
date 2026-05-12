@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy
 
 import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless, save_figure_to_png_artifact
 from nornir_imageregistration.spatial import iPoint
 
 
@@ -178,6 +179,8 @@ def plot_layout(layout_obj, shapes=None, OutputFilename=None, ylim=None, xlim=No
     else:
         if PassFail:
             return nornir_imageregistration.ShowWithPassFail(plt.gcf())
+        elif is_headless():
+            save_figure_to_png_artifact(plt.gcf(), tag="plot_layout", dpi=300)
         else:
             plt.show(block=True)
 

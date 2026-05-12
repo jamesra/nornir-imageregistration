@@ -8,7 +8,7 @@ import multiprocessing.sharedctypes
 from time import sleep
 import numpy as np
 from numpy.typing import NDArray
-from typing import Sequence
+from typing import Sequence, AbstractSet
 import logging
 import skimage
 import skimage.registration
@@ -161,7 +161,7 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                   target_mask: ImageLike | None = None,
                                   source_mask: ImageLike | None = None,
                                   LargestDimension: int | None = None,
-                                  AngleSearchRange: Sequence[float] | None = None,
+                                  AngleSearchRange: Sequence[float] | AbstractSet[float] | None = None,
                                   MinOverlap: float = 0.5,
                                   WarpedImageScaleFactors=None,
                                   SingleThread: bool = False,
@@ -195,6 +195,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
         if 0 not in set(AngleSearchRange):  # type: ignore[arg-type]
             logger = logging.getLogger(__name__ + '.SliceToSliceRigidRegistration')
             logger.warning("AngleSearchRange should contain 0 degrees to ensure the best match is found")
+    else: 
+        AngleSearchRange = set(map(float, range(0, 358, 2)))
 
     SingleThread = True if use_cp else SingleThread
 

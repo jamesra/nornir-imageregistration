@@ -52,9 +52,12 @@ Image.MAX_IMAGE_PIXELS = None
 
 import collections.abc
 import matplotlib
-import matplotlib.pyplot as plt
 
-matplotlib.use('qtAgg')
+from nornir_imageregistration.headless import is_headless
+
+matplotlib.use("Agg" if is_headless() else "qtAgg")
+
+import matplotlib.pyplot as plt
 
 plt.ioff()
 

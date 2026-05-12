@@ -9,10 +9,7 @@ from nornir_imageregistration import ShapeLike, VectorLike
 
 import setup_imagetest
 
-try:
-    from . import create_gradient_image, create_nested_squares_image
-except ImportError:
-    from test import create_gradient_image, create_nested_squares_image
+from . import create_gradient_image, create_nested_squares_image
 
 
 class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):
