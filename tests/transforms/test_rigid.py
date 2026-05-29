@@ -13,10 +13,10 @@ try:
         TranslateRotateFlippedTransformPoints
     from transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
 except ImportError:
-    from test.transforms.data import OffsetTransformPoints, \
+    from tests.transforms.data import OffsetTransformPoints, \
         TranslateRotateTransformPoints, IdentityFlippedUDTransformPoints, TranslateFlippedUDTransformPoints, \
         TranslateRotateFlippedTransformPoints
-    from test.transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
+    from tests.transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
 
 import nornir_imageregistration
 import nornir_imageregistration.transforms

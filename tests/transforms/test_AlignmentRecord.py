@@ -38,9 +38,9 @@ try:
         RotateTransformPoints
     from transforms.checks import TransformCheck
 except ImportError:
-    from test.transforms.data import TranslateRotateTransformPoints, TranslateRotateFlippedTransformPoints, \
+    from tests.transforms.data import TranslateRotateTransformPoints, TranslateRotateFlippedTransformPoints, \
         RotateTransformPoints
-    from test.transforms.checks import TransformCheck
+    from tests.transforms.checks import TransformCheck
 
 
 # ##An alignment record records how a warped image should be translated and rotated to be

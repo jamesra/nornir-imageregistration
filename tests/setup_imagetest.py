@@ -27,6 +27,25 @@ except ModuleNotFoundError:
 except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
 
+from pathlib import Path
+
+
+def input_nornir_data_root() -> Path:
+    """Root of the optional large repro corpus (``INPUT_NORNIR_DATA`` env)."""
+    try:
+        raw = os.environ["INPUT_NORNIR_DATA"]
+    except KeyError as e:
+        raise KeyError(
+            "INPUT_NORNIR_DATA is not set. "
+            "Set it to the repro corpus root (e.g. D:\\Data on Windows, /data in cursor-dev)."
+        ) from e
+    return Path(raw).expanduser().resolve()
+
+
+def input_nornir_join(*relative: str) -> str:
+    """Path under ``INPUT_NORNIR_DATA`` as a string."""
+    return str(input_nornir_data_root().joinpath(*relative))
+
 
 class TestBase(unittest.TestCase, ABC):
 
@@ -173,7 +192,7 @@ class TransformTestBase(TestBase):
         return os.path.join(self.ImportedDataPath, self.TestName, "Leveled", "TilePyramid", downsamplePath)
 
     def setUp(self):
-        self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "Mosaics")
+        self.ImportedDataPath = os.path.join(self.TestInputPath, "Transforms", "mosaics")
 
         if not os.path.exists(self.TestOutputPath):
             if six.PY3:

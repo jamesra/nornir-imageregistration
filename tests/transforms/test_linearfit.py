@@ -27,7 +27,7 @@ from mathfuncs import are_angle_degrees_equal, are_angle_radians_equal
 try:
     from transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
 except ImportError:
-    from test.transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
+    from tests.transforms.checks import TransformAgreementCheck, TransformCheck, TransformInverseCheck
 
 epsilon = np.finfo(float).eps
 
@@ -384,6 +384,7 @@ class TestLinearFit(unittest.TestCase):
             flip_ud=flip_ud)
 
         target_points = forward_transform.Transform(source_points)
+        target_points = nornir_imageregistration.EnsureNumpyArray(target_points)
 
         # print("\n\nTarget points: ", target_points)
 
@@ -448,6 +449,7 @@ class TestLinearFit(unittest.TestCase):
             flip_ud=flip_ud)
 
         target_points = forward_transform.Transform(source_points)
+        target_points = nornir_imageregistration.EnsureNumpyArray(target_points)
 
         # print("\n\nTarget points: ", target_points)
 
@@ -504,8 +506,8 @@ class TestLinearFit(unittest.TestCase):
             scalar=scale_estimate,
             flip_ud=reflected)
 
-        test_target_points = estimated_transform.Transform(source_points)
-        test_target_center = test_target_points.mean(axis=0)
+        test_target_points = nornir_imageregistration.EnsureNumpyArray(estimated_transform.Transform(source_points))
+        test_target_center = np.mean(test_target_points, axis=0)
         tranlsation_estimate = target_center - test_target_center
         translated_target_points = np.add(test_target_points, tranlsation_estimate)
         np.testing.assert_allclose(target_points, translated_target_points, atol=1e-5)
@@ -519,7 +521,7 @@ class TestLinearFit(unittest.TestCase):
             scalar=scale_estimate,
             flip_ud=reflected)
 
-        final_target_points = estimated_transform.Transform(source_points)
+        final_target_points = nornir_imageregistration.EnsureNumpyArray(estimated_transform.Transform(source_points))
         np.testing.assert_allclose(target_points, final_target_points, atol=1e-5)
         return
 
@@ -582,6 +584,7 @@ class TestLinearFit(unittest.TestCase):
             flip_ud=flip_ud)
 
         target_points = forward_transform.Transform(source_points)
+        target_points = nornir_imageregistration.EnsureNumpyArray(target_points)
 
         try:
             estimated_transform_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
@@ -603,7 +606,7 @@ class TestLinearFit(unittest.TestCase):
         self.assertAlmostEqual(scale, estimated_transform_components.scale, places=3)
         self.assertEqual(flip_ud, estimated_transform_components.reflected)
 
-        test_target_points = estimated_transform.Transform(source_points)
+        test_target_points = nornir_imageregistration.EnsureNumpyArray(estimated_transform.Transform(source_points))
         np.testing.assert_allclose(target_points, test_target_points, atol=1e-5)
         TransformCheck(self, estimated_transform, source_points, target_points)
 
@@ -639,6 +642,7 @@ class TestLinearFit(unittest.TestCase):
         TransformInverseCheck(self, transform, source_point_array)
 
         target_point_array = transform.Transform(source_point_array)
+        target_point_array = nornir_imageregistration.EnsureNumpyArray(target_point_array)
 
         transform_similar = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=target_offset,
@@ -649,6 +653,7 @@ class TestLinearFit(unittest.TestCase):
         TransformCheck(self, transform_similar, source_point_array, target_point_array)
 
         similar_target_point_array = transform_similar.Transform(source_point_array)
+        similar_target_point_array = nornir_imageregistration.EnsureNumpyArray(similar_target_point_array)
 
         np.testing.assert_array_almost_equal(target_point_array, similar_target_point_array)
 
@@ -662,9 +667,19 @@ class TestLinearFit(unittest.TestCase):
                 return
             raise
 
-        are_angle_radians_equal(r_angle, r.angle, tolerance=math.pi / 180.0)
-        np.testing.assert_allclose(target_offset.flatten(), r.translation.flatten(), atol=0.5)
-        np.testing.assert_allclose(source_rotation_center.flatten(), r.source_rotation_center.flatten(), atol=0.5)
+        # EstimateRigidComponentsFromControlPoints centers around the source centroid; translation / pivot
+        # differ from an arbitrary Rigid pivot unless they coincide with that centroid. Check behavior instead.
+        estimated_similarity = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=r.translation,
+            source_rotation_center=r.source_rotation_center,
+            angle=r.angle,
+            scalar=r.scale,
+            flip_ud=r.reflected,
+        )
+        recomputed_targets = nornir_imageregistration.EnsureNumpyArray(
+            estimated_similarity.Transform(source_point_array))
+        np.testing.assert_allclose(recomputed_targets, target_point_array, atol=5e-4)
+
         self.assertEqual(flip_ud, r.reflected)
 
 

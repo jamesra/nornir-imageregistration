@@ -140,7 +140,7 @@ class TestImageSaveLoadConvert(setup_imagetest.ImageTestBase):
         self.assertEqual(reloaded_bpp, expected_bpp, wrong_output_bpp_error_msg)
 
     def test_8Bit_BMP_ConvertImage(self):
-        self.FixedImagePath = os.path.join(self.ImportedDataPath, "PMG_6259_9778_RGOpsin_Tile000018.bmp")
+        self.FixedImagePath = os.path.join(self.ImportedDataPath, "PMG_6259_9778_RGOpsin_Tile000018.BMP")
         self.assertTrue(os.path.exists(self.FixedImagePath), "Missing test input")
         self.RunConvertImageTest(self.FixedImagePath)
 

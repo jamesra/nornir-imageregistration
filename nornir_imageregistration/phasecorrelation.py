@@ -360,6 +360,10 @@ def find_peak(image: NDArray[np.floating],
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
+    if overlap_mask is not None:
+        # GetOverlapMask and similar helpers return NumPy; keep mask on the same device as `image`.
+        overlap_mask = xp.asarray(overlap_mask)
+
     # Create a copy of the image for thresholding
     threshold_image = xp.copy(image)
 

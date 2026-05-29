@@ -10,6 +10,7 @@ from multiprocessing.shared_memory import SharedMemory
 import multiprocessing.sharedctypes
 
 import os
+import tempfile
 import typing
 import warnings
 import weakref
@@ -53,8 +54,6 @@ except (ModuleNotFoundError, ImportError):
     import numpy.random as random
 
 from numpy.typing import DTypeLike, NDArray
-
-import scipy.ndimage.measurements
 
 import nornir_imageregistration
 import nornir_imageregistration.image_stats
@@ -183,8 +182,9 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None) -> NDArray:
     elif isinstance(imageparam, str):
         image = LoadImage(imageparam, dtype=dtype)
     elif isinstance(imageparam, nornir_imageregistration.Shared_Mem_Metadata):
+        # POSIX shared memory is host memory; always use NumPy views (explicit CPU boundary).
         shared_mem = shared_memory.SharedMemory(name=imageparam.name, create=False)
-        image = xp.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
+        image = np.ndarray(imageparam.shape, dtype=imageparam.dtype, buffer=shared_mem.buf)
         image.setflags(write=not imageparam.readonly)
         finalizer = weakref.finalize(image, nornir_imageregistration.close_shared_memory, shared_mem)
         __known_shared_memory_allocations[shared_mem.name] = shared_mem, finalizer
@@ -192,7 +192,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None) -> NDArray:
         if dtype is None:
             dtype = imageparam.dtype
 
-        image = xp.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)
+        image = np.memmap(imageparam.path, dtype=imageparam.dtype, mode=imageparam.mode, shape=imageparam.shape)  # type: ignore[call-overload]
         if dtype != imageparam.dtype:
             image = image.astype(dtype=dtype, copy=False)
 
@@ -258,16 +258,16 @@ def ScaleImage(image: NDArray, scalar: float) -> NDArray:
     """
     Returns a scaled array using spline interpolation (CPU/GPU agnostic function)
     """
-    xp = cupyx.scipy.get_array_module(image)
+    sp = cupyx.scipy.get_array_module(image)
+    arr_xp = cp.get_array_module(image)
     if scalar == 1.0:
-        return np.copy(image)
+        return image.copy()
 
     order = 1 if scalar < 1.0 else 3
     order = 0 if scalar < 0.5 else order
-    if nornir_imageregistration.UsingCupy():
-        return xp.ndimage.zoom(image, scalar)
-    else:
-        return xp.ndimage.zoom(image.astype(np.float32), zoom=scalar, order=order)
+    if arr_xp is np:
+        return sp.ndimage.zoom(image.astype(np.float32, copy=False), zoom=scalar, order=order)
+    return sp.ndimage.zoom(image, zoom=scalar, order=order)
 
 
 def ExtractROI(image: NDArray, center, area) -> NDArray:
@@ -385,6 +385,8 @@ def Shrink(InFile: str, OutFile: str, Scalar: float, **kwargs):
 def ResizeImage(image: NDArray, scalar: float | Iterable[float] | NDArray[np.floating]) -> NDArray:
     """Change image size by scalar"""
 
+    xp = cp.get_array_module(image)
+    sp = cupyx.scipy.get_array_module(image)
     original_min = image.min()
     original_max = image.max()
 
@@ -400,10 +402,8 @@ def ResizeImage(image: NDArray, scalar: float | Iterable[float] | NDArray[np.flo
         zoom_value = zoom_values
         order = 3 if any(s < 1.0 for s in zoom_values) else 2
 
-    # new_size = np.array(image.shape, dtype=np.float) * scalar
-
-    result = scipy.ndimage.zoom(image, zoom=zoom_value, order=order)
-    result = result.clip(original_min, original_max, out=result)  # type: ignore[call-overload]
+    result = sp.ndimage.zoom(image, zoom=zoom_value, order=order)
+    xp.clip(result, original_min, original_max, out=result)
     return result
 
 
@@ -412,11 +412,12 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
                         MinMax: tuple[float, float] | None = None,
                         Gamma: float | None = None):
     """
-    Converts a single image according to the passed parameters using Numpy.
+    Converts a single image according to the passed parameters (NumPy or CuPy, matching input backend).
     Image returned will match the dtype of the loaded image
     """
 
     image = ImageParamToImageArray(input_image_param)
+    xp = cp.get_array_module(image)
     original_dtype = image.dtype
     max_possible_int_val = None
 
@@ -440,10 +441,10 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
             working_dtype) / max_possible_int_val  # Always use float32 to prevent overflow errors.  We can downconvert later
 
     if Flip is not None and Flip:
-        image = np.flipud(image)
+        image = xp.flip(image, 0)
 
     if Flop is not None and Flop:
-        image = np.fliplr(image)
+        image = xp.flip(image, 1)
 
     if MinMax is not None:
         (min_val, max_val) = MinMax
@@ -468,11 +469,15 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
         Gamma = 1.0
 
     if Gamma != 1.0:
-        image = np.float_power(image, 1.0 / Gamma, where=image >= 0)
+        exp = 1.0 / Gamma
+        pos = image >= 0
+        # xp.where evaluates both branches, which can trigger invalid-power errors
+        # on negative values even when the mask excludes them.
+        image[pos] = xp.power(image[pos], exp)
         NeedsClip = True
 
     if NeedsClip:
-        np.clip(image, a_min=0, a_max=1.0, out=image)
+        xp.clip(image, 0, 1.0, out=image)
 
     if Invert is not None and Invert:
         image = 1.0 - image
@@ -734,14 +739,43 @@ def close_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | Sh
         # Legacy: per-allocation close was inlined elsewhere; dict cleanup handled on unlink.
 
 
-def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
+def _posix_dev_shm_avail_bytes() -> int | None:
+    """Best-effort free space on /dev/shm (POSIX shared memory). None if unknown or non-POSIX."""
+    if os.name != "posix":
+        return None
+    shm_path = "/dev/shm"
+    if not os.path.isdir(shm_path):
+        return None
+    try:
+        st = os.statvfs(shm_path)
+    except OSError:
+        return None
+    return int(st.f_bavail) * int(st.f_frsize)
+
+
+_NP_POOL_SHM_HEADROOM = 256 * 1024
+
+
+def _unlink_memmap_path_quiet(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | memmap_metadata) -> None:
     """
     Checks if the input is shared memory, if it is, closes it to indicate
     this process is done using it and unlinks it to free the underlying
     memory block.  This renders it unusable for all other processes as well.
     Make sure the array does not go out of
     scope if you are responsible for unlinking it.
+
+    For :class:`memmap_metadata` (file-backed pool buffers), removes the backing file.
     """
+    if isinstance(input, memmap_metadata):
+        _unlink_memmap_path_quiet(input.path)
+        return
     if isinstance(input, nornir_imageregistration.Shared_Mem_Metadata):
         if input.name in __known_shared_memory_allocations:
             shared_mem, finalizer = __known_shared_memory_allocations[input.name]
@@ -756,18 +790,56 @@ def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata):
             prettyoutput.LogErr(f"Missing memory block, could not unlink {input.name}")
 
 
+def _np_array_to_memmap_pool_file(host_arr: NDArray, read_only: bool) -> tuple[memmap_metadata, NDArray]:
+    """Copy *host_arr* to a temp file and open it as memmap for multiprocess pool handoff."""
+    fallback_root = (
+        os.environ.get("NORNIR_MEMMAP_POOL_DIR")
+        or os.environ.get("TESTOUTPUTPATH")
+        or tempfile.gettempdir()
+    )
+    os.makedirs(fallback_root, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix="nir-pool-", suffix=".shm-fallback", dir=fallback_root)
+    os.close(fd)
+    shape_tuple = host_arr.shape
+    mmw = np.memmap(path, dtype=host_arr.dtype, shape=shape_tuple, mode="w+")
+    np.copyto(mmw, host_arr)
+    mmw.flush()
+    del mmw
+    mmap_mode = "r" if read_only else "r+"
+    mm = np.memmap(path, dtype=host_arr.dtype, shape=shape_tuple, mode=mmap_mode)
+    meta = memmap_metadata(
+        path,
+        shape=np.asarray(shape_tuple, dtype=np.int64),
+        dtype=host_arr.dtype,
+        mode=mmap_mode,
+    )
+    weakref.finalize(mm, _unlink_memmap_path_quiet, path)
+    return meta, mm
+
+
 def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
-    nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
-    """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
-    when it is no longer in use.
-    :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
+    nornir_imageregistration.Shared_Mem_Metadata | memmap_metadata, NDArray]:
+    """Creates a shared memory block (or a file-backed memmap if /dev/shm is too small) and copies
+    the input array into it.  This block must be released with :func:`unlink_shared_memory` when no
+    longer needed.
+
+    :return: Metadata (:class:`Shared_Mem_Metadata` or :class:`memmap_metadata`) and a NumPy array
+        view of the backing storage for use in the current process.
     """
-    xp = cp.get_array_module(input)
-    # shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
-    # shared_mem = shared_memory_manager.SharedMemory(size=input.nbytes)
-    shared_mem = SharedMemory(size=input.nbytes, create=True)
-    shared_array = np.ndarray(input.shape, dtype=input.dtype, buffer=shared_mem.buf)
-    xp.copyto(shared_array, input)
+    if cp.get_array_module(input) is cp:
+        host_arr = np.ascontiguousarray(cp.asnumpy(input))
+    else:
+        host_arr = np.ascontiguousarray(np.asarray(input))
+    nbytes = int(host_arr.nbytes)
+    avail = _posix_dev_shm_avail_bytes()
+    # If nbytes exceeds free /dev/shm (common default 64 MiB in Docker/WSL), filling POSIX shm
+    # faults sparse pages beyond the filesystem capacity and can raise SIGBUS instead of ENOSPC.
+    if avail is not None and nbytes + _NP_POOL_SHM_HEADROOM > avail:
+        return _np_array_to_memmap_pool_file(host_arr, read_only)
+
+    shared_mem = SharedMemory(size=nbytes, create=True)
+    shared_array = np.ndarray(host_arr.shape, dtype=host_arr.dtype, buffer=shared_mem.buf, order="C")
+    np.copyto(shared_array, host_arr)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype,
                                                           shape=shared_array.shape, readonly=read_only,
                                                           shared_memory=None)
@@ -898,6 +970,8 @@ def GetImageSize(image_param: str | np.ndarray | Iterable) -> NDArray[np.integer
         return nornir_shared.images.GetImageSize(image_param)
     elif isinstance(image_param, np.ndarray):
         return np.asarray(image_param.shape, dtype=int)
+    elif isinstance(image_param, cp.ndarray):
+        return np.asarray(image_param.shape, dtype=int)
     elif isinstance(image_param, Iterable):
         return np.asarray([GetImageSize(i) for i in image_param], dtype=int)
 
@@ -913,8 +987,9 @@ def ForceGrayscale(image: np.ndarray):
     :rtype: ndarray with 2 dimensions"""
 
     if len(image.shape) > 2:
+        xp = cp.get_array_module(image)
         image = image[:, :, 0]
-        return np.squeeze(image)
+        return xp.squeeze(image)
 
     return image
 
@@ -1259,11 +1334,13 @@ def LoadImage(ImageFullPath: str,
 def NormalizeImage(image: NDArray):
     """Adjusts the image to have a range of 0 to 1.0"""
 
+    xp = cp.get_array_module(image)
     miniszeroimage = image - image.min()
-    scalar = (1.0 / miniszeroimage.max())
-
-    if np.isinf(scalar).all():
-        scalar = 1.0
+    denom = miniszeroimage.max()
+    scalar_dtype = np.result_type(np.dtype(miniszeroimage.dtype), np.float32)
+    scalar = xp.asarray(1.0, dtype=scalar_dtype) / denom
+    if xp.any(xp.isinf(scalar)):
+        scalar = xp.asarray(1.0, dtype=scalar_dtype)
 
     typecode = 'f%d' % image.dtype.itemsize
     return (miniszeroimage * scalar).astype(typecode, copy=False)
@@ -1328,8 +1405,10 @@ def ImageToTilesGenerator(source_image: NDArray,
         coord_offset = np.array([0, 0])
 
     (required_shape) = grid_shape * tile_size
-
-    if not np.array_equal(source_image.shape, required_shape):
+    req_h = int(math.ceil(float(required_shape[0])))
+    req_w = int(math.ceil(float(required_shape[1])))
+    src_h, src_w = int(source_image.shape[0]), int(source_image.shape[1])
+    if (src_h, src_w) != (req_h, req_w):
         source_image_padded = CropImage(source_image,
                                         Xo=0, Yo=0,
                                         Width=int(math.ceil(required_shape[1])),
@@ -1386,19 +1465,18 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
     :rtype: ndimage
     """
 
-    xp = nornir_imageregistration.GetComputationModule()
     image = ImageParamToImageArray(image)
     Mask = ImageParamToImageArray(Mask)
+    xp = cp.get_array_module(image)
+    if cp.get_array_module(Mask) is not xp:
+        Mask = xp.asarray(Mask, dtype=xp.bool_)
 
     assert (image.shape == Mask.shape)
 
     MaskedImage = image.copy() if Copy else image
 
     # iPixelsToReplace = Mask.flat == 0
-    if not nornir_imageregistration.UsingCupy():
-        iPixelsToReplace = xp.logical_not(Mask.flat)
-    else:
-        iPixelsToReplace = xp.logical_not(Mask.ravel())
+    iPixelsToReplace = xp.logical_not(Mask.ravel())
 
     numInvalidPixels = xp.sum(iPixelsToReplace)
 
@@ -1406,13 +1484,10 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         # Entire image is masked, there is no noise to create
         return MaskedImage
 
-    if nornir_imageregistration.UsingCupy():
-        Image1D = MaskedImage.ravel()
-    else:
-        Image1D = MaskedImage.flat
+    Image1D = MaskedImage.ravel()
 
     if imagestats is None:
-        numValidPixels = np.prod(image.shape) - numInvalidPixels
+        numValidPixels = int(image.size) - int(numInvalidPixels)
         # Create masked array for accurate stats
         if numValidPixels == 0:
             raise ValueError("Entire image is masked, cannot calculate median or standard deviation")
@@ -1420,7 +1495,7 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         elif numValidPixels <= 2:
             raise ValueError(f"All but {numValidPixels} pixels are masked, cannot calculate statistics")
 
-        if xp == cp:  # Cupy did not support masked arrays when this was written
+        if xp is not np:  # Cupy did not support masked arrays when this was written
             pixels_for_stats = Image1D[~iPixelsToReplace]
             imagestats = nornir_imageregistration.ImageStats.Create(pixels_for_stats)
             del pixels_for_stats
@@ -1429,14 +1504,20 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
             imagestats = nornir_imageregistration.ImageStats.Create(UnmaskedImage1D)
             del UnmaskedImage1D
 
-    NoiseData = imagestats.GenerateNoise(numInvalidPixels, dtype=image.dtype)
+    n_noise = int(numInvalidPixels)
+    NoiseData = imagestats.GenerateNoise(n_noise, dtype=image.dtype, xp=xp)
+    if cp.get_array_module(NoiseData) is not xp:
+        if xp is np:
+            NoiseData = nornir_imageregistration.EnsureNumpyArray(NoiseData, dtype=image.dtype)
+        else:
+            NoiseData = xp.asarray(NoiseData)
     Image1D[iPixelsToReplace] = NoiseData
 
     # iPixelsToReplace = transpose(nonzero(iPixelsToReplace))
-    if xp == cp:  # If we used ravel() we may have copied the underlying data, so reshape Image1D and return that to ensure we get the mask
+    if xp is not np:  # If we used ravel() we may have copied the underlying data, so reshape Image1D and return that to ensure we get the mask
         output_image = Image1D.reshape(MaskedImage.shape)  # type: ignore[union-attr]
         return output_image
-    else:  # If using numpy, we did not risk a copy with ravel because we used the .flat iterator.
+    else:  # NumPy: ravel is a view; writes through Image1D update MaskedImage.
         return MaskedImage
 
 
@@ -1458,7 +1539,7 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cu
 
     if mask is not None:
         image = xp.copy(image)
-        image[mask] = np.nan
+        image[mask] = xp.asarray(xp.nan, dtype=xp.float64)
         # image = xp.ma.masked_array(image, xp.logical_not(mask))
 
     if minima is None:
@@ -1485,8 +1566,8 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cu
         # Identify the label of non-extrema pixels
 
         label_sums = sp.ndimage.sum_labels(
-            extrema_mask.astype(np.int32) if nornir_imageregistration.UsingCupy() else extrema_mask, extrema_mask_label,
-            xp.array(range(0, nLabels)))
+            extrema_mask.astype(xp.int32), extrema_mask_label,
+            xp.arange(0, nLabels, dtype=xp.int32))
 
         cutoff_value = None
         # if cutoff value is less than one treat it as a fraction of total area
@@ -1508,7 +1589,7 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cu
 
             return extrema_mask_minus_small_features
         else:
-            return np.ones(image.shape, bool)  # No features large enough to exclude, retain the entire image
+            return xp.ones(image.shape, dtype=bool)
 
 
 def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray | None = None,

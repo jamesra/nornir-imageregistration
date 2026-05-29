@@ -621,6 +621,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
                                                                                 # somehow interacts with the max value to produce an invalid result for pixels
                                                                                 # outside the image boundary.
                                                                                 np.sum(distanceImage.shape) * 32.0],
+                                                                          extrapolate=True,
                                                                           return_shared_memory=False)  # not SingleThreadedInvoke)
 
     source_image_dtype = source_image.dtype

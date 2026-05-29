@@ -31,6 +31,7 @@ import nornir_imageregistration.transforms.factory as tfactory
 import picklehelper
 
 import setup_imagetest
+from setup_imagetest import input_nornir_join
 
 
 # from pylab import *
@@ -641,31 +642,31 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     #     def test_RC2_0001_Mosaic(self):
 
     #    def test_RC2_0197_Mosaic(self):
-    #        self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0197\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0197\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
+    #        self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0197", "TEM", "stage.mosaic"), TilePyramidDir=input_nornir_join("RC2", "TEM", "0197", "TEM", "Leveled", "TilePyramid"), downsample=4, openwindow=False)
     #        print("All done")
     #
     #     def test_RC2_0001_Mosaic(self):
     #
-    #         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0001\\TEM\\stage.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0001\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
+    #         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0001", "TEM", "stage.mosaic"), TilePyramidDir=input_nornir_join("RC2", "TEM", "0001", "TEM", "Leveled", "TilePyramid"), downsample=4, openwindow=False)
     #
     #         print("All done")
     #
     #     def test_RC2_0380_Mosaic(self):
     #
-    #         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0380\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0380\\TEM\\Leveled\\TilePyramid", downsample=4, openwindow=False)
+    #         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0380", "TEM", "Prune_Thr10.0.mosaic"), TilePyramidDir=input_nornir_join("RC2", "TEM", "0380", "TEM", "Leveled", "TilePyramid"), downsample=4, openwindow=False)
     #
     #         print("All done")
     # #
     #    def test_RC2_0192_Mosaic(self):
     #
-    #        self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC2\\TEM\\0192\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="C:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+    #        self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0192", "TEM", "Prune_Thr10.0.mosaic"), TilePyramidDir=input_nornir_join("RC2", "TEM", "0192", "TEM", "Leveled", "TilePyramid"), downsample=4, max_relax_iterations=150, openwindow=False)
     #
     #        print("All done")
 
     # def test_RC1_0060_Mosaic(self):
     #
-    #     self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\RC1\\TEM\\0060\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="C:\\Data\\RC1\\TEM\\0060\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC1", "TEM", "0060", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC1", "TEM", "0060", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -684,8 +685,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
     # def test_Redmond_13611_Mosaic(self):
     #
-    #     self.ArrangeMosaicDirect(mosaicFilePath=r"D:\\Data\\Redmond\\13611\\TEM\\Prune_Thr10.0.mosaic",
-    #                              TilePyramidDir=r"D:\\Data\\Redmond\\13611\\TEM\\Leveled\\TilePyramid\\",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("Redmond", "13611", "TEM", "Prune_Thr10.0.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("Redmond", "13611", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,  
     #                              openwindow=False,
     #                              config=config)
@@ -697,8 +698,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     #     config = self.GetStandardTranslateSettings()
     #     #config.feature_score_threshold = None
     #     #config.use_feature_score = None 
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC2\\TEM\\0192\\TEM\\Stage_cropped.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC2\\TEM\\0192\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0192", "TEM", "Stage_cropped.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC2", "TEM", "0192", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,
     #                              openwindow=False,
     #                              config=config)
@@ -707,8 +708,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
     # def test_RPC2_1013_Mosaic(self):
     #
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\1013\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RPC2\\1013\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RPC2", "1013", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RPC2", "1013", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -718,8 +719,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     # def test_RPC2_0989_Mosaic(self):
     #
     #     config = self.GetStandardTranslateSettings()
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RPC2", "0989", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RPC2", "0989", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,  
     #                              openwindow=False,
     #                              config=config)
@@ -735,21 +736,45 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
             nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
             self.RPC2_0989_Mosaic_CPU()
 
+    def _resolve_RPC2_0989_volume_paths(self) -> tuple[str, str]:
+        """Mosaic file and TilePyramid parent (contains ``004`` etc.) for RPC2 0989 arrange test."""
+        under_input = os.path.join(self.TestInputPath, "Images", "RPC2", "0989", "TEM")
+        mosaic = os.path.join(under_input, "Stage.mosaic")
+        tile_pyramid_parent = os.path.join(under_input, "Leveled", "TilePyramid")
+        if os.path.isfile(mosaic):
+            return mosaic, tile_pyramid_parent
+
+        root = os.environ.get("INPUT_NORNIR_DATA")
+        if root:
+            repro_mosaic = input_nornir_join("RPC2", "0989", "TEM", "Stage.mosaic")
+            repro_pyramid = input_nornir_join("RPC2", "0989", "TEM", "Leveled", "TilePyramid")
+            if os.path.isfile(repro_mosaic):
+                return repro_mosaic, repro_pyramid
+
+        self.skipTest(
+            "RPC2 0989 arrange inputs not found. Expected "
+            f"{mosaic} (under TESTINPUTPATH, same layout as other Images/RPC2 tests) "
+            "or the same tree under INPUT_NORNIR_DATA (e.g. /data in cursor-dev, D:\\Data on Windows)."
+        )
+
     def RPC2_0989_Mosaic_CPU(self):
+        mosaic_path, tile_pyramid_dir = self._resolve_RPC2_0989_volume_paths()
         config = self.GetStandardTranslateSettings()
-        self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RPC2\\0989\\TEM\\Stage.mosaic",
-                           TilePyramidDir="D:\\Data\\RPC2\\0989\\TEM\\Leveled\\TilePyramid",
-                           downsample=4,
-                           openwindow=True,
-                           config=config)
+        self.ArrangeMosaic(
+            mosaicFilePath=mosaic_path,
+            TilePyramidDir=tile_pyramid_dir,
+            downsample=4,
+            openwindow=not is_headless(),
+            config=config,
+        )
 
         print("All done")
 
     # def test_RC3_0001_Mosaic(self):
     #
     #     config = self.GetStandardTranslateSettings() 
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\0001\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\0001\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC3", "TEM", "0001", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "0001", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -758,8 +783,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     #
     # def test_RC3_0001_Mosaic_Production(self):
     #
-    #     self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RC3\\TEM\\0001\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\0001\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaic(mosaicFilePath=input_nornir_join("RC3", "TEM", "0001", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "0001", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -768,8 +793,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
     # def test_RC3_0203_Mosaic(self): 
     #     config = self.GetStandardTranslateSettings() 
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\0203\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\0203\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC3", "TEM", "0203", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "0203", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -778,8 +803,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
     # def test_RC3_1619_Mosaic(self):
     #     config = self.GetStandardTranslateSettings()
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\1619\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\1619\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC3", "TEM", "1619", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "1619", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,
     #                              openwindow=False,
     #                              config=config)
@@ -788,8 +813,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
     # def test_RC3_1492_Mosaic(self):
     #     config = self.GetStandardTranslateSettings() 
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC3\\TEM\\1492\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\1492\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC3", "TEM", "1492", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "1492", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,
     #                              openwindow=False,
     #                              config=config)
@@ -799,8 +824,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     # def test_RC3_1492_Mosaic_Production(self):
     #
     #     config = self.GetStandardTranslateSettings() 
-    #     self.ArrangeMosaic(mosaicFilePath="D:\\Data\\RC3\\TEM\\1492\\TEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\RC3\\TEM\\1492\\TEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaic(mosaicFilePath=input_nornir_join("RC3", "TEM", "1492", "TEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "1492", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -812,8 +837,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     #     config = self.GetStandardTranslateSettings()
     #     config.feature_score_threshold = None
     #     config.use_feature_score = None 
-    #     self.ArrangeMosaic(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
-    #                              TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
+    #     self.ArrangeMosaic(mosaicFilePath=input_nornir_join("RC3", "TEM", "1154", "TEM", "Prune_Thr10.0.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "1154", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4,
     #                              openwindow=False,
     #                              config=config)
@@ -823,8 +848,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     # def test_RC3_1154_Mosaic_Direct(self):
     #
     #     config = self.GetStandardTranslateSettings()
-    #     self.ArrangeMosaicDirect(mosaicFilePath=r"D:\Data\RC3\TEM\1154\TEM\Prune_Thr10.0.mosaic",
-    #                              TilePyramidDir=r"D:\Data\RC3\TEM\1154\TEM\Leveled\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC3", "TEM", "1154", "TEM", "Prune_Thr10.0.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("RC3", "TEM", "1154", "TEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -834,8 +859,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
     # def test_Neitz_Mosaic(self):
     #
     #     config = self.GetStandardTranslateSettings()
-    #     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\cped_sm\\SEM\\0855\\SEM\\Stage.mosaic",
-    #                              TilePyramidDir="D:\\Data\\cped_sm\\SEM\\0855\\SEM\\Leveled\\TilePyramid",
+    #     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("cped_sm", "SEM", "0855", "SEM", "Stage.mosaic"),
+    #                              TilePyramidDir=input_nornir_join("cped_sm", "SEM", "0855", "SEM", "Leveled", "TilePyramid"),
     #                              downsample=4, 
     #                              openwindow=False,
     #                              config=config)
@@ -847,8 +872,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 #     
 #     def test_TEM2_Sahler_13208_Mosaic(self):
 #         config = self.GetStandardTranslateSettings()                
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\TEM2_Sahler\\13208\\Stage_limited.mosaic",
-#                                  TilePyramidDir="C:\\Data\\TEM2_Sahler\\13208\\Raw8\\TilePyramid",
+#         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("TEM2_Sahler", "13208", "Stage_limited.mosaic"),
+#                                  TilePyramidDir=input_nornir_join("TEM2_Sahler", "13208", "Raw8", "TilePyramid"),
 #                                  downsample=4, 
 #                                  openwindow=False,
 #                                  config=config)
@@ -860,8 +885,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 #     This section has a massive tear and many folds.  It is a great test case for manual offsets
 #     """
 #     config = self.GetStandardTranslateSettings()
-#     self.ArrangeMosaicDirect(mosaicFilePath="D:\\Data\\RC2\\TEM\\1034\\TEM\\Stage.mosaic",
-#                             TilePyramidDir="D:\\Data\\RC2\\TEM\\1034\\TEM\\Leveled\\TilePyramid",
+#     self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "1034", "TEM", "Stage.mosaic"),
+#                             TilePyramidDir=input_nornir_join("RC2", "TEM", "1034", "TEM", "Leveled", "TilePyramid"),
 #                             downsample=4,
 #                             openwindow=False,
 #                             config=config)
@@ -869,8 +894,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 #         print("All done")
 
 #     def test_PMG_0006_E_Mosaic(self):
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\PMG\\0006\\E\\Stage.mosaic",
-#                                  TilePyramidDir="C:\\Data\\PMG\\0006\\E\\Leveled\\TilePyramid",
+#         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("PMG", "0006", "E", "Stage.mosaic"),
+#                                  TilePyramidDir=input_nornir_join("PMG", "0006", "E", "Leveled", "TilePyramid"),
 #                                  downsample=2,
 #                                  max_relax_iterations=500,
 #                                  openwindow=False,
@@ -880,8 +905,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 #         print("All done")
 
 #     def test_EM2_0007(self):
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\EM2\\TEM\\0007\\TEM\\Stage.mosaic",
-#                                  TilePyramidDir="C:\\Data\\EM2\\TEM\\0007\\TEM\\Raw8\\TilePyramid",
+#         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("EM2", "TEM", "0007", "TEM", "Stage.mosaic"),
+#                                  TilePyramidDir=input_nornir_join("EM2", "TEM", "0007", "TEM", "Raw8", "TilePyramid"),
 #                                  downsample=4,
 #                                  max_relax_iterations=500,
 #                                  openwindow=False,
@@ -892,8 +917,8 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 #        print("All done")
 
 #     def test_DM4_0476_Mosaic(self):
-#         self.ArrangeMosaicDirect(mosaicFilePath="C:\\Data\\DM4\\0476\\SEM\\Stage.mosaic",
-#                                  TilePyramidDir="C:\\Data\\DM4\\0476\\SEM\\Leveled\\TilePyramid",
+#         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("DM4", "0476", "SEM", "Stage.mosaic"),
+#                                  TilePyramidDir=input_nornir_join("DM4", "0476", "SEM", "Leveled", "TilePyramid"),
 #                                  downsample=4,
 #                                  max_relax_iterations=500,
 #                                  openwindow=False,
@@ -914,7 +939,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
 #     def test_RC2_0626_Mosaic(self):
 #         
-#         self.ArrangeMosaicDirect(mosaicFilePath="D:\\RC2\\TEM\\0626\\TEM\\Prune_Thr10.0.mosaic", TilePyramidDir="D:\\RC2\\TEM\\0626\\TEM\\Leveled\\TilePyramid", downsample=4, max_relax_iterations=150, openwindow=False)
+#         self.ArrangeMosaicDirect(mosaicFilePath=input_nornir_join("RC2", "TEM", "0626", "TEM", "Prune_Thr10.0.mosaic"), TilePyramidDir=input_nornir_join("RC2", "TEM", "0626", "TEM", "Leveled", "TilePyramid"), downsample=4, max_relax_iterations=150, openwindow=False)
 # 
 #         print("All done")
 

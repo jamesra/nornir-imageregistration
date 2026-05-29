@@ -1,9 +1,30 @@
 import os
+import importlib.util
+import sys
 import unittest
+from pathlib import Path
 
 import nornir_imageregistration
 
-from ..setup_imagetest import TestBase
+
+def _load_setup_imagetest_module():
+    module_name = "nornir_imageregistration_tests_setup_imagetest"
+    existing = sys.modules.get(module_name, None)
+    if existing is not None:
+        return existing
+
+    module_path = Path(__file__).resolve().parents[1] / "setup_imagetest.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not create import spec for {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+TestBase = _load_setup_imagetest_module().TestBase
 
 
 class TestMosaicOffsetSettings(TestBase):

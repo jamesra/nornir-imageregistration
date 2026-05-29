@@ -5,9 +5,8 @@ Pytest: enable headless figure output before any test imports nornir_imageregist
 at import time. Set ``NORNIR_HEADLESS`` here so pytest loads this module before
 collecting tests, avoiding GUI windows and writing PNG artifacts instead.
 
-This file lives at the package root (not under ``test/``) so it is not imported as
-``test.conftest``, which would register the stdlib-style package name ``test`` and
-break sibling projects (e.g. nornir-buildmanager) that also use a ``test`` package.
+This file lives at the package root (not under ``tests/``) so pytest loads it before
+collecting modules under ``tests/``.
 
 Override for interactive debugging: ``NORNIR_HEADLESS=0 pytest ...``
 """

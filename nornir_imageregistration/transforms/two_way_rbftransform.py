@@ -53,6 +53,9 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     def type(self) -> TransformType:
         return nornir_imageregistration.transforms.transform_type.TransformType.RBF
 
+    def ToITKString(self) -> str:
+        return self._forward_rbf.ToITKString()
+
     @property
     def SourcePoints(self) -> NDArray:
         return self._forward_rbf.SourcePoints

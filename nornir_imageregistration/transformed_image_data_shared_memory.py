@@ -14,6 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.mmap_metadata import memmap_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
 from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState
 
@@ -25,7 +26,7 @@ class _InMemoryImageState:
 
 @dataclass
 class _SharedMemoryImageState:
-    metadata: Shared_Mem_Metadata
+    metadata: Shared_Mem_Metadata | memmap_metadata
     image: NDArray | None = None
 
 
@@ -47,8 +48,8 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     _errmsg: str | None
 
     @staticmethod
-    def _state_from_input(value: NDArray | Shared_Mem_Metadata) -> _ImageState:
-        if isinstance(value, Shared_Mem_Metadata):
+    def _state_from_input(value: NDArray | Shared_Mem_Metadata | memmap_metadata) -> _ImageState:
+        if isinstance(value, (Shared_Mem_Metadata, memmap_metadata)):
             return _SharedMemoryImageState(metadata=value)
         return _InMemoryImageState(image=value)
 
@@ -78,7 +79,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     memmap_threshold: int = 64 * 64
 
     @property
-    def image_shared_mem_meta(self) -> Shared_Mem_Metadata | None:
+    def image_shared_mem_meta(self) -> Shared_Mem_Metadata | memmap_metadata | None:
         if isinstance(self._image_state, _SharedMemoryImageState):
             return self._image_state.metadata
         return None
@@ -99,7 +100,7 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
         raise ValueError("No image associated with TransformedImageData")
 
     @property
-    def center_distance_image_mem_meta(self) -> Shared_Mem_Metadata | None:
+    def center_distance_image_mem_meta(self) -> Shared_Mem_Metadata | memmap_metadata | None:
         if isinstance(self._center_distance_image_state, _SharedMemoryImageState):
             return self._center_distance_image_state.metadata
         return None
@@ -142,7 +143,8 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     #    return self._transform
 
     @classmethod
-    def Create(cls, image: NDArray | Shared_Mem_Metadata, centerDistanceImage: NDArray | Shared_Mem_Metadata,
+    def Create(cls, image: NDArray | Shared_Mem_Metadata | memmap_metadata,
+               centerDistanceImage: NDArray | Shared_Mem_Metadata | memmap_metadata,
                transform,
                source_space_scale: float, target_space_scale: float,
                rendered_target_space_origin: Tuple[float, float],

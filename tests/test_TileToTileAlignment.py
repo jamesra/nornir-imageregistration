@@ -180,11 +180,11 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
                                   dtype=nornir_imageregistration.default_image_dtype())
 
         imFixedPadded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(imFixed,
-                                                                                                  MinOverlap=min_overlap)
+                                                                                                  min_overlap=min_overlap)
         imMovingPadded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(imMoving,
-                                                                                                   MinOverlap=min_overlap)
+                                                                                                   min_overlap=min_overlap)
 
-        alignrecord = nornir_imageregistration.phasecorrelation.FindOffset(imFixedPadded, imMovingPadded,
+        alignrecord = nornir_imageregistration.phasecorrelation.find_offset(imFixedPadded, imMovingPadded,
                                                                            min_overlap=0.05, max_overlap=0.5,
                                                                            target_shape=imFixed.shape,
                                                                            source_shape=imMoving.shape)

@@ -26,6 +26,18 @@ from nornir_shared import prettyoutput
 from nornir_imageregistration.type_info import ShapeLike, RectLike
 
 
+def _xp_for_transform_geometry(transforms: Sequence[ITransform]):
+    """NumPy vs CuPy for aggregate ops on transform geometry — follow stored points, not global backend."""
+    for t in transforms:
+        pts = getattr(t, "_points", None)
+        if pts is not None:
+            return cp.get_array_module(pts)
+        off = getattr(t, "_target_offset", None)
+        if off is not None and hasattr(off, "shape"):
+            return cp.get_array_module(off)
+    return np
+
+
 def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer], NDArray[np.integer]]:
     """Remove rows containing NaN.
     :param points: NxM array of points (e.g. Nx2 or Nx4).
@@ -242,16 +254,16 @@ def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[np.floating]:
     :raises ValueError: If a transform type is not supported.
     """
 
-    xp = nornir_imageregistration.GetComputationModule()
+    xp = _xp_for_transform_geometry(transforms)
 
     mins = xp.zeros((len(transforms), 2))
     for (i, t) in enumerate(transforms):
         if isinstance(t, nornir_imageregistration.IDiscreteTransform):
-            mins[i, :] = t.FixedBoundingBox.BottomLeft
+            mins[i, :] = xp.asarray(t.FixedBoundingBox.BottomLeft, dtype=xp.float64)
         elif isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
-            mins[i, :] = t._target_offset
+            mins[i, :] = xp.asarray(t._target_offset, dtype=xp.float64)
         elif hasattr(t, 'FixedBoundingBox'):
-            mins[i, :] = t.FixedBoundingBox.BottomLeft  # type: ignore[union-attr]
+            mins[i, :] = xp.asarray(t.FixedBoundingBox.BottomLeft, dtype=xp.float64)  # type: ignore[union-attr]
         else:
             raise ValueError(f"Unexpected transform type {t} at index {i}")
 
@@ -347,7 +359,8 @@ def IsOriginAtZero(transforms):
     """:return: True if transform bounding box has origin at 0,0 otherise false"""
     try:
         origin = FixedOriginOffset(transforms)
-        (minY, minX) = (origin[0], origin[1])
+        origin_np = nornir_imageregistration.EnsureNumpyArray(origin).ravel()
+        (minY, minX) = (float(origin_np[0]), float(origin_np[1]))
         return minY == 0 and minX == 0
     except ValueError:
         prettyoutput.LogErr("Could not determine origin of transforms, continuing")
@@ -364,12 +377,14 @@ def TranslateToZeroOrigin(transforms: Sequence[ITransform]) -> NDArray | None:
         origin = FixedOriginOffset(transforms)
     except ValueError:
         prettyoutput.LogErr("Could not determine origin of transforms, continuing")
-        return np.zeros((2,))
+        xp = _xp_for_transform_geometry(transforms)
+        return xp.zeros((2,))
 
     if origin is None:
         return
 
-    if np.array_equal(origin, np.zeros(2, )):
+    xp = cp.get_array_module(origin)
+    if xp.array_equal(origin, xp.zeros(2)):
         return
 
     for t in transforms:

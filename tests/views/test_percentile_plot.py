@@ -1,5 +1,7 @@
 import os
 
+import numpy as np
+
 from nornir_imageregistration.mathfuncs import CutoffMethod, calculate_deviation, estimate_cutoff
 import nornir_imageregistration.type_info
 
@@ -11,8 +13,19 @@ import nornir_imageregistration
 
 class Test(setup_imagetest.TestBase):
 
+    def _npz_under_testinput(self, *relative: str) -> str:
+        """Path under TESTINPUTPATH; skip if the nornir-testdata fixture is not present."""
+        path = os.path.join(self.TestInputPath, *relative)
+        if not os.path.isfile(path):
+            self.skipTest(
+                f"Missing {path!r}. Install or update the nornir-testdata checkout mounted at "
+                f"TESTINPUTPATH ({self.TestInputPath!r}); expected files under Data/, "
+                "see nornir-imageregistration/tests/views/test_percentile_plot.py."
+            )
+        return path
+
     def test_plotting(self):
-        test_data_path = os.path.join(self.TestInputPath, 'Data', 'example_percentile_dataset.npz')
+        test_data_path = self._npz_under_testinput("Data", "example_percentile_dataset.npz")
         test_data = np.load(test_data_path)
 
         # Test data contains
@@ -44,7 +57,7 @@ class Test(setup_imagetest.TestBase):
         self.assertTrue(cutoff_percentile_index == 92)
 
     def test_repro(self):
-        test_data_path = os.path.join(self.TestInputPath, 'Data', 'weight_distance_composite_scores_pass2.npz')
+        test_data_path = self._npz_under_testinput("Data", "weight_distance_composite_scores_pass2.npz")
         test_data = np.load(test_data_path)
 
         # Test data contains

@@ -46,6 +46,8 @@ def BoundsArrayFromPoints(points):
     :param ndarray points: (Z?,Y,X) 3xN or 2xN array of points
     :return: (minZ, minY, minX, maxZ, maxY, maxX) or (minY, minX, maxY, maxX)'''
 
+    points = nornir_imageregistration.EnsureNumpyArray(points)
+
     min_point = numpy.min(points, 0)
     max_point = numpy.max(points, 0)
 

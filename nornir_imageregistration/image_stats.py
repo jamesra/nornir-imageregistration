@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Sequence, Callable
+from typing import Any, Callable, Sequence
 
 import numpy
 import numpy as np
@@ -164,10 +164,11 @@ class ImageStats:
         #        image.__IrtoolsImageStats__ = obj
         return obj
 
-    def GenerateNoise(self, shape: np.ndarray, dtype: DTypeLike):
+    def GenerateNoise(self, shape: int | np.integer | np.ndarray | Any, dtype: DTypeLike, *, xp: Any | None = None):
         """
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
         :param array shape: Shape of the returned array
+        :param xp: Array module for output (``numpy`` or ``cupy``).  If ``None``, uses ``GetComputationModule()``.
         """
 
         size = None
@@ -191,7 +192,8 @@ class ImageStats:
             width = shape[1] if not one_d_result else 1
             size = int(shape) if one_d_result else shape.shape
 
-        xp = nornir_imageregistration.GetComputationModule()
+        if xp is None:
+            xp = nornir_imageregistration.GetComputationModule()
         with nornir_imageregistration.IgnoreUnderAndOverflow():  # type: ignore[attr-defined]
             # Use backend that passed startup probe (computational_lib); avoid cupy.random when curand is missing
             rng = xp.random

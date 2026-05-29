@@ -9,6 +9,13 @@ from typing import Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+
 import nornir_imageregistration
 import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformTranslation
@@ -254,7 +261,7 @@ class Tile:
                  ID: int | None):
         """
         :param transform: The transform object
-        :param imagepath: Full path to the image to be transformed.  This can also be an ndarray for testing purposes, but the tile will not marshall across process boundaries.
+        :param imagepath: Full path to the image to be transformed.  This can also be a NumPy or CuPy ndarray for testing purposes, but the tile will not marshall across process boundaries.
         :param float image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
         4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
@@ -275,11 +282,11 @@ class Tile:
         if isinstance(imagepath, str):
             self._imagepath = imagepath
             self._image = None
-        elif isinstance(imagepath, np.ndarray):
+        elif isinstance(imagepath, np.ndarray) or isinstance(imagepath, cp.ndarray):
             self._image = imagepath
             self._imagepath = None
         else:
-            raise ValueError("imagepath must be str or ndarray type")
+            raise ValueError("imagepath must be str or ndarray type (NumPy or CuPy)")
 
         self._paddedimage = None
         self._fftimage = None

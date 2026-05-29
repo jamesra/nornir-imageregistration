@@ -147,10 +147,11 @@ class AlignmentRecord(object):
         """
         Return the corners of a bounding box in the target space after the transform is applied.
         """
-        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(warpedImageSize.astype(np.floating),  # type: ignore[arg-type]
-                                                                                           self.rangle,
-                                                                                           self.peak,
-                                                                                           self.flippedud)
+        return nornir_imageregistration.transforms.factory.GetTransformedRigidCornerPoints(
+            warpedImageSize.astype(np.float64, copy=False),  # type: ignore[arg-type]
+            self.rangle,
+            self.peak,
+            self.flippedud)
 
     def ToImageTransform(self, target_image_shape: NDArray[np.integer] | tuple[int, int],
                          source_image_shape: NDArray[np.integer] | tuple[int, int] | None = None) -> ITransform:

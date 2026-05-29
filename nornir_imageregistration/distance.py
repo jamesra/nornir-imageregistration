@@ -63,7 +63,7 @@ def CreateDistanceImage(shape: ShapeLike, dtype: DTypeLike | None = None):
 
     x_range = None
     if not is_odd_shape[1]:
-        x_range = np.linspace(0.5, half_shape[0] - 0.5, num=half_shape[0])
+        x_range = np.linspace(0.5, half_shape[1] - 0.5, num=half_shape[1])
     else:
         half_shape[1] += 1
         x_range = np.linspace(0, half_shape[1] - 1, num=half_shape[1])

@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 import nornir_imageregistration.transforms as transforms
 from nornir_imageregistration.transforms.transform_type import TransformType
 
@@ -26,7 +28,8 @@ class testTransformConversion(unittest.TestCase):
         output = transforms.ConvertTransform(
             rigid,
             TransformType.GRID,
-            source_image_shape=(64, 64)
+            source_image_shape=(64, 64),
+            cell_size=np.asarray((32, 32), dtype=np.int64),
         )
         self.assertEqual(output.type, TransformType.GRID)
 
@@ -54,7 +57,8 @@ class testTransformConversion(unittest.TestCase):
         grid_transform = transforms.ConvertTransform(
             rigid,
             TransformType.GRID,
-            source_image_shape=(64, 64)
+            source_image_shape=(64, 64),
+            cell_size=np.asarray((32, 32), dtype=np.int64),
         )
         output = transforms.ConvertTransform(grid_transform, TransformType.RBF)
         self.assertEqual(output.type, TransformType.RBF)

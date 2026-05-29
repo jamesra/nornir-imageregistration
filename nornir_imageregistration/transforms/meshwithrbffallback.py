@@ -154,7 +154,7 @@ class MeshWithRBFFallback(Triangulation):
             else:
                 BadPoints = points
 
-        BadPoints = _ensure_float32_64(BadPoints, numpy)
+        BadPoints = _ensure_float32_64(BadPoints, cp.get_array_module(points))
 
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
@@ -190,7 +190,7 @@ class MeshWithRBFFallback(Triangulation):
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
-        BadPoints = _ensure_float32_64(BadPoints, numpy)
+        BadPoints = _ensure_float32_64(BadPoints, cp.get_array_module(points))
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)

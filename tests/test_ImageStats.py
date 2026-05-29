@@ -20,7 +20,7 @@ class ImageStatsBase(setup_imagetest.ImageTestBase):
     def setUp(self):
         super(ImageStatsBase, self).setUp()
 
-        self.ImagePath16bpp = os.path.join(self.TestInputPath, "PlatformRaw", "IDoc", "RC2_Micro", "17")
+        self.ImagePath16bpp = os.path.join(self.TestInputPath, "PlatformRaw", "IDOC", "RC2_Micro", "17")
         self.ImagePath8bpp = os.path.join(self.TestInputPath, "Images", "Alignment")
 
 

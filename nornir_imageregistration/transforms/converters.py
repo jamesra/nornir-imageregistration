@@ -105,8 +105,9 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], sou
 
     The R,c,t componenets once return can be used to obtain B'
     '''
-    A = target_points
-    B = source_points
+    # Host-only: uses NumPy linear algebra; CuPy inputs are transferred once at this boundary.
+    A = array_to_numpy_host(target_points)
+    B = array_to_numpy_host(source_points)
     assert A.shape == B.shape
     num_pts, num_dims = A.shape
 
@@ -124,7 +125,7 @@ def _kabsch_umeyama_translation_scaling(target_points: NDArray[np.floating], sou
     # Total translation, does not factor in translation of B to EB for rotation
     translation = EA - (scale * EB)
 
-    return scale, translation
+    return float(scale), translation
 
 
 def EstimateScale(source_points: NDArray[np.floating],
@@ -136,23 +137,32 @@ def EstimateScale(source_points: NDArray[np.floating],
     :param target_points: 
     :return: 
     """
+    xp_src = cp.get_array_module(source_points)
+    xp_tgt = cp.get_array_module(target_points)
+    xp = cp if (xp_src is cp or xp_tgt is cp) else np
+    source_points = xp.asarray(source_points)
+    target_points = xp.asarray(target_points)
 
-    mean_source_points = np.mean(source_points, axis=0)
-    mean_target_points = np.mean(target_points, axis=0)
+    mean_source_points = xp.mean(source_points, axis=0)
+    mean_target_points = xp.mean(target_points, axis=0)
 
     centered_source_points = source_points - mean_source_points
     centered_target_points = target_points - mean_target_points
 
-    target_rms = np.sum(np.sqrt(np.sum(centered_target_points ** 2, axis=1)))
-    source_rms = np.sum(np.sqrt(np.sum(centered_source_points ** 2, axis=1)))
+    target_rms = xp.sum(xp.sqrt(xp.sum(centered_target_points ** 2, axis=1)))
+    source_rms = xp.sum(xp.sqrt(xp.sum(centered_source_points ** 2, axis=1)))
 
     scale = target_rms / source_rms
-    return scale
+    return float(scale)
 
 
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
                                              source_points: NDArray[np.floating]) -> RigidComponents:
-    xp = cp.get_array_module(source_points)
+    xp_src = cp.get_array_module(source_points)
+    xp_tgt = cp.get_array_module(target_points)
+    xp = cp if (xp_src is cp or xp_tgt is cp) else np
+    source_points = xp.asarray(source_points)
+    target_points = xp.asarray(target_points)
 
     num_pts, m = source_points.shape
 
@@ -177,12 +187,8 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     vecs_a = xp.hstack((zeros_z_column, centered_source_points))
     vecs_b = xp.hstack((zeros_z_column, unscaled_centered_target_points))
     # scipy.spatial.transform has no CuPy implementation; host arrays only.
-    if xp is not np:
-        vecs_a_np = array_to_numpy_host(vecs_a)
-        vecs_b_np = array_to_numpy_host(vecs_b)
-    else:
-        vecs_a_np = np.asarray(vecs_a)
-        vecs_b_np = np.asarray(vecs_b)
+    vecs_a_np = array_to_numpy_host(vecs_a)
+    vecs_b_np = array_to_numpy_host(vecs_b)
     rotation = scipy.spatial.transform.Rotation.align_vectors(vecs_a_np, vecs_b_np)
     euler_angles = rotation[0].as_euler('zyx')
     estimated_angle = float(euler_angles[2])
@@ -222,7 +228,7 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     tranlsation_estimate = target_center - test_target_center
 
     return RigidComponents(source_rotation_center=source_center, angle=estimated_angle,
-                           translation=tranlsation_estimate, scale=scale_estimate, reflected=reflected)
+                           translation=tranlsation_estimate, scale=float(scale_estimate), reflected=reflected)
 
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,

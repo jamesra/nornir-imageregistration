@@ -98,7 +98,7 @@ def rotate_image(image: NDArray,
     im_result_empty_entries = xp_out.isnan(im_rotated)
     n_bad = int(xp_out.sum(im_result_empty_entries))
     if n_bad:
-        noise = image_stats.GenerateNoise(n_bad, dtype=image.dtype)  # type: ignore[arg-type]
+        noise = image_stats.GenerateNoise(n_bad, dtype=image.dtype, xp=xp_out)  # type: ignore[arg-type]
         if cp.get_array_module(noise) is not xp_out:
             if xp_out is np:
                 noise = noise.get() if hasattr(noise, "get") else np.asarray(noise).ravel()

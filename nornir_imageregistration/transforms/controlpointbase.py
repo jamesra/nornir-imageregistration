@@ -130,7 +130,9 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         """
         distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
         same = distance <= 0
-        return same
+        getter = getattr(same, "get", None)
+        same_np = np.atleast_1d(np.asarray(getter()) if callable(getter) else np.asarray(same))
+        return same_np.astype(bool, copy=False)
 
     def OnTransformChanged(self):
         self.ClearDataStructures()
@@ -423,7 +425,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         """
         distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
         same = distance <= 0
-        return same
+        getter = getattr(same, "get", None)
+        same_np = np.atleast_1d(np.asarray(getter()) if callable(getter) else np.asarray(same))
+        return same_np.astype(bool, copy=False)
 
     def OnTransformChanged(self):
         self.ClearDataStructures()

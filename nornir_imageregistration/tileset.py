@@ -11,6 +11,13 @@ import os
 import numpy as np
 from scipy import stats
 
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+
 import nornir_imageregistration
 import nornir_pools
 import nornir_shared.images
@@ -132,8 +139,9 @@ def __CorrectBrightfieldShadingOneImage(input_fullpath, output_fullpath, imagesc
     correctedimage = image / imagescalar
     del image
 
-    correctedimage[np.isinf(correctedimage)] = 0
-    np.clip(correctedimage, a_min=0, a_max=1.0, out=correctedimage)
+    xp = cp.get_array_module(correctedimage)
+    correctedimage = xp.where(xp.isinf(correctedimage), xp.asarray(0.0, dtype=correctedimage.dtype), correctedimage)
+    xp.clip(correctedimage, a_min=0, a_max=1.0, out=correctedimage)
     correctedimage = correctedimage * max_pixel_value
 
     nornir_imageregistration.SaveImage(output_fullpath, correctedimage, bpp=bpp)
@@ -152,7 +160,8 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
 
     # How much do we need to scale nonmax pixel values so the maximum pixel value is uniform across the entire image
     imagescalar = shadeimage / shadeimage.max()
-    imagescalar.setflags(write=False)
+    if hasattr(imagescalar, "setflags"):
+        imagescalar.setflags(write=False)
     # imagescalar[np.isinf(imagescalar)] = 1.0
 
     pool = nornir_pools.GetGlobalSerialPool()

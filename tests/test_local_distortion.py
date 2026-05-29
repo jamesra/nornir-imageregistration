@@ -647,14 +647,18 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
         CalculatedSourcePoints = self._rotate_points(InitialTargetPoints, rotcenter=(0, 0), rangle=-rangle)
 
-        # Optional offset to add as an additional test
-        CalculatedSourcePoints += np.array((-1, 4))
+        xp = cp.get_array_module(CalculatedSourcePoints)
+        # Optional offset to add as an additional test (must match points' backend under CuPy)
+        CalculatedSourcePoints = CalculatedSourcePoints + xp.asarray((-1, 4), dtype=xp.float64)
 
-        controlPoints = np.hstack((InitialTargetPoints, CalculatedSourcePoints))
+        controlPoints = xp.hstack(
+            (xp.asarray(InitialTargetPoints, dtype=xp.float64), CalculatedSourcePoints))
         reference_transform = nornir_imageregistration.transforms.MeshWithRBFFallback(controlPoints)
 
         ValidationTestPoints = reference_transform.InverseTransform(InitialTargetPoints)
-        np.testing.assert_allclose(ValidationTestPoints, CalculatedSourcePoints)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(ValidationTestPoints),
+            nornir_imageregistration.EnsureNumpyArray(CalculatedSourcePoints))
 
         # OK, check that the rigid transforms returned for the InitialTargetPoints perfectly match our reference_transform
         local_rigid_transforms = local_distortion_correction.ApproximateRigidTransformByTargetPoints(
@@ -662,12 +666,16 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
         for i, t in enumerate(local_rigid_transforms):
             test_source_points = t.InverseTransform(InitialTargetPoints)
-            np.testing.assert_allclose(test_source_points, CalculatedSourcePoints, atol=.006,
-                                       err_msg="Inverse Transform Iteration {0}".format(i))
+            np.testing.assert_allclose(
+                nornir_imageregistration.EnsureNumpyArray(test_source_points),
+                nornir_imageregistration.EnsureNumpyArray(CalculatedSourcePoints), atol=.006,
+                err_msg="Inverse Transform Iteration {0}".format(i))
 
             test_target_points = t.Transform(CalculatedSourcePoints)
-            np.testing.assert_allclose(test_target_points, InitialTargetPoints, atol=.005,
-                                       err_msg="Transform Iteration {0}".format(i))
+            np.testing.assert_allclose(
+                nornir_imageregistration.EnsureNumpyArray(test_target_points),
+                InitialTargetPoints, atol=.005,
+                err_msg="Transform Iteration {0}".format(i))
 
         return
 

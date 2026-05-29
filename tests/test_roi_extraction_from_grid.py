@@ -3,13 +3,34 @@ from numpy._typing import NDArray
 from typing import NamedTuple
 import scipy
 import math
+import importlib.util
+import sys
+from pathlib import Path
 
 import nornir_imageregistration
 from nornir_imageregistration import ShapeLike, VectorLike
 
-import setup_imagetest
 
-from . import create_gradient_image, create_nested_squares_image
+def _load_test_module(module_filename: str, module_name: str):
+    existing = sys.modules.get(module_name, None)
+    if existing is not None:
+        return existing
+
+    module_path = Path(__file__).resolve().parent / module_filename
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not create import spec for {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+setup_imagetest = _load_test_module("setup_imagetest.py", "nornir_imageregistration_tests_setup_imagetest")
+imageutilities = _load_test_module("imageutilities.py", "nornir_imageregistration_tests_imageutilities")
+create_gradient_image = imageutilities.create_gradient_image
+create_nested_squares_image = imageutilities.create_nested_squares_image
 
 
 class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):

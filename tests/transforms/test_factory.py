@@ -10,6 +10,7 @@ import unittest
 import numpy as np
 import numpy.testing
 
+import nornir_imageregistration
 import nornir_imageregistration.core as core
 import nornir_imageregistration.mosaic as mosaic
 import nornir_imageregistration.spatial as spatial
@@ -112,30 +113,41 @@ class TestIO(setup_imagetest.TransformTestBase):
     def LoadSaveTransform(self, transform: ITransform):
 
         ref_source_points = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
-        ref_target_points = transform.Transform(ref_source_points)
+        ref_target_points = nornir_imageregistration.EnsureNumpyArray(transform.Transform(ref_source_points))
 
         transformString = factory.TransformToIRToolsString(transform)
 
         loadedTransform = factory.LoadTransform(transformString)
 
-        reloaded_target_points = loadedTransform.Transform(ref_source_points)
+        reloaded_target_points = nornir_imageregistration.EnsureNumpyArray(
+            loadedTransform.Transform(ref_source_points))
 
         if isinstance(transform, IControlPoints):
             self.assertTrue(isinstance(loadedTransform, IControlPoints),
                             "Loaded transform must have same interface as saved transform")
-            pointMatch = numpy.allclose(transform.points, loadedTransform.points, atol=0.1)
+            pointMatch = np.allclose(
+                nornir_imageregistration.EnsureNumpyArray(transform.points),
+                nornir_imageregistration.EnsureNumpyArray(loadedTransform.points),
+                atol=0.1,
+            )
             self.assertTrue(pointMatch, f"Converting transform to string and back alters transform: {transformString}")
 
         if isinstance(transform, IDiscreteTransform):
             self.assertTrue(isinstance(loadedTransform, IDiscreteTransform),
                             "Loaded transform must have same interface as saved transform")
             self.assertTrue(
-                numpy.allclose(transform.FixedBoundingBox.ToArray(), loadedTransform.FixedBoundingBox.ToArray(),
-                               rtol=1e-04),
+                np.allclose(
+                    nornir_imageregistration.EnsureNumpyArray(transform.FixedBoundingBox.ToArray()),
+                    nornir_imageregistration.EnsureNumpyArray(loadedTransform.FixedBoundingBox.ToArray()),
+                    rtol=1e-04,
+                ),
                 "Fixed bounding box should match after converting transform to string and back")
             self.assertTrue(
-                numpy.allclose(transform.MappedBoundingBox.ToArray(), loadedTransform.MappedBoundingBox.ToArray(),
-                               rtol=1e-04),
+                np.allclose(
+                    nornir_imageregistration.EnsureNumpyArray(transform.MappedBoundingBox.ToArray()),
+                    nornir_imageregistration.EnsureNumpyArray(loadedTransform.MappedBoundingBox.ToArray()),
+                    rtol=1e-04,
+                ),
                 "Mapped bounding box should match after converting transform to string and back")
 
         if isinstance(transform, RigidTranslation):
