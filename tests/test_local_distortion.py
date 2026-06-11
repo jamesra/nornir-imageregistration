@@ -5,7 +5,10 @@ Created on Sep 26, 2018
 """
 import os
 import os.path
+import tempfile
 import unittest
+import re
+from typing import Any, cast
 
 import numpy as np
 
@@ -37,6 +40,45 @@ from nornir_imageregistration.local_distortion_correction import AlignRecordsToC
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 import nornir_pools
 import setup_imagetest
+
+
+def _fake_refine_tile_alignment_remote(*args, **kwargs):
+    refine_dtype = np.dtype([('SourceAY', 'f4'),
+                             ('SourceAX', 'f4'),
+                             ('SourceBY', 'f4'),
+                             ('SourceBX', 'f4'),
+                             ('BaseTargetY', 'f4'),
+                             ('BaseTargetX', 'f4'),
+                             ('TargetY', 'f4'),
+                             ('TargetX', 'f4'),
+                             ('DisplacementY', 'f4'),
+                             ('DisplacementX', 'f4'),
+                             ('Weight', 'f4'),
+                             ('Angle', 'f4')])
+    point_pairs = np.zeros((2, 2), dtype=refine_dtype)
+    rows = [10.0, 30.0]
+    cols = [10.0, 30.0]
+    for i, y in enumerate(rows):
+        for j, x in enumerate(cols):
+            point_pairs[i, j] = (y, x, y, x + 8.0, y, x + 4.0, y + 2.0, x + 4.0, 2.0, 0.0, 1.0, 0.0)
+    return point_pairs, np.asarray((2.0, 0.0, 1.0), dtype=np.float32)
+
+
+def _fake_refine_tile_overlap_batch_remote(anchor_tile, overlap_batch, image_scale, subregion_shape):
+    """Return one stub refinement result per overlap in the batch."""
+    single = _fake_refine_tile_alignment_remote(
+        anchor_tile,
+        overlap_batch[0].B if overlap_batch else anchor_tile,
+        overlap_batch[0].scaled_overlapping_source_rect_A if overlap_batch else None,
+        overlap_batch[0].scaled_overlapping_source_rect_B if overlap_batch else None,
+        overlap_batch[0].scaled_offset if overlap_batch else np.zeros(2),
+        image_scale,
+        subregion_shape)
+    return [single] * len(overlap_batch)
+
+
+def _serial_refinement_pool(_target_space_scale: float):
+    return nornir_pools.GetGlobalSerialPool()
 
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):
@@ -785,6 +827,630 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
         grid_spacing_transformed_points = grid_t_grid_spacing.Transform(test_points)
         self.assertTrue(np.array_equal(grid_spacing_transformed_points, grid_transformed_points))
+
+
+class TestMosaicGridRefinementApi(unittest.TestCase):
+
+    def test_refinement_base_target_uses_inverse_warp_anchor(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (64, 64)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[16:48, 16:48] = 1.0
+            image_b[16:48, 20:52] = 1.0
+
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            transforms = {
+                "1.png": nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                "2.png": nornir_imageregistration.transforms.RigidTranslation((0, 40)),
+            }
+            tiles = nornir_imageregistration.mosaic_tileset.Create(
+                list(transforms.values()),
+                [image_a_path, image_b_path],
+                image_to_source_space_scale=1.0)
+            tile_a, tile_b = list(tiles.values())
+            overlap = nornir_imageregistration.tile_overlap.TileOverlap(
+                tile_a, tile_b, image_to_source_space_scale=1.0)
+            subregion_shape = np.array([32, 32], dtype=np.int64)
+            geometry = local_distortion_correction._compute_padded_overlap_geometry(
+                overlap.scaled_overlapping_source_rect_A,
+                overlap.scaled_overlapping_source_rect_B,
+                overlap.overlapping_target_rect,  # type: ignore[arg-type]
+                subregion_shape,
+                1.0)
+            subregion_offset = np.array([32.0, 32.0])
+            _, _, _, base_target = local_distortion_correction._refinement_cell_geometry(
+                subregion_offset,
+                geometry.target_region_rect,
+                1.0,
+                tile_a,
+                tile_b)
+            expected = local_distortion_correction._target_center_for_refinement_cell(
+                subregion_offset,
+                geometry.target_region_rect,
+                1.0)
+            self.assertTrue(np.allclose(base_target, expected, atol=1e-3))
+
+    def test_inverse_warp_cell_mapping_differs_from_linear_for_nonlinear_grid(self):
+        """Non-linear transforms must inverse-warp the target cell center for source anchors."""
+        rigid = nornir_imageregistration.transforms.RigidTranslation((100.0, 200.0))
+        grid = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+            rigid,
+            source_image_shape=np.asarray([128, 128], dtype=np.int64),
+            cell_size=(16, 16),
+            grid_dims=(9, 9))
+        bent_targets = np.asarray(grid.TargetPoints, dtype=np.float64).copy()
+        bent_targets[:, 0] += np.linspace(-8.0, 8.0, bent_targets.shape[0])
+        for index in range(bent_targets.shape[0]):
+            grid.UpdateTargetPointsByIndex(index, bent_targets[index])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image = np.zeros((128, 128), dtype=np.float32)
+            image[32:96, 32:96] = 1.0
+            image_path = os.path.join(temp_dir, "tile.png")
+            nornir_imageregistration.SaveImage(image_path, image, bpp=8)
+            tile_a = nornir_imageregistration.mosaic_tileset.Create(
+                [grid],
+                [image_path],
+                image_to_source_space_scale=1.0)[0]
+            tile_b = tile_a
+            subregion_shape = np.array([32, 32], dtype=np.int64)
+            overlapping_target_rect = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+                (100.0, 200.0), (64.0, 64.0))
+            geometry = local_distortion_correction._compute_padded_overlap_geometry(
+                nornir_imageregistration.Rectangle.CreateFromPointAndArea((16.0, 16.0), (64.0, 64.0)),
+                nornir_imageregistration.Rectangle.CreateFromPointAndArea((16.0, 16.0), (64.0, 64.0)),
+                overlapping_target_rect,
+                subregion_shape,
+                1.0)
+            subregion_offset = np.array([16.0, 16.0])
+            _, inverse_source_a, _, _ = local_distortion_correction._refinement_cell_geometry(
+                subregion_offset,
+                geometry.target_region_rect,
+                1.0,
+                tile_a,
+                tile_b)
+            linear_source_a, _ = local_distortion_correction._full_source_points_for_refinement_cell(
+                subregion_offset,
+                geometry.padded_scaled_source_rect_a,
+                geometry.padded_scaled_source_rect_b,
+                1.0)
+            self.assertFalse(np.allclose(inverse_source_a, linear_source_a, atol=1e-3))
+
+    def test_refinement_base_target_uses_transform_mapping(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (64, 64)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[16:48, 16:48] = 1.0
+            image_b[16:48, 20:52] = 1.0
+
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            transforms = {
+                "1.png": nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                "2.png": nornir_imageregistration.transforms.RigidTranslation((0, 40)),
+            }
+            tiles = nornir_imageregistration.mosaic_tileset.Create(
+                list(transforms.values()),
+                [image_a_path, image_b_path],
+                image_to_source_space_scale=1.0)
+            tile_a, tile_b = list(tiles.values())
+            overlap = nornir_imageregistration.tile_overlap.TileOverlap(
+                tile_a, tile_b, image_to_source_space_scale=1.0)
+            subregion_offset = np.array([32.0, 32.0])
+            full_a, full_b = local_distortion_correction._full_source_points_for_refinement_cell(
+                subregion_offset,
+                overlap.scaled_overlapping_source_rect_A,
+                overlap.scaled_overlapping_source_rect_B,
+                1.0)
+            base_target = local_distortion_correction._base_target_for_refinement_cell(
+                tile_a, tile_b, full_a, full_b)
+            expected = tile_a.Transform.Transform(np.asarray([full_a], dtype=np.float64))[0]
+            self.assertTrue(np.allclose(base_target, expected, atol=1e-3))
+
+    def test_split_displacements_balances_offsets(self):
+        refine_dtype = np.dtype([('SourceAY', 'f4'),
+                                 ('SourceAX', 'f4'),
+                                 ('SourceBY', 'f4'),
+                                 ('SourceBX', 'f4'),
+                                 ('BaseTargetY', 'f4'),
+                                 ('BaseTargetX', 'f4'),
+                                 ('TargetY', 'f4'),
+                                 ('TargetX', 'f4'),
+                                 ('DisplacementY', 'f4'),
+                                 ('DisplacementX', 'f4'),
+                                 ('Weight', 'f4'),
+                                 ('Angle', 'f4')])
+
+        point_pairs = np.zeros((1, 1), dtype=refine_dtype)
+        point_pairs[0, 0] = (20, 10, 21, 11, 100, 200, 102, 198, 2, -2, 0.8, 0)
+
+        a_updates, b_updates = local_distortion_correction.SplitDisplacements(None, None, point_pairs)
+        self.assertEqual(1, a_updates.shape[0])
+        self.assertEqual(1, b_updates.shape[0])
+
+        self.assertTrue(np.allclose([101, 199], [a_updates['TargetY'][0], a_updates['TargetX'][0]]))
+        self.assertTrue(np.allclose([99, 201], [b_updates['TargetY'][0], b_updates['TargetX'][0]]))
+        self.assertEqual(a_updates['Weight'][0], b_updates['Weight'][0])
+
+    def test_refine_grid_mosaic_returns_grid_transforms(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (64, 64)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[16:48, 16:48] = 1.0
+            image_b[16:48, 20:52] = 1.0
+
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            transforms = {
+                "1.png": nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                "2.png": nornir_imageregistration.transforms.RigidTranslation((0, 8)),
+            }
+            mosaic = nornir_imageregistration.mosaic.Mosaic(transforms)
+
+            refine_fn_name = "__RefineTileOverlapBatchRemote"
+            original_fn = getattr(local_distortion_correction, refine_fn_name)
+            original_pool_fn = local_distortion_correction._refinement_pool_for_overlap_tasks
+
+            setattr(local_distortion_correction, refine_fn_name, _fake_refine_tile_overlap_batch_remote)
+            local_distortion_correction._refinement_pool_for_overlap_tasks = _serial_refinement_pool
+            try:
+                refined_mosaic, diagnostics = nornir_imageregistration.RefineGridMosaic(
+                    mosaic,
+                    temp_dir,
+                    iterations=1,
+                    cell_size=(32, 32),
+                    displacement_threshold=0.0,
+                    return_diagnostics=True)
+            finally:
+                setattr(local_distortion_correction, refine_fn_name, original_fn)
+                local_distortion_correction._refinement_pool_for_overlap_tasks = original_pool_fn
+
+            first = refined_mosaic.ImageToTransform["1.png"]
+            second = refined_mosaic.ImageToTransform["2.png"]
+            self.assertTrue(isinstance(first, nornir_imageregistration.transforms.IGridTransform))
+            self.assertTrue(isinstance(second, nornir_imageregistration.transforms.IGridTransform))
+            self.assertEqual(diagnostics.iterations_completed, 1)
+
+            mfile = refined_mosaic.ToMosaicFile()
+            self.assertIn("GridTransform_double_2_2", mfile.ImageToTransformString["1.png"])
+            self.assertIn("GridTransform_double_2_2", mfile.ImageToTransformString["2.png"])
+
+    def test_refine_grid_mosaic_uses_full_resolution_source_bounds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            full_shape = (80, 80)
+            downsample = 4
+            ds_shape = (full_shape[0] // downsample, full_shape[1] // downsample)
+
+            image_a = np.zeros(ds_shape, dtype=np.float32)
+            image_b = np.zeros(ds_shape, dtype=np.float32)
+            image_a[4:16, 4:16] = 1.0
+            image_b[4:16, 6:18] = 1.0
+
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            transforms = {
+                "1.png": nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                "2.png": nornir_imageregistration.transforms.RigidTranslation((0, 40)),
+            }
+            mosaic = nornir_imageregistration.mosaic.Mosaic(transforms)
+
+            refine_fn_name = "__RefineTileOverlapBatchRemote"
+            original_fn = getattr(local_distortion_correction, refine_fn_name)
+            original_pool_fn = local_distortion_correction._refinement_pool_for_overlap_tasks
+
+            setattr(local_distortion_correction, refine_fn_name, _fake_refine_tile_overlap_batch_remote)
+            local_distortion_correction._refinement_pool_for_overlap_tasks = _serial_refinement_pool
+            try:
+                refined_mosaic = cast(
+                    nornir_imageregistration.mosaic.Mosaic,
+                    nornir_imageregistration.RefineGridMosaic(
+                        cast(Any, mosaic),
+                        temp_dir,
+                        iterations=1,
+                        cell_size=(16, 16),
+                        imageScale=1.0 / downsample,
+                        displacement_threshold=0.0))
+            finally:
+                setattr(local_distortion_correction, refine_fn_name, original_fn)
+                local_distortion_correction._refinement_pool_for_overlap_tasks = original_pool_fn
+
+            mfile = refined_mosaic.ToMosaicFile()
+            transform_str = mfile.ImageToTransformString["1.png"]
+            self.assertIn("GridTransform_double_2_2", transform_str)
+
+            fp_match = re.search(
+                r"\bfp\s+\d+\s+\d+\s+\d+\s+\d+\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)",
+                transform_str)
+            self.assertIsNotNone(fp_match, "Expected fixed-parameter bounds in transform string")
+            if fp_match is None:
+                self.fail("Expected fixed-parameter bounds in transform string")
+            _, _, max_x_str, max_y_str = fp_match.groups()
+            max_x = float(max_x_str)
+            max_y = float(max_y_str)
+
+            # fp bounds should reflect full-resolution source geometry, not downsampled tile size.
+            self.assertGreaterEqual(max_x, full_shape[1] - 2)
+            self.assertGreaterEqual(max_y, full_shape[0] - 2)
+
+    def test_grid_sparse_update_preserves_unmeasured_cells(self):
+        """Measured cells move; unmeasured grid corners stay fixed."""
+        rigid = nornir_imageregistration.transforms.RigidTranslation((100.0, 200.0))
+        grid = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+            rigid,
+            source_image_shape=np.asarray([64, 64], dtype=np.int64),
+            cell_size=(16, 16),
+            grid_dims=(5, 5))
+
+        before = np.asarray(grid.TargetPoints, dtype=np.float64)
+        corner_index = 0
+        corner_before = before[corner_index].copy()
+
+        center_source = np.asarray(grid.SourcePoints[grid.NumControlPoints // 2], dtype=np.float64)
+        point_pairs = np.asarray(
+            [[110.0, 210.0, center_source[0], center_source[1]]],
+            dtype=np.float64)
+
+        updated = local_distortion_correction._apply_point_pair_updates_to_grid_transform(grid, point_pairs)
+        self.assertEqual(1, updated)
+
+        after = np.asarray(grid.TargetPoints, dtype=np.float64)
+        np.testing.assert_allclose(after[corner_index], corner_before, atol=1e-4)
+        self.assertFalse(np.allclose(after[corner_index], point_pairs[0, 0:2]))
+
+    def test_grid_multi_update_averages_same_cell(self):
+        """Two measurements mapping to the same grid cell produce a weighted-average delta."""
+        rigid = nornir_imageregistration.transforms.RigidTranslation((0.0, 0.0))
+        grid = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+            rigid,
+            source_image_shape=np.asarray([64, 64], dtype=np.int64),
+            cell_size=(16, 16),
+            grid_dims=(5, 5))
+
+        source_point = np.asarray(grid.SourcePoints[0], dtype=np.float64)
+        point_pairs = np.asarray([
+            [5.0, 5.0, source_point[0], source_point[1]],
+            [7.0, 7.0, source_point[0], source_point[1]],
+        ], dtype=np.float64)
+
+        local_distortion_correction._apply_point_pair_updates_to_grid_transform(grid, point_pairs)
+        expected = np.asarray([6.0, 6.0], dtype=np.float64)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(grid.TargetPoints[0]),
+            expected,
+            atol=1e-4)
+
+    def test_grid_update_with_less_than_three_points(self):
+        """Single-point updates must still adjust the grid (legacy sparse-cell behavior)."""
+        rigid = nornir_imageregistration.transforms.RigidTranslation((0.0, 0.0))
+        grid = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+            rigid,
+            source_image_shape=np.asarray([64, 64], dtype=np.int64),
+            cell_size=(32, 32),
+            grid_dims=(3, 3))
+
+        before = np.asarray(grid.TargetPoints[4], dtype=np.float64)
+        source_point = np.asarray(grid.SourcePoints[4], dtype=np.float64)
+        point_pairs = np.asarray([[4.0, 6.0, source_point[0], source_point[1]]], dtype=np.float64)
+
+        updated = local_distortion_correction._apply_point_pair_updates_to_grid_transform(grid, point_pairs)
+        self.assertEqual(1, updated)
+        after_center = nornir_imageregistration.EnsureNumpyArray(grid.TargetPoints[4])
+        self.assertFalse(np.allclose(after_center, before, atol=1e-4))
+
+    def test_mesh_rebuild_resamples_full_output_grid(self):
+        """Merged overlap pairs must rebuild a mesh and repopulate every output grid node."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (64, 64)
+            image_path = os.path.join(temp_dir, "tile.png")
+            nornir_imageregistration.SaveImage(
+                image_path,
+                np.zeros(image_shape, dtype=np.float32),
+                bpp=8)
+
+            rigid = nornir_imageregistration.transforms.RigidTranslation((10.0, 20.0))
+            source_shape = np.asarray(image_shape, dtype=np.int64)
+            grid = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+                rigid,
+                source_image_shape=source_shape,
+                cell_size=(16, 16),
+                grid_dims=(5, 5))
+
+            sources = np.asarray(grid.SourcePoints, dtype=np.float64)
+            targets = np.asarray(grid.Transform(sources), dtype=np.float64)
+            targets[0] += np.asarray([2.0, 3.0], dtype=np.float64)
+            targets[4] += np.asarray([-1.0, 1.5], dtype=np.float64)
+            targets[20] += np.asarray([0.5, -0.5], dtype=np.float64)
+            point_pairs = np.hstack([targets[[0, 4, 20]], sources[[0, 4, 20]]])
+
+            tile = nornir_imageregistration.Tile(
+                grid,
+                image_path,
+                image_to_source_space_scale=1.0,
+                ID=0)
+            updated = local_distortion_correction._update_tile_transform_from_merged_overlap_pairs(
+                tile,
+                point_pairs,
+                resolved_cell_size=(16, 16),
+                resolved_mesh_shape=(5, 5))
+            self.assertEqual(3, updated)
+            self.assertTrue(isinstance(tile.Transform, nornir_imageregistration.transforms.IGridTransform))
+            self.assertEqual((5, 5), tile.Transform.grid_dims)
+
+    def test_refine_grid_mosaic_initializes_grid_before_iteration(self):
+        """RefineGridMosaic must emit grid transforms even when overlap refinement is stubbed."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (64, 64)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[16:48, 16:48] = 1.0
+            image_b[16:48, 20:52] = 1.0
+
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            transforms = {
+                "1.png": nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                "2.png": nornir_imageregistration.transforms.RigidTranslation((0, 8)),
+            }
+            mosaic = nornir_imageregistration.mosaic.Mosaic(transforms)
+
+            refine_fn_name = "__RefineTileOverlapBatchRemote"
+            original_fn = getattr(local_distortion_correction, refine_fn_name)
+            original_pool_fn = local_distortion_correction._refinement_pool_for_overlap_tasks
+
+            def _empty_overlap_refinement_batch(_anchor, overlap_batch, *_args, **_kwargs):
+                refine_dtype = np.dtype([('SourceAY', 'f4'),
+                                         ('SourceAX', 'f4'),
+                                         ('SourceBY', 'f4'),
+                                         ('SourceBX', 'f4'),
+                                         ('BaseTargetY', 'f4'),
+                                         ('BaseTargetX', 'f4'),
+                                         ('TargetY', 'f4'),
+                                         ('TargetX', 'f4'),
+                                         ('DisplacementY', 'f4'),
+                                         ('DisplacementX', 'f4'),
+                                         ('Weight', 'f4'),
+                                         ('Angle', 'f4')])
+                empty = np.zeros((1, 1), dtype=refine_dtype)
+                empty_result = (empty, np.asarray((0.0, 0.0, 0.0), dtype=np.float32))
+                return [empty_result] * len(overlap_batch)
+
+            setattr(local_distortion_correction, refine_fn_name, _empty_overlap_refinement_batch)
+            local_distortion_correction._refinement_pool_for_overlap_tasks = _serial_refinement_pool
+            try:
+                refined_mosaic = nornir_imageregistration.RefineGridMosaic(
+                    mosaic,
+                    temp_dir,
+                    iterations=1,
+                    cell_size=(32, 32),
+                    mesh_shape=(3, 3),
+                    displacement_threshold=0.0)
+            finally:
+                setattr(local_distortion_correction, refine_fn_name, original_fn)
+                local_distortion_correction._refinement_pool_for_overlap_tasks = original_pool_fn
+
+            for transform in refined_mosaic.ImageToTransform.values():
+                self.assertTrue(isinstance(transform, nornir_imageregistration.transforms.IGridTransform))
+                self.assertEqual((3, 3), transform.grid_dims)
+
+    def test_refinement_pool_serial_when_cupy(self):
+        original_using_cupy = nornir_imageregistration.UsingCupy
+        original_mt_pool = nornir_pools.GetGlobalMultithreadingPool
+        original_serial_pool = nornir_pools.GetGlobalSerialPool
+        try:
+            nornir_imageregistration.UsingCupy = lambda: True  # type: ignore[method-assign]
+            nornir_pools.GetGlobalMultithreadingPool = lambda: object()  # type: ignore[assignment]
+            nornir_pools.GetGlobalSerialPool = lambda: "serial-pool"  # type: ignore[assignment]
+            self.assertIs(
+                local_distortion_correction._refinement_pool_for_overlap_tasks(0.25),
+                "serial-pool")
+        finally:
+            nornir_imageregistration.UsingCupy = original_using_cupy  # type: ignore[method-assign]
+            nornir_pools.GetGlobalMultithreadingPool = original_mt_pool
+            nornir_pools.GetGlobalSerialPool = original_serial_pool
+
+    def test_refinement_pool_serial_at_full_resolution(self):
+        original_using_cupy = nornir_imageregistration.UsingCupy
+        original_mt_pool = nornir_pools.GetGlobalMultithreadingPool
+        original_serial_pool = nornir_pools.GetGlobalSerialPool
+        try:
+            nornir_imageregistration.UsingCupy = lambda: False  # type: ignore[method-assign]
+            nornir_pools.GetGlobalMultithreadingPool = lambda: object()  # type: ignore[assignment]
+            nornir_pools.GetGlobalSerialPool = lambda: "serial-pool"  # type: ignore[assignment]
+            self.assertIs(
+                local_distortion_correction._refinement_pool_for_overlap_tasks(1.0),
+                "serial-pool")
+        finally:
+            nornir_imageregistration.UsingCupy = original_using_cupy  # type: ignore[method-assign]
+            nornir_pools.GetGlobalMultithreadingPool = original_mt_pool
+            nornir_pools.GetGlobalSerialPool = original_serial_pool
+
+    def test_compute_padded_overlap_geometry_uses_overlap_not_full_tile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (256, 256)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[64:192, 64:192] = 1.0
+            image_b[64:192, 96:224] = 1.0
+            image_a_path = os.path.join(temp_dir, "1.png")
+            image_b_path = os.path.join(temp_dir, "2.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            tiles = nornir_imageregistration.mosaic_tileset.Create(
+                [nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                 nornir_imageregistration.transforms.RigidTranslation((0, 32))],
+                [image_a_path, image_b_path],
+                image_to_source_space_scale=1.0)
+            tile_a, tile_b = list(tiles.values())
+            overlap = nornir_imageregistration.tile_overlap.TileOverlap(
+                tile_a, tile_b, image_to_source_space_scale=1.0)
+            subregion_shape = np.array([32, 32], dtype=np.int64)
+
+            geometry = local_distortion_correction._compute_padded_overlap_geometry(
+                overlap.scaled_overlapping_source_rect_A,
+                overlap.scaled_overlapping_source_rect_B,
+                overlap.overlapping_target_rect,  # type: ignore[arg-type]
+                subregion_shape,
+                1.0)
+
+            self.assertLess(
+                geometry.padded_scaled_source_rect_a.Area,
+                float(tile_a.ImageSize[0] * tile_a.ImageSize[1]))
+            self.assertLess(geometry.target_region_rect.Width, tile_a.ImageSize[1] * 2)
+
+    def test_warp_overlap_for_grid_refine_spills_large_results(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image = np.random.rand(128, 128).astype(np.float32)
+            image_path = os.path.join(temp_dir, "tile.png")
+            nornir_imageregistration.SaveImage(image_path, image, bpp=8)
+            tile = nornir_imageregistration.mosaic_tileset.Create(
+                [nornir_imageregistration.transforms.RigidTranslation((0, 0))],
+                [image_path],
+                image_to_source_space_scale=1.0)[0]
+
+            source_rect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((16, 16), (96, 96))
+            target_rect = nornir_imageregistration.Rectangle.CreateFromPointAndArea((16, 16), (96, 96))
+
+            original_create = (
+                nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create)
+            create_kwargs = []
+
+            def _recording_create(*args, **kwargs):
+                create_kwargs.append(kwargs)
+                return original_create(*args, **kwargs)
+
+            nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create = (
+                _recording_create)
+            try:
+                result = local_distortion_correction._warp_overlap_for_grid_refine(
+                    tile,
+                    source_rect,
+                    target_rect,
+                    target_space_scale=1.0,
+                    single_threaded_invoke=False)
+            finally:
+                nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create = (
+                    original_create)
+
+            self.assertEqual(1, len(create_kwargs))
+            self.assertFalse(create_kwargs[0]['SingleThreadedInvoke'])
+            self.assertFalse(isinstance(
+                result,
+                nornir_imageregistration.transformed_image_data.TransformedImageDataError))
+
+    def test_warp_overlap_matches_transform_tile(self):
+        """Overlap crop warp must match the legacy TransformTile overlap ROI path."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (128, 128)
+            image_a = np.random.rand(*image_shape).astype(np.float32)
+            image_b = np.random.rand(*image_shape).astype(np.float32)
+            image_a_path = os.path.join(temp_dir, "a.png")
+            image_b_path = os.path.join(temp_dir, "b.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            tiles = nornir_imageregistration.mosaic_tileset.Create(
+                [nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                 nornir_imageregistration.transforms.RigidTranslation((0, 64))],
+                [image_a_path, image_b_path],
+                image_to_source_space_scale=1.0)
+            tile_a, tile_b = list(tiles.values())
+            overlap = nornir_imageregistration.tile_overlap.TileOverlap(
+                tile_a, tile_b, image_to_source_space_scale=1.0)
+            subregion_shape = np.array([32, 32], dtype=np.int64)
+            grid_dim = np.asarray(
+                nornir_imageregistration.TileGridShape(
+                    overlap.scaled_overlapping_source_rect_A.Size, subregion_shape),
+                dtype=np.int64)
+            target_region = local_distortion_correction._legacy_overlap_target_region(
+                tile_a, tile_b, grid_dim, subregion_shape, 1.0)
+            padded_a, padded_b = local_distortion_correction._padded_scaled_overlap_source_rects(
+                overlap.scaled_overlapping_source_rect_A,
+                overlap.scaled_overlapping_source_rect_B,
+                grid_dim,
+                subregion_shape)
+
+            for tile, padded_rect in ((tile_a, padded_a), (tile_b, padded_b)):
+                custom = local_distortion_correction._warp_overlap_for_grid_refine(
+                    tile, padded_rect, target_region, 1.0, False)
+                legacy = nornir_imageregistration.assemble_tiles.TransformTile(
+                    tile,
+                    TargetRegion=target_region,
+                    target_space_scale=1.0,
+                    SingleThreadedInvoke=False)
+                self.assertFalse(isinstance(
+                    custom,
+                    nornir_imageregistration.transformed_image_data.TransformedImageDataError))
+                self.assertFalse(isinstance(
+                    legacy,
+                    nornir_imageregistration.transformed_image_data.TransformedImageDataError))
+                self.assertEqual(custom.image.shape, legacy.image.shape)
+                np.testing.assert_allclose(custom.image, legacy.image, rtol=0, atol=1e-6)
+
+    def test_refine_overlap_pair_keeps_target_coordinates_bounded(self):
+        """Refinement must not produce runaway target-space displacements on rigid mosaics."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_shape = (256, 256)
+            image_a = np.zeros(image_shape, dtype=np.float32)
+            image_b = np.zeros(image_shape, dtype=np.float32)
+            image_a[64:192, 64:192] = np.random.rand(128, 128).astype(np.float32)
+            image_b[64:192, 96:224] = image_a[64:192, 96:224]
+            image_a_path = os.path.join(temp_dir, "a.png")
+            image_b_path = os.path.join(temp_dir, "b.png")
+            nornir_imageregistration.SaveImage(image_a_path, image_a, bpp=8)
+            nornir_imageregistration.SaveImage(image_b_path, image_b, bpp=8)
+
+            tiles = nornir_imageregistration.mosaic_tileset.Create(
+                [nornir_imageregistration.transforms.RigidTranslation((0, 0)),
+                 nornir_imageregistration.transforms.RigidTranslation((0, 32))],
+                [image_a_path, image_b_path],
+                image_to_source_space_scale=1.0)
+            tile_a, tile_b = list(tiles.values())
+            overlap = nornir_imageregistration.tile_overlap.TileOverlap(
+                tile_a, tile_b, image_to_source_space_scale=1.0)
+            subregion_shape = np.array([32, 32], dtype=np.int64)
+            local_distortion_correction._initialize_tile_grid_transforms(
+                [tile_a, tile_b],
+                resolved_cell_size=(32, 32),
+                resolved_mesh_shape=(8, 8))
+
+            point_pairs, _ = local_distortion_correction._refine_single_tile_overlap_pair(
+                tile_a,
+                tile_b,
+                overlap.scaled_overlapping_source_rect_A,
+                overlap.scaled_overlapping_source_rect_B,
+                overlap.overlapping_target_rect,  # type: ignore[arg-type]
+                1.0,
+                subregion_shape)
+
+            flattened = point_pairs.reshape(-1)
+            overlap_target = overlap.overlapping_target_rect  # type: ignore[union-attr]
+            margin = float(max(overlap_target.Width, overlap_target.Height))
+            valid = flattened[flattened['Weight'] > 0]
+            if valid.size > 0:
+                self.assertLess(np.max(np.abs(valid['DisplacementY'])), margin)
+                self.assertLess(np.max(np.abs(valid['DisplacementX'])), margin)
+                self.assertLess(np.max(valid['TargetY']), overlap_target.MaxY + margin)
+                self.assertLess(np.max(valid['TargetX']), overlap_target.MaxX + margin)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+format_version_number: 1
+number_of_images: 4
+pixel_spacing: 1
+use_std_mask: 0
+image:
+000.png
+Rigid2DTransform_double_2_2 vp 3 0 6.81227 3637.45 fp 2 0 0
+image:
+001.png
+Rigid2DTransform_double_2_2 vp 3 0 0 19.8638 fp 2 0 0
+image:
+002.png
+Rigid2DTransform_double_2_2 vp 3 0 3630.9 0 fp 2 0 0
+image:
+003.png
+Rigid2DTransform_double_2_2 vp 3 0 3648.76 3615.35 fp 2 0 0

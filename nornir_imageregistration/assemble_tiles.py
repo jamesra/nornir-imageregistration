@@ -37,6 +37,34 @@ from nornir_imageregistration.distance import CreateDistanceImage
 
 distance_image_cache = WindowFilterCache('distance', CreateDistanceImage)
 
+_DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES = 16 * 1024 * 1024 * 1024
+
+
+def _max_assemble_buffer_bytes() -> int:
+    """Return the maximum allowed assemble output buffer size in bytes."""
+    raw = os.environ.get('NORNIR_MAX_ASSEMBLE_BUFFER_BYTES')
+    if raw is not None and raw.strip() != '':
+        return int(raw)
+    return _DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES
+
+
+def _raise_if_assemble_buffer_too_large(height: int, width: int, dtype: DTypeLike) -> None:
+    """Fail fast before allocating an unreasonably large assemble canvas."""
+    if height <= 0 or width <= 0:
+        raise ValueError(f"Assemble output dimensions must be positive, got {height}x{width}")
+
+    image_bytes = int(height) * int(width) * int(np.dtype(dtype).itemsize)
+    zbuffer_bytes = int(height) * int(width) * int(np.dtype(np.float16).itemsize)
+    total_bytes = image_bytes + zbuffer_bytes
+    limit_bytes = _max_assemble_buffer_bytes()
+    if total_bytes > limit_bytes:
+        raise ValueError(
+            f"Refusing to allocate {total_bytes:,} bytes for assemble output "
+            f"({width}x{height}, image dtype={np.dtype(dtype)}, limit={limit_bytes:,} from "
+            "NORNIR_MAX_ASSEMBLE_BUFFER_BYTES). This usually indicates invalid mosaic transforms "
+            "with exploded target-space control points; regenerate the grid transform or inspect "
+            "per-tile target bounding boxes before assembling.")
+
 
 # TODO: Use atexit to delete the temporary files
 # TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
@@ -146,6 +174,7 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
 def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
     """Create output images using the passed width and height
     """
+    _raise_if_assemble_buffer_too_large(int(Height), int(Width), dtype)
 
     xp = nornir_imageregistration.GetComputationModule()
 

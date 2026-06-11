@@ -77,6 +77,23 @@ class TestImageAlign(setup_imagetest.ImageTestBase):
         self.assertAlmostEqual(record.peak[1], 107,
                                msg="Expected X offset is zero when aligning image to self: %s" % str(record), delta=1.0)
 
+    def test_phase_correlation_constant_images_no_divide_exception(self):
+        """Constant images should return a finite record without divide warnings."""
+        fixed = np.zeros((64, 64), dtype=np.float32)
+        moving = np.zeros((64, 64), dtype=np.float32)
+
+        fixed_padded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(fixed)
+        moving_padded = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(moving)
+
+        record = nornir_imageregistration.phasecorrelation.find_offset(
+            fixed_padded,
+            moving_padded,
+            target_shape=fixed.shape,
+            source_shape=moving.shape)
+
+        self.assertIsNotNone(record)
+        self.assertTrue(np.isfinite(record.weight))
+
 
 class testPhaseCorrelationToOffset(setup_imagetest.ImageTestBase):
 

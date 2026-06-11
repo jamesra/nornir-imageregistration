@@ -514,9 +514,15 @@ def find_offset(target_image: NDArray[np.floating],
 
     correlation_image = xp.fft.fftshift(correlation_image)
 
-    # Crop the areas that cannot overlap
+    # Normalize while guarding against flat/invalid responses. Some low-information
+    # tiles can produce a near-constant correlation image; avoid divide-by-zero/NaN.
     correlation_image -= correlation_image.min()
-    correlation_image /= correlation_image.max()
+    corr_max = correlation_image.max()
+    corr_max_value = float(xp.asarray(corr_max, dtype=xp.float64).ravel()[0])
+    if np.isfinite(corr_max_value) and corr_max_value > 0.0:
+        correlation_image /= corr_max
+    else:
+        correlation_image[...] = 0
 
     # Get mask of valid overlap regions
     overlap_mask = nornir_imageregistration.GetOverlapMask(target_shape,

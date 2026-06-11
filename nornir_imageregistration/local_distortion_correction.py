@@ -5,14 +5,22 @@ Created on Apr 7, 2015
 
 This module performs local distortions of images to refine alignments of mosaics and sections
 """
+import gc
+import logging
 import os
 import enum
-from typing import Iterable, Sequence
+import copy
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Sequence, cast
 
 import numpy as np
+import scipy.ndimage
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+import nornir_imageregistration.assemble
+import nornir_imageregistration.assemble_tiles
 from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 from nornir_imageregistration.mathfuncs import EMA, estimate_cutoff
 import nornir_imageregistration.phasecorrelation
@@ -48,10 +56,1197 @@ class WeightMethod(enum.IntEnum):
 class DistortionCorrection:
 
     def __init__(self):
+        """Initialize distortion-correction state containers."""
         self.PointsForTile = {}
 
 
-def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
+@dataclass
+class MosaicRefinementDiagnostics:
+    iterations_completed: int
+    converged: bool
+    average_displacement_per_iteration: list[float]
+    overlap_count_per_iteration: list[int]
+    control_points_per_tile: dict[int, int]
+    resolved_cell_size: tuple[int, int]
+    resolved_mesh_shape: tuple[int, int]
+    # Per pass, per tile: counts of mesh vertices measured by FFT, filled by
+    # regularization gap-fill, and updated with a non-zero shift.
+    vertex_diagnostics_per_pass: list[dict[int, dict[str, int]]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PaddedOverlapGeometry:
+    """Padded overlap rectangles used for grid-refinement warping and FFT cells."""
+    grid_dim: NDArray[np.int64]
+    padded_scaled_source_rect_a: nornir_imageregistration.Rectangle
+    padded_scaled_source_rect_b: nornir_imageregistration.Rectangle
+    target_region_rect: nornir_imageregistration.Rectangle
+
+
+def _normalize_pair(
+        value: int | float | Sequence[int | float] | NDArray[np.integer] | NDArray[np.floating],
+        param_name: str,
+        minimum: int = 1) -> tuple[int, int]:
+    """Normalize scalar/pair-like input into a validated integer pair."""
+    if isinstance(value, np.ndarray):
+        values = value.reshape(-1).tolist()
+    elif isinstance(value, (list, tuple)):
+        values = list(value)
+    else:
+        values = [value, value]
+
+    if len(values) == 1:
+        values = [values[0], values[0]]
+    if len(values) != 2:
+        raise ValueError(f"{param_name} must contain exactly two values")
+
+    out = []
+    for item in values:
+        if item is None:
+            raise ValueError(f"{param_name} cannot contain None")
+        numeric = int(round(float(cast(int | float, item))))
+        if numeric < minimum:
+            numeric = minimum
+        out.append(numeric)
+
+    return int(out[0]), int(out[1])
+
+
+def _resolve_mesh_shape_and_cell_size(tile_shape: np.ndarray,
+                                      cell_size: NDArray[np.integer] | Sequence[int] | int | None,
+                                      mesh_shape: NDArray[np.integer] | Sequence[int] | int | None) -> tuple[
+    tuple[int, int], tuple[int, int]]:
+    """Resolve legacy-compatible mesh and cell sizing from partial inputs."""
+    tile_shape = np.asarray(tile_shape, dtype=np.int64)
+    if tile_shape.shape[0] != 2:
+        raise ValueError("tile_shape must have two elements")
+
+    normalized_cell_size: tuple[int, int] | None = None
+    normalized_mesh_shape: tuple[int, int] | None = None
+
+    if cell_size is not None:
+        normalized_cell_size = _normalize_pair(cell_size, "cell_size", minimum=4)
+
+    if mesh_shape is not None:
+        normalized_mesh_shape = _normalize_pair(mesh_shape, "mesh_shape", minimum=2)
+
+    if normalized_cell_size is None and normalized_mesh_shape is None:
+        normalized_cell_size = (128, 128)
+
+    if normalized_mesh_shape is None and normalized_cell_size is not None:
+        # Legacy ir-refine-grid relationship: mesh = 1 + (3 * tile_dim / cell_size)
+        rows = max(2, int(1 + ((3 * tile_shape[0]) / normalized_cell_size[0])))
+        cols = max(2, int(1 + ((3 * tile_shape[1]) / normalized_cell_size[1])))
+        normalized_mesh_shape = (rows, cols)
+
+    if normalized_cell_size is None and normalized_mesh_shape is not None:
+        # Legacy ir-refine-grid relationship: cell ~= 3 * tile_dim / (mesh - 1)
+        rows, cols = normalized_mesh_shape
+        cell_h = max(4, int(np.ceil((3 * tile_shape[0]) / max(1, rows - 1))))
+        cell_w = max(4, int(np.ceil((3 * tile_shape[1]) / max(1, cols - 1))))
+        normalized_cell_size = (cell_h, cell_w)
+
+    assert normalized_cell_size is not None
+    assert normalized_mesh_shape is not None
+    return normalized_cell_size, normalized_mesh_shape
+
+
+def _merge_weighted_point_pairs(point_pairs: np.ndarray, merge_distance: float) -> np.ndarray:
+    """Merge nearby weighted correspondence pairs into per-bucket centroids."""
+    if point_pairs.size == 0:
+        return np.empty((0, 4), dtype=np.float32)
+
+    # Legacy ir-refine-grid semantics: only measured/usable cells should drive
+    # the distortion fit. Zero-weight cells are placeholders for missing overlap.
+    valid = point_pairs['Weight'] > 0
+    if not np.any(valid):
+        return np.empty((0, 4), dtype=np.float32)
+    point_pairs = point_pairs[valid]
+
+    if merge_distance <= 0:
+        merge_distance = 1.0
+
+    source_points = np.vstack((point_pairs['SourceY'], point_pairs['SourceX'])).T
+    target_points = np.vstack((point_pairs['TargetY'], point_pairs['TargetX'])).T
+    weights = np.maximum(point_pairs['Weight'].astype(np.float64, copy=False), 0.0)
+
+    bucket_coords = np.rint(source_points / merge_distance).astype(np.int64, copy=False)
+    bucket_to_indices: dict[tuple[int, int], list[int]] = {}
+    for i, bucket in enumerate(bucket_coords):
+        key = (int(bucket[0]), int(bucket[1]))
+        bucket_to_indices.setdefault(key, []).append(i)
+
+    merged_pairs: list[list[float]] = []
+    for indices in bucket_to_indices.values():
+        idx = np.asarray(indices, dtype=np.int64)
+        local_weights = weights[idx]
+        if np.sum(local_weights) <= 0:
+            continue
+
+        merged_source = np.average(source_points[idx], axis=0, weights=local_weights)
+        merged_target = np.average(target_points[idx], axis=0, weights=local_weights)
+        merged_pairs.append([merged_target[0], merged_target[1], merged_source[0], merged_source[1]])
+
+    if len(merged_pairs) == 0:
+        return np.empty((0, 4), dtype=np.float32)
+
+    return np.asarray(merged_pairs, dtype=np.float32)
+
+
+def _tile_source_shape_for_grid(tile: nornir_imageregistration.Tile) -> np.ndarray:
+    """Return a valid source-image shape for grid transform resampling."""
+    source_shape = np.asarray(tile.ImageSize, dtype=np.float64) * float(tile.image_to_source_space_scale)
+    source_shape = np.asarray(np.ceil(source_shape), dtype=np.int64)
+
+    return np.maximum(source_shape, 2)
+
+
+def _target_center_for_refinement_cell(
+        subregion_offset: NDArray[np.floating],
+        overlapping_target_region: nornir_imageregistration.Rectangle,
+        image_scale: float) -> NDArray[np.floating]:
+    """Map a warped-overlap subregion center to full target-space coordinates."""
+    downsample = 1.0 / float(image_scale)
+    return np.asarray(overlapping_target_region.BottomLeft, dtype=np.float64) + (
+        np.asarray(subregion_offset, dtype=np.float64) * downsample)
+
+
+def _full_source_points_for_refinement_cell(
+        subregion_offset: NDArray[np.floating],
+        scaled_overlapping_source_rect_A: nornir_imageregistration.Rectangle,
+        scaled_overlapping_source_rect_B: nornir_imageregistration.Rectangle,
+        source_space_scale: float) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Map a refinement subregion center to full-resolution source coordinates for both tiles (linear fallback)."""
+    image_source_a = subregion_offset + scaled_overlapping_source_rect_A.BottomLeft
+    image_source_b = subregion_offset + scaled_overlapping_source_rect_B.BottomLeft
+    full_source_a = image_source_a * source_space_scale
+    full_source_b = image_source_b * source_space_scale
+    return full_source_a, full_source_b
+
+
+def _refinement_cell_geometry(
+        subregion_offset: NDArray[np.floating],
+        overlapping_target_region: nornir_imageregistration.Rectangle,
+        image_scale: float,
+        tile_a: nornir_imageregistration.Tile,
+        tile_b: nornir_imageregistration.Tile) -> tuple[
+    NDArray[np.floating], NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Map a refinement FFT cell to target center and per-tile source anchors.
+
+    Legacy ir-refine-grid anchors each measurement at the target-space cell center and
+    inverse-maps that location into each tile's source space.
+    """
+    target_center = _target_center_for_refinement_cell(
+        subregion_offset, overlapping_target_region, image_scale)
+    target_batch = np.asarray([target_center], dtype=np.float64)
+    full_source_a = nornir_imageregistration.EnsureNumpyArray(
+        tile_a.Transform.InverseTransform(target_batch)[0]).astype(np.float64)
+    full_source_b = nornir_imageregistration.EnsureNumpyArray(
+        tile_b.Transform.InverseTransform(target_batch)[0]).astype(np.float64)
+    return target_center, full_source_a, full_source_b, target_center
+
+
+def _base_target_for_refinement_cell(
+        A: nornir_imageregistration.Tile,
+        B: nornir_imageregistration.Tile,
+        full_source_a: NDArray[np.floating],
+        full_source_b: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Compute the nominal target-space center for a refinement subregion."""
+    target_a = A.Transform.Transform(np.asarray([full_source_a], dtype=np.float64))[0]
+    target_b = B.Transform.Transform(np.asarray([full_source_b], dtype=np.float64))[0]
+    return (target_a + target_b) * 0.5
+
+
+def _filter_weighted_point_pair_updates(point_pair_updates: np.ndarray) -> np.ndarray:
+    """
+    Drop low-confidence overlap updates using the same estimate_cutoff heuristic as STOS refine.
+
+    Not part of the mosaic refine path: legacy ir-refine-grid has no weight-percentile
+    gating (it relies on regularize_displacements). Retained for STOS-style callers/tests.
+    """
+    if point_pair_updates.size == 0:
+        return point_pair_updates
+
+    positive_weight = point_pair_updates['Weight'] > 0
+    if not np.any(positive_weight):
+        return point_pair_updates[:0]
+
+    weights = np.asarray(point_pair_updates['Weight'][positive_weight], dtype=np.float64)
+    if weights.shape[0] < 3:
+        return point_pair_updates[positive_weight]
+
+    try:
+        _, inflection_percentile, _, polyfit_weights = estimate_cutoff(weights)
+        cutoff_value = float(polyfit_weights[inflection_percentile])  # type: ignore[index]
+    except ValueError:
+        return point_pair_updates[positive_weight]
+
+    keep_mask = positive_weight.copy()
+    positive_indices = np.flatnonzero(positive_weight)
+    keep_mask[positive_indices] = weights >= cutoff_value
+    return point_pair_updates[keep_mask]
+
+
+def _phase_correlate_refinement_cell(
+        cell_a: NDArray[np.floating],
+        cell_b: NDArray[np.floating],
+        subregion_shape: NDArray[np.integer],
+        *,
+        min_overlap: float = 0.25,
+        max_overlap: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
+    """Preprocess and phase-correlate one refinement FFT cell (translate-path parity)."""
+    xp = cp.get_array_module(cell_a)
+    cell_a = xp.asarray(cell_a, dtype=np.float64)
+    cell_b = xp.asarray(cell_b, dtype=np.float64)
+    subregion_shape = np.asarray(subregion_shape, dtype=np.int64)
+
+    if (cell_a.size == 0 or cell_b.size == 0
+            or cell_a.min() == cell_a.max() or cell_b.min() == cell_b.max()
+            or cell_a.max() == 0 or cell_b.max() == 0):
+        return nornir_imageregistration.AlignmentRecord(peak=np.zeros(2, dtype=np.float64), weight=0.0)
+
+    normalized_a = cell_a - cell_a.min()
+    normalized_a /= normalized_a.max()
+    normalized_b = cell_b - cell_b.min()
+    normalized_b /= normalized_b.max()
+
+    # Match legacy refine_one_point_fft: FFT the raw equal-size cells directly.
+    # Random-noise padding would make refinement passes nondeterministic and is
+    # not part of the C++ pipeline for grid refinement cells.
+    return nornir_imageregistration.phasecorrelation.find_offset(
+        normalized_a,
+        normalized_b,
+        min_overlap=min_overlap,
+        max_overlap=max_overlap,
+        target_shape=subregion_shape,
+        source_shape=subregion_shape,
+        fft_required=True)
+
+
+@dataclass
+class _PrewarpedTile:
+    """A tile fully warped into (scaled) mosaic space for one refinement pass."""
+    image: NDArray[np.floating]  # invalid pixels are zero, matching legacy extraction
+    valid_mask: NDArray[np.bool_]
+    origin: NDArray[np.int64]  # (y, x) of pixel [0, 0] in scaled target space
+
+
+def _prewarp_tile_for_grid_refine(
+        tile: nornir_imageregistration.Tile,
+        target_space_scale: float) -> _PrewarpedTile:
+    """
+    Warp a full tile into scaled mosaic space using its current transform.
+
+    Mirrors legacy ir-refine-grid ``prewarp_tiles=true``: every pass re-renders each
+    tile so mesh-vertex neighborhoods can be sampled on a common mosaic grid.
+    """
+    full_source_image = cast(
+        NDArray[np.floating],
+        nornir_imageregistration.ForceGrayscale(
+            nornir_imageregistration.ImageParamToImageArray(tile.Image)))
+
+    transform, _ = _scale_tile_transform_for_warp(tile, target_space_scale)
+
+    if target_space_scale != 1.0:
+        scaled_target_region = nornir_imageregistration.Rectangle.scale_on_origin(
+            tile.FixedBoundingBox, target_space_scale)
+        scaled_rounded_target_region = nornir_imageregistration.Rectangle.SnapRound(scaled_target_region)
+    else:
+        scaled_rounded_target_region = nornir_imageregistration.Rectangle.SnapRound(tile.FixedBoundingBox)
+
+    target_height = int(scaled_rounded_target_region.Height)
+    target_width = int(scaled_rounded_target_region.Width)
+    target_min_y = int(scaled_rounded_target_region.MinY)
+    target_min_x = int(scaled_rounded_target_region.MinX)
+
+    read_coords, write_coords = nornir_imageregistration.assemble.write_to_target_roi_coords(
+        transform,
+        (target_min_y, target_min_x),
+        (target_height, target_width),
+        extrapolate=False)
+
+    warped_image = cast(
+        NDArray[np.floating],
+        nornir_imageregistration.assemble._TransformImageUsingCoords(
+            write_coords,
+            read_coords,
+            full_source_image,
+            output_origin=(target_min_y, target_min_x),
+            output_area=(target_height, target_width),
+            cval=0))
+
+    # Warp a ones-image to obtain coverage: pixels outside the transform domain or
+    # outside the source image read the cval and drop below the validity threshold.
+    xp = cp.get_array_module(warped_image)
+    coverage_source = xp.ones(full_source_image.shape[0:2], dtype=np.float32)
+    coverage = cast(
+        NDArray[np.floating],
+        nornir_imageregistration.assemble._TransformImageUsingCoords(
+            write_coords,
+            read_coords,
+            coverage_source,
+            output_origin=(target_min_y, target_min_x),
+            output_area=(target_height, target_width),
+            cval=0))
+
+    valid_mask = coverage > 0.999
+    warped_image = xp.where(valid_mask, warped_image, 0)
+
+    del read_coords
+    del write_coords
+    del coverage
+    del coverage_source
+    del full_source_image
+
+    return _PrewarpedTile(
+        image=warped_image,
+        valid_mask=valid_mask,
+        origin=np.asarray((target_min_y, target_min_x), dtype=np.int64))
+
+
+def _extract_refinement_cell(
+        prewarped: _PrewarpedTile,
+        center_scaled: NDArray[np.floating],
+        cell_shape: NDArray[np.integer]) -> tuple[NDArray[np.floating], float]:
+    """
+    Extract one cell-sized mosaic-space neighborhood centered on a mesh vertex.
+
+    Pixels outside the warped tile are zero (legacy extraction convention).
+    Returns the cell and the fraction of valid pixels within it.
+    """
+    xp = cp.get_array_module(prewarped.image)
+    cell_shape = np.asarray(cell_shape, dtype=np.int64)
+    # Legacy: origin = center - 0.5 * cell; pixel index i samples origin + i.
+    start = np.floor(
+        np.asarray(center_scaled, dtype=np.float64)
+        - prewarped.origin
+        - (cell_shape.astype(np.float64) / 2.0)).astype(np.int64)
+    stop = start + cell_shape
+
+    image_shape = np.asarray(prewarped.image.shape, dtype=np.int64)
+    clipped_start = np.maximum(start, 0)
+    clipped_stop = np.minimum(stop, image_shape)
+    if np.any(clipped_start >= clipped_stop):
+        return xp.zeros(tuple(int(v) for v in cell_shape), dtype=np.float32), 0.0
+
+    cell = xp.zeros(tuple(int(v) for v in cell_shape), dtype=prewarped.image.dtype)
+    write_start = clipped_start - start
+    write_stop = write_start + (clipped_stop - clipped_start)
+    cell[int(write_start[0]):int(write_stop[0]), int(write_start[1]):int(write_stop[1])] = \
+        prewarped.image[int(clipped_start[0]):int(clipped_stop[0]), int(clipped_start[1]):int(clipped_stop[1])]
+
+    valid_region = prewarped.valid_mask[
+        int(clipped_start[0]):int(clipped_stop[0]), int(clipped_start[1]):int(clipped_stop[1])]
+    valid_count = float(xp.count_nonzero(valid_region))
+    return cell, valid_count / float(cell_shape.prod())
+
+
+def _measure_grid_vertex_displacements(
+        moving: _PrewarpedTile,
+        fixed: _PrewarpedTile,
+        centers_scaled: NDArray[np.floating],
+        cell_shape: NDArray[np.integer],
+        cell_min_overlap: float) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """
+    Measure mosaic-space shifts for every mesh vertex of the moving tile against one neighbor.
+
+    Port of legacy ``calc_displacements``: each vertex's current mosaic position is the
+    neighborhood center; both prewarped tiles are sampled on the same mosaic window so the
+    measured phase-correlation peak is the residual shift to apply to the moving tile.
+    Returns per-vertex (y, x) shifts in scaled mosaic pixels and a measured flag.
+    """
+    centers_scaled = np.asarray(centers_scaled, dtype=np.float64)
+    cell_shape = np.asarray(cell_shape, dtype=np.int64)
+    num_vertices = centers_scaled.shape[0]
+    shifts = np.zeros((num_vertices, 2), dtype=np.float64)
+    measured = np.zeros(num_vertices, dtype=bool)
+
+    fixed_shape = np.asarray(fixed.image.shape, dtype=np.float64)
+    for k in range(num_vertices):
+        center = centers_scaled[k]
+        # Legacy skips vertices whose center is outside the fixed tile's buffer.
+        local_fixed = center - fixed.origin
+        if np.any(local_fixed < 0) or np.any(local_fixed >= fixed_shape):
+            continue
+
+        fixed_cell, fixed_fraction = _extract_refinement_cell(fixed, center, cell_shape)
+        if fixed_fraction < cell_min_overlap:
+            continue
+        moving_cell, moving_fraction = _extract_refinement_cell(moving, center, cell_shape)
+        if moving_fraction < cell_min_overlap:
+            continue
+
+        try:
+            # find_offset peak = shift to apply to the source (second) image's content;
+            # the moving tile is the source so its vertices receive +peak.
+            record = _phase_correlate_refinement_cell(
+                fixed_cell,
+                moving_cell,
+                cell_shape,
+                min_overlap=cell_min_overlap)
+        except Exception as e:
+            prettyoutput.LogErr(f'Exception phase-correlating mesh vertex {k}:\n{e}')
+            continue
+
+        peak = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(record.peak), dtype=np.float64).reshape(-1)
+        if record.weight <= 0 or np.any(np.isnan(peak)):
+            continue
+
+        shifts[k, :] = peak
+        measured[k] = True
+
+    return shifts, measured
+
+
+def _regularize_displacements(
+        shifts: NDArray[np.floating],
+        measured: NDArray[np.bool_],
+        mesh_dims: tuple[int, int],
+        median_radius: int = 1) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Port of legacy ``regularize_displacements`` (mosaic_refinement_common.cxx).
+
+    Stages: median filter (radius ``median_radius``) on the measured displacement fields,
+    radius-1 ring gap-fill for unmeasured vertices, then Gaussian blur (sigma=1) over the
+    entire fields. Returns regularized per-vertex (y, x) shifts and the measured/filled
+    flags (the legacy ``db`` image, accumulated into ``mass`` by the caller).
+    """
+    mesh_rows, mesh_cols = int(mesh_dims[0]), int(mesh_dims[1])
+    dy = np.asarray(shifts[:, 0], dtype=np.float64).reshape(mesh_rows, mesh_cols)
+    dx = np.asarray(shifts[:, 1], dtype=np.float64).reshape(mesh_rows, mesh_cols)
+    db = np.asarray(measured, dtype=np.float64).reshape(mesh_rows, mesh_cols)
+
+    # Stage 1: median denoise (ITK MedianImageFilter w/ zero-flux Neumann == 'nearest').
+    if median_radius > 0:
+        size = 2 * int(median_radius) + 1
+        dy = scipy.ndimage.median_filter(dy, size=size, mode='nearest')
+        dx = scipy.ndimage.median_filter(dx, size=size, mode='nearest')
+
+    # Stage 2: gap-fill unmeasured vertices from the radius-1 ring (the legacy loop's
+    # "expanding" radius is capped at 1 by `max_r = std::min(1, ...)`), using the legacy
+    # offset pattern. Samples read the median-filtered fields; db is updated on success.
+    dy_filled = dy.copy()
+    dx_filled = dx.copy()
+    db_filled = db.copy()
+    unmeasured_rows, unmeasured_cols = np.nonzero(db == 0)
+    for row, col in zip(unmeasured_rows.tolist(), unmeasured_cols.tolist()):
+        py = 0.0
+        px = 0.0
+        w = 0.0
+        r = 1
+        x0, x1 = col - r, col + r
+        y0, y1 = row - r, row + r
+        d = 2 * r + 1
+        for o in range(d):
+            # Legacy ring pattern in (x=col, y=row) coordinates.
+            for cx, cy in ((x0, y0 + o + 1), (x1, y0 + o), (x0 + o, y0), (x0 + o + 1, y1)):
+                if 0 <= cx < mesh_cols and 0 <= cy < mesh_rows and db[cy, cx] != 0:
+                    px += dx[cy, cx]
+                    py += dy[cy, cx]
+                    w += 1.0
+        if w != 0.0:
+            dy_filled[row, col] = py / w
+            dx_filled[row, col] = px / w
+            db_filled[row, col] = 1.0
+
+    # Stage 3: Gaussian blur over the full fields (ITK DiscreteGaussianImageFilter with
+    # variance=1, max_error=0.1 -> compact kernel; truncate=2.0 approximates it).
+    dy_filled = scipy.ndimage.gaussian_filter(dy_filled, sigma=1.0, mode='nearest', truncate=2.0)
+    dx_filled = scipy.ndimage.gaussian_filter(dx_filled, sigma=1.0, mode='nearest', truncate=2.0)
+
+    out_shifts = np.column_stack((dy_filled.reshape(-1), dx_filled.reshape(-1)))
+    return out_shifts, db_filled.reshape(-1)
+
+
+def _grid_refine_neighbors(
+        list_tiles: Sequence[nornir_imageregistration.Tile]) -> dict[int, list[nornir_imageregistration.Tile]]:
+    """Find overlapping neighbors per tile via target-space bounding-box intersection (legacy rule)."""
+    neighbors: dict[int, list[nornir_imageregistration.Tile]] = {tile.ID: [] for tile in list_tiles}
+    for i, tile_i in enumerate(list_tiles):
+        for j, tile_j in enumerate(list_tiles):
+            if i == j:
+                continue
+            if nornir_imageregistration.Rectangle.contains(
+                    tile_i.FixedBoundingBox, tile_j.FixedBoundingBox):
+                neighbors[tile_i.ID].append(tile_j)
+    return neighbors
+
+
+def _legacy_overlap_target_region(
+        tile_a: nornir_imageregistration.Tile,
+        tile_b: nornir_imageregistration.Tile,
+        grid_dim: NDArray[np.integer],
+        subregion_shape: NDArray[np.integer],
+        image_scale: float) -> nornir_imageregistration.Rectangle:
+    """Return the legacy ir-refine-grid target-space ROI used for overlap warping."""
+    downsample = 1.0 / float(image_scale)
+    overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(
+        tile_a.FixedBoundingBox, tile_b.FixedBoundingBox)
+    if overlapping_rect is None:
+        raise ValueError(f"Tiles {tile_a.ID} and {tile_b.ID} do not overlap in target space")
+    target_size = (int(grid_dim[0] * subregion_shape[0] * downsample),
+                   int(grid_dim[1] * subregion_shape[1] * downsample))
+    return nornir_imageregistration.Rectangle.change_area(overlapping_rect, target_size)
+
+
+def _padded_scaled_overlap_source_rects(
+        scaled_overlapping_source_rect_a: nornir_imageregistration.Rectangle,
+        scaled_overlapping_source_rect_b: nornir_imageregistration.Rectangle,
+        grid_dim: NDArray[np.integer],
+        subregion_shape: NDArray[np.integer]) -> tuple[
+    nornir_imageregistration.Rectangle, nornir_imageregistration.Rectangle]:
+    """Pad scaled overlap source rectangles to the refinement FFT grid."""
+    padded_image_size = (int(grid_dim[0] * subregion_shape[0]), int(grid_dim[1] * subregion_shape[1]))
+    padded_a = nornir_imageregistration.Rectangle.change_area(
+        scaled_overlapping_source_rect_a, padded_image_size)
+    padded_b = nornir_imageregistration.Rectangle.change_area(
+        scaled_overlapping_source_rect_b, padded_image_size)
+    padded_b = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+        padded_b.BottomLeft, padded_a.Size)
+    return padded_a, padded_b
+
+
+def _max_refinement_displacement(
+        overlapping_target_rect: nornir_imageregistration.Rectangle,
+        subregion_shape: NDArray[np.integer],
+        image_scale: float) -> float:
+    """Upper bound for a plausible refinement displacement magnitude in full target space."""
+    downsample = 1.0 / float(image_scale)
+    cell_extent = float(np.max(subregion_shape) * downsample)
+    overlap_extent = float(max(overlapping_target_rect.Width, overlapping_target_rect.Height))
+    return max(cell_extent * 4.0, overlap_extent * 0.5)
+
+
+def _refinement_pool_for_overlap_tasks(target_space_scale: float):
+    """Return a pool sized for overlap refinement without multiplying warp memory by worker count."""
+    if nornir_imageregistration.UsingCupy() or target_space_scale >= 1.0:
+        return nornir_pools.GetGlobalSerialPool()
+    return nornir_pools.GetGlobalMultithreadingPool()
+
+
+def _release_refinement_worker_memory() -> None:
+    """Drop transient warp allocations after an overlap refinement worker task."""
+    gc.collect()
+    if nornir_imageregistration.UsingCupy():
+        free_all_blocks = getattr(cp, 'get_default_memory_pool', None)
+        if free_all_blocks is not None:
+            try:
+                free_all_blocks().free_all_blocks()
+            except Exception:
+                pass
+
+
+def _compute_padded_overlap_geometry(
+        scaled_overlapping_source_rect_a: nornir_imageregistration.Rectangle,
+        scaled_overlapping_source_rect_b: nornir_imageregistration.Rectangle,
+        overlapping_target_rect: nornir_imageregistration.Rectangle | None,
+        subregion_shape: NDArray[np.integer],
+        image_scale: float) -> PaddedOverlapGeometry:
+    """Pad overlap source/target rectangles to the refinement FFT grid (translate-style footprint)."""
+    subregion_shape = np.asarray(subregion_shape, dtype=np.int64)
+    downsample = 1.0 / float(image_scale)
+    grid_dim = np.asarray(
+        nornir_imageregistration.TileGridShape(scaled_overlapping_source_rect_a.Size, subregion_shape),
+        dtype=np.int64)
+    padded_image_size = (int(grid_dim[0] * subregion_shape[0]), int(grid_dim[1] * subregion_shape[1]))
+
+    padded_scaled_source_rect_a = nornir_imageregistration.Rectangle.change_area(
+        scaled_overlapping_source_rect_a, padded_image_size)
+    padded_scaled_source_rect_b = nornir_imageregistration.Rectangle.change_area(
+        scaled_overlapping_source_rect_b, padded_image_size)
+    padded_scaled_source_rect_b = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+        padded_scaled_source_rect_b.BottomLeft, padded_scaled_source_rect_a.Size)
+
+    target_size = (int(grid_dim[0] * subregion_shape[0] * downsample),
+                   int(grid_dim[1] * subregion_shape[1] * downsample))
+    if overlapping_target_rect is None:
+        raise ValueError("overlapping_target_rect is required for grid overlap refinement")
+    target_region_rect = nornir_imageregistration.Rectangle.change_area(overlapping_target_rect, target_size)
+
+    return PaddedOverlapGeometry(
+        grid_dim=grid_dim,
+        padded_scaled_source_rect_a=padded_scaled_source_rect_a,
+        padded_scaled_source_rect_b=padded_scaled_source_rect_b,
+        target_region_rect=target_region_rect)
+
+
+def _scale_tile_transform_for_warp(tile: nornir_imageregistration.Tile,
+                                   target_space_scale: float) -> tuple[
+    nornir_imageregistration.ITransform, float]:
+    """Apply the same source/target scaling rules as ``TransformTile``."""
+    source_space_scale = 1.0 / tile.image_to_source_space_scale
+    transform = tile.Transform
+    if source_space_scale == target_space_scale:
+        if source_space_scale != 1.0:
+            scaled_transform = nornir_imageregistration.assemble_tiles.__CreateScalableTransformCopy(tile.Transform)
+            scaled_transform.Scale(source_space_scale)
+            transform = scaled_transform
+    else:
+        if source_space_scale != 1.0:
+            scaled_transform = nornir_imageregistration.assemble_tiles.__CreateScalableTransformCopy(tile.Transform)
+            scaled_transform.ScaleWarped(source_space_scale)  # type: ignore[attr-defined]
+            transform = scaled_transform
+        if target_space_scale != 1.0:
+            scaled_transform = nornir_imageregistration.assemble_tiles.__CreateScalableTransformCopy(tile.Transform)
+            scaled_transform.ScaleFixed(target_space_scale)  # type: ignore[attr-defined]
+            transform = scaled_transform
+    return transform, source_space_scale
+
+
+def _warp_overlap_for_grid_refine(
+        tile: nornir_imageregistration.Tile,
+        padded_source_rect: nornir_imageregistration.Rectangle,
+        target_region_rect: nornir_imageregistration.Rectangle,
+        target_space_scale: float,
+        single_threaded_invoke: bool) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
+    """Crop a tile to its overlap source rect and warp only the padded target ROI."""
+    try:
+        full_source_image = nornir_imageregistration.ImageParamToImageArray(tile.Image)
+    except IOError:
+        return nornir_imageregistration.transformed_image_data.TransformedImageDataError(
+            error_msg=f'Tile does not exist {tile.ImagePath}')
+    except ValueError as ve:
+        return nornir_imageregistration.transformed_image_data.TransformedImageDataError(error_msg=f'{ve}')
+
+    full_source_image = nornir_imageregistration.ForceGrayscale(full_source_image)
+    crop_x = int(padded_source_rect.BottomLeft[1])
+    crop_y = int(padded_source_rect.BottomLeft[0])
+    crop_w = int(padded_source_rect.Width)
+    crop_h = int(padded_source_rect.Height)
+
+    full_distance_image = nornir_imageregistration.assemble_tiles.distance_image_cache.KeepGetOrCreate(
+        None, full_source_image.shape[0:2])
+    cropped_source = nornir_imageregistration.CropImage(
+        full_source_image, Xo=crop_x, Yo=crop_y, Width=crop_w, Height=crop_h, cval=0)
+    cropped_distance = nornir_imageregistration.CropImage(
+        full_distance_image, Xo=crop_x, Yo=crop_y, Width=crop_w, Height=crop_h, cval=0)
+    del full_source_image
+    del full_distance_image
+
+    transform, source_space_scale = _scale_tile_transform_for_warp(tile, target_space_scale)
+
+    if target_space_scale != 1.0:
+        scaled_target_region = nornir_imageregistration.Rectangle.scale_on_origin(
+            target_region_rect, target_space_scale)
+        scaled_rounded_target_region = nornir_imageregistration.Rectangle.SnapRound(scaled_target_region)
+    else:
+        scaled_rounded_target_region = nornir_imageregistration.Rectangle.SnapRound(target_region_rect)
+
+    target_width = int(scaled_rounded_target_region.Width)
+    target_height = int(scaled_rounded_target_region.Height)
+    target_min_x = int(scaled_rounded_target_region.MinX)
+    target_min_y = int(scaled_rounded_target_region.MinY)
+
+    distance_image = cropped_distance
+    distance_cval = float(np.sum(distance_image.shape) * 32.0)
+
+    read_coords, write_coords = nornir_imageregistration.assemble.write_to_target_roi_coords(
+        transform,
+        (target_min_y, target_min_x),
+        (target_height, target_width),
+        extrapolate=True)
+    crop_origin = np.asarray(padded_source_rect.BottomLeft, dtype=np.float32)
+    read_module = cp.get_array_module(read_coords)
+    if read_module is not np:
+        read_coords = read_coords - read_module.asarray(crop_origin, dtype=read_coords.dtype)
+    else:
+        read_coords = read_coords - crop_origin
+
+    fixed_image = nornir_imageregistration.assemble._TransformImageUsingCoords(
+        write_coords,
+        read_coords,
+        cropped_source,
+        output_origin=(target_min_y, target_min_x),
+        output_area=(target_height, target_width),
+        cval=0)
+    center_distance_image = nornir_imageregistration.assemble._TransformImageUsingCoords(
+        write_coords,
+        read_coords,
+        distance_image,
+        output_origin=(target_min_y, target_min_x),
+        output_area=(target_height, target_width),
+        cval=distance_cval)
+
+    del cropped_source
+    del distance_image
+    del read_coords
+    del write_coords
+
+    logging.getLogger(__name__).info(
+        "Grid refine warp tile %s crop %dx%d -> target %dx%d (scale=%g, backend=%s)",
+        tile.ID,
+        int(padded_source_rect.Height),
+        int(padded_source_rect.Width),
+        target_height,
+        target_width,
+        target_space_scale,
+        "cupy" if nornir_imageregistration.UsingCupy() else "numpy")
+
+    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(
+        fixed_image,  # type: ignore[arg-type]
+        center_distance_image,  # type: ignore[arg-type]
+        transform,
+        source_space_scale,
+        target_space_scale,
+        rendered_target_space_origin=(
+            target_min_y * (1.0 / target_space_scale),
+            target_min_x * (1.0 / target_space_scale)),
+        SingleThreadedInvoke=single_threaded_invoke)
+
+
+def _grid_transform_matches_lattice(
+        transform: nornir_imageregistration.ITransform,
+        resolved_mesh_shape: tuple[int, int],
+        resolved_cell_size: tuple[int, int],
+        source_shape: NDArray[np.integer]) -> bool:
+    """Return True if transform is already a grid on the requested output lattice."""
+    if not isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
+        return False
+
+    grid = transform.grid
+    grid_dims = (int(grid.grid_dims[0]), int(grid.grid_dims[1]))
+    cell_size = (int(grid.cell_size[0]), int(grid.cell_size[1]))
+    if grid_dims != resolved_mesh_shape or cell_size != resolved_cell_size:
+        return False
+
+    existing_source_shape = np.asarray(grid.source_shape, dtype=np.int64)
+    return bool(np.array_equal(existing_source_shape, np.asarray(source_shape, dtype=np.int64)))
+
+
+def _initialize_tile_grid_transforms(
+        list_tiles: Sequence[nornir_imageregistration.Tile],
+        resolved_cell_size: tuple[int, int],
+        resolved_mesh_shape: tuple[int, int]) -> None:
+    """Resample each tile transform onto the legacy-compatible output grid lattice once."""
+    cell_size_array = np.asarray(resolved_cell_size, dtype=np.int64)
+    grid_dims_array = np.asarray(resolved_mesh_shape, dtype=np.int64)
+
+    for tile in list_tiles:
+        source_shape = _tile_source_shape_for_grid(tile)
+        if _grid_transform_matches_lattice(
+                tile.Transform, resolved_mesh_shape, resolved_cell_size, source_shape):
+            continue
+
+        tile.Transform = nornir_imageregistration.transforms.converters.ConvertTransformToGridTransform(
+            tile.Transform,
+            source_image_shape=source_shape,
+            cell_size=cell_size_array,
+            grid_dims=grid_dims_array)
+
+
+def _resample_transform_to_output_grid(
+        transform: nornir_imageregistration.ITransform,
+        source_shape: NDArray[np.integer],
+        resolved_cell_size: tuple[int, int],
+        resolved_mesh_shape: tuple[int, int]) -> nornir_imageregistration.ITransform:
+    """Resample a transform onto the legacy-compatible output grid lattice."""
+    return nornir_imageregistration.transforms.converters.ConvertTransformToGridTransform(
+        transform,
+        source_image_shape=source_shape,
+        cell_size=np.asarray(resolved_cell_size, dtype=np.int64),
+        grid_dims=np.asarray(resolved_mesh_shape, dtype=np.int64))
+
+
+def _update_tile_transform_from_merged_overlap_pairs(
+        tile: nornir_imageregistration.Tile,
+        merged_point_pairs: np.ndarray,
+        resolved_cell_size: tuple[int, int],
+        resolved_mesh_shape: tuple[int, int]) -> int:
+    """
+    Fit a smooth mesh from overlap control pairs and resample onto the output grid.
+
+    Used by unit tests and optional mesh-rebuild paths only; the mosaic refine loop
+    uses the legacy per-mesh-vertex update model (see ``_refine_tileset``).
+    """
+    if merged_point_pairs.size == 0:
+        return 0
+
+    mesh_transform = _build_mesh_transform_from_pairs(tile.Transform, merged_point_pairs)
+    source_shape = _tile_source_shape_for_grid(tile)
+    tile.Transform = _resample_transform_to_output_grid(
+        mesh_transform,
+        source_shape,
+        resolved_cell_size,
+        resolved_mesh_shape)
+    return int(merged_point_pairs.shape[0])
+
+
+def _apply_point_pair_updates_to_grid_transform(
+        grid_transform: nornir_imageregistration.transforms.IGridTransform,
+        point_pairs: np.ndarray,
+        max_assign_distance: float | None = None) -> int:
+    """
+    Nudge grid target control points for measured source locations.
+
+    Each row of ``point_pairs`` is ``[target_y, target_x, source_y, source_x]``.
+    Measured cells receive the weighted-average displacement from the current
+    transform; unmeasured cells are unchanged. Retained for unit tests; the mosaic
+    refine loop now ports the legacy full-mesh vertex update (``_refine_tileset``).
+    """
+    if point_pairs.size == 0:
+        return 0
+
+    pairs = np.asarray(point_pairs, dtype=np.float64)
+    if pairs.ndim != 2 or pairs.shape[1] != 4:
+        raise ValueError("point_pairs must have shape (N, 4)")
+
+    source_points = pairs[:, 2:4]
+    target_points = pairs[:, 0:2]
+    predicted_targets = np.asarray(grid_transform.Transform(source_points), dtype=np.float64)
+    target_delta = target_points - predicted_targets
+    delta_norm = np.linalg.norm(target_delta, axis=1)
+    source_span = np.asarray(grid_transform.grid.source_shape, dtype=np.float64)
+    max_target_jump = float(np.max(source_span) * 2.0)
+    valid_measurement = delta_norm <= max_target_jump
+    if not np.any(valid_measurement):
+        return 0
+
+    source_points = source_points[valid_measurement]
+    target_delta = target_delta[valid_measurement]
+
+    nearest_result = grid_transform.NearestSourcePoint(source_points)
+    if isinstance(nearest_result[1], (int, np.integer)):
+        nearest_distances = np.asarray([float(nearest_result[0])], dtype=np.float64)
+        nearest_indices = np.asarray([int(nearest_result[1])], dtype=np.int64)
+    else:
+        nearest_distances = np.atleast_1d(
+            nornir_imageregistration.EnsureNumpyArray(nearest_result[0])).astype(np.float64).reshape(-1)
+        nearest_indices = np.atleast_1d(
+            nornir_imageregistration.EnsureNumpyArray(nearest_result[1])).astype(np.int64).reshape(-1)
+
+    grid_spacing = np.asarray(grid_transform.grid.grid_spacing, dtype=np.float64)
+    cell_size = np.asarray(grid_transform.grid.cell_size, dtype=np.float64)
+    if max_assign_distance is None:
+        max_assign_distance = float(min(np.min(grid_spacing) * 0.5, np.min(cell_size) * 0.5))
+    else:
+        max_assign_distance = float(max_assign_distance)
+    assigned_to_grid_node = nearest_distances <= max_assign_distance
+    if not np.any(assigned_to_grid_node):
+        return 0
+
+    source_points = source_points[assigned_to_grid_node]
+    target_delta = target_delta[assigned_to_grid_node]
+    nearest_indices = nearest_indices[assigned_to_grid_node]
+
+    index_to_deltas: dict[int, list[NDArray[np.floating]]] = {}
+    for i, grid_index in enumerate(nearest_indices):
+        index_to_deltas.setdefault(int(grid_index), []).append(target_delta[i])
+
+    updated_cells = 0
+    current_targets = np.asarray(grid_transform.TargetPoints, dtype=np.float64)
+    for grid_index, deltas in index_to_deltas.items():
+        averaged_delta = np.mean(np.asarray(deltas, dtype=np.float64), axis=0)
+        grid_transform.UpdateTargetPointsByIndex(
+            grid_index,
+            current_targets[grid_index] + averaged_delta)
+        updated_cells += 1
+
+    return updated_cells
+
+
+def _build_mesh_transform_from_pairs(existing_transform: nornir_imageregistration.ITransform,
+                                     point_pairs: np.ndarray) -> nornir_imageregistration.ITransform:
+    """Build a mesh transform from control pairs, falling back on failure."""
+    if point_pairs.shape[0] < 3:
+        return existing_transform
+
+    # Deduplicate exact source points and exact target points to avoid triangulation failures.
+    _, unique_source_idx = np.unique(np.round(point_pairs[:, 2:4], decimals=3), axis=0, return_index=True)
+    point_pairs = point_pairs[np.sort(unique_source_idx)]
+    _, unique_target_idx = np.unique(np.round(point_pairs[:, 0:2], decimals=3), axis=0, return_index=True)
+    point_pairs = point_pairs[np.sort(unique_target_idx)]
+
+    if point_pairs.shape[0] < 3:
+        return existing_transform
+
+    try:
+        return nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(point_pairs)
+    except Exception as e:
+        prettyoutput.LogErr(f"Unable to build mesh transform from {point_pairs.shape[0]} points: {e}")
+        return existing_transform
+
+
+def _create_tileset_for_refinement(
+        mosaic_or_transforms: str | nornir_imageregistration.mosaic.Mosaic | nornir_imageregistration.mosaic_tileset.MosaicTileset | Sequence[
+            nornir_imageregistration.ITransform],
+        image_source: str | Sequence[str] | None,
+        image_to_source_space_scale: float = 1.0) -> nornir_imageregistration.mosaic_tileset.MosaicTileset:
+    """Create a mutable tileset view over mosaic/transforms for refinement."""
+    if isinstance(mosaic_or_transforms, nornir_imageregistration.mosaic_tileset.MosaicTileset):
+        return copy.deepcopy(mosaic_or_transforms)
+
+    if isinstance(mosaic_or_transforms, (str, nornir_imageregistration.mosaic.Mosaic)):
+        if image_source is None:
+            if isinstance(mosaic_or_transforms, str):
+                image_source = os.path.dirname(mosaic_or_transforms)
+            else:
+                raise ValueError("image_source must be provided when refining a Mosaic object")
+
+        if not isinstance(image_source, str):
+            raise ValueError("image_source must be a directory path for Mosaic input")
+
+        return nornir_imageregistration.mosaic_tileset.CreateFromMosaic(
+            mosaic_or_transforms,  # type: ignore[arg-type]
+            image_folder=image_source,
+            image_to_source_space_scale=image_to_source_space_scale)
+
+    if image_source is None:
+        raise ValueError("image_source must be a sequence of image paths when passing transforms")
+
+    return cast(
+        nornir_imageregistration.mosaic_tileset.MosaicTileset,
+        nornir_imageregistration.mosaic_tileset.Create(
+            mosaic_or_transforms,
+            image_source,
+            image_to_source_space_scale=image_to_source_space_scale)
+    )
+
+
+def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset,
+                    target_space_scale: float,
+                    iterations: int,
+                    cell_size: NDArray[np.integer] | Sequence[int] | int | None,
+                    mesh_shape: NDArray[np.integer] | Sequence[int] | int | None,
+                    displacement_threshold: float,
+                    min_overlap: float,
+                    merge_distance: float | None = None,
+                    median_radius: int = 1) -> MosaicRefinementDiagnostics:
+    """
+    Run iterative per-mesh-vertex refinement over all tiles (legacy refine_mosaic_mt port).
+
+    Each pass: prewarp every tile into scaled mosaic space, measure a phase-correlation
+    shift at every mesh vertex against each overlapping neighbor, regularize the
+    per-neighbor displacement fields (median + gap-fill + Gaussian blur), blend with
+    1/(1+mass) normalization, then add the blended shifts to every tile's grid target
+    points.  Stops early when the average displacement reaches the threshold or stops
+    improving (legacy dual condition).
+    """
+    del merge_distance  # retained for API compatibility; unused by the legacy-parity model
+    list_tiles = list(tiles.values())
+    if len(list_tiles) == 0:
+        raise ValueError("No tiles available for refinement")
+
+    resolved_cell_size, resolved_mesh_shape = _resolve_mesh_shape_and_cell_size(
+        np.asarray(list_tiles[0].ImageSize, dtype=np.int64),
+        cell_size=cell_size,
+        mesh_shape=mesh_shape)
+    cell_shape = np.asarray(resolved_cell_size, dtype=np.int64)
+
+    average_displacement_per_iteration: list[float] = []
+    overlap_count_per_iteration: list[int] = []
+    control_points_per_tile = {tile.ID: 0 for tile in list_tiles}
+    vertex_diagnostics_per_pass: list[dict[int, dict[str, int]]] = []
+    converged = False
+
+    _initialize_tile_grid_transforms(list_tiles, resolved_cell_size, resolved_mesh_shape)
+
+    downsample = 1.0 / float(target_space_scale)
+    last_average = float('inf')
+
+    for _ in range(iterations):
+        # Legacy prewarp_tiles=true: re-render every tile with its current transform.
+        prewarped: dict[int, _PrewarpedTile] = {
+            tile.ID: _prewarp_tile_for_grid_refine(tile, target_space_scale)
+            for tile in list_tiles}
+        neighbors = _grid_refine_neighbors(list_tiles)
+        overlap_count_per_iteration.append(
+            sum(len(neighbor_list) for neighbor_list in neighbors.values()))
+
+        pass_vertex_diagnostics: dict[int, dict[str, int]] = {}
+        pending_updates: list[tuple[nornir_imageregistration.Tile, NDArray[np.floating], NDArray[np.floating]]] = []
+        all_applied_components: list[NDArray[np.floating]] = []
+
+        for tile in list_tiles:
+            grid_transform = tile.Transform
+            if not isinstance(grid_transform, nornir_imageregistration.transforms.IGridTransform):
+                raise ValueError(f"Tile {tile.ID} transform is not a grid transform after initialization")
+
+            targets = np.asarray(
+                nornir_imageregistration.EnsureNumpyArray(
+                    grid_transform.TargetPoints),  # type: ignore[attr-defined]
+                dtype=np.float64)
+            centers_scaled = targets * float(target_space_scale)
+            mesh_dims = (int(grid_transform.grid.grid_dims[0]), int(grid_transform.grid.grid_dims[1]))
+            num_vertices = targets.shape[0]
+
+            total_shift = np.zeros((num_vertices, 2), dtype=np.float64)
+            mass = np.zeros(num_vertices, dtype=np.float64)
+            measured_count = 0
+            filled_count = 0
+
+            for neighbor in neighbors[tile.ID]:
+                shifts, measured = _measure_grid_vertex_displacements(
+                    moving=prewarped[tile.ID],
+                    fixed=prewarped[neighbor.ID],
+                    centers_scaled=centers_scaled,
+                    cell_shape=cell_shape,
+                    cell_min_overlap=min_overlap)
+                measured_count += int(np.count_nonzero(measured))
+                regularized_shifts, regularized_db = _regularize_displacements(
+                    shifts, measured, mesh_dims, median_radius=median_radius)
+                filled_count += int(np.count_nonzero(regularized_db)) - int(np.count_nonzero(measured))
+                total_shift += regularized_shifts
+                mass += regularized_db
+
+            # Legacy blend: scale = 1 / (1 + mass) (all tiles moving).
+            applied_scaled = total_shift * (1.0 / (1.0 + mass))[:, None]
+            pending_updates.append((tile, targets, applied_scaled))
+            all_applied_components.append(np.abs(applied_scaled).reshape(-1))
+
+            control_points_per_tile[tile.ID] = measured_count
+            pass_vertex_diagnostics[tile.ID] = {
+                'measured': measured_count,
+                'gap_filled': filled_count,
+                'updated': int(np.count_nonzero(np.any(applied_scaled != 0, axis=1))),
+            }
+
+        # Apply only after all tiles are measured (legacy updates grids between passes).
+        for tile, targets, applied_scaled in pending_updates:
+            grid_transform = cast(nornir_imageregistration.transforms.IGridTransform, tile.Transform)
+            new_targets = targets + (applied_scaled * downsample)
+            grid_transform.UpdateTargetPointsByIndex(  # type: ignore[attr-defined]
+                np.arange(targets.shape[0], dtype=np.int64), new_targets)
+
+        del prewarped
+        _release_refinement_worker_memory()
+
+        vertex_diagnostics_per_pass.append(pass_vertex_diagnostics)
+
+        # Legacy convergence metric: unweighted mean of |sy| and |sx| over all vertices
+        # of all tiles, in working-resolution (scaled) pixels.
+        components = np.concatenate(all_applied_components) if all_applied_components else np.zeros(0)
+        average_displacement = float(np.mean(components)) if components.size > 0 else 0.0
+        average_displacement_per_iteration.append(average_displacement)
+
+        if components.size > 0:
+            if average_displacement <= displacement_threshold:
+                converged = True
+                break
+            if average_displacement >= last_average:
+                # Legacy dual stop: a pass that fails to improve ends refinement.
+                break
+            last_average = average_displacement
+
+    return MosaicRefinementDiagnostics(
+        iterations_completed=len(average_displacement_per_iteration),
+        converged=converged,
+        average_displacement_per_iteration=average_displacement_per_iteration,
+        overlap_count_per_iteration=overlap_count_per_iteration,
+        control_points_per_tile=control_points_per_tile,
+        resolved_cell_size=resolved_cell_size,
+        resolved_mesh_shape=resolved_mesh_shape,
+        vertex_diagnostics_per_pass=vertex_diagnostics_per_pass)
+
+
+def RefineGridMosaic(
+                     mosaic_or_transforms: str | nornir_imageregistration.mosaic.Mosaic | nornir_imageregistration.mosaic_tileset.MosaicTileset | Sequence[
+                         nornir_imageregistration.ITransform],
+                     image_source: str | Sequence[str] | None,
+                     iterations: int = 10,
+                     cell_size: NDArray[np.integer] | Sequence[int] | int | None = None,
+                     mesh_shape: NDArray[np.integer] | Sequence[int] | int | None = None,
+                     displacement_threshold: float = 1.0,
+                     min_overlap: float = 0.25,
+                     imageScale: float | None = None,
+                     merge_distance: float | None = None,
+                     return_diagnostics: bool = False) -> nornir_imageregistration.mosaic.Mosaic | tuple[
+    nornir_imageregistration.mosaic.Mosaic, MosaicRefinementDiagnostics]:
+    """
+    Refine a mosaic's tile transforms using per-mesh-vertex phase correlation and output
+    legacy-compatible grid transforms.
+
+    This is a Python port of legacy `ir-refine-grid`: each pass prewarps every tile into
+    mosaic space, measures a local offset at every grid-transform vertex against each
+    overlapping neighbor, regularizes the per-neighbor displacement fields (median filter,
+    gap fill, Gaussian blur), blends them with 1/(1+mass) normalization, and adds the
+    blended shifts directly to the grid target points. No end-of-run resample occurs; the
+    refined grid is the output transform.
+
+    Parameters
+    ----------
+    mosaic_or_transforms:
+        One of:
+        - `.mosaic` path
+        - `Mosaic` object
+        - `MosaicTileset`
+        - sequence of transforms (requires `image_source` as image-path sequence)
+    image_source:
+        - directory containing tile images (for mosaic input), or
+        - sequence of image paths (for transform-sequence input)
+    iterations:
+        Max number of refinement passes.
+    cell_size:
+        Refinement neighborhood size as scalar or `(height, width)`.
+    mesh_shape:
+        Optional `(rows, cols)` mesh density. If omitted, derived from `cell_size` using legacy equations.
+    displacement_threshold:
+        Early-stop threshold on the unweighted mean |shift component| per pass, in
+        working-resolution pixels (legacy `-displacement_threshold`). Refinement also
+        stops when a pass fails to improve on the prior pass.
+    min_overlap:
+        Minimum valid-pixel fraction required of each cell-sized vertex neighborhood
+        (legacy hardcodes 0.25).
+    imageScale:
+        Target-space scaling used while warping tiles; defaults to `1.0`. Use `1/sp`
+        to match a legacy `-sp` pixel spacing.
+    merge_distance:
+        Deprecated; unused by the legacy-parity vertex-update model.
+    return_diagnostics:
+        If True, return `(Mosaic, MosaicRefinementDiagnostics)`; otherwise return `Mosaic`.
+    """
+
+    if iterations < 1:
+        raise ValueError("iterations must be >= 1")
+
+    if imageScale is None:
+        imageScale = 1.0
+    if imageScale <= 0:
+        raise ValueError("imageScale must be > 0")
+
+    image_to_source_space_scale = 1.0 / float(imageScale)
+    tiles = _create_tileset_for_refinement(
+        mosaic_or_transforms,
+        image_source,
+        image_to_source_space_scale=image_to_source_space_scale)
+    diagnostics = _refine_tileset(tiles=tiles,
+                                  target_space_scale=imageScale,
+                                  iterations=iterations,
+                                  cell_size=cell_size,
+                                  mesh_shape=mesh_shape,
+                                  displacement_threshold=displacement_threshold,
+                                  min_overlap=min_overlap,
+                                  merge_distance=merge_distance)
+
+    # Legacy ir-refine-grid never resamples at the end: the refined grid IS the output
+    # transform. Resample only if a tile somehow is not on the output lattice.
+    for tile in tiles.values():
+        source_shape = _tile_source_shape_for_grid(tile)
+        if _grid_transform_matches_lattice(
+                tile.Transform,
+                diagnostics.resolved_mesh_shape,
+                diagnostics.resolved_cell_size,
+                source_shape):
+            continue
+        tile.Transform = _resample_transform_to_output_grid(
+            tile.Transform,
+            source_shape,
+            diagnostics.resolved_cell_size,
+            diagnostics.resolved_mesh_shape)
+
+    output_mosaic = tiles.ToMosaic()
+    if return_diagnostics:
+        return output_mosaic, diagnostics
+
+    return output_mosaic
+
+
+def RefineMosaic(transforms: Sequence[nornir_imageregistration.ITransform],
+                imagepaths: Sequence[str],
+                imageScale: float | None = None,
+                subregion_shape: NDArray[np.integer] | Sequence[int] | int | None = None) -> tuple[
+    nornir_imageregistration.layout.Layout, nornir_imageregistration.mosaic_tileset.MosaicTileset]:
     """
     Locate overlapping regions between tiles in a mosaic and align multiple small subregions within.  This generates a set of control points.
 
@@ -60,211 +1255,340 @@ def RefineMosaic(transforms, imagepaths, imageScale=None, subregion_shape=None):
     Using the remaining points a mesh transform is generated for the tile.
     """
 
-    if subregion_shape is None:
-        subregion_shape = np.array([128, 128])
-
-    tiles = nornir_imageregistration.mosaic_tileset.Create(transforms, imagepaths,
-                                                           image_to_source_space_scale=imageScale)  # type: ignore[arg-type]
-    list_tiles = list(tiles.values())
-    pool = nornir_pools.GetGlobalMultithreadingPool()
-    tasks = list()
-
     if imageScale is None:
-        imageScale = 1.0 / tiles.image_to_source_space_scale  # type: ignore[attr-defined]
+        imageScale = 1.0
+    if imageScale <= 0:
+        raise ValueError("imageScale must be > 0")
+
+    tiles = cast(
+        nornir_imageregistration.mosaic_tileset.MosaicTileset,
+        nornir_imageregistration.mosaic_tileset.Create(
+            transforms, imagepaths, image_to_source_space_scale=(1.0 / float(imageScale)))  # type: ignore[arg-type]
+    )
+    _refine_tileset(tiles=tiles,
+                    target_space_scale=imageScale,
+                    iterations=1,
+                    cell_size=subregion_shape,
+                    mesh_shape=None,
+                    displacement_threshold=0.0,
+                    min_overlap=0.03,
+                    merge_distance=None)
 
     layout = nornir_imageregistration.layout.Layout()
-    for t in list_tiles:
+    for t in list(tiles.values()):
         layout.CreateNode(t.ID, t.FixedBoundingBox.Center)
-
-    for tile_overlap in nornir_imageregistration.tile_overlap.IterateTileOverlaps(list_tiles, min_overlap=0.03):
-        # OK... add some small neighborhoods and register those...
-        # (downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment) = nornir_imageregistration.tile.Tile.Calculate_Overlapping_Regions(A, B, imageScale)
-        #
-        task = pool.add_task("Align %d -> %d" % (tile_overlap.A.ID, tile_overlap.B.ID),
-                             __RefineTileAlignmentRemote,
-                             tile_overlap.A,
-                             tile_overlap.B,
-                             tile_overlap.scaled_overlapping_source_rect_A,
-                             tile_overlap.scaled_overlapping_source_rect_B,
-                             tile_overlap.scaled_offset,
-                             imageScale,
-                             subregion_shape)
-        task.A = tile_overlap.A  # type: ignore[attr-defined]
-        task.B = tile_overlap.B  # type: ignore[attr-defined]
-        task.OffsetAdjustment = tile_overlap.scaled_offset  # type: ignore[attr-defined]
-        tasks.append(task)
-    #
-    #         (point_pairs, net_offset) = __RefineTileAlignmentRemote(A, B, downsampled_overlapping_rect_A, downsampled_overlapping_rect_B, OffsetAdjustment, imageScale)
-    #         offset = net_offset[0:2] + OffsetAdjustment
-    #         weight = net_offset[2]
-    #
-    #         print("%d -> %d : %s" % (A.ID, B.ID, str(net_offset)))
-    #
-    #         layout.SetOffset(A.ID, B.ID, offset, weight)
-
-    # print(str(net_offset))
-
-    for t in tasks:
-        try:
-            (point_pairs, _) = t.wait_return()
-        except Exception as e:
-            prettyoutput.Log(f"Could not register {t.A.ID} -> {t.B.ID}")
-            prettyoutput.Log(str(e))
-            continue
-
-        SplitDisplacements(t.A, t.B, point_pairs)
-        # offset = net_offset[0:2] + (t.OffsetAdjustment * downsample)
-        # weight = net_offset[2]
-        # layout.SetOffset(t.A.ID, t.B.ID, offset, weight) 
-
-        # Figure out what offset we found vs. what offset we expected
-        # PredictedOffset = t.B.FixedBoundingBox.Center - t.A.ControlBoundingBox.Center
-
-        # diff = offset - PredictedOffset
-        # distance = np.sqrt(np.sum(diff ** 2))
-
-        # print("%d -> %d = %g" % (t.A.ID, t.B.ID, distance))
-
-    pool.wait_completion()
-
     return layout, tiles
 
 
-def __RefineTileAlignmentRemote(A: nornir_imageregistration.Tile, B: nornir_imageregistration.Tile,
-                                scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B, OffsetAdjustment,
-                                imageScale, subregion_shape=None):
-    if subregion_shape is None:
-        subregion_shape = np.array([128, 128])
+def _refine_single_tile_overlap_pair(
+        A: nornir_imageregistration.Tile,
+        B: nornir_imageregistration.Tile,
+        scaled_overlapping_source_rect_A: nornir_imageregistration.Rectangle,
+        scaled_overlapping_source_rect_B: nornir_imageregistration.Rectangle,
+        overlapping_target_rect: nornir_imageregistration.Rectangle,
+        image_scale: float,
+        subregion_shape: NDArray[np.integer]) -> tuple[np.ndarray, np.ndarray]:
+    """Measure local phase-correlation offsets for one overlapping tile pair."""
+    downsample = 1.0 / image_scale
+    subregion_shape = np.asarray(subregion_shape, dtype=np.int64)
 
-    downsample = 1.0 / imageScale
+    geometry = _compute_padded_overlap_geometry(
+        scaled_overlapping_source_rect_A,
+        scaled_overlapping_source_rect_B,
+        overlapping_target_rect,
+        subregion_shape,
+        image_scale)
+    grid_dim = geometry.grid_dim
+    padded_source_rect_a = geometry.padded_scaled_source_rect_a
+    padded_source_rect_b = geometry.padded_scaled_source_rect_b
+    overlapping_target_region = geometry.target_region_rect
+    max_displacement = _max_refinement_displacement(
+        overlapping_target_region, subregion_shape, image_scale)
 
-    grid_dim = nornir_imageregistration.TileGridShape(scaled_overlapping_source_rect_A.Size, subregion_shape)
+    a_transformed = _warp_overlap_for_grid_refine(
+        A,
+        padded_source_rect_a,
+        overlapping_target_region,
+        image_scale,
+        single_threaded_invoke=False)
+    b_transformed = _warp_overlap_for_grid_refine(
+        B,
+        padded_source_rect_b,
+        overlapping_target_region,
+        image_scale,
+        single_threaded_invoke=False)
 
-    # scaled_overlapping_source_rect_A = nornir_imageregistration.Rectangle.change_area(scaled_overlapping_source_rect_A, grid_dim * subregion_shape)
-    # scaled_overlapping_source_rect_B = nornir_imageregistration.Rectangle.change_area(scaled_overlapping_source_rect_B, grid_dim * subregion_shape)
+    if isinstance(a_transformed, nornir_imageregistration.transformed_image_data.TransformedImageDataError):
+        raise ValueError(str(a_transformed.error_msg))
+    if isinstance(b_transformed, nornir_imageregistration.transformed_image_data.TransformedImageDataError):
+        raise ValueError(str(b_transformed.error_msg))
 
-    overlapping_rect = nornir_imageregistration.Rectangle.overlap_rect(A.FixedBoundingBox, B.FixedBoundingBox)
-    overlapping_rect = nornir_imageregistration.Rectangle.change_area(overlapping_rect,  # type: ignore[arg-type]
-                                                                      grid_dim * subregion_shape * downsample)
+    distance_max = np.finfo(a_transformed.centerDistanceImage.dtype).max  # type: ignore[union-attr]
+    valid_mask_a = a_transformed.centerDistanceImage < distance_max  # type: ignore[operator]
+    valid_mask_b = b_transformed.centerDistanceImage < distance_max  # type: ignore[operator]
 
-    ATransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=A, distanceImage=None,
-                                                                                  target_space_scale=imageScale,
-                                                                                  TargetRegion=overlapping_rect,
-                                                                                  SingleThreadedInvoke=True)
-    BTransformedImageData = nornir_imageregistration.assemble_tiles.TransformTile(tile=B, distanceImage=None,
-                                                                                  target_space_scale=imageScale,
-                                                                                  TargetRegion=overlapping_rect,
-                                                                                  SingleThreadedInvoke=True)
+    a_image = nornir_imageregistration.RandomNoiseMask(
+        a_transformed.image,  # type: ignore[arg-type]
+        valid_mask_a,
+        Copy=False)
+    b_image = nornir_imageregistration.RandomNoiseMask(
+        b_transformed.image,  # type: ignore[arg-type]
+        valid_mask_b,
+        Copy=False)
 
-    # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
-    # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
-    # OverlappingRegionA = __get_overlapping_image(A, scaled_overlapping_source_rect_A,excess_scalar=1.0)
-    # OverlappingRegionB = __get_overlapping_image(B, scaled_overlapping_source_rect_B,excess_scalar=1.0)
-    A_image = nornir_imageregistration.RandomNoiseMask(ATransformedImageData.image,  # type: ignore[arg-type]
-                                                       ATransformedImageData.centerDistanceImage < np.finfo(  # type: ignore[operator]
-                                                           ATransformedImageData.centerDistanceImage.dtype).max,  # type: ignore[union-attr]
-                                                       Copy=True)
-    B_image = nornir_imageregistration.RandomNoiseMask(BTransformedImageData.image,  # type: ignore[arg-type]
-                                                       BTransformedImageData.centerDistanceImage < np.finfo(  # type: ignore[operator]
-                                                           BTransformedImageData.centerDistanceImage.dtype).max,  # type: ignore[union-attr]
-                                                       Copy=True)
+    a_tiles = nornir_imageregistration.ImageToTiles(a_image, subregion_shape, cval='random')  # type: ignore[arg-type]
+    b_tiles = nornir_imageregistration.ImageToTiles(b_image, subregion_shape, cval='random')  # type: ignore[arg-type]
 
-    # OK, create tiles from the overlapping regions
-    # A_image = nornir_imageregistration.ReplaceImageExtremaWithNoise(ATransformedImageData.image)
-    # B_image = nornir_imageregistration.ReplaceImageExtremaWithNoise(BTransformedImageData.image)
-    # nornir_imageregistration.ShowGrayscale([A_image,B_image])
-    A_tiles = nornir_imageregistration.ImageToTiles(A_image, subregion_shape, cval='random')  # type: ignore[arg-type]
-    B_tiles = nornir_imageregistration.ImageToTiles(B_image, subregion_shape, cval='random')  # type: ignore[arg-type]
-
-    # grid_dim = nornir_imageregistration.TileGridShape(ATransformedImageData.image.shape, subregion_shape)
-
-    refine_dtype = np.dtype([('SourceY', 'f4'),
-                             ('SourceX', 'f4'),
+    refine_dtype = np.dtype([('SourceAY', 'f4'),
+                             ('SourceAX', 'f4'),
+                             ('SourceBY', 'f4'),
+                             ('SourceBX', 'f4'),
+                             ('BaseTargetY', 'f4'),
+                             ('BaseTargetX', 'f4'),
                              ('TargetY', 'f4'),
                              ('TargetX', 'f4'),
+                             ('DisplacementY', 'f4'),
+                             ('DisplacementX', 'f4'),
                              ('Weight', 'f4'),
                              ('Angle', 'f4')])
 
     point_pairs = np.empty(grid_dim, dtype=refine_dtype)
-
-    net_displacement = np.empty((grid_dim.prod(), 3),
-                                dtype=np.float32)  # Amount the refine points are moved from the defaultf
-
+    net_displacement = np.empty((int(grid_dim.prod()), 3), dtype=np.float32)
     cell_center_offset = subregion_shape / 2.0
 
-    for iRow in range(0, grid_dim[0]):
-        for iCol in range(0, grid_dim[1]):
-            subregion_offset = (np.array(
-                [iRow, iCol]) * subregion_shape) + cell_center_offset  # Position subregion coordinate space
-            source_tile_offset = subregion_offset + scaled_overlapping_source_rect_A.BottomLeft  # Position tile image coordinate space
-            global_offset = OffsetAdjustment + subregion_offset  # Position subregion in tile's mosaic space
+    try:
+        for i_row in range(0, int(grid_dim[0])):
+            for i_col in range(0, int(grid_dim[1])):
+                subregion_offset = (np.array([i_row, i_col]) * subregion_shape) + cell_center_offset
+                _, full_source_a, full_source_b, global_offset = _refinement_cell_geometry(
+                    subregion_offset,
+                    overlapping_target_region,
+                    image_scale,
+                    A,
+                    B)
 
-            if not (iRow, iCol) in A_tiles or not (iRow, iCol) in B_tiles:
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
-                point_pairs[iRow, iCol] = np.array(
-                    (source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0], 0 + global_offset[1], 0, 0),
-                    dtype=refine_dtype)
-                continue
+                if (i_row, i_col) not in a_tiles or (i_row, i_col) not in b_tiles:
+                    net_displacement[(i_row * grid_dim[1]) + i_col, :] = np.array([0, 0, 0])
+                    point_pairs[i_row, i_col] = np.array(
+                        (full_source_a[0], full_source_a[1],
+                         full_source_b[0], full_source_b[1],
+                         global_offset[0], global_offset[1],
+                         global_offset[0], global_offset[1],
+                         0, 0,
+                         0, 0),
+                        dtype=refine_dtype)
+                    continue
 
-            try:
-                record = nornir_imageregistration.phasecorrelation.find_offset(A_tiles[iRow, iCol], B_tiles[iRow, iCol],
-                                                                               FFT_Required=True)  # type: ignore[call-arg]
-            except Exception as e:
-                prettyoutput.LogErr(f'Exception on row: {iRow} col: {iCol} when finding offset:\n{e}')
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
-                point_pairs[iRow, iCol] = np.array(
-                    (source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0], 0 + global_offset[1], 0, 0),
-                    dtype=refine_dtype)
-                continue
+                try:
+                    record = _phase_correlate_refinement_cell(
+                        a_tiles[i_row, i_col],
+                        b_tiles[i_row, i_col],
+                        subregion_shape)
+                except Exception as e:
+                    prettyoutput.LogErr(f'Exception on row: {i_row} col: {i_col} when finding offset:\n{e}')
+                    net_displacement[(i_row * grid_dim[1]) + i_col, :] = np.array([0, 0, 0])
+                    point_pairs[i_row, i_col] = np.array(
+                        (full_source_a[0], full_source_a[1],
+                         full_source_b[0], full_source_b[1],
+                         global_offset[0], global_offset[1],
+                         global_offset[0], global_offset[1],
+                         0, 0,
+                         0, 0),
+                        dtype=refine_dtype)
+                    continue
 
-            adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) * downsample,
-                                                                       record.weight)
+                adjusted_record = nornir_imageregistration.AlignmentRecord(
+                    np.array(record.peak) * downsample,
+                    record.weight)
+                displacement_norm = float(np.linalg.norm(adjusted_record.peak))
+                if displacement_norm > max_displacement:
+                    prettyoutput.LogErr(
+                        f'Ignoring refinement displacement {displacement_norm:.1f} > {max_displacement:.1f} '
+                        f'at row {i_row} col {i_col}')
+                    net_displacement[(i_row * grid_dim[1]) + i_col, :] = np.array([0, 0, 0])
+                    point_pairs[i_row, i_col] = np.array(
+                        (full_source_a[0], full_source_a[1],
+                         full_source_b[0], full_source_b[1],
+                         global_offset[0], global_offset[1],
+                         global_offset[0], global_offset[1],
+                         0, 0,
+                         0, 0),
+                        dtype=refine_dtype)
+                    continue
 
-            # print(str(record))
+                if np.any(np.isnan(record.peak)):
+                    net_displacement[(i_row * grid_dim[1]) + i_col, :] = np.array([0, 0, 0])
+                    point_pairs[i_row, i_col] = np.array(
+                        (full_source_a[0], full_source_a[1],
+                         full_source_b[0], full_source_b[1],
+                         global_offset[0], global_offset[1],
+                         global_offset[0], global_offset[1],
+                         0, 0,
+                         0, record.angle),
+                        dtype=refine_dtype)
+                else:
+                    net_displacement[(i_row * grid_dim[1]) + i_col, :] = np.array(
+                        [adjusted_record.peak[0], adjusted_record.peak[1], record.weight])
+                    point_pairs[i_row, i_col] = np.array(
+                        (full_source_a[0], full_source_a[1],
+                         full_source_b[0], full_source_b[1],
+                         global_offset[0], global_offset[1],
+                         adjusted_record.peak[0] + global_offset[0],
+                         adjusted_record.peak[1] + global_offset[1],
+                         adjusted_record.peak[0],
+                         adjusted_record.peak[1],
+                         record.weight,
+                         record.angle),
+                        dtype=refine_dtype)
+    finally:
+        del a_transformed
+        del b_transformed
+        del a_tiles
+        del b_tiles
+        A._image = None
+        A._paddedimage = None
+        B._image = None
+        B._paddedimage = None
 
-            if np.any(np.isnan(record.peak)):
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array([0, 0, 0])
-                point_pairs[iRow, iCol] = np.array((source_tile_offset[0], source_tile_offset[1], 0 + global_offset[0],
-                                                    0 + global_offset[1], 0, record.angle), dtype=refine_dtype)
-            else:
-                net_displacement[(iRow * grid_dim[1]) + iCol, :] = np.array(
-                    [adjusted_record.peak[0], adjusted_record.peak[1], record.weight])
-                point_pairs[iRow, iCol] = np.array((source_tile_offset[0], source_tile_offset[1],
-                                                    adjusted_record.peak[0] + global_offset[0],
-                                                    adjusted_record.peak[1] + global_offset[1], record.weight,
-                                                    record.angle), dtype=refine_dtype)
-
-    # TODO: return two sets of point pairs, one for each tile, with the offsets divided by two so both tiles are warping to improve the fit equally?
-    # TODO: Try a number of angles
-    # TODO: The original refine-grid assembled the image before trying to improve the fit.  Is this important or an artifact of the implementation?
     weighted_net_offset = np.copy(net_displacement)
-    weighted_net_offset[:, 2] /= np.sum(net_displacement[:, 2])
+    weight_sum = np.sum(net_displacement[:, 2])
+    if weight_sum > 0:
+        weighted_net_offset[:, 2] /= weight_sum
     weighted_net_offset[:, 0] *= weighted_net_offset[:, 2]
     weighted_net_offset[:, 1] *= weighted_net_offset[:, 2]
 
     net_offset = np.sum(weighted_net_offset[:, 0:2], axis=0)
-
     meaningful_weights = weighted_net_offset[weighted_net_offset[:, 2] > 0, 2]
-    weight = 0
+    weight = 0.0
     if meaningful_weights.shape[0] > 0:
-        weight = np.median(meaningful_weights)
+        weight = float(np.median(meaningful_weights))
 
     net_offset = np.hstack((np.around(net_offset, 3), weight))
-
-    # net_offset = np.median(net_displacement,axis=0) 
-
     return point_pairs, net_offset
 
 
-def SplitDisplacements(A, B, point_pairs):
+def __RefineTileOverlapBatchRemote(
+        anchor_tile: nornir_imageregistration.Tile,
+        overlap_batch: Sequence[nornir_imageregistration.tile_overlap.TileOverlap],
+        image_scale: float,
+        subregion_shape: NDArray[np.integer] | Sequence[int] | int | None = None) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Refine all overlaps for which ``anchor_tile`` is the lower-ID (A) tile."""
+    if subregion_shape is None:
+        subregion_shape = np.array([128, 128], dtype=np.int64)
+    else:
+        subregion_shape = np.asarray(_normalize_pair(subregion_shape, "subregion_shape", minimum=4), dtype=np.int64)
+
+    results: list[tuple[np.ndarray, np.ndarray]] = []
+    try:
+        for tile_overlap in overlap_batch:
+            if tile_overlap.A.ID != anchor_tile.ID:
+                raise ValueError(
+                    f"Overlap batch anchor {anchor_tile.ID} does not match pair A {tile_overlap.A.ID}")
+            results.append(_refine_single_tile_overlap_pair(
+                tile_overlap.A,
+                tile_overlap.B,
+                tile_overlap.scaled_overlapping_source_rect_A,
+                tile_overlap.scaled_overlapping_source_rect_B,
+                tile_overlap.overlapping_target_rect,  # type: ignore[arg-type]
+                image_scale,
+                subregion_shape))
+    finally:
+        anchor_tile._image = None
+        anchor_tile._paddedimage = None
+        _release_refinement_worker_memory()
+
+    return results
+
+
+def __RefineTileAlignmentRemote(
+        A: nornir_imageregistration.Tile,
+        B: nornir_imageregistration.Tile,
+        scaled_overlapping_source_rect_A: nornir_imageregistration.Rectangle,
+        scaled_overlapping_source_rect_B: nornir_imageregistration.Rectangle,
+        OffsetAdjustment: NDArray[np.floating],
+        imageScale: float,
+        subregion_shape: NDArray[np.integer] | Sequence[int] | int | None = None,
+        overlapping_target_rect: nornir_imageregistration.Rectangle | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Refine local offsets for one overlapping tile pair in worker context."""
+    if subregion_shape is None:
+        subregion_shape = np.array([128, 128], dtype=np.int64)
+    else:
+        subregion_shape = np.asarray(_normalize_pair(subregion_shape, "subregion_shape", minimum=4), dtype=np.int64)
+
+    if overlapping_target_rect is None:
+        overlapping_target_rect = nornir_imageregistration.Rectangle.overlap_rect(
+            A.FixedBoundingBox, B.FixedBoundingBox)
+        if overlapping_target_rect is None:
+            raise ValueError(f"Tiles {A.ID} and {B.ID} do not overlap")
+
+    try:
+        return _refine_single_tile_overlap_pair(
+            A,
+            B,
+            scaled_overlapping_source_rect_A,
+            scaled_overlapping_source_rect_B,
+            overlapping_target_rect,
+            imageScale,
+            subregion_shape)
+    finally:
+        _release_refinement_worker_memory()
+
+
+def SplitDisplacements(
+        A: nornir_imageregistration.Tile | None,
+        B: nornir_imageregistration.Tile | None,
+        point_pairs: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
     """
-    :param B:
-    :param tile A: Tile A, point_pairs are registered relative to this tile
-    :param tile A: Tile B, the tile that point pairs register A onto
-    :param ndarray point_pairs: A set of point pairs from a grid refinement
+    Split pairwise displacement updates into per-tile source/target updates.
+
+    Parameters
+    ----------
+    A:
+        Reference tile for one side of each pair.
+    B:
+        Paired tile for the opposite side of each pair.
+    point_pairs:
+        Structured point-pair array produced by local refinement.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Two structured arrays of updates for tile A and tile B.
     """
 
-    raise NotImplementedError()
+    if point_pairs is None:
+        return np.empty(0), np.empty(0)
+
+    flattened = point_pairs.reshape(-1)
+    if flattened.size == 0:
+        return np.empty(0), np.empty(0)
+
+    output_dtype = np.dtype([('SourceY', 'f4'),
+                             ('SourceX', 'f4'),
+                             ('TargetY', 'f4'),
+                             ('TargetX', 'f4'),
+                             ('Weight', 'f4')])
+
+    a_updates = np.empty(flattened.shape[0], dtype=output_dtype)
+    b_updates = np.empty(flattened.shape[0], dtype=output_dtype)
+
+    half_displacement_y = flattened['DisplacementY'] / 2.0
+    half_displacement_x = flattened['DisplacementX'] / 2.0
+
+    a_updates['SourceY'] = flattened['SourceAY']
+    a_updates['SourceX'] = flattened['SourceAX']
+    a_updates['TargetY'] = flattened['BaseTargetY'] + half_displacement_y
+    a_updates['TargetX'] = flattened['BaseTargetX'] + half_displacement_x
+    a_updates['Weight'] = flattened['Weight']
+
+    b_updates['SourceY'] = flattened['SourceBY']
+    b_updates['SourceX'] = flattened['SourceBX']
+    b_updates['TargetY'] = flattened['BaseTargetY'] - half_displacement_y
+    b_updates['TargetX'] = flattened['BaseTargetX'] - half_displacement_x
+    b_updates['Weight'] = flattened['Weight']
+
+    valid = flattened['Weight'] > 0
+    return a_updates[valid], b_updates[valid]
 
 
 def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
@@ -280,23 +1604,13 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    min_unmasked_area: float | None = None,
                    SaveImages: bool = False,
                    SavePlots: bool = False,
-                   **kwargs):
+                   **kwargs: Any) -> None:
     """
-    Refines an inputStos file and produces the OutputStos file.
+    Refine one STOS transform and save the refined output file.
 
-    Places a regular grid of control points across the target image.  These corresponding points on the
-    source image are then adjusted to create a mapping from Source To Fixed Space for the source image.
-
-    :param max_travel_for_finalization:
-    :param min_alignment_overlap:
-    :param min_unmasked_area:
-    :param StosFile InputStos: Either a file path or StosFile object.  This is the stosfile to be refined.
-    :param OutputStosPath: Path to save the refined stos file at.
-    :param cell_size: (width, height) area of image around control points to use for registration
-    :param grid_spacing: (width, height) of separation between control points on the grid
-    :param angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.
-    :param SavePlots: Save plots of each iteration in the output path for debugging purposes
-    :param final_pass_angles: Angles to check at the final pass
+    This loads source/target image data and masks, runs iterative grid refinement
+    using the configured settings, converts the result to a grid transform, and
+    writes the updated STOS file to ``OutputStosPath``.
     """
 
     for k, v in kwargs.items():
@@ -356,13 +1670,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     SavePlots: bool = False,
                     outputDir: str | None = None) -> nornir_imageregistration.ITransform:
     """
-    Refines a transform and returns a grid transform produced by the refinement algorithm.  This algorithm
-    takes an initial transform and creates a regular grid of points.  points covered more than
+    Iteratively refine a source-to-target transform from local alignment points.
 
-    Places a regular grid of control points across the target image.  These corresponding points on the
-    source image are then adjusted to create a mapping from Source To Fixed Space for the source image. 
-    :param settings:
-    :param stosTransform: The transform to refine
+    The routine alternates between generating candidate alignments, building an
+    updated transform from cutoff-selected points, and finalizing stable points
+    until convergence or pass limits are reached.
     """
 
     if (SavePlots or SaveImages) and outputDir is None:
@@ -664,12 +1976,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                                   settings: nornir_imageregistration.settings.GridRefinement) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
-    Places a regular grid of control points across the target image.  These corresponding points on the
-    source image are then adjusted to create a mapping from Source To Fixed Space for the source image.
-
-    :param transform transform: Transform that maps from source to target space
-    :param dict finalized: A dictionary of points, indexed by Target Space Coordinates, that are finalized and do not need to be checked
-    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations
+    Build a refinement grid, remove masked/finalized cells, and align remaining cells.
     """
 
     # Mark a grid along the fixed image, then find the points on the warped image
@@ -749,12 +2056,7 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                               settings: nornir_imageregistration.settings.GridRefinement) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
-    Registers a set of points using regions from both images. These corresponding points on the
-    target image are then adjusted to create a mapping from Source To Fixed Space for the source image.
-
-    :param transform transform: Transform that maps from source to target space
-    :param points: dict of {key:(targetpoint)} where targetpoint is a 1x2 ndarray describing a point on the target image.  These coordinates are passed through the transform to determine the point on the source image.  Key is used for return dictionary.
-    :param nornir_imageregistration.settings.GridRefinement settings: settings to use for registrations
+    Register corresponding source/target neighborhoods for each control-point key.
     """
 
     if len(keys) != targetPoints.shape[0]:
@@ -852,11 +2154,9 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
 
 def AlignRecordsToControlPoints(
-        alignment_records: AlignmentRecordList) -> NDArray:
+        alignment_records: AlignmentRecordList) -> NDArray[np.floating]:
     """
-    Convert alignment records to a numpy array of control points
-    :param alignment_records: list of alignment records
-    :return: ndarray of control points
+    Convert alignment records into ``[target_y, target_x, source_y, source_x]`` pairs.
     """
 
     SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
@@ -868,11 +2168,9 @@ def AlignRecordsToControlPoints(
 
 def _alignment_records_to_composite_scores(
         alignment_records: AlignmentRecordList,
-        max_distance: float | None = None) -> NDArray:
+        max_distance: float | None = None) -> NDArray[np.floating]:
     """
-    A helper function to produce a ndarray of measurements for alignment records
-    :param max_distance: The maximum distance to use for the distance weight, this could be tile size / 2 to keep a consistent metric across multiple runs
-    :return: A 3xN array of [Weight Distance ((MaxWeight - Weight) * Distance)]
+    Compute per-record registration, travel-distance, and composite inclusion scores.
     """
 
     if len(alignment_records) == 0:
@@ -897,14 +2195,10 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
                          weight_method: WeightMethod,
                          fixed_points: NDArray | None = None,
                          percentile: float | None = None,
-                         cutoff: float | None = None):
+                         cutoff: float | None = None) -> tuple[
+    nornir_imageregistration.ITransform, list[nornir_imageregistration.EnhancedAlignmentRecord], NDArray[np.floating]]:
     """
-    Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
-    :param alignment_records: Records that we will include if they pass the metrics for inclusion above the cutoff percentile
-    :param fixed_points: Control points that will always be included and not measured in metrics
-    :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
-    :param float cutoff: Cutoff value, if set, percentile is ignored
-    :return: (Transform, used_alignment_records, cutoff) The transform, the alignment_records used in the transform, and the cutoff value used/calculated
+    Build a mesh transform from cutoff-filtered alignment records and fixed points.
     """
     num_fixed = 0
     if fixed_points is not None:
@@ -990,8 +2284,7 @@ def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransfo
                                     cell_size: NDArray | None = None, grid_dims: NDArray | None = None,
                                     grid_spacing: NDArray | None = None) -> nornir_imageregistration.transforms.triangulation.Triangulation:
     """
-    Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
-
+    Resample an arbitrary transform onto an ITK-style grid triangulation lattice.
     """
 
     grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,
@@ -1026,7 +2319,9 @@ def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransfo
 #           
 
 
-def AlignmentRecordsToDict(alignment_records: AlignmentRecordList):
+def AlignmentRecordsToDict(
+        alignment_records: AlignmentRecordList) -> AlignmentRecordDict:
+    """Index alignment records by their control-point grid key."""
     lookup = {}
     for a in alignment_records:
         lookup[a.ID] = a
@@ -1038,12 +2333,7 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList
                                           percentile: float = 0.5, max_travel_distance: float = 1.0,
                                           weight_cutoff: float | None = None) -> NDArray[np.bool_]:
     """
-    :param alignment_records: List of alignment records to evaluate
-    :param weight_cutoff: Minimum weight for a point to be considered for finalization
-    :param percentile: Cutoff percentile for inlcuding alignment_records, if None, all points are included
-    :param max_travel_distance: Maximum distance a point can be offset before it is not eligible for finalization
-    :return: logical mask indicating which points meet the threshold to be finalized
-
+    Select points eligible for finalization by weight and travel-distance cutoffs.
     """
     weights_distance = _alignment_records_to_composite_scores(alignment_records)
     # invert the weights to multiply by distance to promote low distance alignments 
@@ -1080,7 +2370,7 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
                                             cell_size: NDArray[np.integer] | None = None) -> list[
     nornir_imageregistration.transforms.IRigidTransform] | list[nornir_imageregistration.transforms.Rigid]:
     """
-    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
+    Estimate local rigid transforms at target points via inverse-mapped source points.
     """
 
     if isinstance(input_transform, nornir_imageregistration.transforms.IRigidTransform):
@@ -1120,9 +2410,7 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
 def calculate_offset(source_points: NDArray[np.floating],
                      cell_size: NDArray | None = None) -> NDArray[np.floating]:
     """
-    Figure out how much to translate each point along the x-axis to estimate the angle of rotation at each point.
-    :param cell_size: If provided, the answer is one half of the width.  If None, we will use half the distance between the closest two points to estimate the cell size
-    :return: A distance that we should create points at to estimate a rigid transform around a given source point
+    Estimate a radial offset used to sample local orientation around source points.
     """
     # translate the target points a distance on the x-axis, and estimate the angle to determine the rotation
     xp = cp.get_array_module(source_points)
@@ -1147,11 +2435,7 @@ def _calculate_offset_ring(source_point: NDArray[np.floating],
                            offset: float,
                            nPoints: int = 8) -> NDArray[np.floating]:
     """
-    Create a set of points in a circle around a source point that will be transformed to estimate a rigid transform
-    :param source_point: The point we will create a circle around
-    :param offset:  The radius of the circle we will create around each source point
-    :param nPoints: The number of points around the radius of the circle
-    :return:
+    Create a center-plus-ring sample pattern around one source point.
     """
     xp = cp.get_array_module(source_point)
 
@@ -1162,10 +2446,10 @@ def _calculate_offset_ring(source_point: NDArray[np.floating],
     return offsets
 
 
-def AdjustSourcePointsToIndexImage(source_points: NDArray,
+def AdjustSourcePointsToIndexImage(source_points: NDArray[np.floating],
                                    source_image_shape: NDArray[np.integer]) -> NDArray[np.floating]:
     """
-    This function adjusts the source points to pixel coordinates on the image.  Images are 0-based indexed, and so to get the 10th pixel in the x direction you would use 9.
+    Map source-space points to valid zero-based pixel indices for an image shape.
     """
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
@@ -1178,17 +2462,11 @@ def AdjustSourcePointsToIndexImage(source_points: NDArray,
 
 
 def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
-                                            source_points: NDArray,
+                                            source_points: NDArray[np.floating],
                                             cell_size: NDArray | None = None) -> list[
     nornir_imageregistration.transforms.IRigidTransform]:
     """
-    Given an array of points, returns a set of rigid transforms for each point that estimate the angle and offset for those two points to align.
-    We treat each point in source_points individually.  We create a field of eight points around a circle centered on the source point.
-    We then transform these points to the target space and calculate the angle of rotation to align the points.
-
-    :param input_transform: The transform we will use to estimate the rigid transform
-    :param source_points: The points we will use to estimate the rigid transform
-    :param cell_size: The size of the cell we will use to estimate the rigid transform.  If None, we will use half the distance between the closest two points to estimate the cell size
+    Estimate one local rigid transform per source point using transformed ring samples.
     """
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
@@ -1246,17 +2524,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                        alignmentArea: NDArray | tuple[float, float],
                        description: str | None = None) -> tuple[NDArray, NDArray]:
     """
-    Crops out a small region from both images of alignmentArea size centered on target_controlpoint.
-    The source image is transformed to the target image space using the transform.  Used as input to registration functions.
-    :param transform:  The transform we will apply to determine which region is extracted from source space and transformed into target space for registration
-    :param targetImage:
-    :param sourceImage:
-    :param target_image_stats: if None, no noise is added to the output in masked or unmapped areas, 0 is used instead
-    :param source_image_stats: if None, no noise is added to the output in masked or unmapped areas, 0 is used instead
-    :param target_controlpoint:  The center of the region we will extract from the images
-    :param alignmentArea:  Area of the region we will extract from the images
-    :param description:  Optional parameter describing which cell we are processing, useful for debugging parallel execution
-    :return:
+    Extract target/source ROIs in a common target-space frame for local registration.
     """
     xp = nornir_imageregistration.GetComputationModule()
 
@@ -1299,11 +2567,22 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                                                                                   cval=False if source_image_stats is None else np.nan)
 
     if source_image_stats is not None:
-        source_image_roi = nornir_imageregistration.RandomNoiseMask(source_image_roi,  # type: ignore[arg-type]
-                                                                    xp.logical_not(xp.isnan(source_image_roi)),
+        roi_array = cast(Any, source_image_roi)
+        roi_xp = cp.get_array_module(roi_array)
+        nan_mask = roi_xp.isnan(roi_array)
+        if bool(nan_mask.all()):
+            # The source ROI is entirely out of bounds — no usable image data for this cell.
+            nornir_imageregistration.close_shared_memory(targetImage_param)  # type: ignore[arg-type]
+            nornir_imageregistration.close_shared_memory(sourceImage_param)  # type: ignore[arg-type]
+            raise ValueError("Source image ROI is entirely out of bounds; skipping cell")
+        source_image_roi = nornir_imageregistration.RandomNoiseMask(roi_array,  # type: ignore[arg-type]
+                                                                    roi_xp.logical_not(nan_mask),
                                                                     imagestats=source_image_stats)
-    elif 'DEBUG' in os.environ and xp.any(xp.isnan(source_image_roi)):
-        raise ValueError("Not handling NaN values in assembled image")
+    elif 'DEBUG' in os.environ:
+        roi_array = cast(Any, source_image_roi)
+        roi_xp = cp.get_array_module(roi_array)
+        if roi_xp.any(roi_xp.isnan(roi_array)):
+            raise ValueError("Not handling NaN values in assembled image")
 
     nornir_imageregistration.close_shared_memory(targetImage_param)  # type: ignore[arg-type]
     nornir_imageregistration.close_shared_memory(sourceImage_param)  # type: ignore[arg-type]
@@ -1313,9 +2592,7 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
 
 def EnsureMaxContrast(image: NDArray) -> NDArray:
     """
-    Ensures that the image has a min value of 0 and a max value of 1
-    :param image:
-    :return:
+    Normalize an image into the ``[0, 1]`` intensity range.
     """
 
     minval = image.min()
@@ -1341,6 +2618,7 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                            alignmentArea: NDArray | tuple[float, float],
                            anglesToSearch: Iterable[float] | None = None,
                            min_alignment_overlap: float = 0.5) -> nornir_pools.Task | None:
+    """Create and enqueue an asynchronous rigid-registration task for one point."""
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
         # Ensure we check a non-rotated alignment
@@ -1416,6 +2694,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       alignmentArea: NDArray | tuple[float, float],
                       anglesToSearch: Iterable[float] | None = None,
                       min_alignment_overlap: float = 0.5) -> nornir_imageregistration.AlignmentRecord | None:
+    """Run synchronous rigid-registration for one control point."""
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
@@ -1423,14 +2702,17 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                                                               target_points=target_controlpoint,  # type: ignore[arg-type]
                                                               cell_size=alignmentArea)  # type: ignore[arg-type]
 
-    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
-                                                            targetImage_param=targetImage,
-                                                            sourceImage_param=sourceImage,
-                                                            target_image_stats=target_image_stats,
-                                                            source_image_stats=source_image_stats,
-                                                            target_controlpoint=target_controlpoint,
-                                                            alignmentArea=alignmentArea,
-                                                            description='')
+    try:
+        target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
+                                                                targetImage_param=targetImage,
+                                                                sourceImage_param=sourceImage,
+                                                                target_image_stats=target_image_stats,
+                                                                source_image_stats=source_image_stats,
+                                                                target_controlpoint=target_controlpoint,
+                                                                alignmentArea=alignmentArea,
+                                                                description='')
+    except ValueError:
+        return None
 
     # Just ignore pure color regions
     if not np.any(target_image_roi != target_image_roi[0][0]):
@@ -1475,12 +2757,11 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
 
 
 def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITransform,
-                           alignment_records: dict,
+                           alignment_records: AlignmentRecordDict,
                            settings: nornir_imageregistration.settings.GridRefinement) \
         -> tuple[AlignmentRecordDict, list[AlignmentRecordKey]]:
     """
-    Given a set of alignment points, try to align the points again.  If we get a stronger score then
-    replace the alignment with the higher scoring result
+    Re-evaluate finalized alignments and keep only score-improving replacements.
     """
 
     items = alignment_records.items()

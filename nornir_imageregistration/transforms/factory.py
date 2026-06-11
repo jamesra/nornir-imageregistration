@@ -211,15 +211,19 @@ def LoadTransform(Transform: str, pixelSpacing: float | None = None) -> ITransfo
 
 
 def _verify_grid_dimension_and_variable_parameters_match(grid_dim: tuple[int, int], variable_parameters: list[float]) -> None:
-    """Ensure grid point count matches the number of variable parameters (2 per point).
+    """Ensure grid point count is consistent with the number of variable parameters (2 per point).
+
+    ITK grid transforms sometimes store fewer displacement vectors than the declared grid size
+    (e.g. boundary nodes that fall outside the image are omitted). We therefore accept any
+    num_vp_points <= num_grid_points.  More points than the declared grid is always an error.
 
     :param grid_dim: (width, height) or (rows, cols) of the grid.
     :param variable_parameters: List of variable parameters (2 per grid point).
-    :raises ValueError: If grid_dim product does not match len(variable_parameters) / 2.
+    :raises ValueError: If len(variable_parameters) / 2 exceeds the declared grid point count.
     """
     num_grid_points = math.prod(grid_dim)
     num_vp_points = len(variable_parameters) / 2
-    if num_grid_points != num_vp_points:
+    if num_vp_points > num_grid_points:
         grid_height, grid_width = grid_dim[0], grid_dim[1]
         raise ValueError(
             f"The grid transform has {num_vp_points} points but declares a grid of {grid_width}x{grid_height} = {num_grid_points} points")
@@ -238,6 +242,13 @@ def ParseGridTransform(parts, pixelSpacing: float | None = None):
     gridHeight = int(FixedParameters[1]) + 1
 
     _verify_grid_dimension_and_variable_parameters_match((gridWidth, gridHeight), VariableParameters)
+
+    # Sparse ITK grids omit trailing boundary nodes; pad with zeros (zero displacement = node at its
+    # regular grid position) so ITKGridDivision receives the full expected point count.
+    num_grid_points = gridWidth * gridHeight
+    expected_vp_len = num_grid_points * 2
+    if len(VariableParameters) < expected_vp_len:
+        VariableParameters = list(VariableParameters) + [0.0] * (expected_vp_len - len(VariableParameters))
 
     ImageWidth = float(FixedParameters[5]) * pixelSpacing
     ImageHeight = float(FixedParameters[6]) * pixelSpacing

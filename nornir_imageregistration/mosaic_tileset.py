@@ -407,8 +407,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
     def RefineLayout(self):
 
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = nornir_imageregistration.RefineGrid(self)  # type: ignore[attr-defined]
-        return layout.ToMosaic(tiles)
+        refined_mosaic = nornir_imageregistration.RefineGridMosaic(self, image_source=None)
+        return refined_mosaic
 
     def QualityScore(self):
         score = nornir_imageregistration.arrange_mosaic.ScoreMosaicQuality(self)

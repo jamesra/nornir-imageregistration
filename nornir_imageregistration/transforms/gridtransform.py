@@ -72,6 +72,11 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+        self._FixedKDTree = None
+        self._WarpedKDTree = None
+        self._fixedtri = None
         self.OnTransformChanged()
 
     def __init__(self,
@@ -377,6 +382,11 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+        self._FixedKDTree = None
+        self._WarpedKDTree = None
+        self._fixedtri = None
         self.OnTransformChanged()
 
     def __init__(self,
@@ -698,6 +708,11 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)  # type: ignore[attr-defined]
         self.OnChangeEventListeners = []
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+        self._FixedKDTree = None
+        self._WarpedKDTree = None
+        self._fixedtri = None
         self.OnTransformChanged()
 
     def __init__(self,

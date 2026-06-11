@@ -4,6 +4,7 @@ Created on Oct 28, 2013
 @author: u0490822
 """
 import os
+import unittest
 from typing import AnyStr
 
 import numpy as np
@@ -691,6 +692,16 @@ class IDOCTests(TestMosaicAssemble):
     #
     #     nornir_imageregistration.SaveImage_JPeg2000(ImageFullPath, image)
     #     self.assertTrue(os.path.exists(ImageFullPath), "File should be written to disk for JPeg2000")
+
+
+class TestAssembleBufferLimits(unittest.TestCase):
+    """Guardrails for assemble output allocation size."""
+
+    def test_refuse_oversized_assemble_buffer(self):
+        """Assemble must fail fast instead of requesting multi-gigabyte GPU allocations."""
+        with self.assertRaises(ValueError) as context:
+            at._raise_if_assemble_buffer_too_large(100_000, 100_000, np.float64)
+        self.assertIn("NORNIR_MAX_ASSEMBLE_BUFFER_BYTES", str(context.exception))
 
 
 if __name__ == "__main__":
