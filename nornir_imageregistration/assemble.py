@@ -245,7 +245,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                output_origin: NDArray[np.integer] | tuple[int, int] | None,
                                output_area: NDArray[np.integer] | tuple[float, float],
                                cval=0,
-                               return_shared_memory: bool = False):
+                               return_shared_memory: bool = False,
+                               interpolation_order: int | None = None):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -255,6 +256,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :Param output_area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
     :param use_shared_memory: If true, create and write output to a shared memory array
+    :param interpolation_order: ``map_coordinates`` spline order (0=nearest). When None, use
+        order 1 for NaN/bool inputs and cubic (3) otherwise.
     """
 
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
@@ -338,11 +341,13 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
     # filtered_source_coords = np.around(filtered_source_coords, 3)
 
-    # TODO: Order appears to not matter so setting to zero may help
-    # outputImage = interpolation.map_coordinates(subroi_warpedImage, warped_coords.transpose(), mode='constant', order=3, cval=cval)
     any_nan_values = bool(xp.any(xp.isnan(subroi_warpedImage)))
-    # filtered_source_coords -= 0.5
-    order = 1 if any_nan_values or subroi_warpedImage.dtype == bool else 3  # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value
+    if interpolation_order is None:
+        # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value.
+        order = 1 if any_nan_values or subroi_warpedImage.dtype == bool else 3
+    else:
+        order = int(interpolation_order)
+    prefilter = order > 1
     with IgnoreUnderflow(
             f"Underflow error assembling image.  min_val={subroi_warpedImage.min()} max_val={subroi_warpedImage.max()} mean={subroi_warpedImage.mean()} standardDev={np.std(subroi_warpedImage)}"):
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,  # type: ignore[union-attr]
@@ -350,7 +355,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                                   mode='constant',
                                                   order=order,
                                                   cval=cval,
-                                                  prefilter=True).astype(original_dtype, copy=False)
+                                                  prefilter=prefilter).astype(original_dtype, copy=False)
 
     del filtered_source_coords
     # outputvalaues = my_cheesy_map_coordinates(subroi_warpedImage, filtered_source_coords.transpose())

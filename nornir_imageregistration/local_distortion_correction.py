@@ -366,15 +366,21 @@ def _prewarp_tile_for_grid_refine(
         (target_height, target_width),
         extrapolate=False)
 
+    # Legacy ir-refine-grid prewarp uses itk::NearestNeighborInterpolateImageFunction
+    # (common.hxx warp<>), not cubic resampling.
+    warp_kwargs = {
+        'output_origin': (target_min_y, target_min_x),
+        'output_area': (target_height, target_width),
+        'cval': 0,
+        'interpolation_order': 0,
+    }
     warped_image = cast(
         NDArray[np.floating],
         nornir_imageregistration.assemble._TransformImageUsingCoords(
             write_coords,
             read_coords,
             full_source_image,
-            output_origin=(target_min_y, target_min_x),
-            output_area=(target_height, target_width),
-            cval=0))
+            **warp_kwargs))
 
     # Warp a ones-image to obtain coverage: pixels outside the transform domain or
     # outside the source image read the cval and drop below the validity threshold.
@@ -386,9 +392,7 @@ def _prewarp_tile_for_grid_refine(
             write_coords,
             read_coords,
             coverage_source,
-            output_origin=(target_min_y, target_min_x),
-            output_area=(target_height, target_width),
-            cval=0))
+            **warp_kwargs))
 
     valid_mask = coverage > 0.999
     warped_image = xp.where(valid_mask, warped_image, 0)
