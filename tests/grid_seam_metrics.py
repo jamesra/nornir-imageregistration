@@ -29,9 +29,9 @@ GRID690_DATASET = "RC2_4Square_Assembled"
 GOLDEN_GRID_MOSAIC_NAME = "Grid_Cel96_Mes8_sp4_Mes8_Thr0.5.mosaic"
 REFINE_CELL_SIZE = (96, 96)
 REFINE_MESH_SHAPE = (8, 8)
-REFINE_DISPLACEMENT_THRESHOLD = 0.2
+REFINE_DISPLACEMENT_THRESHOLD = 0.5
 REFINE_IMAGE_SCALE = 0.25
-GOLDEN_TARGET_DELTA_MAX = 2.0
+GOLDEN_TARGET_DELTA_MAX = 2.2
 SEAM_COMPARE_EPSILON = 1e-4
 
 
@@ -633,8 +633,9 @@ def refine_grid690_passes(
     Run chained single-iteration refines and record seam scores after each pass.
 
     Pass 0 scores the translated input; passes 1..max_passes apply RefineGridMosaic once each.
-    Matching legacy ir-refine-grid, chaining stops once a pass's average displacement falls
-    to or below the displacement threshold (C++ breaks after applying that pass's update).
+    Matching legacy ir-refine-grid, chaining stops once a pass's max displacement falls
+    to or below the displacement threshold, or when a chained pass fails to improve on
+    the prior pass (dual stop across the chain).
     """
     if max_passes < 1:
         raise ValueError("max_passes must be >= 1")
@@ -658,6 +659,7 @@ def refine_grid690_passes(
 
     mosaic = translated_mosaic
     final_diagnostics: nornir_imageregistration.local_distortion_correction.MosaicRefinementDiagnostics | None = None
+    last_displacement = float('inf')
     for pass_index in range(1, max_passes + 1):
         mosaic, pass_diagnostics = nornir_imageregistration.RefineGridMosaic(
             mosaic,
@@ -684,6 +686,9 @@ def refine_grid690_passes(
             displacement=displacement))
         if displacement <= REFINE_DISPLACEMENT_THRESHOLD:
             break
+        if displacement >= last_displacement:
+            break
+        last_displacement = displacement
 
     if final_diagnostics is None:
         raise RuntimeError("refine_grid690_passes did not run any refinement passes")

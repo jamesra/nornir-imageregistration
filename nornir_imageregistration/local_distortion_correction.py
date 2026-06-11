@@ -64,6 +64,7 @@ class DistortionCorrection:
 class MosaicRefinementDiagnostics:
     iterations_completed: int
     converged: bool
+    # Per-pass convergence metric: max |shift component| over all vertices (working-res px).
     average_displacement_per_iteration: list[float]
     overlap_count_per_iteration: list[int]
     control_points_per_tile: dict[int, int]
@@ -1024,8 +1025,8 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     shift at every mesh vertex against each overlapping neighbor, regularize the
     per-neighbor displacement fields (median + gap-fill + Gaussian blur), blend with
     1/(1+mass) normalization, then add the blended shifts to every tile's grid target
-    points.  Stops early when the average displacement reaches the threshold or stops
-    improving (legacy dual condition).
+    points.  Stops early when the max vertex displacement reaches the threshold or stops
+    improving (dual condition; legacy C++ uses mean for the threshold comparison).
     """
     del merge_distance  # retained for API compatibility; unused by the legacy-parity model
     list_tiles = list(tiles.values())
@@ -1047,7 +1048,7 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     _initialize_tile_grid_transforms(list_tiles, resolved_cell_size, resolved_mesh_shape)
 
     downsample = 1.0 / float(target_space_scale)
-    last_average = float('inf')
+    last_pass_displacement = float('inf')
 
     for _ in range(iterations):
         # Legacy prewarp_tiles=true: re-render every tile with its current transform.
@@ -1118,20 +1119,21 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
 
         vertex_diagnostics_per_pass.append(pass_vertex_diagnostics)
 
-        # Legacy convergence metric: unweighted mean of |sy| and |sx| over all vertices
-        # of all tiles, in working-resolution (scaled) pixels.
+        # Convergence metric: max |sy| or |sx| over all vertices of all tiles, in
+        # working-resolution (scaled) pixels. Legacy C++ uses mean; max is stricter and
+        # keeps refining while any vertex still moves above the threshold.
         components = np.concatenate(all_applied_components) if all_applied_components else np.zeros(0)
-        average_displacement = float(np.mean(components)) if components.size > 0 else 0.0
-        average_displacement_per_iteration.append(average_displacement)
+        pass_displacement = float(np.max(components)) if components.size > 0 else 0.0
+        average_displacement_per_iteration.append(pass_displacement)
 
         if components.size > 0:
-            if average_displacement <= displacement_threshold:
+            if pass_displacement <= displacement_threshold:
                 converged = True
                 break
-            if average_displacement >= last_average:
-                # Legacy dual stop: a pass that fails to improve ends refinement.
+            if pass_displacement >= last_pass_displacement:
+                # Dual stop: a pass that fails to improve ends refinement.
                 break
-            last_average = average_displacement
+            last_pass_displacement = pass_displacement
 
     return MosaicRefinementDiagnostics(
         iterations_completed=len(average_displacement_per_iteration),
@@ -1186,9 +1188,9 @@ def RefineGridMosaic(
     mesh_shape:
         Optional `(rows, cols)` mesh density. If omitted, derived from `cell_size` using legacy equations.
     displacement_threshold:
-        Early-stop threshold on the unweighted mean |shift component| per pass, in
-        working-resolution pixels (legacy `-displacement_threshold`). Refinement also
-        stops when a pass fails to improve on the prior pass.
+        Early-stop threshold on the max |shift component| per pass, in working-resolution
+        pixels (legacy `-displacement_threshold` applies to mean; this port uses max).
+        Refinement also stops when a pass fails to improve on the prior pass.
     min_overlap:
         Minimum valid-pixel fraction required of each cell-sized vertex neighborhood
         (legacy hardcodes 0.25).
