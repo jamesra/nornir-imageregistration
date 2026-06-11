@@ -28,7 +28,7 @@ from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformScaling, \
     ITransformRelativeScaling, ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, \
-    ITriangulatedTargetSpace
+    ITriangulatedTargetSpace, ITransformTranslation 
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms.transform_type import TransformType
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
@@ -48,7 +48,7 @@ def _fixed_points_for_extrapolation_fill(
 
 
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
-                          ITransformTargetRotation,
+                          ITransformTargetRotation, ITransformTranslation,
                           ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
                           DefaultTransformChangeEvents):
     """
@@ -367,6 +367,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
 class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITransformScaling,
                                        ITransformRelativeScaling, ITransformTargetRotation,
+                                       ITransformTranslation,
                                        ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
                                        DefaultTransformChangeEvents):
     """
