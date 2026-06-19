@@ -410,6 +410,29 @@ def _prewarp_tile_for_grid_refine(
         origin=np.asarray((target_min_y, target_min_x), dtype=np.int64))
 
 
+def _prewarp_all_tiles_for_grid_refine(
+        tiles: list[nornir_imageregistration.Tile],
+        target_space_scale: float) -> dict[int, _PrewarpedTile]:
+    """Prewarp every tile for one grid-refinement pass, using workers on CPU hosts."""
+    if len(tiles) <= 1 or nornir_imageregistration.UsingCupy():
+        return {
+            tile.ID: _prewarp_tile_for_grid_refine(tile, target_space_scale)
+            for tile in tiles
+        }
+
+    pool = nornir_pools.GetGlobalMultithreadingPool()
+    tasks = [
+        pool.add_task(
+            f"grid_prewarp_{tile.ID}",
+            _prewarp_tile_for_grid_refine,
+            tile,
+            target_space_scale)
+        for tile in tiles
+    ]
+    pool.wait_completion()
+    return {tile.ID: task.wait_return() for tile, task in zip(tiles, tasks)}
+
+
 def _extract_refinement_cell(
         prewarped: _PrewarpedTile,
         center_scaled: NDArray[np.floating],
@@ -1052,9 +1075,7 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
 
     for _ in range(iterations):
         # Legacy prewarp_tiles=true: re-render every tile with its current transform.
-        prewarped: dict[int, _PrewarpedTile] = {
-            tile.ID: _prewarp_tile_for_grid_refine(tile, target_space_scale)
-            for tile in list_tiles}
+        prewarped = _prewarp_all_tiles_for_grid_refine(list_tiles, target_space_scale)
         neighbors = _grid_refine_neighbors(list_tiles)
         overlap_count_per_iteration.append(
             sum(len(neighbor_list) for neighbor_list in neighbors.values()))
