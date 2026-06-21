@@ -37,6 +37,24 @@ import nornir_shared.mathhelper
 import nornir_pools
 from nornir_imageregistration.hann_window_cache import HannWindowCache
 
+def _correlation_peak_ratio(arr: NDArray) -> float:
+    arr_np = np.asarray(arr)
+    if np.iscomplexobj(arr_np):
+        arr_np = np.abs(arr_np)
+    arr_np = np.asarray(arr_np, dtype=np.float32).ravel()
+    if arr_np.size < 2:
+        return 0.0
+    finite = np.isfinite(arr_np)
+    if not np.any(finite):
+        return 0.0
+    finite_values = arr_np[finite]
+    if finite_values.size < 2:
+        return 0.0
+    top2 = np.partition(finite_values, -2)[-2:]
+    second = float(max(min(top2), 1e-6))
+    first = float(max(top2))
+    return first / second
+
 
 @dataclass
 class AngleScaleResult:
@@ -45,6 +63,7 @@ class AngleScaleResult:
     weight: float
     translation: tuple[float, float]
     flippedud: bool = False
+    ambiguous: bool = False
 
 
 def _coerce_to_source_module(x: NDArray, xp) -> NDArray:
@@ -300,11 +319,32 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         target_image = nornir_imageregistration.ScaleImage(target_image, scalar)
         source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
 
+    def _find_logpolar_with_fallback(candidate_source_image: NDArray[np.floating]) -> AngleScaleResult:
+        logpolar_result = _find_angle_and_scale_with_logpolar(source_image=candidate_source_image,
+                                                              target_image=target_image,
+                                                              source_stats=source_stats,
+                                                              target_stats=target_stats,
+                                                              min_overlap=settings.min_overlap)
+        if not logpolar_result.ambiguous:
+            return logpolar_result
+
+        brute_force_result = _find_best_angle(source_image=candidate_source_image,
+                                              target_image=target_image,
+                                              source_stats=source_stats,
+                                              target_stats=target_stats,
+                                              angle_range=settings.angle_range,
+                                              min_overlap=settings.min_overlap,
+                                              SingleThread=SingleThread,
+                                              use_cluster=Cluster)
+        return AngleScaleResult(angle=float(brute_force_result.angle),
+                                scale=float(logpolar_result.scale),
+                                weight=float(brute_force_result.weight),
+                                translation=(float(brute_force_result.peak[0]), float(brute_force_result.peak[1])),
+                                ambiguous=False)
+
     # Replace extrema with noise
     if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-        best_match = _find_angle_and_scale_with_logpolar(source_image=source_image, target_image=target_image,
-                                                         source_stats=source_stats, target_stats=target_stats,
-                                                         min_overlap=settings.min_overlap)
+        best_match = _find_logpolar_with_fallback(source_image)
     else:
         best_match = _find_best_angle(source_image=source_image, target_image=target_image,
                                       source_stats=source_stats, target_stats=target_stats,
@@ -320,11 +360,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         source_flipped = _xp_img.flipud(source_image)
 
         if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-            best_match_flipped = _find_angle_and_scale_with_logpolar(source_image=source_flipped,
-                                                                     target_image=target_image,
-                                                                     source_stats=source_stats,
-                                                                     target_stats=target_stats,
-                                                                     min_overlap=settings.min_overlap)
+            best_match_flipped = _find_logpolar_with_fallback(source_flipped)
         else:
             best_match_flipped = _find_best_angle(source_image=source_flipped, target_image=target_image,
                                                   source_stats=source_stats, target_stats=target_stats,
@@ -402,6 +438,132 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     return best_refined_match  # type: ignore[return-value]
 
 
+def _score_one_angle_core(
+        im_target: NDArray,
+        im_source: NDArray,
+        target_image_shape: tuple[int, int],
+        source_image_shape: tuple[int, int],
+        angle: float,
+        target_stats: nornir_imageregistration.ImageStats,
+        source_stats: nornir_imageregistration.ImageStats,
+        target_image_prepadded: bool,
+        min_overlap: float) -> nornir_imageregistration.AlignmentRecord:
+    """Score one angle using arrays already on the active computation backend."""
+
+    xp = cp.get_array_module(im_target)
+    xp_scipy = cupyx.scipy.get_array_module(im_target)
+
+    rotated_source = pad_and_rotate_image(image=im_source,
+                                          angle=angle,
+                                          image_stats=source_stats,
+                                          min_overlap=min_overlap)
+
+    assert rotated_source.shape[0] > 0
+    assert rotated_source.shape[1] > 0
+
+    if not target_image_prepadded:
+        padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+            im_target,
+            image_median=target_stats.median,
+            image_stddev=target_stats.std,
+            min_overlap=min_overlap,
+            original_shape=target_image_shape)
+    else:
+        padded_target = im_target
+
+    target_height = max(padded_target.shape[0], rotated_source.shape[0])
+    target_width = max(padded_target.shape[1], rotated_source.shape[1])
+
+    if not np.array_equal(im_target.shape, np.array((target_height, target_width))):
+        padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+            im_target,
+            new_width=target_width,
+            new_height=target_height,
+            image_median=target_stats.median,
+            image_stddev=target_stats.std,
+            min_overlap=1.0)
+
+    if np.array_equal(rotated_source.shape, np.array((target_height, target_width))):
+        rotated_padded_source = rotated_source
+    else:
+        rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+            rotated_source,
+            new_width=target_width,
+            new_height=target_height,
+            image_median=source_stats.median,
+            image_stddev=source_stats.std,
+            min_overlap=1.0)
+
+    assert np.array_equal(padded_target.shape, rotated_padded_source.shape)
+
+    correlation_image = nornir_imageregistration.phasecorrelation.image_phase_correlation(
+        target_image=padded_target,
+        source_image=rotated_padded_source,
+        target_mean=target_stats.mean,
+        source_mean=source_stats.mean,
+        correlation_coefficient=.66)
+
+    del rotated_source
+    if padded_target is not im_target:
+        del padded_target
+    del rotated_padded_source
+
+    correlation_image = xp_scipy.fft.fftshift(correlation_image)
+    try:
+        correlation_image -= correlation_image.min()
+    except FloatingPointError as e:
+        print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
+        return nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
+
+    overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
+        target_image_shape, source_image_shape, correlation_image.shape, min_overlap,
+        MaxOverlap=1.0, xp=xp)
+
+    (peak, weight, cutoff_value, cutoff_percent) = nornir_imageregistration.phasecorrelation.find_peak(
+        correlation_image, overlap_mask)
+    del overlap_mask
+    del correlation_image
+
+    return nornir_imageregistration.AlignmentRecord(peak, weight, angle)
+
+
+def ScoreManyAnglesGpu(target_original: NDArray,
+                       source_original: NDArray,
+                       target_image_shape: tuple[int, int],
+                       source_image_shape: tuple[int, int],
+                       angles: Sequence[float],
+                       target_stats: nornir_imageregistration.ImageStats | None = None,
+                       source_stats: nornir_imageregistration.ImageStats | None = None,
+                       min_overlap: float = 0.75) -> list[nornir_imageregistration.AlignmentRecord]:
+    """Score multiple rotation angles with one source/target upload on GPU."""
+
+    im_target = nornir_imageregistration.ImageParamToImageArray(
+        target_original, dtype=nornir_imageregistration.default_image_dtype())
+    im_source = nornir_imageregistration.ImageParamToImageArray(
+        source_original, dtype=nornir_imageregistration.default_image_dtype())
+
+    if source_stats is None:
+        source_stats = nornir_imageregistration.ImageStats.CalcStats(im_source)
+
+    if target_stats is None:
+        target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
+
+    return [
+        _score_one_angle_core(
+            im_target,
+            im_source,
+            target_image_shape,
+            source_image_shape,
+            float(angle),
+            target_stats,
+            source_stats,
+            target_image_prepadded=True,
+            min_overlap=min_overlap,
+        )
+        for angle in angles
+    ]
+
+
 def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                   target_image_shape: tuple[int, int], source_image_shape: tuple[int, int],
                   angle: float,
@@ -424,107 +586,16 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
         if target_stats is None:
             target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
 
-        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
-        # Use of cupy or numpy
-        xp = cp.get_array_module(target_original)
-        # Use of cupyx.scipy.fft or scipy.fft
-        xp_scipy = cupyx.scipy.get_array_module(target_original)
-
-        rotated_source = pad_and_rotate_image(image=im_source,
-                                              angle=angle,
-                                              image_stats=source_stats,
-                                              min_overlap=min_overlap)
-
-        assert (rotated_source.shape[0] > 0)
-        assert (rotated_source.shape[1] > 0)
-
-        if not target_image_prepadded:
-            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(im_target,
-                                                                                                      image_median=target_stats.median,
-                                                                                                      image_stddev=target_stats.std,
-                                                                                                      min_overlap=min_overlap,
-                                                                                                      original_shape=target_image_shape)
-        else:
-            padded_target = im_target
-
-        # print str(padded_target.shape) + ' ' +  str(rotated_padded_source.shape)
-
-        TargetHeight = max([padded_target.shape[0], rotated_source.shape[0]])
-        TargetWidth = max([padded_target.shape[1], rotated_source.shape[1]])
-
-        # Why is MinOverlap hard-coded to 1.0?  To prevent padded_target from growing larger than the largest of the input dimensions
-        # pad_image_for_phase_correlation will always return a copy, so don't call it unless we need to
-        if not np.array_equal(im_target.shape, np.array((TargetHeight, TargetWidth))):
-            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(im_target,
-                                                                                                      new_width=TargetWidth,
-                                                                                                      new_height=TargetHeight,
-                                                                                                      image_median=target_stats.median,
-                                                                                                      image_stddev=target_stats.std,
-                                                                                                      min_overlap=1.0)
-            # print(f"{angle}: Padding target image to {padded_target.shape}")
-        # else:
-        #     print(f"{angle}: No additional padding   {padded_target.shape}")
-
-        if np.array_equal(rotated_source.shape, np.array((TargetHeight, TargetWidth))):
-            rotated_padded_source = rotated_source
-        else:
-            rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-                rotated_source,
-                new_width=TargetWidth,
-                new_height=TargetHeight,
-                image_median=source_stats.median,
-                image_stddev=source_stats.std,
-                min_overlap=1.0)
-
-        assert (np.array_equal(padded_target.shape, rotated_padded_source.shape))
-
-        # if use_cp and not isinstance(padded_target, cp.ndarray):
-        #     padded_target = cp.asarray(padded_target)
-        #
-        # if use_cp and not isinstance(rotated_padded_source, cp.ndarray):
-        #     rotated_padded_source = cp.asarray(rotated_padded_source)
-
-        correlation_image = nornir_imageregistration.phasecorrelation.image_phase_correlation(
-            target_image=padded_target,
-            source_image=rotated_padded_source,
-            target_mean=target_stats.mean,
-            source_mean=source_stats.mean,
-            correlation_coefficient=.66)
-
-        # if OKToDelimWarped:
-        del im_source
-        del im_target
-
-        del rotated_source
-
-        del padded_target
-        del rotated_padded_source
-
-        correlation_image = xp_scipy.fft.fftshift(correlation_image)
-        try:
-            correlation_image -= correlation_image.min()
-            # correlation_image /= correlation_image.max()
-        except FloatingPointError as e:
-            print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
-            record = nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
-            return record
-
-        # Timer.Start('Find Peak')
-
-        # Note - Clement: overlap_mask still uses numpy (and not cupy)
-        overlap_mask = nornir_imageregistration.GetOverlapMask(target_image_shape, source_image_shape,
-                                                                              correlation_image.shape, min_overlap,
-                                                                              MaxOverlap=1.0)
-        if use_cp and not isinstance(overlap_mask, cp.ndarray):
-            overlap_mask = cp.asarray(overlap_mask)
-
-        (peak, weight, cutoff_value, cutoff_percent) = nornir_imageregistration.phasecorrelation.find_peak(
-            correlation_image, overlap_mask)
-        del overlap_mask
-        del correlation_image
-
-        record = nornir_imageregistration.AlignmentRecord(peak, weight, angle)
-        return record
+        return _score_one_angle_core(
+            im_target,
+            im_source,
+            target_image_shape,
+            source_image_shape,
+            angle,
+            target_stats,
+            source_stats,
+            target_image_prepadded,
+            min_overlap)
     finally:
         nornir_imageregistration.close_shared_memory(target_original)  # type: ignore[arg-type]
         nornir_imageregistration.close_shared_memory(source_original)  # type: ignore[arg-type]
@@ -548,7 +619,8 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                         target_stats: nornir_imageregistration.ImageStats,
                                         min_overlap: float = 0.5) -> AngleScaleResult:
     """This function uses the log polar technique to determine the scale and angle of the best alignment between two images"""
-    # skimage / numpy.fft: explicit host boundary when inputs are on device; keep NumPy path allocation-free.
+    # Intentional host boundary: skimage log-polar path is CPU-only. Pull images once here;
+    # downstream phase correlation in ScoreOneAngle stays on the active backend (CuPy when enabled).
     _xp_lp = cp.get_array_module(source_image)
     if _xp_lp is not np:
         source_image = source_image.get()  # type: ignore[attr-defined]
@@ -618,6 +690,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     # phase_correlation_shifted = phase_correlation
     phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    angle_scale_peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
     try:
         phase_correlation_shifted -= phase_correlation_shifted.min()
         phase_correlation_shifted /= phase_correlation_shifted.max()  # Remove before release, this is for visualization
@@ -677,10 +750,10 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
             # rotated_desired_shape = nornir_shared.mathhelper.max_shape([rotated_padded_source.shape, padded_target.shape])
             # rotated_desired_height, rotated_desired_width = rotated_desired_shape
             rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-                target_image,
+                rotated_padded_source,
                 min_overlap=min_overlap,
-                image_median=target_stats.median,
-                image_stddev=target_stats.std,
+                image_median=source_stats.median,
+                image_stddev=source_stats.std,
                 new_height=rotated_desired_height,
                 new_width=rotated_desired_width)
         target_window = HannWindowCache.GetOrCreate(rotated_desired_shape)
@@ -712,16 +785,24 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     original_peak = nornir_imageregistration.phasecorrelation.find_peak(original_correlation)
     rotated_peak = nornir_imageregistration.phasecorrelation.find_peak(rotated_correlation)
+    original_peak_ratio = float(_correlation_peak_ratio(original_correlation))
+    rotated_peak_ratio = float(_correlation_peak_ratio(rotated_correlation))
+    translation_peak_ratio = max(original_peak_ratio, rotated_peak_ratio)
 
     rotated_180 = False
     if original_peak.peak_strength >= rotated_peak.peak_strength:
         selected_peak = original_peak
     else:
-        selected_peak = rotated_peak
-        recovered_angle -= 180
-        if recovered_angle < -180:
-            recovered_angle += 360
-        rotated_180 = True
+        strength_ratio = rotated_peak.peak_strength / max(original_peak.peak_strength, 1e-6)
+        # When log-polar finds a small angle, a marginally stronger +180° FFT peak is often spurious.
+        if abs(recovered_angle) <= 45.0 and strength_ratio < 1.15:
+            selected_peak = original_peak
+        else:
+            selected_peak = rotated_peak
+            recovered_angle -= 180
+            if recovered_angle < -180:
+                recovered_angle += 360
+            rotated_180 = True
 
     if nornir_imageregistration.in_debug_mode():
         print(
@@ -734,8 +815,22 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     # shift_scale = np.exp(shiftc / klog)
 
     #    return AngleScaleResult(angle=recovered_angle, scale=shift_scale, weight=angle_scale_peak.peak_strength)
-    return AngleScaleResult(angle=recovered_angle, scale=shift_scale, weight=angle_scale_peak.peak_strength,
-                            translation=selected_peak.scaled_offset)
+    strength_delta_ratio = abs(float(original_peak.peak_strength) - float(rotated_peak.peak_strength)) / max(
+        max(float(original_peak.peak_strength), float(rotated_peak.peak_strength)), 1e-6
+    )
+    ambiguous = bool(
+        angle_scale_peak_ratio < 1.2
+        or translation_peak_ratio < 1.12
+        or strength_delta_ratio < 0.12
+    )
+
+    return AngleScaleResult(
+        angle=recovered_angle,
+        scale=shift_scale,
+        weight=angle_scale_peak.peak_strength,
+        translation=selected_peak.scaled_offset,
+        ambiguous=ambiguous,
+    )
 
 
 def _find_best_angle(source_image: NDArray[np.floating],
@@ -812,57 +907,69 @@ def _find_best_angle(source_image: NDArray[np.floating],
         target_shape = target_image.shape
         max_task_count = multiprocessing.cpu_count() * 1.5
 
-        for i, theta in enumerate(angle_range):
-            if SingleThread:
-                record = ScoreOneAngle(target_original=shared_padded_target, source_original=shared_source,
-                                       target_image_shape=target_shape, source_image_shape=source_shape,
-                                       angle=theta,
-                                       target_stats=target_stats, source_stats=source_stats,
-                                       min_overlap=min_overlap)
-                AngleMatchValues.append(record)
-            elif use_cluster:
-                task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
-                                     target_original=shared_padded_target, source_original=shared_source,
-                                     target_image_shape=target_shape, source_image_shape=source_shape,
-                                     angle=theta,
-                                     target_stats=target_stats, source_stats=source_stats,
-                                     min_overlap=min_overlap)
-                taskList.append(task)
-            else:
-                task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
-                                     target_original=shared_target_metadata, source_original=shared_source_metadata,
-                                     target_image_shape=target_shape, source_image_shape=source_shape,
-                                     angle=theta,
-                                     target_stats=target_stats, source_stats=source_stats,
-                                     min_overlap=min_overlap)
-                taskList.append(task)
+        if use_cp and len(angle_range) > 1:
+            AngleMatchValues = ScoreManyAnglesGpu(
+                target_original=shared_padded_target,
+                source_original=shared_source,
+                target_image_shape=target_shape,
+                source_image_shape=source_shape,
+                angles=angle_range,
+                target_stats=target_stats,
+                source_stats=source_stats,
+                min_overlap=min_overlap,
+            )
+        else:
+            for i, theta in enumerate(angle_range):
+                if SingleThread:
+                    record = ScoreOneAngle(target_original=shared_padded_target, source_original=shared_source,
+                                           target_image_shape=target_shape, source_image_shape=source_shape,
+                                           angle=theta,
+                                           target_stats=target_stats, source_stats=source_stats,
+                                           min_overlap=min_overlap)
+                    AngleMatchValues.append(record)
+                elif use_cluster:
+                    task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
+                                         target_original=shared_padded_target, source_original=shared_source,
+                                         target_image_shape=target_shape, source_image_shape=source_shape,
+                                         angle=theta,
+                                         target_stats=target_stats, source_stats=source_stats,
+                                         min_overlap=min_overlap)
+                    taskList.append(task)
+                else:
+                    task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
+                                         target_original=shared_target_metadata, source_original=shared_source_metadata,
+                                         target_image_shape=target_shape, source_image_shape=source_shape,
+                                         angle=theta,
+                                         target_stats=target_stats, source_stats=source_stats,
+                                         min_overlap=min_overlap)
+                    taskList.append(task)
 
-            if not i % CheckTaskInterval == 0:
-                continue
+                if not i % CheckTaskInterval == 0:
+                    continue
 
-            # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
-            # No sense checking unless we've already filled the queue though
-            if len(taskList) > max_task_count:
+                # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
+                # No sense checking unless we've already filled the queue though
+                if len(taskList) > max_task_count:
+                    for iTask in range(len(taskList) - 1, -1, -1):
+                        if taskList[iTask].iscompleted:  # type: ignore[union-attr]
+                            record = taskList[iTask].wait_return()  # type: ignore[union-attr]
+                            AngleMatchValues.append(record)
+                            del taskList[iTask]
+
+                # TestOneAngle(shared_padded_target, shared_source, angle, None, MinOverlap)
+
+            # taskList.sort(key=tpool.Task.name)
+
+            while len(taskList) > 0:
                 for iTask in range(len(taskList) - 1, -1, -1):
                     if taskList[iTask].iscompleted:  # type: ignore[union-attr]
                         record = taskList[iTask].wait_return()  # type: ignore[union-attr]
                         AngleMatchValues.append(record)
                         del taskList[iTask]
 
-            # TestOneAngle(shared_padded_target, shared_source, angle, None, MinOverlap)
-
-        # taskList.sort(key=tpool.Task.name)
-
-        while len(taskList) > 0:
-            for iTask in range(len(taskList) - 1, -1, -1):
-                if taskList[iTask].iscompleted:  # type: ignore[union-attr]
-                    record = taskList[iTask].wait_return()  # type: ignore[union-attr]
-                    AngleMatchValues.append(record)
-                    del taskList[iTask]
-
-            if len(taskList) > 0:
-                # Wait a bit before checking the task list
-                sleep(0.5)
+                if len(taskList) > 0:
+                    # Wait a bit before checking the task list
+                    sleep(0.5)
 
             # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
 

@@ -174,6 +174,43 @@ class TestOverlapMask(setup_imagetest.ImageTestBase):
         return
 
 
+class TestOverlapMaskOnDevice(unittest.TestCase):
+    """Verify device-resident overlap mask caching."""
+
+    def setUp(self) -> None:
+        nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
+
+    def test_device_mask_reuses_upload(self) -> None:
+        """GetOverlapMaskOnDevice should upload each geometry to CuPy at most once."""
+        if not nornir_imageregistration.HasCupy():
+            self.skipTest("CuPy not available")
+
+        import cupy as cp
+
+        fixed = np.asarray((64, 64), dtype=np.int32)
+        moving = np.asarray((64, 64), dtype=np.int32)
+        corr = fixed + moving
+
+        mask_a = nornir_imageregistration.GetOverlapMaskOnDevice(
+            fixed, moving, corr, MinOverlap=0.25, MaxOverlap=0.75, xp=cp)
+        mask_b = nornir_imageregistration.GetOverlapMaskOnDevice(
+            fixed, moving, corr, MinOverlap=0.25, MaxOverlap=0.75, xp=cp)
+
+        self.assertIs(mask_a, mask_b)
+        np.testing.assert_array_equal(
+            nornir_imageregistration.GetOverlapMask(fixed, moving, corr, 0.25, 0.75),
+            cp.asnumpy(mask_a),
+        )
+
+    def test_find_peak_scalar_export(self) -> None:
+        """find_peak should return host floats without requiring EnsureNumpyArray on the offset."""
+        image = np.zeros((32, 32), dtype=np.float32)
+        image[16, 16] = 1.0
+        result = nornir_imageregistration.phasecorrelation.find_peak(image)
+        self.assertIsInstance(result.scaled_offset[0], float)
+        self.assertIsInstance(result.scaled_offset[1], float)
+
+
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

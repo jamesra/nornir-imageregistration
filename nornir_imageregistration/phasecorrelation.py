@@ -40,6 +40,20 @@ except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupyx_thunk as cupyx
 
 
+def _xp_1d_to_float_pair(values, xp) -> tuple[float, float]:
+    """Export a length-2 vector to Python floats without allocating a NumPy array."""
+    flat = xp.ravel(values)
+    if xp is np:
+        return (float(flat[0]), float(flat[1]))
+    return (float(flat[0].item()), float(flat[1].item()))
+
+
+def _image_center_offset_tuple(image, xp) -> tuple[float, float]:
+    """Return the correlation-image center offset used when no peak is found."""
+    center = xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
+    return _xp_1d_to_float_pair(center, xp)
+
+
 def pad_image_for_phase_correlation(image: NDArray[np.floating],
                                     min_overlap: float = .05,
                                     image_median: Optional[float] = None,
@@ -361,8 +375,9 @@ def find_peak(image: NDArray[np.floating],
     sp = cupyx.scipy.get_array_module(image)
 
     if overlap_mask is not None:
-        # GetOverlapMask and similar helpers return NumPy; keep mask on the same device as `image`.
-        overlap_mask = xp.asarray(overlap_mask)
+        xp_mask = cp.get_array_module(overlap_mask)
+        if xp_mask is not xp:
+            overlap_mask = xp.asarray(overlap_mask)
 
     # Create a copy of the image for thresholding
     threshold_image = xp.copy(image)
@@ -373,30 +388,29 @@ def find_peak(image: NDArray[np.floating],
 
     # Determine the cutoff value for thresholding
     if cutoff is None:
-        # Use percentiles between 95% and 100% to find an optimal cutoff
         percentiles = np.linspace(0.95, 1, 101) * 100
         try:
-            # Use the estimate_cutoff function to automatically determine the best cutoff
             if overlap_mask is not None:
-                result = estimate_cutoff(
-                    image[overlap_mask].ravel(),
-                    percentiles,
-                    polyfit_degree=2,
-                    method=CutoffMethod.Raw
-                )
+                masked_values = image[overlap_mask].ravel()
             else:
-                result = estimate_cutoff(
-                    image.ravel(),
-                    percentiles,
-                    polyfit_degree=2,
-                    method=CutoffMethod.Raw
-                )
+                masked_values = image.ravel()
+            if xp is not np:
+                # Single bounded sync: transfer masked correlation samples only for host estimate_cutoff.
+                masked_host = masked_values.get()  # type: ignore[union-attr]
+            else:
+                masked_host = masked_values
+            result = estimate_cutoff(
+                masked_host,
+                percentiles,
+                polyfit_degree=2,
+                method=CutoffMethod.Raw,
+            )
             cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
             cutoff_value = result.cutoff_value
         except ValueError:
-            # Fallback to a fixed percentile if automatic estimation fails
             cutoff_percent = 99.6
-            cutoff_value = xp.percentile(threshold_image[overlap_mask], q=cutoff_percent)
+            masked = threshold_image[overlap_mask] if overlap_mask is not None else threshold_image.ravel()
+            cutoff_value = float(xp.percentile(masked, q=cutoff_percent))
     else:
         # Use the provided cutoff value
         cutoff_percent = cutoff * 100
@@ -410,7 +424,7 @@ def find_peak(image: NDArray[np.floating],
 
     # If no labels were found, there are no peaks
     if num_labels == 0:
-        scaled_offset = tuple((np.asarray(image.shape, dtype=np.float32) / 2.0).tolist())
+        scaled_offset = _image_center_offset_tuple(image, xp)
         peak_strength = 0
         return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
 
@@ -419,7 +433,7 @@ def find_peak(image: NDArray[np.floating],
     label_sums = sp.ndimage.sum_labels(threshold_image, label_image, xp.array(range(1, num_labels + 1)))
 
     if label_sums.sum() == 0:  # There are no peaks identified
-        scaled_offset = tuple((np.asarray(image.shape, dtype=np.float32) / 2.0).tolist())
+        scaled_offset = _image_center_offset_tuple(image, xp)
         peak_strength = 0
         return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
     else:
@@ -446,7 +460,7 @@ def find_peak(image: NDArray[np.floating],
         del threshold_image
         del label_sums
 
-        scaled_offset = tuple(nornir_imageregistration.EnsureNumpyArray(scaled_offset_arr).tolist())
+        scaled_offset = _xp_1d_to_float_pair(scaled_offset_arr, xp)
         return FindPeakResult(
             scaled_offset,
             float(signal_to_noise),
@@ -524,12 +538,14 @@ def find_offset(target_image: NDArray[np.floating],
     else:
         correlation_image[...] = 0
 
-    # Get mask of valid overlap regions
-    overlap_mask = nornir_imageregistration.GetOverlapMask(target_shape,
-                                                           source_shape,
-                                                           correlation_image.shape,
-                                                           min_overlap,
-                                                           max_overlap)
+    # Get mask of valid overlap regions (upload once per geometry when on GPU).
+    overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
+        target_shape,
+        source_shape,
+        correlation_image.shape,
+        min_overlap,
+        max_overlap,
+        xp=xp)
     peak_result = find_peak(correlation_image, overlap_mask)
     peak = peak_result.scaled_offset
     weight = peak_result.peak_strength

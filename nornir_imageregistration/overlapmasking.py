@@ -12,6 +12,8 @@ from nornir_imageregistration import Rectangle, ShapeLike
 
 # Collection of masks we have already calculated
 __known_overlap_masks = {}
+# Host masks uploaded once per shape key when using CuPy (avoids cp.asarray per find_peak call).
+__known_overlap_masks_device: dict[tuple, NDArray] = {}
 
 
 def __CreateMaskLookupIndex(target_image_shape: NDArray[np.integer],
@@ -61,6 +63,48 @@ def GetOverlapMask(target_image_shape: ShapeLike,
     __known_overlap_masks[MaskIndex] = mask
 
     return mask
+
+
+def GetOverlapMaskOnDevice(target_image_shape: ShapeLike,
+                           source_image_shape: ShapeLike,
+                           correlation_image_size: ShapeLike,
+                           MinOverlap: float = 0.0,
+                           MaxOverlap: float = 1.0,
+                           xp=np):
+    """Return an overlap mask on the same array module as *xp*.
+
+    The host mask is built once and cached in ``GetOverlapMask``. When *xp* is CuPy,
+    the mask is uploaded to the device once per shape key and reused across calls
+    (for example thousands of ``find_peak`` invocations sharing the same geometry).
+    """
+    mask = GetOverlapMask(target_image_shape, source_image_shape, correlation_image_size,
+                          MinOverlap, MaxOverlap)
+    if mask is None:
+        return None
+
+    if xp is np:
+        return mask
+
+    target_image_shape = np.asarray([int(x) for x in target_image_shape], dtype=np.int64)
+    source_image_shape = np.asarray([int(x) for x in source_image_shape], dtype=np.int64)
+    correlation_image_size = np.asarray([int(x) for x in correlation_image_size], dtype=np.int64)
+    mask_index = __CreateMaskLookupIndex(target_image_shape, source_image_shape, correlation_image_size,
+                                         MinOverlap, MaxOverlap)
+
+    cached = __known_overlap_masks_device.get(mask_index)
+    if cached is not None:
+        return cached
+
+    device_mask = xp.asarray(mask)
+    __known_overlap_masks_device[mask_index] = device_mask
+    return device_mask
+
+
+def clear_overlap_mask_caches() -> None:
+    """Clear cached overlap masks (host and device). Intended for tests."""
+    global __known_overlap_masks, __known_overlap_masks_device
+    __known_overlap_masks = {}
+    __known_overlap_masks_device = {}
 
 
 def __CreateFullMaskFromQuadrant(Mask: NDArray[np.bool_],

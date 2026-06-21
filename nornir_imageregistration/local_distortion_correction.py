@@ -410,15 +410,62 @@ def _prewarp_tile_for_grid_refine(
         origin=np.asarray((target_min_y, target_min_x), dtype=np.int64))
 
 
+def _store_prewarped_tile_cache(
+        prewarp_cache: dict[int, _PrewarpedTile],
+        tile_id: int,
+        warped: _PrewarpedTile) -> None:
+    """Replace one cached prewarp, dropping the previous tile warp first."""
+    stale = prewarp_cache.pop(tile_id, None)
+    del stale
+    prewarp_cache[tile_id] = warped
+
+
 def _prewarp_all_tiles_for_grid_refine(
         tiles: list[nornir_imageregistration.Tile],
-        target_space_scale: float) -> dict[int, _PrewarpedTile]:
-    """Prewarp every tile for one grid-refinement pass, using workers on CPU hosts."""
-    if len(tiles) <= 1 or nornir_imageregistration.UsingCupy():
-        return {
-            tile.ID: _prewarp_tile_for_grid_refine(tile, target_space_scale)
-            for tile in tiles
-        }
+        target_space_scale: float,
+        prewarp_cache: dict[int, _PrewarpedTile] | None = None,
+        revision_cache: dict[int, int] | None = None) -> dict[int, _PrewarpedTile]:
+    """
+    Prewarp every tile for one grid-refinement pass, using workers on CPU hosts.
+
+    When ``prewarp_cache`` and ``revision_cache`` are supplied, tiles whose lattice
+    revision is unchanged since the last pass reuse the cached warp.
+    """
+    if prewarp_cache is None:
+        prewarp_cache = {}
+    if revision_cache is None:
+        revision_cache = {}
+
+    use_cache = _prewarp_cache_enabled()
+    tiles_to_prewarp: list[nornir_imageregistration.Tile] = []
+    prewarped: dict[int, _PrewarpedTile] = {}
+
+    for tile in tiles:
+        grid_transform = tile.Transform
+        if not isinstance(grid_transform, nornir_imageregistration.transforms.IGridTransform):
+            tiles_to_prewarp.append(tile)
+            continue
+
+        if use_cache:
+            tile_revision = revision_cache.get(tile.ID, 0)
+            cached = prewarp_cache.get(tile.ID)
+            if cached is not None and getattr(cached, '_revision', None) == tile_revision:
+                prewarped[tile.ID] = cached
+                continue
+
+        tiles_to_prewarp.append(tile)
+
+    if len(tiles_to_prewarp) == 0:
+        return prewarped
+
+    if len(tiles_to_prewarp) <= 1 or nornir_imageregistration.UsingCupy():
+        for tile in tiles_to_prewarp:
+            warped = _prewarp_tile_for_grid_refine(tile, target_space_scale)
+            if use_cache:
+                warped._revision = revision_cache.get(tile.ID, 0)  # type: ignore[attr-defined]
+                _store_prewarped_tile_cache(prewarp_cache, tile.ID, warped)
+            prewarped[tile.ID] = warped
+        return prewarped
 
     pool = nornir_pools.GetGlobalMultithreadingPool()
     tasks = [
@@ -427,10 +474,16 @@ def _prewarp_all_tiles_for_grid_refine(
             _prewarp_tile_for_grid_refine,
             tile,
             target_space_scale)
-        for tile in tiles
+        for tile in tiles_to_prewarp
     ]
     pool.wait_completion()
-    return {tile.ID: task.wait_return() for tile, task in zip(tiles, tasks)}
+    for tile, task in zip(tiles_to_prewarp, tasks):
+        warped = task.wait_return()
+        if use_cache:
+            warped._revision = revision_cache.get(tile.ID, 0)  # type: ignore[attr-defined]
+            _store_prewarped_tile_cache(prewarp_cache, tile.ID, warped)
+        prewarped[tile.ID] = warped
+    return prewarped
 
 
 def _extract_refinement_cell(
@@ -654,6 +707,32 @@ def _refinement_pool_for_overlap_tasks(target_space_scale: float):
     return nornir_pools.GetGlobalMultithreadingPool()
 
 
+def _cupy_memory_pool_stats() -> tuple[int | None, int | None]:
+    """Return ``(used_bytes, total_bytes)`` for the default CuPy pool, or ``(None, None)``."""
+    if not nornir_imageregistration.UsingCupy():
+        return None, None
+    pool_factory = getattr(cp, 'get_default_memory_pool', None)
+    if pool_factory is None:
+        return None, None
+    try:
+        pool = pool_factory()
+        return int(pool.used_bytes()), int(pool.total_bytes())
+    except Exception:
+        return None, None
+
+
+def _log_refinement_gpu_memory(label: str) -> None:
+    """Log CuPy pool usage when ``NORNIR_LOG_GPU_MEM=1``."""
+    if os.environ.get('NORNIR_LOG_GPU_MEM', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+        return
+    used_bytes, total_bytes = _cupy_memory_pool_stats()
+    if used_bytes is None:
+        return
+    total_label = 'unknown' if total_bytes is None else str(total_bytes)
+    prettyoutput.Log(
+        f'GPU mem [{label}]: used_bytes={used_bytes} total_bytes={total_label}')
+
+
 def _release_refinement_worker_memory() -> None:
     """Drop transient warp allocations after an overlap refinement worker task."""
     gc.collect()
@@ -664,6 +743,17 @@ def _release_refinement_worker_memory() -> None:
                 free_all_blocks().free_all_blocks()
             except Exception:
                 pass
+
+
+def _prewarp_cache_enabled() -> bool:
+    """Return False when cross-pass prewarp caching is disabled for A/B testing or on CuPy."""
+    if os.environ.get('NORNIR_DISABLE_PREWARP_CACHE', '').strip().lower() in (
+            '1', 'true', 'yes', 'on'):
+        return False
+    # CuPy cross-pass cache changes mosaic outputs; keep CPU-only caching.
+    if nornir_imageregistration.UsingCupy():
+        return False
+    return True
 
 
 def _compute_padded_overlap_geometry(
@@ -1072,10 +1162,19 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
 
     downsample = 1.0 / float(target_space_scale)
     last_pass_displacement = float('inf')
+    prewarp_cache: dict[int, _PrewarpedTile] = {}
+    prewarp_revision_cache: dict[int, int] = {tile.ID: 0 for tile in list_tiles}
 
-    for _ in range(iterations):
-        # Legacy prewarp_tiles=true: re-render every tile with its current transform.
-        prewarped = _prewarp_all_tiles_for_grid_refine(list_tiles, target_space_scale)
+    _log_refinement_gpu_memory('_refine_tileset start')
+    for pass_index in range(iterations):
+        # Legacy prewarp_tiles=true: re-render tiles whose grid moved since the last pass.
+        _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} before prewarp')
+        prewarped = _prewarp_all_tiles_for_grid_refine(
+            list_tiles,
+            target_space_scale,
+            prewarp_cache=prewarp_cache,
+            revision_cache=prewarp_revision_cache)
+        _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} after prewarp')
         neighbors = _grid_refine_neighbors(list_tiles)
         overlap_count_per_iteration.append(
             sum(len(neighbor_list) for neighbor_list in neighbors.values()))
@@ -1134,9 +1233,12 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
             new_targets = targets + (applied_scaled * downsample)
             grid_transform.UpdateTargetPointsByIndex(  # type: ignore[attr-defined]
                 np.arange(targets.shape[0], dtype=np.int64), new_targets)
+            if np.any(applied_scaled != 0):
+                prewarp_revision_cache[tile.ID] = prewarp_revision_cache.get(tile.ID, 0) + 1
 
         del prewarped
         _release_refinement_worker_memory()
+        _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} after release')
 
         vertex_diagnostics_per_pass.append(pass_vertex_diagnostics)
 
@@ -1155,6 +1257,11 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
                 # Dual stop: a pass that fails to improve ends refinement.
                 break
             last_pass_displacement = pass_displacement
+
+    prewarp_cache.clear()
+    prewarp_revision_cache.clear()
+    _release_refinement_worker_memory()
+    _log_refinement_gpu_memory('_refine_tileset end')
 
     return MosaicRefinementDiagnostics(
         iterations_completed=len(average_displacement_per_iteration),
@@ -1245,6 +1352,8 @@ def RefineGridMosaic(
                                   displacement_threshold=displacement_threshold,
                                   min_overlap=min_overlap,
                                   merge_distance=merge_distance)
+    _release_refinement_worker_memory()
+    _log_refinement_gpu_memory('RefineGridMosaic after _refine_tileset')
 
     # Legacy ir-refine-grid never resamples at the end: the refined grid IS the output
     # transform. Resample only if a tile somehow is not on the output lattice.
@@ -2099,6 +2208,50 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints,
                                                                cell_size=settings.cell_size)
 
+    if settings.single_thread_processing:
+        target_image = settings.target_image
+        source_image = settings.source_image
+        for i in range(nPoints):
+            targetPoint = targetPoints[i, :]
+            sourcePoint = sourcePoints[i, :]
+            key = keys[i]
+            arecord = AttemptAlignPoint(
+                transform=rigid_transforms[i],
+                targetImage=target_image,
+                sourceImage=source_image,
+                target_image_stats=settings.target_image_stats,
+                source_image_stats=settings.source_image_stats,
+                target_controlpoint=targetPoint,
+                alignmentArea=settings.cell_size,
+                anglesToSearch=settings.angles_to_search,
+                min_alignment_overlap=settings.min_alignment_overlap)
+            if arecord is None:
+                continue
+
+            erec = nornir_imageregistration.EnhancedAlignmentRecord(
+                ID=key,
+                TargetPoint=targetPoint,
+                SourcePoint=sourcePoint,
+                peak=arecord.peak,
+                weight=arecord.weight,
+                angle=arecord.angle,
+                flipped_ud=arecord.flippedud)
+
+            if nornir_imageregistration.in_debug_mode():
+                erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
+                erec.SourceROI = arecord.SourceROI  # type: ignore[attr-defined]
+                erec.TranslatedSourceROI = nornir_imageregistration.CropImage(
+                    erec.SourceROI,  # type: ignore[attr-defined]
+                    int(np.floor(-erec.peak[1])),
+                    int(np.floor(-erec.peak[0])),
+                    erec.SourceROI.shape[1],  # type: ignore[attr-defined]
+                    erec.SourceROI.shape[0],  # type: ignore[attr-defined]
+                    cval=float(np.median(erec.SourceROI.flat)))  # type: ignore[attr-defined]
+
+            alignment_records.append(erec)
+
+        return alignment_records
+
     for i in range(nPoints):
         targetPoint = targetPoints[i, :]
         sourcePoint = sourcePoints[i, :]
@@ -2132,6 +2285,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     for t in tasks:
         arecord = t.wait_return()
+        if arecord is None:
+            continue
 
         erec = nornir_imageregistration.EnhancedAlignmentRecord(ID=t.key,
                                                                 TargetPoint=targetPoints[t.ID, :],
@@ -2599,8 +2754,10 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
         nan_mask = roi_xp.isnan(roi_array)
         if bool(nan_mask.all()):
             # The source ROI is entirely out of bounds — no usable image data for this cell.
-            nornir_imageregistration.close_shared_memory(targetImage_param)  # type: ignore[arg-type]
-            nornir_imageregistration.close_shared_memory(sourceImage_param)  # type: ignore[arg-type]
+            if isinstance(targetImage_param, nornir_imageregistration.Shared_Mem_Metadata):
+                nornir_imageregistration.close_shared_memory(targetImage_param)
+            if isinstance(sourceImage_param, nornir_imageregistration.Shared_Mem_Metadata):
+                nornir_imageregistration.close_shared_memory(sourceImage_param)
             raise ValueError("Source image ROI is entirely out of bounds; skipping cell")
         source_image_roi = nornir_imageregistration.RandomNoiseMask(roi_array,  # type: ignore[arg-type]
                                                                     roi_xp.logical_not(nan_mask),
@@ -2611,8 +2768,10 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
         if roi_xp.any(roi_xp.isnan(roi_array)):
             raise ValueError("Not handling NaN values in assembled image")
 
-    nornir_imageregistration.close_shared_memory(targetImage_param)  # type: ignore[arg-type]
-    nornir_imageregistration.close_shared_memory(sourceImage_param)  # type: ignore[arg-type]
+    if isinstance(targetImage_param, nornir_imageregistration.Shared_Mem_Metadata):
+        nornir_imageregistration.close_shared_memory(targetImage_param)
+    if isinstance(sourceImage_param, nornir_imageregistration.Shared_Mem_Metadata):
+        nornir_imageregistration.close_shared_memory(sourceImage_param)
 
     return target_image_roi, source_image_roi  # type: ignore[return-value]
 
