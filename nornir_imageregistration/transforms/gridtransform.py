@@ -13,9 +13,11 @@ except ImportError:
 # Optional: older CuPy / builds may lack cupyx.scipy.interpolate (use SciPy on CPU below).
 cuRegularGridInterpolator: Any | None = None
 cuRBFInterpolator: Any | None = None
+cuLinearNDInterpolator: Any | None = None
 try:
     from cupyx.scipy.interpolate import RegularGridInterpolator as cuRegularGridInterpolator
     from cupyx.scipy.interpolate import RBFInterpolator as cuRBFInterpolator
+    from cupyx.scipy.interpolate import LinearNDInterpolator as cuLinearNDInterpolator
 except ImportError:
     pass
 
@@ -407,6 +409,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self._WarpedKDTree = None
         self._fixedtri = None
         self._scipy_forward_grid = False
+        self._scipy_inverse_interp = False
         pass
 
     def ToITKString(self):
@@ -587,7 +590,14 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
+            if cuLinearNDInterpolator is not None:
+                target_pts = cp.asarray(self.TargetPoints, dtype=np.float64)
+                source_pts = cp.asarray(self.SourcePoints, dtype=np.float64)
+                self._InverseInterpolator = cuLinearNDInterpolator(target_pts, source_pts)
+                self._scipy_inverse_interp = False
+            else:
+                self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
+                self._scipy_inverse_interp = True
 
         return self._InverseInterpolator
 
@@ -602,25 +612,24 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def InverseTransform(self, points, **kwargs):
         """Map points from the fixed space to the warped space"""
-        transPoints = None
-
-        method = kwargs.get('method', 'linear')
-
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+        interp = self.InverseInterpolator
 
         try:
-            transPoints = self.InverseInterpolator(points)
-        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
+            if self._scipy_inverse_interp:
+                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+                transPoints = interp(pn)
+                return cp.asarray(transPoints)
+            return interp(points)
+        except Exception:
             log = logging.getLogger(str(self.__class__))
             log.warning("Could not transform points: " + str(points))
-            transPoints = None
             self._InverseInterpolator = None
 
             # This was added for the case where all points in the triangulation are colinear.
-            transPoints = np.empty(points.shape)
-            transPoints[:] = np.nan
-
-        return transPoints
+            transPoints = cp.empty(points.shape, dtype=points.dtype)
+            transPoints[:] = cp.nan
+            return transPoints
 
     @property
     def FixedTriangles(self):

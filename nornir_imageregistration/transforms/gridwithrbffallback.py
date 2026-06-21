@@ -457,7 +457,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
         TransformedPoints[invalid_indices] = FixedPoints
 
-        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
+        # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
         return TransformedPoints
 
@@ -494,7 +494,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         FixedPoints = _fixed_points_for_extrapolation_fill(TransformedPoints, FixedPoints)
         TransformedPoints[invalid_indices] = FixedPoints
 
-        # Because of a missing CuPy LinearNDInterpolator method we sometimes have to fallback to np, so ensure we hand back points on the GPU
+        # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
         return TransformedPoints
 
