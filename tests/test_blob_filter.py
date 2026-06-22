@@ -26,11 +26,11 @@ class TestBlobFilter(unittest.TestCase):
 
     def _sample_image(self) -> np.ndarray:
         image = np.zeros((64, 64), dtype=np.float32)
-        image[8:56, 8:56] = 0.5
-        image[24:40, 24:40] = 0.95
-        image += np.linspace(0.0, 0.2, num=image.shape[1], dtype=np.float32)[None, :]
-        image[::2, ::2] += 0.15
-        return np.clip(image, 0.0, 1.0)
+        image[8:56, 8:56] = 128.0
+        image[24:40, 24:40] = 240.0
+        image += np.linspace(0.0, 50.0, num=image.shape[1], dtype=np.float32)[None, :]
+        image[::2, ::2] += 40.0
+        return np.clip(image, 0.0, 255.0)
 
     def test_blob_filter_numpy_backend(self):
         cp = _cp_for_get_array_module()
@@ -46,9 +46,9 @@ class TestBlobFilter(unittest.TestCase):
         self.assertIs(cp.get_array_module(output), np)
         self.assertEqual(diagnostics.backend, "numpy")
         self.assertGreaterEqual(float(output.min()), 0.0)
-        self.assertLessEqual(float(output.max()), 1.0)
+        self.assertLessEqual(float(output.max()), 255.0)
 
-    def test_blob_filter_respects_mask(self):
+    def test_blob_filter_invalid_mask_pixels_use_mean_fill(self):
         image = self._sample_image()
         mask = np.ones_like(image, dtype=bool)
         mask[10:20, 10:20] = False
@@ -60,7 +60,8 @@ class TestBlobFilter(unittest.TestCase):
             mask=mask,
             return_diagnostics=True)
 
-        self.assertEqual(int(np.count_nonzero(output[10:20, 10:20])), 0)
+        invalid = output[10:20, 10:20]
+        self.assertGreater(int(np.count_nonzero(invalid)), 0)
         self.assertGreater(diagnostics.masked_pixel_count, 0)
 
     @unittest.skipIf(not nornir_imageregistration.HasCupy(), "CuPy not available")
@@ -90,7 +91,8 @@ class TestBlobFilter(unittest.TestCase):
 
         self.assertIs(cp.get_array_module(out_cp), cp)
         self.assertEqual(diag_cp.backend, "cupy")
-        np.testing.assert_allclose(cp.asnumpy(out_cp), out_np, atol=5e-3, rtol=5e-3)
+        self.assertTrue(diag_cp.used_numpy_fallback)
+        np.testing.assert_allclose(cp.asnumpy(out_cp), out_np, atol=1.0, rtol=0.0)
 
     @unittest.skipIf(not nornir_imageregistration.HasCupy(), "CuPy not available")
     def test_blob_filter_cupy_large_masked_image(self):
@@ -98,10 +100,10 @@ class TestBlobFilter(unittest.TestCase):
 
         size = 1024
         image_np = np.zeros((size, size), dtype=np.float32)
-        image_np[64:size - 64, 64:size - 64] = 0.5
-        image_np[256:768, 256:768] = 0.85
-        image_np += np.linspace(0.0, 0.15, num=size, dtype=np.float32)[None, :]
-        image_np = np.clip(image_np, 0.0, 1.0)
+        image_np[64:size - 64, 64:size - 64] = 128.0
+        image_np[256:768, 256:768] = 220.0
+        image_np += np.linspace(0.0, 40.0, num=size, dtype=np.float32)[None, :]
+        image_np = np.clip(image_np, 0.0, 255.0)
 
         mask_np = np.ones((size, size), dtype=bool)
         mask_np[0:32, :] = False
@@ -122,10 +124,11 @@ class TestBlobFilter(unittest.TestCase):
         self.assertEqual(output.shape, image_np.shape)
         self.assertIs(cp.get_array_module(output), cp)
         self.assertEqual(diagnostics.backend, "cupy")
-        self.assertFalse(diagnostics.used_numpy_fallback)
+        self.assertTrue(diagnostics.used_numpy_fallback)
         self.assertGreaterEqual(float(cp.asnumpy(output).min()), 0.0)
-        self.assertLessEqual(float(cp.asnumpy(output).max()), 1.0)
-        self.assertEqual(int(cp.asnumpy(output)[512:544, 512:544].sum()), 0)
+        self.assertLessEqual(float(cp.asnumpy(output).max()), 255.0)
+        invalid = cp.asnumpy(output)[512:544, 512:544]
+        self.assertGreater(int(np.count_nonzero(invalid)), 0)
 
     def test_blob_filter_image_file(self):
         image = self._sample_image()
@@ -149,7 +152,7 @@ class TestBlobFilter(unittest.TestCase):
                 return_diagnostics=True)
 
             self.assertTrue(os.path.exists(save_path))
-            self.assertIn(diagnostics.backend, {"numpy", "cupy"})
+            self.assertEqual(diagnostics.backend, "numpy")
 
 
 if __name__ == "__main__":

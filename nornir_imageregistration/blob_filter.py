@@ -2,7 +2,7 @@
 Python implementation of legacy ir-blob.
 
 The filter emphasizes blob-like low-variance regions by comparing local variance
-to the image-wide median local variance.
+to the image-wide median local variance, then normalizes for 8-bit output.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 import nornir_imageregistration
 
@@ -21,10 +22,11 @@ try:
 except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
 
-try:
-    import cupyx
-except (ModuleNotFoundError, ImportError):
-    import nornir_imageregistration.cupyx_thunk as cupyx
+_VARIANCE_SENTINEL = np.float32(np.finfo(np.float32).max)
+_NORMALIZE_CLIP_MIN = -3.0
+_NORMALIZE_CLIP_MAX = 3.0
+_OUTPUT_MIN = 0.0
+_OUTPUT_MAX = 255.0
 
 
 @dataclass(frozen=True)
@@ -39,83 +41,188 @@ class BlobFilterDiagnostics:
 
 
 def _validate_radius(name: str, value: int) -> int:
+    """Validate a non-negative integer radius parameter."""
     value_i = int(value)
     if value_i < 0:
         raise ValueError(f"{name} must be >= 0, got {value}")
     return value_i
 
 
-def _as_backend_mask(mask: Any, xp: Any, image_shape: tuple[int, int]):
-    if mask is None:
-        return None
+def _window_bounds(size: int, radius: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return per-index clipped window bounds along one image axis."""
+    centers = np.arange(size, dtype=np.int64)
+    starts = centers - radius
+    starts = np.maximum(starts, 0)
 
-    mask_array = nornir_imageregistration.ImageParamToImageArray(mask)
-    if mask_array.shape != image_shape:
-        raise ValueError(f"Mask shape {mask_array.shape} must match image shape {image_shape}")
-
-    if cp.get_array_module(mask_array) is not xp:
-        mask_array = xp.asarray(mask_array)
-
-    return mask_array.astype(xp.bool_, copy=False)
-
-
-def _ensure_working_float(image: Any, xp: Any):
-    image_dtype = np.dtype(image.dtype)
-    if image_dtype.kind == "f" and image_dtype.itemsize >= 8:
-        return image.astype(xp.float64, copy=False)
-    return image.astype(xp.float32, copy=False)
-
-
-def _compute_local_variance(image: Any, radius: int, valid_mask: Any, xp: Any, sp: Any):
     window = (radius * 2) + 1
-    if window == 1:
-        local_var = xp.zeros_like(image)
-        if valid_mask is None:
-            return local_var
-        return xp.where(valid_mask, local_var, xp.zeros_like(local_var))
-
-    if valid_mask is None:
-        local_mean = sp.ndimage.uniform_filter(image, size=window, mode="reflect")
-        local_mean_sq = sp.ndimage.uniform_filter(image * image, size=window, mode="reflect")
-        return xp.maximum(local_mean_sq - local_mean * local_mean, 0.0)
-
-    valid_f = valid_mask.astype(image.dtype, copy=False)
-    count = sp.ndimage.uniform_filter(valid_f, size=window, mode="reflect")
-    weighted_image = image * valid_f
-    weighted_image_sq = image * image * valid_f
-    sum_image = sp.ndimage.uniform_filter(weighted_image, size=window, mode="reflect")
-    sum_image_sq = sp.ndimage.uniform_filter(weighted_image_sq, size=window, mode="reflect")
-
-    eps = xp.asarray(1e-6, dtype=image.dtype)
-    safe_count = xp.maximum(count, eps)
-    local_mean = sum_image / safe_count
-    local_mean_sq = sum_image_sq / safe_count
-    local_var = xp.maximum(local_mean_sq - local_mean * local_mean, 0.0)
-    return xp.where(count > eps, local_var, xp.zeros_like(local_var))
+    ends = starts + window
+    overflow = ends - size
+    overflow = np.maximum(overflow, 0)
+    starts = starts - overflow
+    ends = ends - overflow
+    starts = np.maximum(starts, 0)
+    return starts, ends
 
 
-def _global_median_local_variance(local_var: Any, valid_mask: Any | None, xp: Any, work_dtype: Any):
-    """Compute the image-wide median local variance, optionally restricted to valid mask pixels."""
-    if valid_mask is None:
-        return xp.median(local_var)
-
-    if not bool(xp.any(valid_mask)):
-        return xp.asarray(0.0, dtype=work_dtype)
-
-    nan = xp.asarray(float("nan"), dtype=local_var.dtype)
-    masked_values = xp.where(valid_mask, local_var, nan)
-    return xp.nanmedian(masked_values)
+def _integral_image(values: np.ndarray) -> np.ndarray:
+    """Build a padded cumulative-sum integral image for O(1) rectangle sums."""
+    height, width = values.shape
+    cumulative = np.cumsum(np.cumsum(values, axis=0, dtype=np.float64), axis=1)
+    integral = np.zeros((height + 1, width + 1), dtype=np.float64)
+    integral[1:, 1:] = cumulative
+    return integral
 
 
-def _blob_filter_impl(image: Any,
-                      *,
-                      radius: int,
-                      median_radius: int,
-                      max_value: float,
-                      mask: Any = None) -> tuple[Any, BlobFilterDiagnostics]:
-    image_arr = nornir_imageregistration.ImageParamToImageArray(image)
-    if image_arr.ndim != 2:
-        raise ValueError(f"Blob filter expects 2D grayscale images, got shape {image_arr.shape}")
+def _rect_sum(integral: np.ndarray,
+              y0: np.ndarray,
+              y1: np.ndarray,
+              x0: np.ndarray,
+              x1: np.ndarray) -> np.ndarray:
+    """Sum ``values`` over axis-aligned rectangles using an integral image."""
+    return (
+        integral[y1, x1]
+        - integral[y0, x1]
+        - integral[y1, x0]
+        + integral[y0, x0]
+    )
+
+
+def _median_prefilter(image: np.ndarray, median_radius: int) -> np.ndarray:
+    """Apply ITK-equivalent median prefiltering (nearest boundary, no-op at radius 0)."""
+    if median_radius <= 0:
+        return image
+
+    window = (median_radius * 2) + 1
+    return ndimage.median_filter(image, size=window, mode="nearest")
+
+
+def _calc_variance_map(image: np.ndarray, mask: np.ndarray | None, radius: int) -> np.ndarray:
+    """Port legacy ``calc_variance`` using integral images for masked population variance."""
+    if radius <= 0:
+        variance_map = np.zeros(image.shape, dtype=np.float32)
+        if mask is None:
+            return variance_map
+        return np.where(mask, variance_map, _VARIANCE_SENTINEL).astype(np.float32, copy=False)
+
+    height, width = image.shape
+    image_f = image.astype(np.float64, copy=False)
+    if mask is None:
+        mask_f = np.ones((height, width), dtype=np.float64)
+    else:
+        mask_f = mask.astype(np.float64, copy=False)
+
+    weighted = image_f * mask_f
+    weighted_sq = weighted * weighted
+
+    integral_count = _integral_image(mask_f)
+    integral_sum = _integral_image(weighted)
+    integral_sq = _integral_image(weighted_sq)
+
+    y0, y1 = _window_bounds(height, radius)
+    x0, x1 = _window_bounds(width, radius)
+
+    y0_grid = y0[:, np.newaxis]
+    y1_grid = y1[:, np.newaxis]
+    x0_grid = x0[np.newaxis, :]
+    x1_grid = x1[np.newaxis, :]
+
+    mass = _rect_sum(integral_count, y0_grid, y1_grid, x0_grid, x1_grid)
+    total = _rect_sum(integral_sum, y0_grid, y1_grid, x0_grid, x1_grid)
+    total_sq = _rect_sum(integral_sq, y0_grid, y1_grid, x0_grid, x1_grid)
+
+    variance_map = np.full((height, width), _VARIANCE_SENTINEL, dtype=np.float32)
+    measured = mass > 0.0
+    if not np.any(measured):
+        return variance_map
+
+    mean = np.zeros_like(mass, dtype=np.float64)
+    mean[measured] = total[measured] / mass[measured]
+    variance = np.zeros_like(mass, dtype=np.float64)
+    variance[measured] = (total_sq[measured] / mass[measured]) - (mean[measured] * mean[measured])
+    variance[measured] = np.maximum(variance[measured], 0.0)
+    variance_map[measured] = variance[measured].astype(np.float32, copy=False)
+    return variance_map
+
+
+def _global_variance_median(variance_map: np.ndarray) -> float:
+    """Return the legacy qsort median over measured variance samples only."""
+    valid = variance_map[variance_map != _VARIANCE_SENTINEL]
+    if valid.size == 0:
+        return 0.0
+
+    valid_sorted = np.sort(valid, axis=None)
+    return float(valid_sorted[valid_sorted.size // 2])
+
+
+def _enhance_blobs(variance_map: np.ndarray,
+                   threshold: float,
+                   mask: np.ndarray | None) -> tuple[np.ndarray, float]:
+    """Port legacy ``enhance_blobs`` metric generation and mean invalid fill."""
+    global_median = _global_variance_median(variance_map)
+    metric = np.empty(variance_map.shape, dtype=np.float64)
+
+    measured = variance_map != _VARIANCE_SENTINEL
+    metric[measured] = np.minimum(
+        threshold,
+        (global_median + 1.0) / (variance_map[measured].astype(np.float64) + 1.0),
+    )
+
+    if np.any(measured):
+        mean_metric = float(np.mean(metric[measured]))
+    else:
+        mean_metric = 0.0
+
+    metric[~measured] = mean_metric
+
+    return metric.astype(np.float32, copy=False), global_median
+
+
+def _masked_mean_sigma(values: np.ndarray, mask: np.ndarray | None) -> tuple[float, float]:
+    """Compute masked mean and unbiased sigma matching ``StatisticsImageFilterWithMask``."""
+    if mask is None:
+        samples = values.astype(np.float64, copy=False).ravel()
+    else:
+        samples = values[mask].astype(np.float64, copy=False)
+
+    count = samples.size
+    if count == 0:
+        return 0.0, 1.0
+    if count == 1:
+        return float(samples[0]), 1.0
+
+    mean = float(np.mean(samples))
+    variance = float(np.sum((samples - mean) ** 2) / (count - 1))
+    sigma = float(np.sqrt(max(variance, 0.0)))
+    if sigma <= 0.0:
+        sigma = 1.0
+    return mean, sigma
+
+
+def _normalize_blob_output(metric: np.ndarray, mask: np.ndarray | None) -> np.ndarray:
+    """Port ``normalize(image, 1, 1, 0, 255, mask)`` for the single-tile case."""
+    mean, sigma = _masked_mean_sigma(metric, mask)
+    normalized = (metric.astype(np.float64, copy=False) - mean) / sigma
+    normalized = np.clip(normalized, _NORMALIZE_CLIP_MIN, _NORMALIZE_CLIP_MAX)
+
+    value_min = float(np.min(normalized))
+    value_max = float(np.max(normalized))
+    value_range = value_max - value_min
+    if value_range <= 0.0:
+        return np.zeros_like(metric, dtype=np.float32)
+
+    remapped = _OUTPUT_MIN + ((normalized - value_min) / value_range) * (_OUTPUT_MAX - _OUTPUT_MIN)
+    return remapped.astype(np.float32, copy=False)
+
+
+def _blob_filter_numpy(image: np.ndarray,
+                       *,
+                       radius: int,
+                       median_radius: int,
+                       max_value: float,
+                       mask: np.ndarray | None) -> tuple[np.ndarray, BlobFilterDiagnostics]:
+    """Run the legacy-equivalent blob filter on a NumPy array."""
+    if image.ndim != 2:
+        raise ValueError(f"Blob filter expects 2D grayscale images, got shape {image.shape}")
 
     radius = _validate_radius("radius", radius)
     median_radius = _validate_radius("median_radius", median_radius)
@@ -123,42 +230,34 @@ def _blob_filter_impl(image: Any,
     if max_value <= 0:
         raise ValueError(f"max_value must be > 0, got {max_value}")
 
-    xp = cp.get_array_module(image_arr)
-    sp = cupyx.scipy.get_array_module(image_arr)
-    work = _ensure_working_float(image_arr, xp)
-    valid_mask = _as_backend_mask(mask, xp, image_arr.shape)
+    if mask is not None:
+        mask_bool = mask.astype(bool, copy=False)
+        if mask_bool.shape != image.shape:
+            raise ValueError(f"Mask shape {mask_bool.shape} must match image shape {image.shape}")
+    else:
+        mask_bool = None
 
-    if median_radius > 0:
-        med_window = (median_radius * 2) + 1
-        work = sp.ndimage.median_filter(work, size=med_window, mode="reflect")
+    work = image.astype(np.float32, copy=False)
+    work = _median_prefilter(work, median_radius)
 
-    local_var = _compute_local_variance(work, radius, valid_mask, xp, sp)
-    global_median = _global_median_local_variance(local_var, valid_mask, xp, work.dtype)
-
-    scalar_dtype = np.result_type(np.dtype(work.dtype), np.float32)
-    one = xp.asarray(1.0, dtype=scalar_dtype)
-    max_scalar = xp.asarray(max_value, dtype=scalar_dtype)
-    response = (global_median.astype(scalar_dtype) + one) / (local_var.astype(scalar_dtype) + one)
-    response = xp.clip(response, 0.0, max_scalar)
-    response = response / max_scalar
-
-    if valid_mask is not None:
-        response = xp.where(valid_mask, response, xp.asarray(0.0, dtype=response.dtype))
+    variance_map = _calc_variance_map(work, mask_bool, radius)
+    metric, global_median = _enhance_blobs(variance_map, max_value, mask_bool)
+    output = _normalize_blob_output(metric, mask_bool)
 
     masked_count = 0
-    if valid_mask is not None:
-        masked_count = int(xp.size(valid_mask) - int(xp.sum(valid_mask)))
+    if mask_bool is not None:
+        masked_count = int(mask_bool.size - int(np.count_nonzero(mask_bool)))
 
     diagnostics = BlobFilterDiagnostics(
-        backend="cupy" if xp is cp else "numpy",
+        backend="numpy",
         radius=radius,
         median_radius=median_radius,
         max_value=max_value,
-        global_median_variance=float(global_median.item()) if hasattr(global_median, "item") else float(global_median),
+        global_median_variance=global_median,
         masked_pixel_count=masked_count,
-        used_numpy_fallback=False
+        used_numpy_fallback=False,
     )
-    return response.astype(np.float32, copy=False), diagnostics
+    return output, diagnostics
 
 
 def BlobFilter(image: Any,
@@ -171,32 +270,24 @@ def BlobFilter(image: Any,
     """
     Apply ir-blob style filtering to an image array.
 
-    Input and output stay on the same backend (NumPy or CuPy) unless a CuPy
-    fallback to NumPy is required because of missing CuPyX functionality.
+    The reference implementation runs on NumPy to match legacy ``ir-blob`` output.
     """
     image_arr = nornir_imageregistration.ImageParamToImageArray(image)
     xp_in = cp.get_array_module(image_arr)
-    mask_arr = None if mask is None else nornir_imageregistration.ImageParamToImageArray(mask)
+    image_np = nornir_imageregistration.EnsureNumpyArray(image_arr).astype(np.float32, copy=False)
+    mask_np = None
+    if mask is not None:
+        mask_np = nornir_imageregistration.EnsureNumpyArray(mask).astype(bool, copy=False)
 
-    try:
-        output, diagnostics = _blob_filter_impl(
-            image_arr,
-            radius=radius,
-            median_radius=median_radius,
-            max_value=max_value,
-            mask=mask_arr)
-    except (AttributeError, NotImplementedError, TypeError, ValueError, RuntimeError):
-        if xp_in is not cp:
-            raise
+    output_np, diagnostics = _blob_filter_numpy(
+        image_np,
+        radius=radius,
+        median_radius=median_radius,
+        max_value=max_value,
+        mask=mask_np,
+    )
 
-        image_np = nornir_imageregistration.EnsureNumpyArray(image_arr)
-        mask_np = None if mask_arr is None else nornir_imageregistration.EnsureNumpyArray(mask_arr).astype(bool, copy=False)
-        output_np, diagnostics = _blob_filter_impl(
-            image_np,
-            radius=radius,
-            median_radius=median_radius,
-            max_value=max_value,
-            mask=mask_np)
+    if xp_in is cp:
         output = cp.asarray(output_np)
         diagnostics = BlobFilterDiagnostics(
             backend="cupy",
@@ -205,8 +296,11 @@ def BlobFilter(image: Any,
             max_value=diagnostics.max_value,
             global_median_variance=diagnostics.global_median_variance,
             masked_pixel_count=diagnostics.masked_pixel_count,
-            used_numpy_fallback=True
+            used_numpy_fallback=True,
         )
+    else:
+        output = output_np
+        diagnostics = diagnostics
 
     if return_diagnostics:
         return output, diagnostics
@@ -214,16 +308,16 @@ def BlobFilter(image: Any,
     return output
 
 
-def _should_use_cupy_from_files(load_path: str, min_pixels_for_gpu: int) -> bool:
-    if min_pixels_for_gpu < 0:
-        min_pixels_for_gpu = 0
-
-    if not nornir_imageregistration.HasCupy():
-        return False
-
+def _load_legacy_tile_image(load_path: str) -> np.ndarray:
+    """Load an 8-bit mosaic tile as float32 0–255, matching legacy ``std_tile`` / ``load<image_t>``."""
     with Image.open(load_path, "r") as im:
-        width, height = im.size
-    return (width * height) >= int(min_pixels_for_gpu)
+        return np.array(im, dtype=np.float32)
+
+
+def _load_legacy_tile_mask(mask_path: str) -> np.ndarray:
+    """Load a mask PNG as a boolean array (nonzero pixels are valid)."""
+    with Image.open(mask_path, "r") as im:
+        return np.array(im) > 0
 
 
 def BlobFilterImageFile(load_path: str,
@@ -233,20 +327,19 @@ def BlobFilterImageFile(load_path: str,
                         median_radius: int,
                         max_value: float,
                         mask_path: str | None = None,
-                        min_pixels_for_gpu: int = 1024 * 1024,
+                        min_pixels_for_gpu: int = -1,
                         return_diagnostics: bool = False):
     """
     Run blob filtering from input/output file paths.
 
-    If CuPy is active and available, GPU processing is used for sufficiently
-    large images (controlled by ``min_pixels_for_gpu``).
+    Processing uses the NumPy reference path for legacy parity regardless of size.
     """
-    backend = "cupy" if _should_use_cupy_from_files(load_path, min_pixels_for_gpu) else "numpy"
+    del min_pixels_for_gpu  # parity-critical path always uses NumPy reference
 
-    image = nornir_imageregistration.LoadImage(load_path, dtype=np.float32, backend=backend)
+    image = _load_legacy_tile_image(load_path)
     mask = None
     if mask_path is not None and os.path.exists(mask_path):
-        mask = nornir_imageregistration.LoadImage(mask_path, dtype=bool, backend=backend)
+        mask = _load_legacy_tile_mask(mask_path)
 
     output, diagnostics = BlobFilter(
         image,

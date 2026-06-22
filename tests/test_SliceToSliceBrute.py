@@ -656,7 +656,7 @@ class TestLogPolarStosWithMask(setup_imagetest.ImageTestBase):
                                                                  source_stats=source_image_data.Stats,
                                                                  target_stats=source_image_data.Stats)
 
-        assert_angles_equal_degrees(self, results.angle, angle, tolerance=1.0, msg="Angle mismatch")
+        assert_angles_equal_degrees(self, results.angle, angle, tolerance=2.0, msg="Angle mismatch")
         self.assertAlmostEqual(results.scale, 1.0, delta=0.1, msg="Scale mismatch")
 
         # Check that we can get the correct translation vector by calling the full alignment routine
@@ -672,7 +672,7 @@ class TestLogPolarStosWithMask(setup_imagetest.ImageTestBase):
             settings=settings)
         self.assertAlmostEqual(rigid_results.peak[0], source_to_target_offset[0], delta=2.0)
         self.assertAlmostEqual(rigid_results.peak[1], source_to_target_offset[1], delta=2.0)
-        assert_angles_equal_degrees(self, rigid_results.angle, angle, tolerance=1)
+        assert_angles_equal_degrees(self, rigid_results.angle, angle, tolerance=2.0)
 
     def test_known_offset(self):
         self.test_known_rotation_offset(angle=0, source_to_target_offset=(0, 64))

@@ -26,8 +26,8 @@ class TestBlobFilterLegacyParity(unittest.TestCase):
       - NORNIR_BLOB_RADIUS (default 9)
       - NORNIR_BLOB_MEDIAN (default 7)
       - NORNIR_BLOB_MAX (default 3.0)
-      - NORNIR_BLOB_PARITY_MAE_MAX (default 0.12)
-      - NORNIR_BLOB_PARITY_P99_MAX (default 0.25)
+      - NORNIR_BLOB_PARITY_MAE_MAX (default 0.01)
+      - NORNIR_BLOB_PARITY_P99_MAX (default 1.0)
     """
 
     def test_python_matches_legacy_fixture(self):
@@ -47,8 +47,8 @@ class TestBlobFilterLegacyParity(unittest.TestCase):
         radius = int(os.environ.get("NORNIR_BLOB_RADIUS", "9"))
         median = int(os.environ.get("NORNIR_BLOB_MEDIAN", "7"))
         max_value = float(os.environ.get("NORNIR_BLOB_MAX", "3.0"))
-        mae_max = float(os.environ.get("NORNIR_BLOB_PARITY_MAE_MAX", "0.12"))
-        p99_max = float(os.environ.get("NORNIR_BLOB_PARITY_P99_MAX", "0.25"))
+        mae_max = float(os.environ.get("NORNIR_BLOB_PARITY_MAE_MAX", "0.01"))
+        p99_max = float(os.environ.get("NORNIR_BLOB_PARITY_P99_MAX", "1.0"))
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             legacy_out = os.path.join(tmp_dir, "legacy_blob.png")

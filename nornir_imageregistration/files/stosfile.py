@@ -11,6 +11,49 @@ import nornir_shared.checksum
 import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
 
+_logger = logging.getLogger(__name__)
+
+
+def _normalize_stos_path(path: str) -> str:
+    """Normalize a path for on-disk STOS files using forward slashes."""
+    return os.path.normpath(path).replace(os.sep, '/')
+
+
+def _can_express_relative(full_path: str, stos_dir: str) -> bool:
+    """Return True if full_path can be written relative to stos_dir."""
+    if not full_path or not stos_dir:
+        return False
+    try:
+        norm_full = os.path.normpath(full_path)
+        norm_stos = os.path.normpath(stos_dir)
+        os.path.commonpath([norm_full, norm_stos])
+        os.path.relpath(norm_full, norm_stos)
+        return True
+    except ValueError:
+        return False
+
+
+def _path_for_stos_file(full_path: str, stos_dir: str) -> str:
+    """Return a relative path when possible, otherwise a normalized absolute path."""
+    if _can_express_relative(full_path, stos_dir):
+        relative = os.path.relpath(os.path.normpath(full_path), os.path.normpath(stos_dir))
+        return _normalize_stos_path(relative)
+    absolute = _normalize_stos_path(os.path.abspath(full_path))
+    _logger.warning(
+        "STOS path cannot be expressed relative to %s; writing absolute: %s",
+        stos_dir,
+        absolute,
+    )
+    return absolute
+
+
+def _path_from_stos_file(stored_path: str, stos_dir: str) -> str:
+    """Resolve a stored STOS path (relative or absolute) to an absolute path."""
+    stored_path = stored_path.strip()
+    if os.path.isabs(stored_path):
+        return os.path.normpath(stored_path)
+    return os.path.normpath(os.path.join(stos_dir, stored_path))
+
 
 def __argumentToStos(Argument):
     stosObj = None
@@ -292,7 +335,8 @@ class StosFile(object):
         return stosObj
 
     @staticmethod
-    def Load(filename: str) -> StosFile:
+    def Load(filename: str, resolve_paths: bool = True) -> StosFile:
+        """Load a STOS file from disk, optionally resolving relative image paths."""
         obj = StosFile()
 
         try:
@@ -317,8 +361,16 @@ class StosFile(object):
             PrettyOutput.LogErr("%s is not a valid stos file" % filename)
             raise ValueError("%s is not a valid stos file" % filename)
 
-        obj.ControlImageFullPath = lines[0].strip()
-        obj.MappedImageFullPath = lines[1].strip()
+        stos_dir = os.path.dirname(os.path.abspath(filename))
+
+        def _resolve_stored_path(stored: str) -> str:
+            stored = stored.strip()
+            if resolve_paths:
+                return _path_from_stos_file(stored, stos_dir)
+            return stored
+
+        obj.ControlImageFullPath = _resolve_stored_path(lines[0])
+        obj.MappedImageFullPath = _resolve_stored_path(lines[1])
 
         ControlDims = lines[4].split()
         MappedDims = lines[5].split()
@@ -328,9 +380,13 @@ class StosFile(object):
 
         obj.Transform = lines[6].strip()
 
-        if len(lines) > 8:
-            obj.ControlMaskFullPath = lines[8]
-            obj.MappedMaskFullPath = lines[9]
+        if len(lines) > 9 and lines[7].strip() == 'two_user_supplied_masks:':
+            obj.ControlMaskFullPath = _resolve_stored_path(lines[8])
+            obj.MappedMaskFullPath = _resolve_stored_path(lines[9])
+        elif len(lines) > 8:
+            obj.ControlMaskFullPath = _resolve_stored_path(lines[8])
+            if len(lines) > 9:
+                obj.MappedMaskFullPath = _resolve_stored_path(lines[9])
 
         return obj
 
@@ -370,14 +426,19 @@ class StosFile(object):
 
         self._Downsample *= scalar  # type: ignore[operator]
 
-    def Save(self, filename: str, AddMasks: bool = True):
-        # This function needs reworking to use different object variables'
-        # assert(False)
+    def Save(self, filename: str, AddMasks: bool = True, relative_paths: bool = True):
+        """Write this STOS file to disk, preferring relative image paths when expressible."""
         OutLines = list()
+        stos_dir = os.path.dirname(os.path.abspath(filename))
+
+        def _stored_path(full_path: str) -> str:
+            if relative_paths:
+                return _path_for_stos_file(full_path, stos_dir)
+            return _normalize_stos_path(os.path.abspath(full_path))
 
         # mosaic files to be warped
-        OutLines.append(self.ControlImageFullPath)
-        OutLines.append(self.MappedImageFullPath)
+        OutLines.append(_stored_path(self.ControlImageFullPath))
+        OutLines.append(_stored_path(self.MappedImageFullPath))
 
         # Write the header
         OutLines.append("0")
@@ -426,14 +487,17 @@ class StosFile(object):
 
         if AddMasks and (not (self.ControlMaskName is None or self.MappedMaskName is None)):
             OutLines.append('two_user_supplied_masks:')
-            OutLines.append(os.path.join(self.ControlMaskPath, self.ControlMaskName))  # type: ignore[arg-type]
-            OutLines.append(os.path.join(self.MappedMaskPath, self.MappedMaskName))  # type: ignore[arg-type]
+            OutLines.append(_stored_path(self.ControlMaskFullPath))  # type: ignore[arg-type]
+            OutLines.append(_stored_path(self.MappedMaskFullPath))  # type: ignore[arg-type]
 
         for i, val in enumerate(OutLines):
             if not val[-1] == '\n':
                 # print str(val) + '\n'
                 OutLines[i] = val + '\n'
 
+        stos_parent = os.path.dirname(filename)
+        if stos_parent:
+            os.makedirs(stos_parent, exist_ok=True)
         with open(filename, "w") as OutFile:
             OutFile.writelines(OutLines)
 
@@ -476,30 +540,53 @@ class StosFile(object):
                                      'height': ImageDimArray[3] - (ImageDimArray[1] - 1)}
         return DimStr
 
-    def TryConvertRelativePathsToAbsolutePaths(self, stosDir: str):
-        '''
-        Converts any relative paths in the StosFile to an absolute path using the stosDir parameter.
-        Existing absolute paths are left alone.  Relative paths are unchanged, just prepended with 
-        the stosDir parameter 
-        '''
+    def ConvertPathsToAbsolute(self, stos_dir: str) -> None:
+        """Resolve relative image/mask paths against the directory containing the STOS file."""
+        if not stos_dir:
+            return
 
-        if stosDir is not None and len(stosDir) > 0:
-            # Ensure any relative paths to images in the .stos file are relative to the position of the stos file
-            if self.ControlImageFullPath is not None:
-                if not os.path.isabs(self.ControlImageFullPath):
-                    self.ControlImageFullPath = os.path.join(stosDir, self.ControlImageFullPath)
+        for attr in (
+                'ControlImageFullPath',
+                'MappedImageFullPath',
+                'ControlMaskFullPath',
+                'MappedMaskFullPath',
+        ):
+            try:
+                full_path = getattr(self, attr)
+            except ValueError:
+                continue
+            if full_path is None:
+                continue
+            if os.path.isabs(full_path):
+                setattr(self, attr, os.path.normpath(full_path))
+            else:
+                setattr(self, attr, _path_from_stos_file(full_path, stos_dir))
 
-            if self.MappedImageFullPath is not None:
-                if not os.path.isabs(self.MappedImageFullPath):
-                    self.MappedImageFullPath = os.path.join(stosDir, self.MappedImageFullPath)
+    def ConvertPathsToRelative(self, stos_dir: str) -> None:
+        """Convert image/mask paths to relative form when expressible; leave absolute otherwise."""
+        if not stos_dir:
+            return
 
-            if self.ControlMaskFullPath is not None:
-                if not os.path.isabs(self.ControlMaskFullPath):
-                    self.ControlMaskFullPath = os.path.join(stosDir, self.ControlMaskFullPath)
+        for attr in (
+                'ControlImageFullPath',
+                'MappedImageFullPath',
+                'ControlMaskFullPath',
+                'MappedMaskFullPath',
+        ):
+            try:
+                full_path = getattr(self, attr)
+            except ValueError:
+                continue
+            if full_path is None:
+                continue
+            if _can_express_relative(full_path, stos_dir):
+                relative = _normalize_stos_path(
+                    os.path.relpath(os.path.normpath(full_path), os.path.normpath(stos_dir)))
+                setattr(self, attr, relative)
 
-            if self.MappedMaskFullPath is not None:
-                if not os.path.isabs(self.MappedMaskFullPath):
-                    self.MappedMaskFullPath = os.path.join(stosDir, self.MappedMaskFullPath)
+    def TryConvertRelativePathsToAbsolutePaths(self, stosDir: str) -> None:
+        """Deprecated alias for :meth:`ConvertPathsToAbsolute`."""
+        self.ConvertPathsToAbsolute(stosDir)
 
     def BlendWithLinear(self, linear_factor: float | None = None,
                         travel_limit: float | None = None,

@@ -32,6 +32,11 @@ except ImportError:
 
 import nornir_imageregistration
 from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
+from nornir_imageregistration.transforms.gridtransform import (
+    _build_linear_nd_interpolator,
+    _forward_transform_with_linear_nd_fallback,
+    _inverse_transform_with_linear_nd_fallback,
+)
 import nornir_pools
 from . import TransformType
 from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
@@ -528,28 +533,24 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def ForwardInterpolator(self):
         if self._ForwardInterpolator is None:
-            if cuLinearNDInterpolator is not None:
-                warped_pts = cp.asarray(self.SourcePoints, dtype=np.float64)
-                target_vals = cp.asarray(self.TargetPoints, dtype=np.float64)
-                self._ForwardInterpolator = cuLinearNDInterpolator(warped_pts, target_vals)
-                self._scipy_forward_interp = False
-            else:
-                self._ForwardInterpolator = LinearNDInterpolator(self.warpedtri, self.TargetPoints)
-                self._scipy_forward_interp = True
+            interp, uses_scipy = _build_linear_nd_interpolator(
+                self.SourcePoints,
+                self.TargetPoints,
+            )
+            self._ForwardInterpolator = interp
+            self._scipy_forward_interp = uses_scipy
 
         return self._ForwardInterpolator
 
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            if cuLinearNDInterpolator is not None:
-                target_pts = cp.asarray(self.TargetPoints, dtype=np.float64)
-                source_vals = cp.asarray(self.SourcePoints, dtype=np.float64)
-                self._InverseInterpolator = cuLinearNDInterpolator(target_pts, source_vals)
-                self._scipy_inverse_interp = False
-            else:
-                self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
-                self._scipy_inverse_interp = True
+            interp, uses_scipy = _build_linear_nd_interpolator(
+                self.TargetPoints,
+                self.SourcePoints,
+            )
+            self._InverseInterpolator = interp
+            self._scipy_inverse_interp = uses_scipy
 
         return self._InverseInterpolator
 
@@ -560,45 +561,23 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def Transform(self, points, **kwargs):
         '''Map points from the warped space to fixed space'''
-        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        interp = self.ForwardInterpolator
-
-        try:
-            if self._scipy_forward_interp:
-                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-                transPoints = interp(pn).astype(np.float32, copy=False)
-                return cp.asarray(transPoints)
-            return interp(points).astype(cp.float32, copy=False)
-        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
-            log = logging.getLogger(str(self.__class__))
-            log.warning("Could not transform points: " + str(points))
-            self._ForwardInterpolator = None
-
-            # This was added for the case where all points in the triangulation are colinear.
-            transPoints = cp.empty(points.shape, dtype=cp.float32)
-            transPoints[:] = cp.nan
-            return transPoints
+        return _forward_transform_with_linear_nd_fallback(
+            self,
+            points,
+            scipy_flag_attr='_scipy_forward_interp',
+            interpolator_property='ForwardInterpolator',
+            output_dtype=cp.float32,
+        )
 
     def InverseTransform(self, points, **kwargs):
         '''Map points from the fixed space to the warped space'''
-        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        interp = self.InverseInterpolator
-
-        try:
-            if self._scipy_inverse_interp:
-                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-                transPoints = interp(pn).astype(np.float32, copy=False)
-                return cp.asarray(transPoints)
-            return interp(points).astype(cp.float32, copy=False)
-        except Exception as e:  # This is usually a scipy.spatial._qhull.QhullError:
-            log = logging.getLogger(str(self.__class__))
-            log.warning("Could not transform points: " + str(points))
-            self._InverseInterpolator = None
-
-            # This was added for the case where all points in the triangulation are colinear.
-            transPoints = cp.empty(points.shape, dtype=cp.float32)
-            transPoints[:] = cp.nan
-            return transPoints
+        return _inverse_transform_with_linear_nd_fallback(
+            self,
+            points,
+            scipy_flag_attr='_scipy_inverse_interp',
+            interpolator_property='InverseInterpolator',
+            output_dtype=cp.float32,
+        )
 
     def AddPoints(self, new_points: NDArray[np.floating]):
         '''Add the point and return the index'''

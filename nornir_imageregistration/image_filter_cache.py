@@ -56,13 +56,25 @@ class WindowFilterCache:
             cache_dir = getattr(self, 'cache_dir', None)
             if not cache_dir or not os.path.isdir(cache_dir):
                 return
-            shutil.rmtree(cache_dir)
-        except OSError:
-            # Missing dir, permission, or in-use files during interpreter shutdown
-            try:
-                prettyoutput.LogErr("Unable to delete filter cache directory: %s" % getattr(self, 'cache_dir', ''))
-            except Exception:
-                pass
+            # Release any memory-mapped file handles before deletion to avoid
+            # Windows "file in use" errors (WinError 32).
+            loaded = getattr(self, '_loaded_images', {})
+            for arr in list(loaded.values()):
+                if isinstance(arr, np.memmap):
+                    try:
+                        # Delete the memmap object to release the file handle.
+                        # Accessing private _mmap is unsafe across numpy versions;
+                        # dropping the reference is sufficient on CPython.
+                        del arr
+                    except Exception:
+                        pass
+            loaded.clear()
+            # ignore_errors so Windows in-use files don't prevent a clean exit
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except Exception:
+            # During interpreter shutdown logging infrastructure may be gone;
+            # swallow all errors silently.
+            pass
 
     def GetOrCreate(self, image_shape: ShapeLike, **kwargs) -> NDArray[np.floating]:
         """Get or create a cached image filter of the expected shape"""
@@ -101,7 +113,8 @@ class WindowFilterCache:
             #             if use_memmap:
             #                 output = np.load(distance_array_path, mmap_mode='r')
             #             else:
-            output = np.load(image_path, mmap_mode='r')
+            # Load without mmap to avoid Windows "file in use" locks during shutdown.
+            output = np.load(image_path)
             if output.dtype != self._dtype:
                 output = None
                 prettyoutput.Log(f"Removed outdated image from {self._name} cache: {image_path}")

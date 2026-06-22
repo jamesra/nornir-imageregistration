@@ -41,6 +41,168 @@ from .base import ITransformScaling, ITransformRelativeScaling, \
     TransformType, ITransformTargetRotation, ITargetSpaceControlPointEdit, IGridTransform, \
     ITriangulatedTargetSpace
 
+_logger = logging.getLogger(__name__)
+
+
+def _is_cupy_degenerate_triangulation_error(exc: BaseException) -> bool:
+    """Return True when cupyx Delaunay rejected control points as degenerate or coplanar."""
+    if not isinstance(exc, ValueError):
+        return False
+    message = str(exc).lower()
+    return 'degenerate' in message or 'coplanar' in message
+
+
+def _build_scipy_linear_nd_interpolator(
+        target_points: NDArray[np.floating],
+        source_values: NDArray[np.floating],
+) -> LinearNDInterpolator | None:
+    """Build SciPy LinearNDInterpolator; return None when Qhull cannot triangulate."""
+    try:
+        target_np = nornir_imageregistration.EnsureNumpyArray(target_points)
+        source_np = nornir_imageregistration.EnsureNumpyArray(source_values)
+        valid = np.isfinite(target_np).all(axis=1) & np.isfinite(source_np).all(axis=1)
+        if not np.any(valid):
+            return None
+        target_np = target_np[valid]
+        source_np = source_np[valid]
+        tri = scipy.spatial.Delaunay(target_np)
+        return LinearNDInterpolator(tri, source_np)
+    except (scipy.spatial.QhullError, ValueError) as exc:
+        _logger.warning(
+            'SciPy LinearNDInterpolator failed (%s); transform queries will return NaN',
+            exc,
+        )
+        return None
+
+
+def _build_linear_nd_interpolator(
+        target_points: NDArray[np.floating],
+        source_values: NDArray[np.floating],
+        *,
+        force_scipy: bool = False,
+) -> tuple[Any | None, bool]:
+    """Build GPU LinearNDInterpolator when possible; fall back to SciPy Qhull on degenerate CuPy triangulation."""
+    if force_scipy or cuLinearNDInterpolator is None:
+        return _build_scipy_linear_nd_interpolator(target_points, source_values), True
+
+    try:
+        target_pts = cp.asarray(target_points, dtype=np.float64)
+        source_pts = cp.asarray(source_values, dtype=np.float64)
+        return cuLinearNDInterpolator(target_pts, source_pts), False
+    except ValueError as exc:
+        if not _is_cupy_degenerate_triangulation_error(exc):
+            raise
+        _logger.warning(
+            'CuPy LinearNDInterpolator failed (%s); falling back to SciPy Qhull',
+            exc,
+        )
+        return _build_scipy_linear_nd_interpolator(target_points, source_values), True
+
+
+def _inverse_transform_with_linear_nd_fallback(
+        transform: Any,
+        points: NDArray[np.floating],
+        *,
+        scipy_flag_attr: str,
+        interpolator_property: str,
+        output_dtype: Any,
+        target_points_attr: str = 'TargetPoints',
+        source_points_attr: str = 'SourcePoints',
+) -> NDArray[np.floating]:
+    """Run inverse transform with optional SciPy fallback after CuPy triangulation failure."""
+    points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+    private_attr = f'_{interpolator_property}'
+    retried = False
+    while True:
+        interp = getattr(transform, interpolator_property)
+        if interp is None:
+            trans_points = cp.empty(points.shape, dtype=output_dtype)
+            trans_points[:] = cp.nan
+            return trans_points
+
+        try:
+            if getattr(transform, scipy_flag_attr):
+                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+                trans_points = interp(pn)
+                if output_dtype is not None and output_dtype is not points.dtype:
+                    trans_points = trans_points.astype(output_dtype, copy=False)
+                return cp.asarray(trans_points)
+            result = interp(points)
+            if output_dtype is not None:
+                return result.astype(output_dtype, copy=False)
+            return result
+        except ValueError as exc:
+            if (not retried and not getattr(transform, scipy_flag_attr)
+                    and _is_cupy_degenerate_triangulation_error(exc)):
+                retried = True
+                interp, uses_scipy = _build_linear_nd_interpolator(
+                    getattr(transform, target_points_attr),
+                    getattr(transform, source_points_attr),
+                    force_scipy=True,
+                )
+                setattr(transform, private_attr, interp)
+                setattr(transform, scipy_flag_attr, uses_scipy)
+                continue
+        except Exception:
+            pass
+
+        log = logging.getLogger(str(transform.__class__))
+        log.warning("Could not transform points: " + str(points))
+        setattr(transform, private_attr, None)
+        trans_points = cp.empty(points.shape, dtype=output_dtype)
+        trans_points[:] = cp.nan
+        return trans_points
+
+
+def _forward_transform_with_linear_nd_fallback(
+        transform: Any,
+        points: NDArray[np.floating],
+        *,
+        scipy_flag_attr: str,
+        interpolator_property: str,
+        output_dtype: Any,
+        target_points_attr: str = 'SourcePoints',
+        source_points_attr: str = 'TargetPoints',
+) -> NDArray[np.floating]:
+    """Run forward transform with optional SciPy fallback after CuPy triangulation failure."""
+    points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+    private_attr = f'_{interpolator_property}'
+    retried = False
+    while True:
+        interp = getattr(transform, interpolator_property)
+        if interp is None:
+            trans_points = cp.empty(points.shape, dtype=output_dtype)
+            trans_points[:] = cp.nan
+            return trans_points
+
+        try:
+            if getattr(transform, scipy_flag_attr):
+                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+                trans_points = interp(pn).astype(output_dtype, copy=False)
+                return cp.asarray(trans_points)
+            return interp(points).astype(output_dtype, copy=False)
+        except ValueError as exc:
+            if (not retried and not getattr(transform, scipy_flag_attr)
+                    and _is_cupy_degenerate_triangulation_error(exc)):
+                retried = True
+                interp, uses_scipy = _build_linear_nd_interpolator(
+                    getattr(transform, target_points_attr),
+                    getattr(transform, source_points_attr),
+                    force_scipy=True,
+                )
+                setattr(transform, private_attr, interp)
+                setattr(transform, scipy_flag_attr, uses_scipy)
+                continue
+        except Exception:
+            pass
+
+        log = logging.getLogger(str(transform.__class__))
+        log.warning("Could not transform points: " + str(points))
+        setattr(transform, private_attr, None)
+        trans_points = cp.empty(points.shape, dtype=output_dtype)
+        trans_points[:] = cp.nan
+        return trans_points
+
 
 class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
                     ITransformTargetRotation, ITargetSpaceControlPointEdit,
@@ -590,14 +752,12 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            if cuLinearNDInterpolator is not None:
-                target_pts = cp.asarray(self.TargetPoints, dtype=np.float64)
-                source_pts = cp.asarray(self.SourcePoints, dtype=np.float64)
-                self._InverseInterpolator = cuLinearNDInterpolator(target_pts, source_pts)
-                self._scipy_inverse_interp = False
-            else:
-                self._InverseInterpolator = LinearNDInterpolator(self.fixedtri, self.SourcePoints)
-                self._scipy_inverse_interp = True
+            interp, uses_scipy = _build_linear_nd_interpolator(
+                self.TargetPoints,
+                self.SourcePoints,
+            )
+            self._InverseInterpolator = interp
+            self._scipy_inverse_interp = uses_scipy
 
         return self._InverseInterpolator
 
@@ -613,23 +773,13 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def InverseTransform(self, points, **kwargs):
         """Map points from the fixed space to the warped space"""
         points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-        interp = self.InverseInterpolator
-
-        try:
-            if self._scipy_inverse_interp:
-                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-                transPoints = interp(pn)
-                return cp.asarray(transPoints)
-            return interp(points)
-        except Exception:
-            log = logging.getLogger(str(self.__class__))
-            log.warning("Could not transform points: " + str(points))
-            self._InverseInterpolator = None
-
-            # This was added for the case where all points in the triangulation are colinear.
-            transPoints = cp.empty(points.shape, dtype=points.dtype)
-            transPoints[:] = cp.nan
-            return transPoints
+        return _inverse_transform_with_linear_nd_fallback(
+            self,
+            points,
+            scipy_flag_attr='_scipy_inverse_interp',
+            interpolator_property='InverseInterpolator',
+            output_dtype=points.dtype,
+        )
 
     @property
     def FixedTriangles(self):

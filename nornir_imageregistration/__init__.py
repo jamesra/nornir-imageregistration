@@ -390,15 +390,13 @@ import nornir_imageregistration.arrange_mosaic as arrange_mosaic
 from nornir_imageregistration.arrange_mosaic import TranslateTiles2
 
 from nornir_imageregistration.volume import Volume
-from nornir_imageregistration.overlapmasking import GetOverlapMask
+from nornir_imageregistration.overlapmasking import GetOverlapMask, GetOverlapMaskOnDevice
 from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineGridMosaic, RefineStosFile, RefineTransform, MosaicRefinementDiagnostics
 
 from nornir_imageregistration.spatial.indices import *
 from nornir_imageregistration.views import ShowWithPassFail
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
-
-from nornir_imageregistration.overlapmasking import GetOverlapMask
 
 from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKGridDivision
 

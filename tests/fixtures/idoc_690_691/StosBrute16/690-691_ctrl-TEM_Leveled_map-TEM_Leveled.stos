@@ -1,0 +1,10 @@
+../0691/TEM/Leveled/Images/016/0691_TEM_Leveled.png
+../0690/TEM/Leveled/Images/016/0690_TEM_Leveled.png
+0
+0
+1 1 484 482
+1 1 484 482
+Rigid2DTransform_double_2_2 vp 3 0.015182234046702388 26.324905395507812 -129.3226318359375 fp 2 241.5 240.5
+two_user_supplied_masks:
+../0691/TEM/Mask/Images/016/0691_TEM_Mask.png
+../0690/TEM/Mask/Images/016/0690_TEM_Mask.png

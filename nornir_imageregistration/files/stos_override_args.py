@@ -106,9 +106,6 @@ class StosOverrideArgs(object):
                 if Args.scalar != 1.0:
                     stos.Scale(Args.scalar)
 
-            stosDir = os.path.dirname(Args.inputpath)
-            stos.TryConvertRelativePathsToAbsolutePaths(stosDir)
-
         if not Args.fixedimagepath is None:
             stos.ControlImageFullPath = self.fixedImage
 
