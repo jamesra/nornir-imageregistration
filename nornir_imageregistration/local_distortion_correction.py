@@ -10,6 +10,8 @@ import logging
 import os
 import enum
 import copy
+import time
+import contextlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence, cast
@@ -24,6 +26,7 @@ import nornir_imageregistration.assemble_tiles
 from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 from nornir_imageregistration.mathfuncs import EMA, estimate_cutoff
 import nornir_imageregistration.phasecorrelation
+import nornir_imageregistration.batched_phase_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
@@ -45,6 +48,98 @@ except ImportError:
 AlignmentRecordDict = dict[tuple[int, int], nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordList = Sequence[nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordKey = tuple[int, int]
+
+
+class _RefinePhaseTimer:
+    """Accumulate wall time per named phase of grid refinement (opt-in).
+
+    Enabled by setting ``NORNIR_REFINE_PHASE_TIMING`` to a truthy value. When
+    disabled, ``section`` is a no-op context manager so default runs are
+    unaffected (mirrors the ``_log_refinement_gpu_memory`` gating style).
+
+    Under CuPy each section synchronizes the device on exit so the recorded
+    wall time reflects actual kernel completion. The mosaic vertex loop already
+    forces a per-vertex host sync (``.get()`` on each peak), so this adds no new
+    serialization to the CuPy hot path while it is measured.
+    """
+
+    PHASES = ('prewarp', 'cell_extract', 'fft', 'host_sync', 'regularize', 'apply')
+
+    def __init__(self) -> None:
+        flag = os.environ.get('NORNIR_REFINE_PHASE_TIMING', '0').strip().lower()
+        self.enabled = flag not in ('', '0', 'false', 'no', 'off')
+        self.totals: dict[str, float] = defaultdict(float)
+        self.counts: dict[str, int] = defaultdict(int)
+
+    def reset(self) -> None:
+        """Clear all accumulated phase totals and counts."""
+        self.totals = defaultdict(float)
+        self.counts = defaultdict(int)
+
+    def snapshot(self) -> dict[str, float]:
+        """Return a copy of the current cumulative per-phase totals."""
+        return dict(self.totals)
+
+    @contextlib.contextmanager
+    def section(self, name: str):
+        """Time the wrapped block into the *name* bucket (no-op when disabled)."""
+        if not self.enabled:
+            yield
+            return
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            if nornir_imageregistration.UsingCupy() and cp is not None:
+                try:
+                    cp.cuda.Device().synchronize()
+                except Exception:  # pragma: no cover - defensive against thunk/no-GPU
+                    pass
+            self.totals[name] += time.perf_counter() - start
+            self.counts[name] += 1
+
+
+_PHASE_TIMER = _RefinePhaseTimer()
+
+
+def _use_batched_gpu_vertex_measurement() -> bool:
+    """Return True when the batched-GPU vertex path should be used.
+
+    The batched path (one batched FFT + vectorized peak finder + single host
+    sync) is the production default under CuPy: it is ~2.4x faster than the
+    serial connected-component path and matches the CPU/golden registration
+    within sub-pixel tolerance (see docs/mosaic_refine_grid_gpu_assessment.md).
+
+    It is only meaningful under CuPy (the FFT/peak batching wins come from the
+    GPU); the NumPy path always uses the serial measurement. Set
+    ``NORNIR_REFINE_BATCHED_GPU=0`` (or false/no/off) to force the legacy serial
+    path for A/B comparison or fallback. The env var is read per call so
+    benchmarks/tests can toggle it within a process.
+    """
+    if not nornir_imageregistration.UsingCupy():
+        return False
+    flag = os.environ.get('NORNIR_REFINE_BATCHED_GPU', '').strip().lower()
+    if flag in ('0', 'false', 'no', 'off'):
+        return False
+    return True
+
+
+def _log_phase_breakdown(label: str, baseline: dict[str, float]) -> None:
+    """Log the per-phase wall-time split since *baseline* (no-op when disabled)."""
+    if not _PHASE_TIMER.enabled:
+        return
+    deltas = {name: _PHASE_TIMER.totals.get(name, 0.0) - baseline.get(name, 0.0)
+              for name in _RefinePhaseTimer.PHASES}
+    measured = sum(deltas.values())
+    backend = 'cupy' if nornir_imageregistration.UsingCupy() else 'numpy'
+    lines = [f'{label} phase timing [{backend}] (s):']
+    for name in _RefinePhaseTimer.PHASES:
+        value = deltas[name]
+        pct = (100.0 * value / measured) if measured > 0 else 0.0
+        count = _PHASE_TIMER.counts.get(name, 0)
+        lines.append(f'  {name:<12} {value:9.3f}  {pct:5.1f}%  (n={count})')
+    lines.append(f'  {"measured":<12} {measured:9.3f}')
+    prettyoutput.Log('\n'.join(lines))
 
 
 class WeightMethod(enum.IntEnum):
@@ -458,7 +553,11 @@ def _prewarp_all_tiles_for_grid_refine(
     if len(tiles_to_prewarp) == 0:
         return prewarped
 
-    if len(tiles_to_prewarp) <= 1 or nornir_imageregistration.UsingCupy():
+    # Step 7 contingency: 'thread' mode overlaps host tile-load + coord compute
+    # with warp kernels and is allowed even under CuPy. Default keeps the serial
+    # CuPy path / multiprocess CPU path unchanged.
+    use_thread_dispatch = 'thread' in _prewarp_dispatch_mode()
+    if len(tiles_to_prewarp) <= 1 or (nornir_imageregistration.UsingCupy() and not use_thread_dispatch):
         for tile in tiles_to_prewarp:
             warped = _prewarp_tile_for_grid_refine(tile, target_space_scale)
             if use_cache:
@@ -467,7 +566,9 @@ def _prewarp_all_tiles_for_grid_refine(
             prewarped[tile.ID] = warped
         return prewarped
 
-    pool = nornir_pools.GetGlobalMultithreadingPool()
+    pool = (nornir_pools.GetGlobalThreadPool()
+            if use_thread_dispatch
+            else nornir_pools.GetGlobalMultithreadingPool())
     tasks = [
         pool.add_task(
             f"grid_prewarp_{tile.ID}",
@@ -551,30 +652,107 @@ def _measure_grid_vertex_displacements(
         if np.any(local_fixed < 0) or np.any(local_fixed >= fixed_shape):
             continue
 
-        fixed_cell, fixed_fraction = _extract_refinement_cell(fixed, center, cell_shape)
+        with _PHASE_TIMER.section('cell_extract'):
+            fixed_cell, fixed_fraction = _extract_refinement_cell(fixed, center, cell_shape)
         if fixed_fraction < cell_min_overlap:
             continue
-        moving_cell, moving_fraction = _extract_refinement_cell(moving, center, cell_shape)
+        with _PHASE_TIMER.section('cell_extract'):
+            moving_cell, moving_fraction = _extract_refinement_cell(moving, center, cell_shape)
         if moving_fraction < cell_min_overlap:
             continue
 
         try:
             # find_offset peak = shift to apply to the source (second) image's content;
             # the moving tile is the source so its vertices receive +peak.
-            record = _phase_correlate_refinement_cell(
-                fixed_cell,
-                moving_cell,
-                cell_shape,
-                min_overlap=cell_min_overlap)
+            with _PHASE_TIMER.section('fft'):
+                record = _phase_correlate_refinement_cell(
+                    fixed_cell,
+                    moving_cell,
+                    cell_shape,
+                    min_overlap=cell_min_overlap)
         except Exception as e:
             prettyoutput.LogErr(f'Exception phase-correlating mesh vertex {k}:\n{e}')
             continue
 
-        peak = np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(record.peak), dtype=np.float64).reshape(-1)
+        with _PHASE_TIMER.section('host_sync'):
+            peak = np.asarray(
+                nornir_imageregistration.EnsureNumpyArray(record.peak), dtype=np.float64).reshape(-1)
         if record.weight <= 0 or np.any(np.isnan(peak)):
             continue
 
+        shifts[k, :] = peak
+        measured[k] = True
+
+    return shifts, measured
+
+
+def _measure_grid_vertex_displacements_batched(
+        moving: _PrewarpedTile,
+        fixed: _PrewarpedTile,
+        centers_scaled: NDArray[np.floating],
+        cell_shape: NDArray[np.integer],
+        cell_min_overlap: float) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """Batched analog of ``_measure_grid_vertex_displacements`` (prototype).
+
+    Applies the same per-vertex eligibility gating as the serial path, then
+    correlates all eligible cells in a single batched FFT + vectorized peak
+    pass (one host transfer for the whole batch) instead of one tiny FFT and
+    one ``.get()`` per vertex. Returns identical ``(shifts, measured)`` arrays.
+    """
+    centers_scaled = np.asarray(centers_scaled, dtype=np.float64)
+    cell_shape = np.asarray(cell_shape, dtype=np.int64)
+    num_vertices = centers_scaled.shape[0]
+    shifts = np.zeros((num_vertices, 2), dtype=np.float64)
+    measured = np.zeros(num_vertices, dtype=bool)
+
+    fixed_shape = np.asarray(fixed.image.shape, dtype=np.float64)
+    eligible_indices: list[int] = []
+    fixed_cells: list[NDArray[np.floating]] = []
+    moving_cells: list[NDArray[np.floating]] = []
+
+    with _PHASE_TIMER.section('cell_extract'):
+        for k in range(num_vertices):
+            center = centers_scaled[k]
+            local_fixed = center - fixed.origin
+            if np.any(local_fixed < 0) or np.any(local_fixed >= fixed_shape):
+                continue
+
+            fixed_cell, fixed_fraction = _extract_refinement_cell(fixed, center, cell_shape)
+            if fixed_fraction < cell_min_overlap:
+                continue
+            moving_cell, moving_fraction = _extract_refinement_cell(moving, center, cell_shape)
+            if moving_fraction < cell_min_overlap:
+                continue
+
+            eligible_indices.append(k)
+            fixed_cells.append(fixed_cell)
+            moving_cells.append(moving_cell)
+
+    if len(eligible_indices) == 0:
+        return shifts, measured
+
+    xp = cp.get_array_module(fixed_cells[0])
+    fixed_stack = xp.stack(fixed_cells, axis=0)
+    moving_stack = xp.stack(moving_cells, axis=0)
+
+    with _PHASE_TIMER.section('fft'):
+        peaks_dev, weights_dev = nornir_imageregistration.batched_phase_correlation.batched_find_offset(
+            fixed_stack,
+            moving_stack,
+            cell_shape,
+            min_overlap=cell_min_overlap,
+            max_overlap=1.0)
+
+    with _PHASE_TIMER.section('host_sync'):
+        peaks = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
+        weights = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
+
+    for batch_pos, k in enumerate(eligible_indices):
+        peak = peaks[batch_pos]
+        if weights[batch_pos] <= 0 or np.any(np.isnan(peak)):
+            continue
         shifts[k, :] = peak
         measured[k] = True
 
@@ -745,14 +923,33 @@ def _release_refinement_worker_memory() -> None:
                 pass
 
 
+def _prewarp_dispatch_mode() -> str:
+    """Return the opt-in prewarp dispatch mode (Step 7 contingency).
+
+    Read from ``NORNIR_REFINE_PREWARP_MODE`` (default ``'serial'``). Tokens may
+    be combined (for example ``'thread+cache'``):
+
+    - ``thread``: dispatch the per-tile warp on the shared thread pool even
+      under CuPy / on CPU instead of the default (serial under CuPy, multiprocess
+      on CPU). Overlaps host tile-load + coordinate compute with warp kernels.
+    - ``cache``: allow the cross-pass prewarp cache under CuPy (re-render only
+      tiles whose lattice revision changed). Off by default because it was
+      historically disabled under CuPy; gated by golden parity validation.
+
+    The default keeps current behavior exactly.
+    """
+    return os.environ.get('NORNIR_REFINE_PREWARP_MODE', 'serial').strip().lower()
+
+
 def _prewarp_cache_enabled() -> bool:
     """Return False when cross-pass prewarp caching is disabled for A/B testing or on CuPy."""
     if os.environ.get('NORNIR_DISABLE_PREWARP_CACHE', '').strip().lower() in (
             '1', 'true', 'yes', 'on'):
         return False
-    # CuPy cross-pass cache changes mosaic outputs; keep CPU-only caching.
+    # CuPy cross-pass cache changes mosaic outputs; keep CPU-only caching by
+    # default, but allow opt-in via NORNIR_REFINE_PREWARP_MODE=cache (Step 7).
     if nornir_imageregistration.UsingCupy():
-        return False
+        return 'cache' in _prewarp_dispatch_mode()
     return True
 
 
@@ -1166,14 +1363,17 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     prewarp_revision_cache: dict[int, int] = {tile.ID: 0 for tile in list_tiles}
 
     _log_refinement_gpu_memory('_refine_tileset start')
+    _PHASE_TIMER.reset()
     for pass_index in range(iterations):
+        pass_phase_baseline = _PHASE_TIMER.snapshot()
         # Legacy prewarp_tiles=true: re-render tiles whose grid moved since the last pass.
         _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} before prewarp')
-        prewarped = _prewarp_all_tiles_for_grid_refine(
-            list_tiles,
-            target_space_scale,
-            prewarp_cache=prewarp_cache,
-            revision_cache=prewarp_revision_cache)
+        with _PHASE_TIMER.section('prewarp'):
+            prewarped = _prewarp_all_tiles_for_grid_refine(
+                list_tiles,
+                target_space_scale,
+                prewarp_cache=prewarp_cache,
+                revision_cache=prewarp_revision_cache)
         _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} after prewarp')
         neighbors = _grid_refine_neighbors(list_tiles)
         overlap_count_per_iteration.append(
@@ -1201,16 +1401,21 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
             measured_count = 0
             filled_count = 0
 
+            measure_vertex_displacements = (
+                _measure_grid_vertex_displacements_batched
+                if _use_batched_gpu_vertex_measurement()
+                else _measure_grid_vertex_displacements)
             for neighbor in neighbors[tile.ID]:
-                shifts, measured = _measure_grid_vertex_displacements(
+                shifts, measured = measure_vertex_displacements(
                     moving=prewarped[tile.ID],
                     fixed=prewarped[neighbor.ID],
                     centers_scaled=centers_scaled,
                     cell_shape=cell_shape,
                     cell_min_overlap=min_overlap)
                 measured_count += int(np.count_nonzero(measured))
-                regularized_shifts, regularized_db = _regularize_displacements(
-                    shifts, measured, mesh_dims, median_radius=median_radius)
+                with _PHASE_TIMER.section('regularize'):
+                    regularized_shifts, regularized_db = _regularize_displacements(
+                        shifts, measured, mesh_dims, median_radius=median_radius)
                 filled_count += int(np.count_nonzero(regularized_db)) - int(np.count_nonzero(measured))
                 total_shift += regularized_shifts
                 mass += regularized_db
@@ -1228,17 +1433,19 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
             }
 
         # Apply only after all tiles are measured (legacy updates grids between passes).
-        for tile, targets, applied_scaled in pending_updates:
-            grid_transform = cast(nornir_imageregistration.transforms.IGridTransform, tile.Transform)
-            new_targets = targets + (applied_scaled * downsample)
-            grid_transform.UpdateTargetPointsByIndex(  # type: ignore[attr-defined]
-                np.arange(targets.shape[0], dtype=np.int64), new_targets)
-            if np.any(applied_scaled != 0):
-                prewarp_revision_cache[tile.ID] = prewarp_revision_cache.get(tile.ID, 0) + 1
+        with _PHASE_TIMER.section('apply'):
+            for tile, targets, applied_scaled in pending_updates:
+                grid_transform = cast(nornir_imageregistration.transforms.IGridTransform, tile.Transform)
+                new_targets = targets + (applied_scaled * downsample)
+                grid_transform.UpdateTargetPointsByIndex(  # type: ignore[attr-defined]
+                    np.arange(targets.shape[0], dtype=np.int64), new_targets)
+                if np.any(applied_scaled != 0):
+                    prewarp_revision_cache[tile.ID] = prewarp_revision_cache.get(tile.ID, 0) + 1
 
         del prewarped
         _release_refinement_worker_memory()
         _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} after release')
+        _log_phase_breakdown(f'_refine_tileset pass {pass_index + 1}', pass_phase_baseline)
 
         vertex_diagnostics_per_pass.append(pass_vertex_diagnostics)
 
@@ -1262,6 +1469,7 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     prewarp_revision_cache.clear()
     _release_refinement_worker_memory()
     _log_refinement_gpu_memory('_refine_tileset end')
+    _log_phase_breakdown('_refine_tileset total', {})
 
     return MosaicRefinementDiagnostics(
         iterations_completed=len(average_displacement_per_iteration),
