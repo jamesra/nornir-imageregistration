@@ -121,12 +121,12 @@ def ShowTilesWithOffset(test, layout_obj, tiles_list, TileA_ID: int, TileB_ID: i
     info_str = "%d -> %d\noffset: (%gx, %gy)\nweight: %g" % (
         TileA_ID, TileB_ID, NodeB_Offset[1], NodeB_Offset[0], NodeA.GetWeight(TileB_ID))
 
-    ShowMosaicSet(test, mosaic_set, usecluster=False, title=info_str,
+    ShowMosaicSet(test, mosaic_set, title=info_str,
                   path=os.path.join(output_dir, f"{filename}_{TileA_ID}-{TileB_ID}_Weight_{float(weight):.5f}.png"),
                   image_to_source_space_scale=image_to_source_space_scale, openwindow=openwindow)
 
 
-def ShowMosaicSet(test, mosaicTileset, path=None, openwindow=True, usecluster=True, title: str = None,
+def ShowMosaicSet(test, mosaicTileset, path=None, openwindow=True, title: str = None,
                   target_space_scale: float = None, image_to_source_space_scale: float = None):
     '''
     :param mosaicTileset: The tileset we are assembling an image for
@@ -134,8 +134,7 @@ def ShowMosaicSet(test, mosaicTileset, path=None, openwindow=True, usecluster=Tr
     :param path: Where to save the output image, will not be saved if None is passed
     :param openwindow: Set to true to display the assembled image
     '''
-    (assembledImage, mask) = mosaicTileset.AssembleImage(usecluster=usecluster,
-                                                         target_space_scale=target_space_scale)
+    (assembledImage, mask) = mosaicTileset.AssembleImage(target_space_scale=target_space_scale)
 
     if path is not None:
         pool = nornir_pools.GetGlobalThreadPool()
@@ -229,7 +228,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
 
         matplotlib.pyplot.clf()
 
-    def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, usecluster=True, title: str = None,
+    def _ShowMosaic(self, mosaic, mosaic_path=None, openwindow=True, title: str = None,
                     target_space_scale: float = None, image_to_source_space_scale: float = None):
 
         if isinstance(mosaic, nornir_imageregistration.mosaic_tileset.MosaicTileset):
@@ -240,7 +239,7 @@ class TestMosaicArrange(setup_imagetest.TransformTestBase, picklehelper.PickleHe
                                                                                      image_to_source_space_scale=image_to_source_space_scale)
 
         return ShowMosaicSet(self, mosaicTileset, path=mosaic_path,
-                             openwindow=openwindow, usecluster=usecluster,
+                             openwindow=openwindow,
                              title=title, target_space_scale=target_space_scale,
                              image_to_source_space_scale=image_to_source_space_scale)
 

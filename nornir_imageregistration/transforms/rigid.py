@@ -71,18 +71,18 @@ class RigidTranslation(base.ITransformScaling,
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
         """Translate all fixed points by the specified amount"""
-        self._target_offset = self._target_offset + nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._target_offset = self._target_offset + np.asarray(offset, dtype=np.float32).ravel()[:2]
         self.OnTransformChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
         """Translate all warped points by the specified amount"""
-        self._target_offset = self._target_offset - nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._target_offset = self._target_offset - np.asarray(offset, dtype=np.float32).ravel()[:2]
         self.OnTransformChanged()
 
     def Scale(self, scalar: float):
         """Scale both warped and control space by scalar"""
-        self._target_offset *= scalar
-        self._source_space_center_of_rotation *= scalar
+        self._target_offset = (self._target_offset * scalar).astype(np.float32)
+        self._source_space_center_of_rotation = (self._source_space_center_of_rotation * scalar).astype(np.float32)
         self.OnTransformChanged()
 
     @property
@@ -116,27 +116,30 @@ class RigidTranslation(base.ITransformScaling,
         if source_rotation_center is None:
             source_rotation_center = (0.0, 0.0)
 
-        self._target_offset = nornir_imageregistration.EnsurePointsAre1DArray(target_offset, dtype=np.float32)
-        self._source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre1DArray(
-            source_rotation_center, dtype=np.float32)
+        # Always store as NumPy regardless of the active computation lib.
+        # The Transform/InverseTransform methods use xp.asarray() to convert to the
+        # appropriate device type on demand; keeping these as NumPy avoids the failure
+        # np.asarray(cupy_array) when callers pass NumPy points with CuPy active.
+        self._target_offset = np.asarray(target_offset, dtype=np.float32).ravel()[:2]
+        self._source_space_center_of_rotation = np.asarray(source_rotation_center, dtype=np.float32).ravel()[:2]
         self._angle = angle  # type: float
 
     def __getstate__(self):
-
-        cp_arrays = cp.get_array_module(self._target_offset) == cp  # type: ignore[operator]
-        tgt_offset = self._target_offset if not cp_arrays else self._target_offset.get()  # type: ignore[attr-defined]
-        sscr = self._source_space_center_of_rotation if not cp_arrays else self._source_space_center_of_rotation.get()  # type: ignore[attr-defined]
-
-        odict = {'_angle': self._angle, '_target_offset': (tgt_offset[0], tgt_offset[1]),
-                 '_source_space_center_of_rotation': (sscr[0],
-                                                      sscr[1])}
+        # _target_offset and _source_space_center_of_rotation are always NumPy (see __init__).
+        odict = {'_angle': self._angle, '_target_offset': (self._target_offset[0], self._target_offset[1]),
+                 '_source_space_center_of_rotation': (self._source_space_center_of_rotation[0],
+                                                      self._source_space_center_of_rotation[1])}
 
         return odict
 
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)  # type: ignore[attr-defined]
 
-        xp = nornir_imageregistration.GetComputationModule()
+        # Always restore internal state as numpy arrays. The computation module
+        # must not be used here: process-pool workers have CuPy as the module
+        # default but cannot initialise a CUDA context after fork. The arrays
+        # work correctly in both numpy and CuPy arithmetic (CuPy accepts numpy
+        # arrays in mixed operations via __array_ufunc__).
 
         # Check for legacy .pickle data by looking for non-underscore attributes.
         # Legacy .pickle files  are used by TestMosaicTilesetTileOffsets.test_Alignment_RC3_0001 test
@@ -146,8 +149,8 @@ class RigidTranslation(base.ITransformScaling,
         if 'source_space_center_of_rotation' in dictionary:
             self._source_space_center_of_rotation = dictionary['source_space_center_of_rotation']
 
-        self._target_offset = xp.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
-        self._source_space_center_of_rotation = xp.asarray((self._source_space_center_of_rotation[0],
+        self._target_offset = np.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
+        self._source_space_center_of_rotation = np.asarray((self._source_space_center_of_rotation[0],
                                                             self._source_space_center_of_rotation[1]), dtype=np.float32)
 
         self.OnChangeEventListeners = []
@@ -172,7 +175,8 @@ class RigidTranslation(base.ITransformScaling,
             raise NotImplementedError("Rotation is not implemented")
 
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
-        transformed = points + self._target_offset
+        xp = cp.get_array_module(points)
+        transformed = points + xp.asarray(self._target_offset)
         return transformed
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
@@ -182,7 +186,8 @@ class RigidTranslation(base.ITransformScaling,
             raise NotImplementedError("Rotation is not implemented")
 
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
-        itransformed = points - self._target_offset
+        xp = cp.get_array_module(points)
+        itransformed = points - xp.asarray(self._target_offset)
         return itransformed
 
 
@@ -332,7 +337,7 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
         if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
-            transformed = points + self._target_offset
+            transformed = points + xp.asarray(self._target_offset)
             return transformed
 
         num_points = points.shape[0]
@@ -348,7 +353,7 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
         if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
-            itransformed = points - self._target_offset
+            itransformed = points - xp.asarray(self._target_offset)
             return itransformed
 
         num_points = points.shape[0]
@@ -375,21 +380,20 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         # We are changing the scale of both spaces, so we scale the target and source center of rotation offsets
         # Do not call super, this method is a replacement
         # self._scalar *= value
-        self._target_offset *= value
-        self._source_space_center_of_rotation *= value
-        # self._source_space_center_of_rotation = self._source_space_center_of_rotation * value
+        self._target_offset = (self._target_offset * value).astype(np.float32)
+        self._source_space_center_of_rotation = (self._source_space_center_of_rotation * value).astype(np.float32)
         self._update_transform_matrix()
         self.OnTransformChanged()
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
         """Translate all fixed points by the specified amount"""
-        self._target_offset = self._target_offset + nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._target_offset = self._target_offset + np.asarray(offset, dtype=np.float32).ravel()[:2]
         self._update_transform_matrix()
         self.OnTransformChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
         """Translate all warped points by the specified amount"""
-        self._target_offset = self._target_offset - nornir_imageregistration.EnsurePointsAre1DArray(offset)
+        self._target_offset = self._target_offset - np.asarray(offset, dtype=np.float32).ravel()[:2]
         self._update_transform_matrix()
         self.OnTransformChanged()
 

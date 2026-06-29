@@ -10,7 +10,10 @@ from multiprocessing.shared_memory import SharedMemory
 import multiprocessing.sharedctypes
 
 import os
+import queue
 import tempfile
+import threading
+import time
 import typing
 import warnings
 import weakref
@@ -512,11 +515,60 @@ def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: boo
     return
 
 
+class _TaskProgressReporter:
+    """Throttled secondary dashboard bar via ``publish_task_progress``."""
+
+    def __init__(self, task_key: str, total: int, *, name: str | None = None,
+                 min_interval_s: float = 0.25) -> None:
+        self._task_key = task_key
+        self._total = max(0, int(total))
+        self._name = name
+        self._min_interval_s = min_interval_s
+        self._step = max(1, self._total // 100) if self._total else 1
+        self._last_published = -1
+        self._last_time = 0.0
+        self._started = False
+        self._completed = False
+
+    def start(self) -> None:
+        if self._total <= 0 or self._started:
+            return
+        self._started = True
+        self._publish(0)
+
+    def update(self, current: int) -> None:
+        if self._total <= 0 or self._completed:
+            return
+        if not self._started:
+            self.start()
+        current = min(max(0, int(current)), self._total)
+        now = time.time()
+        if (current >= self._total
+                or self._last_published < 0
+                or current - self._last_published >= self._step
+                or now - self._last_time >= self._min_interval_s):
+            self._publish(current)
+
+    def complete(self) -> None:
+        if self._completed or self._total <= 0 or not self._started:
+            return
+        self._completed = True
+        self._publish(self._total)
+        prettyoutput.publish_task_complete(self._task_key, self._total)
+
+    def _publish(self, current: int) -> None:
+        self._last_published = current
+        self._last_time = time.time()
+        prettyoutput.publish_task_progress(
+            self._task_key, current, self._total, name=self._name)
+
+
 def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
                         OutputBpp: int | None = None, Invert: bool = False,
                         bDeleteOriginal: bool = False, RightLeftShift: int | None = None,
                         AndValue: int | None = None, MinMax: tuple[float, float] | None = None,
-                        Gamma: float | None = None):
+                        Gamma: float | None = None, progress_name: str | None = None,
+                        progress_task_key: str | None = None):
     """
     The key and value in the dictionary have the full path of an image to convert.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
@@ -548,7 +600,6 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
         num_threads = len(ImagesToConvertDict) + 1
 
     pool = nornir_pools.GetMultithreadingPool("ConvertImagesInDict", num_threads=num_threads)
-    # pool = nornir_pools.GetGlobalSerialPool()
     tasks = []
 
     for (input_image, output_image) in ImagesToConvertDict.items():
@@ -565,15 +616,24 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                              Gamma=Gamma)
         tasks.append(task)
 
-    while len(tasks) > 0:
-        t = tasks.pop(0)
-        try:
-            t.wait()
-        except Exception as e:
-            if __debug__:
-                raise
+    task_key = progress_task_key or 'ConvertImagesInDict'
+    reporter = _TaskProgressReporter(task_key, len(tasks), name=progress_name)
+    completed = 0
+    try:
+        reporter.start()
+        while len(tasks) > 0:
+            t = tasks.pop(0)
+            try:
+                t.wait()
+            except Exception as e:
+                if __debug__:
+                    raise
 
-            prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
+                prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
+            completed += 1
+            reporter.update(completed)
+    finally:
+        reporter.complete()
 
     if bDeleteOriginal:
         for (input_image, output_image) in ImagesToConvertDict.items():
@@ -594,6 +654,972 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
         pool = None
 
     del tasks
+
+
+# ---------------------------------------------------------------------------
+# GPU contrast conversion helpers
+# ---------------------------------------------------------------------------
+
+# Fraction of *free* GPU VRAM to budget for one chunk's float32 data.
+# The gamma computation creates ~4 temporary device arrays (two float32 copies,
+# one bool mask, one output), so peak device usage is ~4× the chunk data size.
+# Using 40% / 4 = 10% of free VRAM as the effective data ceiling leaves plenty
+# of room for the CUDA driver (~400–500 MB), CuPy memory pool, and other GPU
+# processes sharing the card.
+_GPU_MEMORY_FRACTION: float = 0.40
+_GPU_SAFETY_FACTOR: int = 4
+_GPU_MAX_CHUNK: int = 64   # pipeline-balance cap: no chunk larger than this
+
+
+def _gpu_chunk_size(tile_shape: tuple) -> int:
+    """Return the number of tiles per GPU chunk, auto-tuned from free VRAM.
+
+    Uses :data:`_GPU_MEMORY_FRACTION` of currently-free VRAM divided by
+    :data:`_GPU_SAFETY_FACTOR` (for gamma temporaries), capped at
+    :data:`_GPU_MAX_CHUNK`.  All three module-level constants can be patched by
+    tests or profiling scripts without changing this signature.
+    """
+    try:
+        free_bytes, _ = cp.cuda.runtime.memGetInfo()
+    except Exception:
+        return 1  # CuPy CUDA unavailable; fall through to numpy path anyway
+    tile_float32_bytes = int(np.prod(tile_shape)) * 4
+    chunk = max(1, int(free_bytes * _GPU_MEMORY_FRACTION / (_GPU_SAFETY_FACTOR * tile_float32_bytes)))
+    return min(chunk, _GPU_MAX_CHUNK)
+
+
+def _apply_contrast_gpu(batch: 'cp.ndarray',
+                         min_val: float, max_val: float,
+                         gamma: float,
+                         max_int_val: float | None) -> 'cp.ndarray':
+    """Apply level / gamma / clip to a device batch in-place where possible.
+
+    :param batch: CuPy float32 array of shape ``(N, H, W)``, values already
+        normalised to [0, 1] if the source dtype was integer.
+    :param min_val: Level minimum (already normalised to [0, 1] for int sources).
+    :param max_val: Level maximum (already normalised to [0, 1] for int sources).
+    :param gamma: Gamma exponent (1.0 = no correction).
+    :param max_int_val: If the source was integer, the max representable value
+        (e.g. 255 for uint8); used to scale back before returning.  None for
+        float sources.
+    :return: The (possibly new) device array after all transforms.
+    """
+    needs_clip = False
+
+    if min_val != 0.0 or max_val != 1.0:
+        batch -= min_val
+        batch /= (max_val - min_val)
+        needs_clip = True
+
+    if gamma != 1.0:
+        exp = 1.0 / gamma
+        # cp.where evaluates both branches — use cp.maximum to guard negatives
+        # before power so we never compute NaN, then restore negatives via where.
+        batch = cp.where(batch >= 0.0,
+                         cp.power(cp.maximum(batch, 0.0), exp),
+                         batch)
+        needs_clip = True
+
+    if needs_clip:
+        cp.clip(batch, 0.0, 1.0, out=batch)
+
+    if max_int_val is not None:
+        batch *= max_int_val
+
+    return batch
+
+
+# ---------------------------------------------------------------------------
+# Downsample helpers (GPU and CPU)
+# ---------------------------------------------------------------------------
+
+def _downsample2x_gpu(arr: 'cp.ndarray') -> 'cp.ndarray':
+    """2× area-average downsample using a 2×2 box filter on a CuPy array.
+
+    Works on any trailing two spatial dimensions: ``(..., H, W)`` → ``(..., H//2, W//2)``.
+    Odd trailing heights/widths are trimmed by one pixel so the four 2×2 slices align.
+    """
+    h, w = arr.shape[-2], arr.shape[-1]
+    if (h % 2) or (w % 2):
+        arr = arr[..., :h - (h % 2), :w - (w % 2)]
+    return (arr[..., 0::2, 0::2] + arr[..., 1::2, 0::2] +
+            arr[..., 0::2, 1::2] + arr[..., 1::2, 1::2]) * cp.float32(0.25)
+
+
+def _downsample2x_cpu(arr: np.ndarray) -> np.ndarray:
+    """CPU (NumPy) 2× area-average downsample — same 2×2 box filter as :func:`_downsample2x_gpu`.
+
+    Odd trailing heights/widths are trimmed by one pixel so the four 2×2 slices align.
+    """
+    h, w = arr.shape[-2], arr.shape[-1]
+    if (h % 2) or (w % 2):
+        arr = arr[..., :h - (h % 2), :w - (w % 2)]
+    f32 = arr.astype(np.float32, copy=False)
+    averaged = (f32[0::2, 0::2] + f32[1::2, 0::2] +
+                f32[0::2, 1::2] + f32[1::2, 1::2]) * np.float32(0.25)
+    return averaged.astype(arr.dtype)
+
+
+# ---------------------------------------------------------------------------
+# Pipelined GPU contrast conversion
+# ---------------------------------------------------------------------------
+
+# Batch size used by ConvertImagesInDictGpu when the caller does not specify
+# one explicitly.  Override at runtime via the environment variable
+# NORNIR_GPU_CONTRAST_BATCH_MB (integer megabytes, e.g. "128").
+#
+# Benchmark: AMD Ryzen 9 9950X (16-core) · NVIDIA RTX 4500 Ada (24 GB VRAM)
+#            NFS tile storage · 3 iterations · float32 in-flight
+#
+#   4× tiles  2048²  (4 MB/tile, 128 tiles):
+#   ┌──────────┬────────────┬─────────┬──────────┬─────────┬─────────┐
+#   │ Batch MB │ chunk tiles│ Min (s) │ Mean (s) │ tiles/s │ Speedup │
+#   ├──────────┼────────────┼─────────┼──────────┼─────────┼─────────┤
+#   │ CPU      │     —      │  0.908  │  1.637   │  78.2   │  1.00×  │
+#   │  64 MB   │     16     │  0.614  │  0.654   │ 195.7   │  2.50×  │ ← default
+#   │ 128 MB   │     32     │  0.678  │  0.683   │ 187.4   │  2.40×  │
+#   │ 256 MB   │     64     │  0.712  │  0.730   │ 175.4   │  2.24×  │
+#   │ 512 MB   │    128     │  0.804  │  0.858   │ 149.1   │  1.91×  │
+#   └──────────┴────────────┴─────────┴──────────┴─────────┴─────────┘
+#
+#   1× tiles  4096²  (64 MB/tile, 32 tiles) — tiles actually contrast-adjusted:
+#   ┌──────────┬────────────┬─────────┬──────────┬─────────┬─────────┐
+#   │ Batch MB │ chunk tiles│ Min (s) │ Mean (s) │ tiles/s │ Speedup │
+#   ├──────────┼────────────┼─────────┼──────────┼─────────┼─────────┤
+#   │ CPU      │     —      │  2.590  │  2.757   │  11.6   │  1.00×  │
+#   │  64 MB   │      1     │  1.682  │  1.772   │  18.1   │  1.56×  │ ← default
+#   │ 128 MB   │      2     │  1.784  │  1.804   │  17.7   │  1.53×  │
+#   │ 256 MB   │      4     │  1.994  │  2.004   │  16.0   │  1.38×  │
+#   │ 512 MB   │      8     │  1.905  │  2.074   │  15.4   │  1.33×  │
+#   └──────────┴────────────┴─────────┴──────────┴─────────┴─────────┘
+#
+# 64 MB wins for both tile sizes.  Smaller chunks start the load/compute/save
+# pipeline earlier, outweighing the H→D latency amortisation of larger slabs.
+_DEFAULT_GPU_BATCH_MB: int = int(
+    os.environ.get("NORNIR_GPU_CONTRAST_BATCH_MB", "64")
+)
+CONVERT_IMAGES_GPU_BATCH_BYTES: int = _DEFAULT_GPU_BATCH_MB * 1024 * 1024
+
+# Host-memory budget for :func:`ConvertImagesInDictGpuPyramid` (decoded source tiles
+# resident ahead of the GPU).  Separate from contrast-only chunk sizing because 1× 4K
+# tiles (~64 MB float32 each) need many tiles prefetched for sustained NFS overlap.
+# Override via ``NORNIR_GPU_PYRAMID_BATCH_MB`` (integer megabytes).
+#
+# Dispatch is hybrid (see ConvertImagesInDictGpuPyramid):
+#   - section_bytes <= budget → all loads submitted upfront (max NFS concurrency).
+#   - otherwise → cpu_count() loader threads with a result queue capped at
+#     prefetch_count = budget // tile_float32_bytes (bounded host memory).
+#
+# RPC3 benchmark (128×4096², ~8 GB/section float32, 9 pyramid levels, RTX 4500 Ada):
+#    64 MB → prefetch  1 → ~40 s/section (GPU waits on NFS)
+#   256 MB → prefetch  4 → ~19 s/section
+#     2 GB → prefetch 32 → cpu_count() parallel loaders (default; closes most of
+#            the gap to the all-upfront chunk path at bounded memory).
+_DEFAULT_GPU_PYRAMID_BATCH_MB: int = int(
+    os.environ.get("NORNIR_GPU_PYRAMID_BATCH_MB", "2048")
+)
+CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES: int = _DEFAULT_GPU_PYRAMID_BATCH_MB * 1024 * 1024
+
+
+def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
+                            InputBpp: int | None = None,
+                            OutputBpp: int | None = None,
+                            MinMax: tuple[float, float] | None = None,
+                            Gamma: float | None = None,
+                            batch_bytes: int | None = None,
+                            progress_name: str | None = None,
+                            progress_task_key: str | None = None) -> bool:
+    """GPU-accelerated contrast conversion using a chunked pipeline.
+
+    Submits all load tasks to a thread pool upfront (maximum NFS concurrency),
+    then processes tiles in chunks sized by *batch_bytes*.  Each chunk:
+
+    1. Collects loaded arrays from the pool (nearly zero-wait — tasks are
+       already running in the background).
+    2. Copies them into a reused pinned-memory buffer with a **single-pass**
+       ``np.multiply(src, scale, out=pinned_buf[i], casting='unsafe')`` —
+       this combines dtype conversion and normalisation with no intermediate
+       allocations.
+    3. H→D transfers the entire pinned slab in one DMA operation.
+    4. Applies level / gamma / clip vectorised over the batch axis on the GPU.
+    5. D→H downloads the result, then dispatches per-tile saves to a second
+       thread pool so saving chunk *N* overlaps with GPU work on chunk *N+1*.
+
+    **Chunk sizing** — ``batch_bytes`` controls how many tiles fit in one GPU
+    round-trip.  Smaller batches allow load/compute/save overlap to start
+    sooner; larger batches amortise H→D/D→H latency but stall the pipeline
+    waiting for the full chunk to load.  See the ``CONVERT_IMAGES_GPU_BATCH_BYTES``
+    module constant and the ``NORNIR_GPU_CONTRAST_BATCH_MB`` environment variable
+    for process-wide override without touching call sites.
+
+    Falls back to :func:`ConvertImagesInDict` when:
+    - CuPy is unavailable or not the active backend.
+    - The tile set is empty.
+    - Mixed tile shapes are detected after the first chunk.
+
+    :param ImagesToConvertDict: Mapping of input path → output path.
+    :param InputBpp: Bits-per-pixel of input tiles (auto-detected when None).
+    :param OutputBpp: Bits-per-pixel for output tiles (matches InputBpp when None).
+    :param MinMax: ``(min, max)`` intensity cutoff tuple for contrast stretch.
+    :param Gamma: Gamma correction value (None or 1.0 means no correction).
+    :param batch_bytes: Target float32 byte budget per GPU chunk.  Defaults to
+        ``CONVERT_IMAGES_GPU_BATCH_BYTES`` (64 MB unless overridden by the
+        ``NORNIR_GPU_CONTRAST_BATCH_MB`` environment variable).
+        ``chunk_size = max(1, batch_bytes // tile_float32_bytes)``.
+    :return: True if any images were converted.
+    """
+    if batch_bytes is None:
+        batch_bytes = CONVERT_IMAGES_GPU_BATCH_BYTES
+    if not nornir_imageregistration.HasCupy() or not nornir_imageregistration.UsingCupy():
+        return ConvertImagesInDict(ImagesToConvertDict,
+                                   InputBpp=InputBpp,
+                                   OutputBpp=OutputBpp,
+                                   MinMax=MinMax,
+                                   Gamma=Gamma,
+                                   progress_name=progress_name,
+                                   progress_task_key=progress_task_key or 'ConvertImagesInDictGpu')
+
+    if len(ImagesToConvertDict) == 0:
+        return False
+
+    if MinMax is not None and MinMax[0] > MinMax[1]:
+        raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDictGpu")
+
+    if InputBpp is None:
+        for k in ImagesToConvertDict.keys():
+            if os.path.exists(k):
+                InputBpp = nornir_shared.images.GetImageBpp(k)
+                break
+
+    if OutputBpp is None:
+        OutputBpp = InputBpp
+
+    gamma_val = float(Gamma) if Gamma is not None else 1.0
+
+    prettyoutput.CurseString('Stage', "ConvertImagesInDictGpu")
+
+    input_paths = list(ImagesToConvertDict.keys())
+    output_paths = [ImagesToConvertDict[p] for p in input_paths]
+    n_tiles = len(input_paths)
+
+    # ------------------------------------------------------------------
+    # I/O pools — thread pools, NOT process pools.
+    #
+    # Both Pillow PNG decode (load) and PNG encode (save) call into C
+    # extensions that release the GIL, so Python threads are truly
+    # parallel for these operations.
+    #
+    # Process pools require fork()ing worker processes and joining them
+    # on every call (~420 ms to spawn 32 workers + 3–4 s to join them
+    # via multiprocessing.Pool's 0.1 s-per-worker exit-polling).  For a
+    # pipeline that processes 100 sections this adds 350+ seconds of
+    # pure process-management overhead.
+    #
+    # Thread pools are created in < 1 ms (Python Thread objects), cost
+    # nothing to reuse across calls (workers idle-expire on their own
+    # after 5 s), and carry zero IPC serialisation overhead (shared
+    # memory, no pickle).  The named pools are cached in nornir_pools
+    # _known_pools and returned as-is on subsequent calls.
+    #
+    # wait_completion() is called at the end of each call; shutdown() is
+    # intentionally NOT called so the pools survive for the next call.
+    # ------------------------------------------------------------------
+    num_io_workers = min(multiprocessing.cpu_count() * 2, n_tiles + 1)
+    load_pool = nornir_pools.GetThreadPool("ConvertImagesInDictGpu_load", num_io_workers)
+    all_load_tasks = [
+        load_pool.add_task(p, _LoadImageByExtension, p, None)
+        for p in input_paths
+    ]
+
+    save_pool = nornir_pools.GetThreadPool("ConvertImagesInDictGpu_save", num_io_workers)
+
+    # ------------------------------------------------------------------
+    # Bootstrap: wait for the first tile to determine shape and dtype.
+    # ------------------------------------------------------------------
+    first_array: np.ndarray | None = None
+    try:
+        first_array = all_load_tasks[0].wait_return()
+    except Exception as exc:
+        prettyoutput.LogErr(f"ConvertImagesInDictGpu: failed to load first tile {input_paths[0]}\n{exc}")
+
+    if first_array is None:
+        load_pool.wait_completion()
+        return False
+
+    tile_shape = first_array.shape
+    original_dtype = first_array.dtype
+    is_int = nornir_imageregistration.IsIntArray(original_dtype)
+    max_int_val = float(nornir_imageregistration.ImageMaxPixelValue(first_array)) if is_int else None
+    scale = (1.0 / max_int_val) if max_int_val else 1.0
+
+    # Normalise MinMax to [0, 1] float space once.  For int sources divide by max_int_val.
+    if MinMax is not None:
+        min_val = float(MinMax[0])
+        max_val = float(MinMax[1])
+        if is_int and max_int_val is not None:
+            min_val /= max_int_val
+            max_val /= max_int_val
+    else:
+        min_val, max_val = 0.0, 1.0
+
+    # Chunk size from batch_bytes budget.
+    tile_float32_elems = int(np.prod(tile_shape))
+    tile_float32_bytes = tile_float32_elems * 4
+    chunk_size = max(1, batch_bytes // tile_float32_bytes)
+    n_chunks = (n_tiles + chunk_size - 1) // chunk_size
+
+    # Pinned host buffer sized for one chunk.
+    # np.frombuffer requires explicit count= when wrapping a PinnedMemoryPointer;
+    # without it the buffer protocol may expose only the pointer's metadata size.
+    pinned = cp.cuda.alloc_pinned_memory(chunk_size * tile_float32_bytes)
+    pinned_buf = np.frombuffer(pinned, dtype=np.float32,
+                               count=chunk_size * tile_float32_elems).reshape(chunk_size, *tile_shape)
+
+    fell_back = False
+
+    task_key = progress_task_key or 'ConvertImagesInDictGpu'
+    reporter = _TaskProgressReporter(task_key, n_tiles, name=progress_name)
+    tiles_completed = 0
+
+    # ------------------------------------------------------------------
+    # Stage 2: GPU chunk loop.
+    #
+    # For each chunk we:
+    #   a) Collect loaded arrays (near-zero wait — pool runs ahead).
+    #   b) Copy into pinned buffer via np.multiply with casting='unsafe':
+    #      a single-pass cast+scale with zero intermediate allocations,
+    #      replacing the old chain of astype() + * scale + copyto() that
+    #      created ~2 × chunk_size × tile_bytes of ephemeral heap traffic.
+    #   c) H→D the entire pinned slab in one DMA.
+    #   d) GPU: level / gamma / clip vectorised over the batch axis.
+    #   e) D→H the results.
+    #   f) Dispatch each tile's save to the save pool (async).
+    #
+    # Step (f) overlaps save-N with GPU processing of chunk N+1.
+    # ------------------------------------------------------------------
+    try:
+        reporter.start()
+        for chunk_idx in range(n_chunks):
+            start = chunk_idx * chunk_size
+            end = min(start + chunk_size, n_tiles)
+            chunk_out = output_paths[start:end]
+
+            arrays_chunk: list[np.ndarray | None] = []
+            for i in range(start, end):
+                if chunk_idx == 0 and i == 0:
+                    arrays_chunk.append(first_array)
+                    continue
+                arr_i: np.ndarray | None = None
+                try:
+                    arr_i = all_load_tasks[i].wait_return()
+                except Exception as exc:
+                    prettyoutput.LogErr(
+                        f"ConvertImagesInDictGpu: load failed {input_paths[i]}\n{exc}")
+                arrays_chunk.append(arr_i)
+
+            valid = [a for a in arrays_chunk if a is not None]
+            if not valid:
+                continue
+
+            if not fell_back and any(a.shape != tile_shape for a in valid):
+                prettyoutput.Log(
+                    "ConvertImagesInDictGpu: mixed tile shapes — falling back remaining chunks to CPU")
+                fell_back = True
+
+            if fell_back:
+                for out_path, arr in zip(chunk_out, arrays_chunk):
+                    if arr is None:
+                        continue
+                    result = _ConvertSingleImage(arr, MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
+                    (_, ext) = os.path.splitext(out_path)
+                    kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
+                    save_pool.add_task(f"save {out_path}", SaveImage,
+                                       out_path, result, bpp=OutputBpp, **kw)
+                    tiles_completed += 1
+                    reporter.update(tiles_completed)
+                continue
+
+            n = len(arrays_chunk)
+
+            for i, arr in enumerate(arrays_chunk):
+                if arr is None:
+                    pinned_buf[i] = 0.0
+                else:
+                    np.multiply(arr, scale, out=pinned_buf[i], casting='unsafe')
+
+            batch = cp.asarray(pinned_buf[:n])
+            batch = _apply_contrast_gpu(batch, min_val, max_val, gamma_val,
+                                         max_int_val if is_int else None)
+            batch = batch.astype(original_dtype)
+            result_np: np.ndarray = cp.asnumpy(batch)
+            del batch
+
+            for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
+                if arr is None:
+                    continue
+                (_, ext) = os.path.splitext(out_path)
+                kw = {'optimize': True} if ext.lower() == '.png' else {}
+                save_pool.add_task(f"save {out_path}", SaveImage,
+                                   out_path, result_np[i], bpp=OutputBpp, **kw)
+
+            tiles_completed += sum(1 for a in arrays_chunk if a is not None)
+            reporter.update(tiles_completed)
+    finally:
+        reporter.complete()
+
+    load_pool.wait_completion()
+    save_pool.wait_completion()
+    # Intentionally not calling shutdown(): pools are cached by name in
+    # nornir_pools._known_pools and reused on the next call.  Workers
+    # idle-expire after their WorkerCheckInterval (default 5 s).
+
+    return n_tiles > 0
+
+
+# ---------------------------------------------------------------------------
+# Per-tile pyramid helper (CPU path, shared by both CPU and GPU fallback)
+# ---------------------------------------------------------------------------
+
+def _convert_and_build_pyramid_tile(
+    input_path: str,
+    all_output_paths: list[str],
+    MinMax: tuple[float, float] | None,
+    gamma_val: float,
+    InputBpp: int | None,
+    OutputBpp: int | None,
+) -> None:
+    """Load one tile, contrast-adjust it, and build all pyramid levels (CPU, single-tile).
+
+    :param input_path: Source image path.
+    :param all_output_paths: ``[level-1 path, level-2 path, level-4 path, …]``.
+        The first entry is the contrast-adjusted full-resolution output; subsequent
+        entries receive 2× area-average downsampled versions, chained from the
+        previous level.
+    :param MinMax: Intensity cutoff tuple, or ``None``.
+    :param gamma_val: Gamma exponent (1.0 = no correction).
+    :param InputBpp: Bits-per-pixel of the source image (used by
+        :func:`_ConvertSingleImage`).
+    :param OutputBpp: Bits-per-pixel for all output images.
+    """
+    arr = _LoadImageByExtension(input_path, None)
+    if arr is None:
+        return
+
+    result = _ConvertSingleImage(arr, MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
+
+    (_, ext) = os.path.splitext(all_output_paths[0])
+    kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
+    SaveImage(all_output_paths[0], result, bpp=OutputBpp, **kw)
+
+    prev = result
+    for out_path in all_output_paths[1:]:
+        prev = _downsample2x_cpu(prev)
+        (_, ext) = os.path.splitext(out_path)
+        kw = {'optimize': True} if ext.lower() == '.png' else {}
+        SaveImage(out_path, prev, bpp=OutputBpp, **kw)
+
+
+def _save_image_ext_defaults(out_path: str) -> dict:
+    (_, ext) = os.path.splitext(out_path)
+    return {'optimize': True} if ext.lower() == '.png' else {}
+
+
+def _downsample_step(image: NDArray, factor: float) -> NDArray:
+    """One pyramid downsample step on *image* (NumPy or CuPy), factor typically 0.5."""
+    if abs(factor - 0.5) < 1e-9:
+        xp = cp.get_array_module(image)
+        if xp is cp:
+            return _downsample2x_gpu(image)
+        return _downsample2x_cpu(image)
+    sp = cupyx.scipy.get_array_module(image)
+    xp = cp.get_array_module(image)
+    if xp is cp:
+        return sp.ndimage.zoom(image, float(factor))
+    return ResizeImage(image, factor)
+
+
+def _build_pyramid_tile_cpu(input_path: str,
+                            output_paths: list[str | None],
+                            shrink_factors: list[float]) -> None:
+    """Load once, chain CPU downsamples, save selected levels without re-reading.
+
+    *output_paths* has one entry per step; ``None`` means downsample in memory only
+    (intermediate level already valid on disk).
+    """
+    if len(output_paths) != len(shrink_factors):
+        raise ValueError("output_paths and shrink_factors must have the same length")
+
+    arr = _LoadImageByExtension(input_path, None)
+    if arr is None:
+        return
+
+    prev = arr
+    for out_path, factor in zip(output_paths, shrink_factors):
+        prev = _downsample_step(prev, factor)
+        if out_path is not None:
+            SaveImage(out_path, prev, **_save_image_ext_defaults(out_path))
+
+
+def _build_pyramid_tile_gpu(input_path: str,
+                            output_paths: list[str | None],
+                            shrink_factors: list[float]) -> None:
+    """Load once, H→D, chain GPU downsamples, D→H + save selected levels."""
+    if len(output_paths) != len(shrink_factors):
+        raise ValueError("output_paths and shrink_factors must have the same length")
+
+    if not nornir_imageregistration.UsingCupy():
+        _build_pyramid_tile_cpu(input_path, output_paths, shrink_factors)
+        return
+
+    arr = _LoadImageByExtension(input_path, None)
+    if arr is None:
+        return
+
+    prev = cp.asarray(arr)
+    for out_path, factor in zip(output_paths, shrink_factors):
+        prev = _downsample_step(prev, factor)
+        if out_path is not None:
+            SaveImage(out_path, cp.asnumpy(prev), **_save_image_ext_defaults(out_path))
+
+
+def BuildTilePyramidsMemoryCpu(
+    tiles: dict[str, list[str | None]],
+    shrink_factors: list[float],
+    num_threads: int | None = None,
+) -> None:
+    """Build pyramid levels in memory for many tiles (CPU, threaded).
+
+    :param tiles: Maps each finest-level input path to a list of output paths, one
+        per downsample step in order. Use ``None`` for a step that should run in
+        memory but not be written (downstream level still updated in the chain).
+    :param shrink_factors: Downsample factor for each step (typically ``0.5``).
+    :param num_threads: Worker count; defaults to ``cpu_count * 2``.
+    """
+    if not tiles:
+        return
+    if num_threads is None:
+        num_threads = min(multiprocessing.cpu_count() * 2, len(tiles) + 1)
+
+    pool = nornir_pools.GetThreadPool("BuildTilePyramidsMemoryCpu", num_threads)
+    tasks = []
+    for input_path, output_paths in tiles.items():
+        t = pool.add_task(
+            f"pyramid-cpu {input_path}",
+            _build_pyramid_tile_cpu,
+            input_path,
+            output_paths,
+            shrink_factors,
+        )
+        tasks.append(t)
+
+    for t in tasks:
+        try:
+            t.wait()
+        except Exception as exc:
+            if __debug__:
+                raise
+            prettyoutput.LogErr(f"BuildTilePyramidsMemoryCpu: {t.name}\n{exc}")
+
+    pool.wait_completion()
+
+
+def BuildTilePyramidsMemoryGpu(
+    tiles: dict[str, list[str | None]],
+    shrink_factors: list[float],
+) -> None:
+    """Build pyramid levels in memory for many tiles (GPU, one tile at a time).
+
+    Falls back to :func:`BuildTilePyramidsMemoryCpu` when CuPy is unavailable.
+    """
+    if not tiles:
+        return
+
+    if not nornir_imageregistration.UsingCupy():
+        BuildTilePyramidsMemoryCpu(tiles, shrink_factors)
+        return
+
+    for input_path, output_paths in tiles.items():
+        try:
+            _build_pyramid_tile_gpu(input_path, output_paths, shrink_factors)
+        except Exception as exc:
+            if __debug__:
+                raise
+            prettyoutput.LogErr(f"BuildTilePyramidsMemoryGpu: {input_path}\n{exc}")
+
+
+def ConvertImagesInDictPyramid(ImagesToConvertDict: dict[str, str],
+                                PyramidOutputDicts: list[dict[str, str]],
+                                InputBpp: int | None = None,
+                                OutputBpp: int | None = None,
+                                MinMax: tuple[float, float] | None = None,
+                                Gamma: float | None = None,
+                                progress_name: str | None = None,
+                                progress_task_key: str | None = None) -> bool:
+    """CPU contrast + all pyramid levels in one tile pass.
+
+    For each tile, loads it once from NFS, applies contrast via
+    :func:`_ConvertSingleImage`, then chains :func:`_downsample2x_cpu` for each
+    entry in *PyramidOutputDicts*.  All tiles are processed concurrently by a
+    thread pool (Pillow PNG encode/decode release the GIL).
+
+    This eliminates the per-level NFS reads that :func:`ConvertImagesInDict` +
+    :func:`BuildTilePyramids` would require: *N* reads instead of *N × num_levels*.
+
+    :param ImagesToConvertDict: ``{input_path → output_path}`` for the finest level.
+    :param PyramidOutputDicts: List of ``{input_path → output_path}`` dicts, one per
+        coarser pyramid level in ascending order (level 2, 4, 8, …).
+    :param InputBpp: Bits-per-pixel of input images (auto-detected when ``None``).
+    :param OutputBpp: Bits-per-pixel for outputs (matches InputBpp when ``None``).
+    :param MinMax: ``(min, max)`` intensity cutoff tuple.
+    :param Gamma: Gamma correction value (``None`` or 1.0 = no correction).
+    :return: ``True`` if any images were converted.
+    """
+    if len(ImagesToConvertDict) == 0:
+        return False
+
+    if MinMax is not None and MinMax[0] > MinMax[1]:
+        raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDictPyramid")
+
+    if InputBpp is None:
+        for k in ImagesToConvertDict.keys():
+            if os.path.exists(k):
+                InputBpp = nornir_shared.images.GetImageBpp(k)
+                break
+
+    if OutputBpp is None:
+        OutputBpp = InputBpp
+
+    gamma_val = float(Gamma) if Gamma is not None else 1.0
+
+    prettyoutput.CurseString('Stage', "ConvertImagesInDictPyramid")
+
+    n_tiles = len(ImagesToConvertDict)
+    num_io_workers = min(multiprocessing.cpu_count() * 2, n_tiles + 1)
+    pool = nornir_pools.GetThreadPool("ConvertImagesInDictPyramid", num_io_workers)
+    tasks = []
+
+    for input_path, out_l1 in ImagesToConvertDict.items():
+        all_output_paths = [out_l1] + [
+            pyr_dict[input_path]
+            for pyr_dict in PyramidOutputDicts
+            if input_path in pyr_dict
+        ]
+        t = pool.add_task(
+            f"convert+pyramid {input_path}",
+            _convert_and_build_pyramid_tile,
+            input_path, all_output_paths, MinMax, gamma_val, InputBpp, OutputBpp,
+        )
+        tasks.append(t)
+
+    task_key = progress_task_key or 'ConvertImagesInDictPyramid'
+    reporter = _TaskProgressReporter(task_key, len(tasks), name=progress_name)
+    completed = 0
+    try:
+        reporter.start()
+        for t in tasks:
+            try:
+                t.wait()
+            except Exception as exc:
+                if __debug__:
+                    raise
+                prettyoutput.LogErr(f"ConvertImagesInDictPyramid: {t.name}\n{exc}")
+            completed += 1
+            reporter.update(completed)
+    finally:
+        reporter.complete()
+
+    pool.wait_completion()
+    return n_tiles > 0
+
+
+def ConvertImagesInDictGpuPyramid(ImagesToConvertDict: dict[str, str],
+                                   PyramidOutputDicts: list[dict[str, str]],
+                                   InputBpp: int | None = None,
+                                   OutputBpp: int | None = None,
+                                   MinMax: tuple[float, float] | None = None,
+                                   Gamma: float | None = None,
+                                   batch_bytes: int | None = None,
+                                   progress_name: str | None = None,
+                                   progress_task_key: str | None = None) -> bool:
+    """GPU contrast + all pyramid levels in a single per-tile pass.
+
+    Each source tile is loaded once, transferred to the GPU, contrast-adjusted,
+    then downsampled in a 2× area-average chain via :func:`_downsample2x_gpu` for
+    every requested pyramid level.  Saves are dispatched per level so NFS writes
+    overlap with GPU work on the next tile.
+
+    Load-pool width (``cpu×2`` workers) is independent of *batch_bytes*, which
+    caps how many decoded source tiles may be prefetched ahead of the GPU tile.
+
+    Compared to running :func:`ConvertImagesInDictGpu` followed by
+    :func:`BuildTilePyramids`, this approach:
+
+    - Reads each source tile **once** regardless of the number of pyramid levels.
+    - Keeps contrast-adjusted float32 data on the GPU for free downsampling.
+    - Eliminates all intermediate NFS read-write cycles between pyramid levels.
+
+    Falls back to :func:`ConvertImagesInDictPyramid` (CPU) when CuPy is unavailable
+    or tiles have mixed shapes.
+
+    :param ImagesToConvertDict: ``{input_path → output_path}`` for the finest level.
+    :param PyramidOutputDicts: List of ``{input_path → output_path}`` dicts, one per
+        coarser pyramid level in ascending order (level 2, 4, 8, …).  Keys must be a
+        subset of ``ImagesToConvertDict`` keys.
+    :param InputBpp: Bits-per-pixel of input images (auto-detected when ``None``).
+    :param OutputBpp: Bits-per-pixel for outputs (matches InputBpp when ``None``).
+    :param MinMax: ``(min, max)`` intensity cutoff tuple.
+    :param Gamma: Gamma correction value (``None`` or 1.0 = no correction).
+    :param batch_bytes: Host-memory budget for decoded source tiles resident ahead of
+        the GPU.  When the whole section fits (``section_bytes <= batch_bytes``) all
+        loads are submitted upfront; otherwise ``cpu_count()`` loader threads feed a
+        result queue capped at ``prefetch_count = batch_bytes // tile_float32_bytes``.
+        Defaults to ``CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES`` (2 GB unless overridden
+        by the ``NORNIR_GPU_PYRAMID_BATCH_MB`` environment variable).
+    :return: ``True`` if any images were converted.
+    """
+    if batch_bytes is None:
+        batch_bytes = CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES
+    if not nornir_imageregistration.HasCupy() or not nornir_imageregistration.UsingCupy():
+        return ConvertImagesInDictPyramid(ImagesToConvertDict, PyramidOutputDicts,
+                                          InputBpp=InputBpp, OutputBpp=OutputBpp,
+                                          MinMax=MinMax, Gamma=Gamma,
+                                          progress_name=progress_name,
+                                          progress_task_key=progress_task_key or 'ConvertImagesInDictGpuPyramid')
+
+    if len(ImagesToConvertDict) == 0:
+        return False
+
+    if MinMax is not None and MinMax[0] > MinMax[1]:
+        raise ValueError("Invalid MinMax parameter passed to ConvertImagesInDictGpuPyramid")
+
+    if InputBpp is None:
+        for k in ImagesToConvertDict.keys():
+            if os.path.exists(k):
+                InputBpp = nornir_shared.images.GetImageBpp(k)
+                break
+
+    if OutputBpp is None:
+        OutputBpp = InputBpp
+
+    gamma_val = float(Gamma) if Gamma is not None else 1.0
+
+    prettyoutput.CurseString('Stage', "ConvertImagesInDictGpuPyramid")
+
+    input_paths = list(ImagesToConvertDict.keys())
+    output_paths = [ImagesToConvertDict[p] for p in input_paths]
+    n_tiles = len(input_paths)
+    n_pyramid_levels = len(PyramidOutputDicts)
+
+    # ------------------------------------------------------------------
+    # Bootstrap: load the first tile synchronously to learn shape / dtype
+    # before sizing the loader pool.  Getting a tile onto the GPU is the
+    # expensive step, so once it is resident we produce its entire pyramid
+    # in one pass rather than re-reading the source per level.
+    # ------------------------------------------------------------------
+    first_array: np.ndarray | None = None
+    try:
+        first_array = _LoadImageByExtension(input_paths[0], None)
+    except Exception as exc:
+        prettyoutput.LogErr(
+            f"ConvertImagesInDictGpuPyramid: failed to load first tile {input_paths[0]}\n{exc}")
+
+    if first_array is None:
+        return False
+
+    tile_shape = first_array.shape
+    original_dtype = first_array.dtype
+    is_int = nornir_imageregistration.IsIntArray(original_dtype)
+    max_int_val = float(nornir_imageregistration.ImageMaxPixelValue(first_array)) if is_int else None
+    scale = (1.0 / max_int_val) if max_int_val else 1.0
+
+    if MinMax is not None:
+        min_val = float(MinMax[0])
+        max_val = float(MinMax[1])
+        if is_int and max_int_val is not None:
+            min_val /= max_int_val
+            max_val /= max_int_val
+    else:
+        min_val, max_val = 0.0, 1.0
+
+    tile_float32_elems = int(np.prod(tile_shape))
+    tile_float32_bytes = tile_float32_elems * 4
+
+    # ------------------------------------------------------------------
+    # I/O pools — thread pools (Pillow GIL-releasing, no IPC overhead).
+    #
+    # Load dispatch is hybrid, sized by the *batch_bytes* host-memory budget:
+    #
+    #   - all-upfront: when the whole section fits in the budget
+    #     (section_bytes <= batch_bytes) every load is submitted at once
+    #     (matches ConvertImagesInDictGpu) so the GPU never waits on NFS.
+    #
+    #   - bounded queue: otherwise cpu_count() loader threads read in
+    #     parallel but a result queue capped at prefetch_count applies
+    #     backpressure, keeping at most ~batch_bytes of decoded tiles
+    #     resident while still feeding the GPU continuously.
+    #
+    # save pool: cpu×2 workers; saves overlap GPU work on the next tile.
+    #
+    # wait_completion() is called at the end; shutdown() is intentionally
+    # NOT called so the named pools survive (cached in nornir_pools) and
+    # are reused on subsequent calls.
+    # ------------------------------------------------------------------
+    prefetch_count = max(1, batch_bytes // tile_float32_bytes)
+    section_bytes = n_tiles * tile_float32_bytes
+    all_upfront = section_bytes <= batch_bytes
+
+    num_load_workers = min(multiprocessing.cpu_count(), n_tiles)
+    num_save_workers = min(multiprocessing.cpu_count() * 2,
+                           (n_tiles * (n_pyramid_levels + 1)) + 1)
+    save_pool = nornir_pools.GetThreadPool("ConvertImagesInDictGpuPyramid_save", num_save_workers)
+
+    task_key = progress_task_key or 'ConvertImagesInDictGpuPyramid'
+    reporter = _TaskProgressReporter(task_key, n_tiles, name=progress_name)
+    tiles_completed = 0
+
+    # Single-tile pinned host buffer reused for every H→D transfer.
+    # np.frombuffer needs explicit count= when wrapping a PinnedMemoryPointer.
+    pinned = cp.cuda.alloc_pinned_memory(tile_float32_bytes)
+    pinned_buf = np.frombuffer(pinned, dtype=np.float32,
+                               count=tile_float32_elems).reshape(tile_shape)
+
+    def _png_kw(path: str) -> dict:
+        return {'optimize': True} if os.path.splitext(path)[1].lower() == '.png' else {}
+
+    def _process_tile(in_path: str, out_path: str, arr: np.ndarray | None) -> None:
+        """Contrast-adjust one tile and write its full pyramid (GPU, CPU fallback)."""
+        if arr is None:
+            return
+
+        if arr.shape != tile_shape:
+            # Mixed shape — handle this tile on the CPU so the GPU buffer
+            # (sized for tile_shape) stays valid.  Other tiles keep the GPU path.
+            prettyoutput.Log(
+                f"ConvertImagesInDictGpuPyramid: tile shape {arr.shape} != {tile_shape}; "
+                f"processing {in_path} on CPU")
+            result = _ConvertSingleImage(arr, MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
+            save_pool.add_task(f"save {out_path}", SaveImage,
+                               out_path, result, bpp=OutputBpp, **_png_kw(out_path))
+            prev_cpu = result
+            for pyr_output_dict in PyramidOutputDicts:
+                prev_cpu = _downsample2x_cpu(prev_cpu)
+                pyr_out = pyr_output_dict.get(in_path)
+                if pyr_out is None:
+                    continue
+                save_pool.add_task(f"save {pyr_out}", SaveImage,
+                                   pyr_out, prev_cpu, bpp=OutputBpp, **_png_kw(pyr_out))
+            return
+
+        # Single-pass cast + normalise into the reused pinned buffer.
+        np.multiply(arr, scale, out=pinned_buf, casting='unsafe')
+
+        # H→D: single-tile DMA.
+        gpu_tile = cp.asarray(pinned_buf)
+
+        # GPU: level / gamma / clip (operates on (H, W) via ... indexing).
+        gpu_tile = _apply_contrast_gpu(gpu_tile, min_val, max_val, gamma_val,
+                                       max_int_val if is_int else None)
+
+        # Level 1: D→H (fresh host array, independent of pinned_buf) and save.
+        result_l1 = cp.asnumpy(gpu_tile.astype(original_dtype))
+        save_pool.add_task(f"save {out_path}", SaveImage,
+                           out_path, result_l1, bpp=OutputBpp, **_png_kw(out_path))
+
+        # Pyramid levels: chain 2× downsamples in float32 on the GPU; for each
+        # requested level convert to target dtype, D→H, and dispatch the save.
+        prev = gpu_tile
+        for pyr_output_dict in PyramidOutputDicts:
+            prev = _downsample2x_gpu(prev)
+            pyr_out = pyr_output_dict.get(in_path)
+            if pyr_out is None:
+                continue
+            result_pyr = cp.asnumpy(prev.astype(original_dtype))
+            save_pool.add_task(f"save {pyr_out}", SaveImage,
+                               pyr_out, result_pyr, bpp=OutputBpp, **_png_kw(pyr_out))
+
+        del gpu_tile, prev
+
+    def _after_tile_processed() -> None:
+        nonlocal tiles_completed
+        tiles_completed += 1
+        reporter.update(tiles_completed)
+
+    try:
+        reporter.start()
+        if all_upfront:
+            load_pool = nornir_pools.GetThreadPool(
+                "ConvertImagesInDictGpuPyramid_parallel_load", num_load_workers)
+            load_tasks: list = [None] * n_tiles
+            for idx in range(1, n_tiles):
+                load_tasks[idx] = load_pool.add_task(
+                    input_paths[idx], _LoadImageByExtension, input_paths[idx], None)
+
+            for i, (in_path, out_path) in enumerate(zip(input_paths, output_paths)):
+                if i == 0:
+                    arr = first_array
+                else:
+                    arr = None
+                    try:
+                        arr = load_tasks[i].wait_return()
+                    except Exception as exc:
+                        prettyoutput.LogErr(
+                            f"ConvertImagesInDictGpuPyramid: load failed {in_path}\n{exc}")
+                _process_tile(in_path, out_path, arr)
+                arr = None
+                _after_tile_processed()
+
+            load_pool.wait_completion()
+        else:
+            work_queue: queue.Queue = queue.Queue()
+            load_queue: queue.Queue = queue.Queue(maxsize=prefetch_count)
+            _stop = object()
+
+            def _loader_worker() -> None:
+                while True:
+                    item = work_queue.get()
+                    if item is _stop:
+                        return
+                    idx = item
+                    arr_i: np.ndarray | None = None
+                    try:
+                        arr_i = _LoadImageByExtension(input_paths[idx], None)
+                    except Exception as exc:
+                        prettyoutput.LogErr(
+                            f"ConvertImagesInDictGpuPyramid: load failed {input_paths[idx]}\n{exc}")
+                    load_queue.put((idx, arr_i))
+
+            for idx in range(1, n_tiles):
+                work_queue.put(idx)
+            for _ in range(num_load_workers):
+                work_queue.put(_stop)
+
+            loader_threads = [
+                threading.Thread(target=_loader_worker,
+                                 name=f"GpuPyramidLoader-{w}", daemon=True)
+                for w in range(num_load_workers)
+            ]
+            for t in loader_threads:
+                t.start()
+
+            _process_tile(input_paths[0], output_paths[0], first_array)
+            first_array = None
+            _after_tile_processed()
+
+            for _ in range(n_tiles - 1):
+                idx, arr = load_queue.get()
+                _process_tile(input_paths[idx], output_paths[idx], arr)
+                arr = None
+                _after_tile_processed()
+
+            for t in loader_threads:
+                t.join()
+    finally:
+        reporter.complete()
+
+    save_pool.wait_completion()
+    # Intentionally not calling shutdown() — pools are reused across calls.
+
+    return n_tiles > 0
 
 
 def CropImageRect(imageparam, bounding_rect, cval=None):

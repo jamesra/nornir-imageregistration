@@ -350,10 +350,15 @@ def GetControlPointsForRigidTransform(input_transform: ITransform,
 
 def ConvertTransformToGridTransform(input_transform: ITransform, source_image_shape: NDArray,
                                     cell_size: NDArray | None = None, grid_dims: NDArray | None = None,
-                                    grid_spacing: NDArray | None = None) -> ITransform:
+                                    grid_spacing: NDArray | None = None,
+                                    prefer_gpu: bool = False) -> ITransform:
     """
     Converts a set of EnhancedAlignmentRecord peaks from the _RefineGridPointsForTwoImages function into a transform
 
+    :param prefer_gpu: When True and CuPy is the active backend with cupyx
+        LinearNDInterpolator available, build the GPU-component grid transform so
+        the discrete inverse stays on-device (mirrors ``factory.ParseGridTransform``).
+        Defaults to False so every existing caller keeps the CPU transform.
     """
 
     grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,
@@ -363,6 +368,14 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
     point_pairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
 
     # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
+
+    if prefer_gpu and (nornir_imageregistration.GetActiveComputationLib()
+                       == nornir_imageregistration.ComputationLib.cupy):
+        # Build the GPU component only when cupyx LinearND is importable; otherwise
+        # fall through to the CPU transform so a missing cupyx build is not fatal.
+        from nornir_imageregistration.transforms.gridtransform import cuLinearNDInterpolator
+        if cuLinearNDInterpolator is not None:
+            return nornir_imageregistration.transforms.GridWithRBFFallback_GPUComponent(grid_data)
 
     return nornir_imageregistration.transforms.GridWithRBFFallback(grid_data)
 

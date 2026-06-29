@@ -28,6 +28,7 @@ KEY_PIPELINES: tuple[str, ...] = (
     'Mosaic',
     'Assemble',
     'AdjustContrast',
+    'AdjustContrastGpu',
     'ImportIDoc',
 )
 

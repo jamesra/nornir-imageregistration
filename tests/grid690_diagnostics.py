@@ -222,8 +222,7 @@ def _assemble_mosaic_l4(
         image_to_source_space_scale=float(REGISTRATION_DOWNSAMPLE))
     tileset.TranslateToZeroOrigin()
     assembled_image, assembled_mask = tileset.AssembleImage(
-        target_space_scale=1.0 / float(REGISTRATION_DOWNSAMPLE),
-        usecluster=False)
+        target_space_scale=1.0 / float(REGISTRATION_DOWNSAMPLE))
     return _to_numpy(assembled_image), _to_numpy(assembled_mask)  # type: ignore[arg-type]
 
 

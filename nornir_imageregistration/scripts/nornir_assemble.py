@@ -119,8 +119,7 @@ def Execute(ExecArgs=None):
                                                                              image_to_source_space_scale = 1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
 
-    (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(usecluster=False,
-                                                                target_space_scale=Args.scalar)
+    (mosaicImage, mosaicMask) = mosaicTileset.AssembleImage(target_space_scale=Args.scalar)
 
     output_dirname = os.path.dirname(Args.outputpath)
     output_filename = os.path.basename(Args.outputpath)

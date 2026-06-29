@@ -75,8 +75,7 @@ from nornir_imageregistration.transforms.two_way_rbftransform import TwoWayRBFWi
     TwoWayRBFWithLinearCorrection_GPUComponent
 
 import nornir_imageregistration.transforms.gridtransform as gridtransform
-from nornir_imageregistration.transforms.gridtransform import GridTransform, GridTransform_GPUComponent, \
-    GridTransform_GPU
+from nornir_imageregistration.transforms.gridtransform import GridTransform, GridTransform_GPUComponent
 
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback, \

@@ -33,17 +33,21 @@ import numpy.typing
 from numpy.typing import NDArray, DTypeLike
 from nornir_shared.mathhelper import RoundingPrecision
 
-try:
-    import cupy as cp
-except ModuleNotFoundError:
-    import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupyx_thunk as cupyx_thunk
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupyx_thunk as cupyx_thunk
-except AttributeError:
-    # CuPy can fail mid-import (e.g. "partially initialized module ... has no attribute '_util'")
-    # on unsupported Python / driver combos; fall back to NumPy thunk.
+# CUDA pathfinder canary subprocess fails under debugpy; bootstrap before any cupy import.
+import nornir_imageregistration.computational_lib as _computational_lib
+from nornir_imageregistration.computational_lib import (
+    ComputationLib,
+    GetActiveComputationLib,
+    HasCupy,
+    HasCuVS,
+    SetActiveComputationLib,
+    TryInitCupyContext,
+    UsingCupy,
+)
+
+if _computational_lib._has_cupy and _computational_lib.cp is not None:
+    cp = _computational_lib.cp
+else:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx_thunk
 
@@ -92,10 +96,6 @@ from nornir_imageregistration.mmap_metadata import *
 
 import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
-
-import nornir_imageregistration.computational_lib
-from nornir_imageregistration.computational_lib import ComputationLib, HasCupy, HasCuVS, GetActiveComputationLib, \
-    SetActiveComputationLib, UsingCupy, TryInitCupyContext
 
 
 def GetComputationModule() -> types.ModuleType:
@@ -184,11 +184,14 @@ def IndexOfValues(A, values) -> numpy.typing.NDArray:
 
 
 def EnsureArray(points: NDArray | Sequence, dtype=None) -> NDArray:
-    """Convert points to an array using the active computation lib (NumPy or CuPy)."""
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    """Convert points to an array, preserving the input array's backend (numpy in → numpy out, cupy in → cupy out).
+
+    Sequences and scalars are treated as host data and become NumPy arrays.  Use
+    :func:`EnsureCupyArray` or :func:`EnsureNumpyArray` to force a specific backend.
+    """
+    if cp.get_array_module(points) is cp:
         return EnsureCupyArray(points, dtype)
-    else:
-        return EnsureNumpyArray(points, dtype)
+    return EnsureNumpyArray(points, dtype)
 
 
 def EnsureNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
@@ -247,11 +250,10 @@ def EnsurePointsAre1DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArra
 
 
 def EnsurePointsAre1DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
-    """Ensure points are a 1D array using the active computation lib."""
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    """Ensure points are a 1D array, preserving the input array's backend (numpy in → numpy out, cupy in → cupy out)."""
+    if cp.get_array_module(points) is cp:
         return EnsurePointsAre1DCuPyArray(points, dtype)
-    else:
-        return EnsurePointsAre1DNumpyArray(points, dtype)
+    return EnsurePointsAre1DNumpyArray(points, dtype)
 
 
 def EnsurePointsAre2DNumpyArray(points: NDArray | Sequence, dtype=None) -> NDArray:
@@ -274,11 +276,10 @@ def EnsurePointsAre2DCuPyArray(points: NDArray | Sequence, dtype=None) -> NDArra
 
 
 def EnsurePointsAre2DArray(points: NDArray | Sequence, dtype=None) -> NDArray:
-    """Ensure points are a 2D array (Nx2) using the active computation lib."""
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    """Ensure points are a 2D array (Nx2), preserving the input array's backend (numpy in → numpy out, cupy in → cupy out)."""
+    if cp.get_array_module(points) is cp:
         return EnsurePointsAre2DCuPyArray(points, dtype)
-    else:
-        return EnsurePointsAre2DNumpyArray(points, dtype)
+    return EnsurePointsAre2DNumpyArray(points, dtype)
 
 
 def EnsurePointsAre4xN_NumpyArray(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
@@ -307,11 +308,10 @@ def EnsurePointsAre4xN_CuPyArray(points: NDArray[np.floating] | Sequence[float],
 
 
 def EnsurePointsAre4xN_Array(points: NDArray[np.floating] | Sequence[float], dtype=None) -> NDArray[np.floating]:
-    """Ensure points are a 4-column array using the active computation lib."""
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    """Ensure points are a 4-column array, preserving the input array's backend (numpy in → numpy out, cupy in → cupy out)."""
+    if cp.get_array_module(points) is cp:
         return EnsurePointsAre4xN_CuPyArray(points, dtype)
-    else:
-        return EnsurePointsAre4xN_NumpyArray(points, dtype)
+    return EnsurePointsAre4xN_NumpyArray(points, dtype)
 
 
 import nornir_shared.mathhelper

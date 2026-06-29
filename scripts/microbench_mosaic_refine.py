@@ -44,13 +44,14 @@ def _enable_phase_timing_from_argv() -> None:
 
 
 def _enable_batched_from_argv() -> None:
-    """Pin NORNIR_REFINE_BATCHED_GPU before nornir imports for a clean A/B.
+    """Pin NORNIR_REFINE_BATCHED before nornir imports for a clean A/B.
 
-    The batched-GPU vertex path is the production default under CuPy, so this
-    harness pins it explicitly: ``--batched`` forces it on, its absence forces
-    the legacy serial path on, so the matrix always contrasts the two.
+    The batched vertex path is backend-agnostic (CuPy and NumPy); this harness
+    pins it explicitly so the matrix always contrasts the two: ``--batched``
+    forces it on for whichever backend runs, its absence forces the legacy
+    serial path on. (``NORNIR_REFINE_BATCHED_GPU`` remains honored as an alias.)
     """
-    os.environ['NORNIR_REFINE_BATCHED_GPU'] = '1' if '--batched' in sys.argv else '0'
+    os.environ['NORNIR_REFINE_BATCHED'] = '1' if '--batched' in sys.argv else '0'
 
 
 _enable_phase_timing_from_argv()

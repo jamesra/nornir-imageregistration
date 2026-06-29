@@ -235,65 +235,63 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                 self._target_space_bounding_box, offset)
 
     def AssembleImage(self, FixedRegion: nornir_imageregistration.Rectangle | None = None,
-                      usecluster: bool = False,
                       target_space_scale: float | None = None) -> np.typing.NDArray:
         """Create a single image of the mosaic for the requested region.
-        :param array FixedRegion: Rectangle object or [MinY MinX MaxY MaxX] boundary of image to assemble
-        :param boolean usecluster: Offload work to other threads or nodes if true
-        :param use_cp: use CuPy library for GPU processing
-        :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
+
+        On the CPU (NumPy) backend, tile warps are dispatched in parallel via
+        ``TilesToImageParallel`` (multiprocess pool) whenever the tileset has more than
+        one tile. CUDA initialization is deferred until CuPy is selected so fork-based
+        workers do not inherit a broken GPU context.
+        On the GPU (CuPy) backend, ``TilesToImageThreaded`` overlaps per-tile I/O with
+        serialised GPU warps (see ``assemble._gpu_warp_lock``).
+
+        :param FixedRegion: Rectangle bounding the region to assemble in target space.
+        :param target_space_scale: Scalar for target space; used to downsample the output.
         """
         use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
-        usecluster = False if use_cp else usecluster
-
-        # Left off here, I need to split this function so that FixedRegion has a consistent meaning
-
-        # Ensure that all transforms map to positive values
-        # self.TranslateToZeroOrigin()
 
         if not FixedRegion is None:
             nornir_imageregistration.spatial.RaiseValueErrorOnInvalidBounds(FixedRegion)
 
-        # Allocate a buffer for the tiles
-        # tilesPathList = self.CreateTilesPathList(tilesPath)
         tilesPathList = sorted(self)
-        # transformList = [self[path] for path in tilesPathList]
 
-        if usecluster and len(tilesPathList) > 1:
-            # cpool = nornir_pools.GetGlobalMultithreadingPool()
+        if not use_cp and len(tilesPathList) > 1:
             return nornir_imageregistration.assemble_tiles.TilesToImageParallel(self,  # type: ignore[return-value]
                                                                                 pool=None,
                                                                                 TargetRegion=FixedRegion,
                                                                                 target_space_scale=target_space_scale)
-            # source_space_scale=self._image_to_source_space_scale)
-        else:
-            # return at.TilesToImageParallel(self.ImageToTransform.values(), tilesPathList)
-            return nornir_imageregistration.assemble_tiles.TilesToImage(self,  # type: ignore[return-value]
-                                                                        TargetRegion=FixedRegion,
-                                                                        target_space_scale=target_space_scale)
+        if use_cp and len(tilesPathList) > 1:
+            # #region agent log
+            from nornir_imageregistration.assemble_tiles import _assemble_debug_log
+            _assemble_debug_log(
+                "mosaic_tileset.py:AssembleImage",
+                "GPU threaded assemble path",
+                {"tile_count": len(tilesPathList), "target_space_scale": target_space_scale},
+            )
+            # #endregion
+            return nornir_imageregistration.assemble_tiles.TilesToImageThreaded(self,  # type: ignore[return-value]
+                                                                                  TargetRegion=FixedRegion,
+                                                                                  target_space_scale=target_space_scale)
+        return nornir_imageregistration.assemble_tiles.TilesToImage(self,  # type: ignore[return-value]
+                                                                    TargetRegion=FixedRegion,
+                                                                    target_space_scale=target_space_scale)
 
-    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None, usecluster=True,
+    def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None,
                                target_space_scale=None,
                                source_space_scale=None):
         """
         Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
         :param max_temp_image_area:
         :param tuple tile_dims: Size of the optimized tiles
-        :param boolean usecluster: Offload work to other threads or nodes if true
-        :param boolean use_cp: Use GPU processing via CuPy
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
         :param float source_space_scale: Optimization parameter, eliminates need for function to compare input images with transform boundaries to determine scale
         """
-
-        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
         # TODO: Optimize how we search for transforms that overlap the working_image for small working image sizes
         if tile_dims is None:
             tile_dims = (512, 512)
 
         tile_dims = np.asarray(tile_dims)
-
-        usecluster = False if use_cp else usecluster
 
         if source_space_scale is None:
             source_space_scale = self.image_to_source_space_scale  # nornir_imageregistration.tileset.MostCommonScalar(self._TransformsSortedByKey(), self.CreateTilesPathList(tilesPath))
@@ -356,14 +354,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
                 fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)  # type: ignore[arg-type]
 
-                # (working_image, _mask) = self.AssembleImage(
-                #     FixedRegion=fixed_region,
-                #     usecluster=usecluster,
-                #     target_space_scale=target_space_scale)
-
                 assemble_column_task = executor.submit(self.AssembleImage,
                                                        FixedRegion=fixed_region,
-                                                       usecluster=usecluster,
                                                        target_space_scale=target_space_scale)
                 assemble_column_task.iColumn = iColumn  # type: ignore[attr-defined]
                 assemble_column_task.working_image_grid_dims = working_image_grid_dims  # type: ignore[attr-defined]

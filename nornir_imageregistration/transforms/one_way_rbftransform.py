@@ -22,8 +22,19 @@ import scipy.linalg
 import nornir_imageregistration
 from nornir_imageregistration.spatial_distance import array_to_numpy_host, cdist as pairwise_cdist
 import nornir_pools
+from nornir_pools.ipool import IPool
 from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation, Triangulation_GPUComponent
+
+def GetRBFWeightsPool() -> IPool:
+    """Dedicated thread pool for RBF linear-system solves.
+
+    Kept separate from :func:`GetGlobalThreadPool` so transform or tile work
+    running on the global pool cannot deadlock when weight solves are queued
+    from pool workers.  The pool is cached by name and reused across calls;
+    idle worker threads may exit but are recreated when new tasks arrive.
+    """
+    return nornir_pools.GetThreadPool("RBF weights pool")
 
 
 class OneWayRBFWithLinearCorrection(Triangulation):
@@ -295,13 +306,13 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         BetaMatrix = OneWayRBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = OneWayRBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
-        thread_pool = nornir_pools.GetGlobalThreadPool()
+        rbf_pool = GetRBFWeightsPool()
 
         try:
             with nornir_imageregistration.IgnoreLinAlgWarning() as context:
-                Y_Task = thread_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
-                                              overwrite_b=True,
-                                              check_finite=False)
+                Y_Task = rbf_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
+                                           overwrite_b=True,
+                                           check_finite=False)
                 WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
                 WeightsY = Y_Task.wait_return()
 

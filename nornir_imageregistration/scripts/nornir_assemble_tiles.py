@@ -120,8 +120,7 @@ def Execute(ExecArgs=None):
                                                                              image_to_source_space_scale=1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
 
-    # Note: usecluster is not enabled by default?
-    mosaicImage = mosaicTileset.AssembleImage(Args.tilepath)
+    mosaicImage = mosaicTileset.AssembleImage(target_space_scale=Args.scalar)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath += '.png'

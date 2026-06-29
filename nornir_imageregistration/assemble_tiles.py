@@ -5,13 +5,16 @@ Deals with assembling images composed of mosaics or dividing images into tiles
 """
 
 import copy
+from collections import deque
+import json
 import logging
 import multiprocessing
 import os
 import tempfile
 import threading
 import time
-from typing import Iterable, List, Tuple
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from typing import Deque, Iterable, List, Optional, Tuple
 import weakref
 
 import numpy as np
@@ -38,6 +41,60 @@ from nornir_imageregistration.distance import CreateDistanceImage
 distance_image_cache = WindowFilterCache('distance', CreateDistanceImage)
 
 _DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES = 16 * 1024 * 1024 * 1024
+
+# Tile prefetch tuning (network/NAS-optimised defaults for 2 GB/core systems).
+# _PREFETCH_WORKERS: threads that read tiles from disk/network concurrently.
+#   8 simultaneous reads saturates a typical 10GbE NAS; lower to 4 if the
+#   NAS shows contention, raise toward 16 if the GPU still stalls.
+# _PREFETCH_DEPTH: tiles kept in-flight ahead of the current GPU position.
+#   2× worker count so the queue is never empty even under high latency.
+#   Worst-case host RAM cost = _PREFETCH_DEPTH × tile_size
+#   (e.g. 16 × 32 MB = 512 MB for 4096×4096 uint16 tiles).
+_PREFETCH_WORKERS: int = 8
+_PREFETCH_DEPTH: int = 16
+# GPU tile warps: overlap per-tile CPU prep (inverse transform, deepcopy) while
+# map_coordinates stays serialised via _gpu_warp_lock in assemble.SourceImageToTargetSpace.
+_TRANSFORM_WORKERS: int = max(2, min(os.cpu_count() or 4, 8))
+
+_distance_cache_lock = threading.Lock()
+_composite_lock = threading.Lock()
+
+# Canvas-space margin (pixels at the assemble output scale) beyond each tile bbox for warp overlap.
+_TILE_RENDER_MARGIN_CANVAS = 64.0
+
+
+def _IntersectTileRenderRegion(
+        target_rect: nornir_imageregistration.Rectangle,
+        tile: nornir_imageregistration.tile.Tile,
+        target_space_scale: float = 1.0,
+) -> nornir_imageregistration.Rectangle | None:
+    """Intersect the assemble target with an expanded tile bbox for warp overlap."""
+    bbox = tile.TargetSpaceBoundingBox
+    margin = _TILE_RENDER_MARGIN_CANVAS / float(target_space_scale)
+    inflated = nornir_imageregistration.Rectangle.CreateFromBounds([
+        bbox.MinY - margin,
+        bbox.MinX - margin,
+        bbox.MaxY + margin,
+        bbox.MaxX + margin,
+    ])
+    return nornir_imageregistration.Rectangle.Intersect(target_rect, inflated)
+
+
+# #region agent log
+def _assemble_debug_log(location: str, message: str, data: dict, hypothesis_id: str = "H-assemble") -> None:
+    try:
+        with open("/workspace/.cursor/debug-5c3155.log", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "sessionId": "5c3155",
+                "timestamp": int(time.time() * 1000),
+                "location": location,
+                "message": message,
+                "data": data,
+                "hypothesisId": hypothesis_id,
+            }, default=str) + "\n")
+    except OSError:
+        pass
+# #endregion
 
 
 def _max_assemble_buffer_bytes() -> int:
@@ -101,22 +158,62 @@ def CompositeImage(FullImage, SubImage, offset):
 
 
 def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offset):
+    canvas_h, canvas_w = FullImage.shape[:2]
     minX = int(offset[1])
     minY = int(offset[0])
-    maxX = int(minX + SubImage.shape[1])
-    maxY = int(minY + SubImage.shape[0])
+    maxX = minX + SubImage.shape[1]
+    maxY = minY + SubImage.shape[0]
 
-    # print(f'CompositeImageWithZBuffer xo:{minX} yo:{minY} xMax:{maxX} yMax:{maxY}')
+    src_y0 = 0
+    src_x0 = 0
+    if minY < 0:
+        src_y0 = -minY
+        minY = 0
+    if minX < 0:
+        src_x0 = -minX
+        minX = 0
+    maxY = min(canvas_h, maxY)
+    maxX = min(canvas_w, maxX)
+    if minY >= maxY or minX >= maxX:
+        # #region agent log
+        _assemble_debug_log(
+            "assemble_tiles.py:CompositeImageWithZBuffer",
+            "composite skipped outside canvas",
+            {"offset": [int(offset[0]), int(offset[1])], "sub_shape": list(SubImage.shape)},
+        )
+        # #endregion
+        return
 
-    if (np.array([maxY - minY, maxX - minX]) != SubZBuffer.shape).any():
+    sub_image = SubImage[src_y0:src_y0 + (maxY - minY), src_x0:src_x0 + (maxX - minX)]
+    sub_zbuffer = SubZBuffer[src_y0:src_y0 + (maxY - minY), src_x0:src_x0 + (maxX - minX)]
+
+    if (np.array([maxY - minY, maxX - minX]) != sub_zbuffer.shape).any():
         raise ValueError("Buffers do not have the same dimensions")
 
-    if minY == maxY or minX == maxX:
-        raise ValueError("Buffers have zero dimensions")
-
-    iUpdate = FullZBuffer[minY:maxY, minX:maxX] >= SubZBuffer
-    FullImage[minY:maxY, minX:maxX][iUpdate] = SubImage[iUpdate]
-    FullZBuffer[minY:maxY, minX:maxX][iUpdate] = SubZBuffer[iUpdate]
+    full_slice = FullZBuffer[minY:maxY, minX:maxX]
+    # Strict > so uninitialized/sentinel z-buffer (== max) is not replaced by invalid tile margins.
+    # Skip zero-valued samples so padding holes do not block overlapping neighbors.
+    iUpdate = (full_slice > sub_zbuffer) & (sub_image != 0)
+    # #region agent log
+    sentinel = float(__MaxZBufferValue(sub_zbuffer.dtype))
+    sentinel_updates = iUpdate & (sub_zbuffer >= sentinel * 0.99) & (sub_image != 0)
+    n_sentinel_bad = int(np.count_nonzero(sentinel_updates))
+    n_update = int(np.count_nonzero(iUpdate))
+    if n_sentinel_bad > 0 or n_update == 0:
+        _assemble_debug_log(
+            "assemble_tiles.py:CompositeImageWithZBuffer",
+            "composite update stats",
+            {
+                "offset": [int(offset[0]), int(offset[1])],
+                "n_update": n_update,
+                "n_sentinel_bad": n_sentinel_bad,
+                "sub_shape": list(SubImage.shape),
+            },
+            hypothesis_id="H1",
+        )
+    # #endregion
+    FullImage[minY:maxY, minX:maxX][iUpdate] = sub_image[iUpdate]
+    full_slice[iUpdate] = sub_zbuffer[iUpdate]
 
     return
 
@@ -172,22 +269,21 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
 
 
 def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
-    """Create output images using the passed width and height
+    """Create output images using the passed width and height.
+
+    The accumulation buffers are always host (NumPy) arrays. GPU tile results
+    are explicitly converted to numpy before compositing (see the .get() calls
+    near CompositeImageWithZBuffer), keeping a single clear GPU→CPU boundary.
     """
     _raise_if_assemble_buffer_too_large(int(Height), int(Width), dtype)
 
-    xp = nornir_imageregistration.GetComputationModule()
-
     fullImage = None
-    fullImage_shape = (
-        int(Height),
-        int(Width))  # (int(np.ceil(target_space_scale * Height)), int(np.ceil(target_space_scale * Width)))
+    fullImage_shape = (int(Height), int(Width))
 
     if _use_memmap():  # use_memmap:
         try:
             fullimage_array_path = os.path.join(nornir_imageregistration.gettempdir(), 'image_%dx%d_%s.npy' % (
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
-            # print("Open %s" % (fullimage_array_path))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
             fullImage.fill(0)
             finalizer = weakref.finalize(fullImage, os.remove, fullimage_array_path)
@@ -195,10 +291,15 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
     else:
-        fullImage = xp.zeros(fullImage_shape, dtype=dtype)
+        fullImage = np.zeros(fullImage_shape, dtype=dtype)
 
-    fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape)
+    fullImageZbuffer = np.full(fullImage_shape, __MaxZBufferValue(np.float16), dtype=np.float16)
     return fullImage, fullImageZbuffer
+
+
+def _prefetch_tile_image(tile: nornir_imageregistration.tile.Tile) -> None:
+    """Access tile.Image so it is loaded and cached before the main thread needs it."""
+    _ = tile.Image
 
 
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
@@ -244,55 +345,77 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats,
                                                                            target_space_scale)
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)
-    # original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
 
-    first_tile = next(iter(mosaic_tileset.values()))
-    if first_tile is None:
+    tiles_list = list(mosaic_tileset.values())
+    if not tiles_list:
         raise ValueError("Mosaic Tileset has no tiles.")
-    output_dtype = first_tile.Image.dtype
+
+    output_dtype = tiles_list[0].Image.dtype  # loads and caches tile[0].Image
 
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
-    for i, tile in enumerate(mosaic_tileset.values()):
-        original_transform_fixed_rect = tile.TargetSpaceBoundingBox
-        # transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_fixed_rect)
+    # Sliding-window prefetch: _PREFETCH_WORKERS threads read tiles from disk/network
+    # concurrently while the main thread warps on the GPU.  _PREFETCH_DEPTH tiles are
+    # kept in-flight at all times so NAS latency spikes cannot stall the GPU.
+    # GPU dispatches remain serialised by _gpu_warp_lock in assemble.SourceImageToTargetSpace.
+    with ThreadPoolExecutor(max_workers=_PREFETCH_WORKERS) as prefetch_executor:
+        pending: Deque[Tuple[int, Future[None]]] = deque()
 
-        # regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, original_transform_fixed_rect)
-        if regionToRender is None:
-            continue
+        # Seed the pipeline with the first _PREFETCH_DEPTH tiles.  All workers
+        # fire immediately so NAS bandwidth is saturated before the GPU processes
+        # a single tile.  Tile 0 is already cached (see output_dtype above) but
+        # submitting a duplicate is safe — tile.Image is idempotent.
+        for j in range(min(_PREFETCH_DEPTH, len(tiles_list))):
+            pending.append((j, prefetch_executor.submit(_prefetch_tile_image, tiles_list[j])))
 
-        if regionToRender.Area == 0:
-            continue
+        for i, tile in enumerate(tiles_list):
+            # Slide the window: bring the tile that just entered lookahead range into flight.
+            next_idx = i + _PREFETCH_DEPTH
+            if next_idx < len(tiles_list):
+                pending.append((next_idx, prefetch_executor.submit(
+                    _prefetch_tile_image, tiles_list[next_idx])))
 
-        # Replaced by rendered_target_space_origin on TransformedImageData
-        # scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
-        # scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
+            # Block until the current tile is fully loaded before warping it.
+            while pending and pending[0][0] < i:
+                pending.popleft()[1].result()
+            if pending and pending[0][0] == i:
+                pending.popleft()[1].result()
+            else:
+                _prefetch_tile_image(tile)
 
-        global distance_image_cache
-        distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)  # type: ignore[arg-type]
+            regionToRender = _IntersectTileRenderRegion(targetRect, tile, target_space_scale)
 
-        transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
-                                             TargetRegion=regionToRender, SingleThreadedInvoke=True)
-        try:
-            transformed_image = transformedImageData.image
-            transformed_distance = transformedImageData.centerDistanceImage
-        except ValueError:
-            prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
-            if transformedImageData.errormsg is not None:
-                prettyoutput.LogErr(transformedImageData.errormsg)
-            continue
+            if regionToRender is not None and regionToRender.Area > 0:
+                global distance_image_cache
+                distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)  # type: ignore[arg-type]
 
-        CompositeOffset = (
-                                  transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_targetRect.BottomLeft  # type: ignore[operator]
-        CompositeOffset = CompositeOffset.astype(np.int64)
+                transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
+                                                     TargetRegion=regionToRender, SingleThreadedInvoke=True)
+                try:
+                    transformed_image = transformedImageData.image
+                    transformed_distance = transformedImageData.centerDistanceImage
+                except ValueError:
+                    prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
+                    if transformedImageData.errormsg is not None:
+                        prettyoutput.LogErr(transformedImageData.errormsg)
+                else:
+                    # The output buffer is always numpy. Move CuPy tile results to host.
+                    if hasattr(transformed_image, 'get'):
+                        transformed_image = transformed_image.get()
+                    if hasattr(transformed_distance, 'get'):
+                        transformed_distance = transformed_distance.get()
 
-        CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
-                                  transformed_image, transformed_distance,
-                                  CompositeOffset)
+                    CompositeOffset = (
+                        transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale
+                    ) - scaled_targetRect.BottomLeft  # type: ignore[operator]
+                    CompositeOffset = CompositeOffset.astype(np.int64)
 
-        del transformedImageData
+                    CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
+                                              transformed_image, transformed_distance,
+                                              CompositeOffset)
+
+                del transformedImageData
 
     mask = np.less(fullImageZbuffer, __MaxZBufferValue(fullImageZbuffer.dtype))
     del fullImageZbuffer
@@ -306,6 +429,155 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         fullImage.flush()
 
     return fullImage, mask
+
+
+def _composite_transformed_tile_onto_canvas(
+        transformedImageData: nornir_imageregistration.transformed_image_data.ITransformedImageData,
+        fullImage: NDArray,
+        fullImageZbuffer: NDArray,
+        scaled_targetRect: nornir_imageregistration.Rectangle) -> None:
+    """Composite one warped tile into the host-side output buffers."""
+    if transformedImageData.errormsg is not None:
+        # #region agent log
+        _assemble_debug_log(
+            "assemble_tiles.py:_composite_transformed_tile_onto_canvas",
+            "transform tile failed",
+            {"errormsg": transformedImageData.errormsg},
+            hypothesis_id="H4",
+        )
+        # #endregion
+        prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
+        prettyoutput.LogErr(transformedImageData.errormsg)
+        return
+    try:
+        transformed_image = transformedImageData.image
+        transformed_distance = transformedImageData.centerDistanceImage
+    except ValueError:
+        prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
+        if transformedImageData.errormsg is not None:
+            prettyoutput.LogErr(transformedImageData.errormsg)
+        return
+
+    if hasattr(transformed_image, 'get'):
+        transformed_image = transformed_image.get()
+    if hasattr(transformed_distance, 'get'):
+        transformed_distance = transformed_distance.get()
+
+    composite_offset = (
+        transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale
+    ) - scaled_targetRect.BottomLeft  # type: ignore[operator]
+    composite_offset = composite_offset.astype(np.int64)
+
+    CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
+                              transformed_image, transformed_distance,
+                              composite_offset)
+
+
+def _transform_tile_worker(
+        tile: nornir_imageregistration.tile.Tile,
+        region_to_render: nornir_imageregistration.Rectangle,
+        target_space_scale: float,
+) -> nornir_imageregistration.transformed_image_data.ITransformedImageData:
+    """Run TransformTile in a worker thread (I/O + inverse + GPU warp under _gpu_warp_lock)."""
+    with _distance_cache_lock:
+        distance_image = distance_image_cache.KeepGetOrCreate(None, tile.ImageSize)  # type: ignore[arg-type]
+    return TransformTile(tile, distance_image, target_space_scale=target_space_scale,
+                         TargetRegion=region_to_render, SingleThreadedInvoke=True)
+
+
+def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
+                         TargetRegion: nornir_imageregistration.Rectangle | List[float] | None = None,
+                         target_space_scale: float | None = None,
+                         use_cp: bool = False) -> Tuple[NDArray | None, NDArray | None]:
+    """GPU-oriented assemble: thread-parallel per-tile pipeline with serialised GPU warps.
+
+    Workers overlap disk I/O and CPU-side inverse-transform work while
+    ``assemble._gpu_warp_lock`` serialises ``map_coordinates`` dispatches.
+    Compositing into the shared output canvas is serialised by ``_composite_lock``.
+    """
+    if target_space_scale is not None and target_space_scale > 1.0:
+        raise ValueError(
+            "It isn't impossible this is what the caller requests, but this value expands the resulting image beyond full resolution of the transform.")
+
+    source_space_scale = 1.0 / mosaic_tileset.image_to_source_space_scale
+    if target_space_scale is None:
+        target_space_scale = source_space_scale
+
+    if TargetRegion is not None:
+        if isinstance(TargetRegion, nornir_imageregistration.Rectangle):
+            original_fixed_rect_floats = TargetRegion
+        else:
+            original_fixed_rect_floats = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+                (TargetRegion[0], TargetRegion[1]),
+                (TargetRegion[2] - TargetRegion[0], TargetRegion[3] - TargetRegion[1]))
+    else:
+        original_fixed_rect_floats = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+            (0, 0), mosaic_tileset.TargetBoundingBox.TopRight)
+
+    target_rect = nornir_imageregistration.Rectangle.SafeRound(original_fixed_rect_floats)
+    scaled_target_rect = nornir_imageregistration.Rectangle.scale_on_origin(original_fixed_rect_floats,
+                                                                            target_space_scale)
+    scaled_target_rect = nornir_imageregistration.Rectangle.SafeRound(scaled_target_rect)
+
+    tiles_list = list(mosaic_tileset.values())
+    if not tiles_list:
+        raise ValueError("Mosaic Tileset has no tiles.")
+
+    output_dtype = tiles_list[0].Image.dtype
+
+    full_image, full_image_zbuffer = __CreateOutputBufferForArea(
+        int(scaled_target_rect.Height), int(scaled_target_rect.Width), dtype=output_dtype)
+
+    work_items: List[Tuple[nornir_imageregistration.tile.Tile, nornir_imageregistration.Rectangle]] = []
+    for tile in tiles_list:
+        region_to_render = _IntersectTileRenderRegion(target_rect, tile, target_space_scale)
+        if region_to_render is not None and region_to_render.Area > 0:
+            work_items.append((tile, region_to_render))
+
+    with ThreadPoolExecutor(max_workers=_TRANSFORM_WORKERS) as transform_executor:
+        futures = [
+            transform_executor.submit(_transform_tile_worker, tile, region, target_space_scale)
+            for tile, region in work_items
+        ]
+        for future in as_completed(futures):
+            transformed_image_data = future.result()
+            with _composite_lock:
+                _composite_transformed_tile_onto_canvas(
+                    transformed_image_data, full_image, full_image_zbuffer, scaled_target_rect)
+            transformed_image_data.Clear()
+            del transformed_image_data
+
+    mask = np.less(full_image_zbuffer, __MaxZBufferValue(full_image_zbuffer.dtype))
+    del full_image_zbuffer
+
+    full_image = np.maximum(full_image, 0, out=full_image)
+
+    # #region agent log
+    _void_y, _void_x = 1974, 2450
+    _void_sample = None
+    if 0 <= _void_y < full_image.shape[0] and 0 <= _void_x < full_image.shape[1]:
+        _void_sample = {
+            "image": float(full_image[_void_y, _void_x]),
+            "mask": bool(mask[_void_y, _void_x]),
+        }
+    _assemble_debug_log(
+        "assemble_tiles.py:TilesToImageThreaded",
+        "assemble complete",
+        {
+            "work_items": len(work_items),
+            "mask_coverage": float(mask.mean()),
+            "output_shape": list(full_image.shape),
+            "target_space_scale": target_space_scale,
+            "void_1974_2450": _void_sample,
+        },
+        hypothesis_id="H7",
+    )
+    # #endregion
+
+    if isinstance(full_image, np.memmap):
+        full_image.flush()
+
+    return full_image, mask
 
 
 def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
@@ -327,7 +599,6 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     logger = logging.getLogger('TilesToImageParallel')
     if pool is None:
         pool = nornir_pools.GetGlobalMultithreadingPool()
-        # pool = nornir_pools.GetGlobalSerialPool()
 
     if target_space_scale is not None and target_space_scale > 1.0:
         raise ValueError(
@@ -381,7 +652,7 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         original_transform_target_rect = tile.TargetSpaceBoundingBox
         transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
 
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, transform_target_rect)
+        regionToRender = _IntersectTileRenderRegion(targetRect, tile, target_space_scale)
         if regionToRender is None:
             continue
 
@@ -481,6 +752,13 @@ def __AddTransformedTileTaskToComposite(task,
         if transformedImageData.errormsg is not None:
             prettyoutput.LogErr(transformedImageData.errormsg)
         return fullImage, fullImageZBuffer
+
+    # The output buffer (fullImage/fullImageZBuffer) is always numpy. CuPy tile
+    # results must be moved back to host before compositing.
+    if hasattr(transformed_image, 'get'):
+        transformed_image = transformed_image.get()
+    if hasattr(transformed_distance, 'get'):
+        transformed_distance = transformed_distance.get()
 
     CompositeOffset = (
                               transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale) - scaled_target_rect.BottomLeft  # type: ignore[union-attr]
@@ -641,17 +919,67 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     global distance_image_cache
     distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, source_image.shape[0:2])
 
-    (fixedImage, centerDistanceImage) = assemble.SourceImageToTargetSpace(transform,  # type: ignore[assignment]
-                                                                          [source_image, distanceImage],
-                                                                          output_botleft=(target_minY, target_minX),
-                                                                          output_area=(target_height, target_width),
-                                                                          cval=[0,
-                                                                                # I initially used max float value, but map_coordinates calls spline_filter, which
-                                                                                # somehow interacts with the max value to produce an invalid result for pixels
-                                                                                # outside the image boundary.
-                                                                                np.sum(distanceImage.shape) * 32.0],
-                                                                          extrapolate=True,
-                                                                          return_shared_memory=False)  # not SingleThreadedInvoke)
+    _warp_kwargs = dict(
+        output_botleft=(target_minY, target_minX),
+        output_area=(target_height, target_width),
+        extrapolate=True,
+        return_shared_memory=False,
+    )
+    _distance_cval = float(__MaxZBufferValue(np.float16))
+
+    warp_result = assemble.SourceImageToTargetSpace(
+        transform,
+        source_image,
+        cval=0,
+        return_valid_mask=True,
+        clamp_source_coords=False,
+        **_warp_kwargs,
+    )
+    if isinstance(warp_result, tuple):
+        fixedImage, image_valid_mask = warp_result
+    else:
+        fixedImage = warp_result
+        image_valid_mask = None
+
+    centerDistanceImage = assemble.SourceImageToTargetSpace(
+        transform,
+        distanceImage,
+        cval=_distance_cval,
+        clamp_source_coords=False,
+        **_warp_kwargs,
+    )
+
+    if image_valid_mask is not None:
+        import cupy as cp
+        sentinel = float(__MaxZBufferValue(np.float16))
+        xp = cp.get_array_module(centerDistanceImage)
+        vm = image_valid_mask
+        if cp.get_array_module(vm) is not xp:
+            vm = xp.asarray(vm)
+        cd = centerDistanceImage
+        vm = vm & (fixedImage > 0)
+        centerDistanceImage = xp.where(vm, cd, xp.asarray(sentinel, dtype=cd.dtype))
+        fixedImage = xp.where(vm, fixedImage, xp.asarray(0, dtype=fixedImage.dtype))
+        # #region agent log
+        vm_host = vm.get() if hasattr(vm, 'get') else np.asarray(vm)
+        fi_host = fixedImage.get() if hasattr(fixedImage, 'get') else np.asarray(fixedImage)
+        cd_host = centerDistanceImage.get() if hasattr(centerDistanceImage, 'get') else np.asarray(centerDistanceImage)
+        _assemble_debug_log(
+            "assemble_tiles.py:TransformTile",
+            "warp coverage",
+            {
+                "tile": os.path.basename(tile.ImagePath),
+                "valid_frac": float(vm_host.mean()),
+                "invalid_nonzero_image": int(np.count_nonzero((~vm_host) & (fi_host != 0))),
+                "invalid_low_distance": int(np.count_nonzero((~vm_host) & (cd_host < sentinel * 0.99))),
+                "image_size": list(tile.ImageSize),
+                "source_shape": list(source_image.shape[:2]),
+                "warp_shape": list(fi_host.shape),
+                "distance_cval": _distance_cval,
+            },
+            hypothesis_id="H1" if float(vm_host.mean()) < 0.5 else "H5",
+        )
+        # #endregion
 
     source_image_dtype = source_image.dtype
     del source_image

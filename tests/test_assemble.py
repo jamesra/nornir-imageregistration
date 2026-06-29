@@ -202,6 +202,38 @@ class TestAssemble(setup_imagetest.ImageTestBase):
             nornir_imageregistration.SaveImage(os.path.join(self.VolumeDir, "test_warpedImageToFixedSpace.png"),
                                                transformedImage.get(), bpp=8)
 
+    def test_distance_warp_preserves_zbuffer_cval(self):
+        """Distance sentinel cval must survive warp for z-buffer compositing."""
+        from nornir_imageregistration.distance import CreateDistanceImage
+        from nornir_imageregistration.transforms.rigid import Rigid
+
+        dist = CreateDistanceImage((64, 64), dtype=np.float32)
+        high_cval = float(np.sum(dist.shape) * 32.0)
+        transform = Rigid(target_offset=(0.0, 0.0))
+
+        for lib in (nornir_imageregistration.ComputationLib.numpy,):
+            backends = [lib]
+            if nornir_imageregistration.HasCupy():
+                backends.append(nornir_imageregistration.ComputationLib.cupy)
+            for backend in backends:
+                with self.subTest(backend=backend.name):
+                    nornir_imageregistration.SetActiveComputationLib(backend)
+                    warped = assemble.SourceImageToTargetSpace(
+                        transform, dist,
+                        output_botleft=(0, 0),
+                        output_area=(128, 128),
+                        cval=high_cval,
+                        extrapolate=True,
+                    )
+                    if hasattr(warped, 'get'):
+                        warped = warped.get()
+                    warped = np.asarray(warped)
+                    self.assertGreater(
+                        int(np.sum(np.isclose(warped, high_cval))),
+                        0,
+                        f"{backend.name}: distance cval sentinel was clipped away",
+                    )
+
     def Run_SourceImageToTargetSpaceTransform(self, FixedImagePath: str,
                                               WarpedImagePath: str,
                                               alignment_record: AlignmentRecord,

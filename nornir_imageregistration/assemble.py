@@ -4,7 +4,9 @@ Created on Apr 22, 2013
 
 """
 
+import contextlib
 import os
+import threading
 import warnings
 import logging
 
@@ -30,6 +32,13 @@ import nornir_pools
 import nornir_imageregistration
 from nornir_imageregistration.transforms import ITransform, factory, triangulation
 from nornir_imageregistration.transforms.utils import InvalidIndices
+
+# Serializes GPU warp dispatches across threads. CuPy CUDA kernels on the
+# default stream are ordered by the driver, but Python-level CuPy state
+# (memory pool, error-checking) is not fully thread-safe. Holding this lock
+# during _TransformImageUsingCoords lets threads overlap disk I/O and CPU
+# coordinate transforms while GPU warps run one at a time.
+_gpu_warp_lock: threading.Lock = threading.Lock()
 
 
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray) -> NDArray[np.floating]:
@@ -87,7 +96,7 @@ def write_to_source_roi_coords(transform: ITransform,
 
     del read_space_coords
 
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    if cp.get_array_module(write_space_coords) is cp:
         valid_write_space_coords = write_space_coords[valid_coords_mask, :]
     else:
         valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
@@ -118,13 +127,16 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32,
+    xp_coords = cp.get_array_module(write_space_coords)
+    inverse_input = write_space_coords.astype(np.float32, copy=False)
+
+    read_space_coords = transform.InverseTransform(inverse_input, extrapolate=extrapolate).astype(np.float32,
                                                                                                        copy=False)
     (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndices(read_space_coords)
 
     del read_space_coords
 
-    if nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy:
+    if cp.get_array_module(write_space_coords) is cp:
         valid_write_space_coords = write_space_coords[valid_coords_mask, :]
     else:
         valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
@@ -246,7 +258,9 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                output_area: NDArray[np.integer] | tuple[float, float],
                                cval=0,
                                return_shared_memory: bool = False,
-                               interpolation_order: int | None = None):
+                               interpolation_order: int | None = None,
+                               return_valid_mask: bool = False,
+                               clamp_source_coords: bool = False):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -258,10 +272,19 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     :param use_shared_memory: If true, create and write output to a shared memory array
     :param interpolation_order: ``map_coordinates`` spline order (0=nearest). When None, use
         order 1 for NaN/bool inputs and cubic (3) otherwise.
+    :param return_valid_mask: If True, return ``(image, valid_mask)`` where
+        ``valid_mask`` is a boolean array of ``output_area`` that is True exactly
+        at the output pixels that received a mapped source sample (the scatter
+        targets). This is the true coverage of the warp, derived for free from
+        the scatter indices, avoiding a second warp of a ones-image. Not
+        supported together with ``return_shared_memory``.
     """
 
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
-    xp = cp if use_cp else np
+    if return_valid_mask and return_shared_memory:
+        raise ValueError("return_valid_mask is not supported with return_shared_memory")
+
+    xp = cp.get_array_module(target_coords)
+    use_cp = xp is cp
     sp = cupyx.scipy if use_cp else scipy
 
     # cupyx.scipy.ndimage.map_coordinates (and xp.full) must not receive Python bool: NVRTC sees "False"/"True".
@@ -273,6 +296,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     output_area = nornir_imageregistration.EnsurePointsAre1DNumpyArray(output_area, dtype=np.int32)
     output_origin = nornir_imageregistration.EnsurePointsAre1DArray(output_origin, dtype=np.int32)  # type: ignore[arg-type]
+    output_area_shape = tuple(int(x) for x in output_area.ravel())
 
     if use_cp:
         target_coords = nornir_imageregistration.EnsurePointsAre2DArray(target_coords)
@@ -280,14 +304,14 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         if not isinstance(source_image, cp.ndarray):
             source_image = cp.asarray(source_image)
 
-    if output_origin.dtype != np.int32:
-        output_origin = xp.asarray(output_origin, dtype=np.int32)
-    if output_area.dtype != np.int32:
-        output_area = xp.asarray(output_area, dtype=np.int32)
+    # Match output metadata arrays to the coordinate backend (tuple origins stay NumPy from Ensure*).
+    output_origin = xp.asarray(output_origin, dtype=np.int32)
 
     if source_coords.shape[0] == 0:
         # No points transformed into the requested area, return empty image
-        transformedImage = xp.full(output_area, cval, dtype=source_image.dtype)
+        transformedImage = xp.full(output_area_shape, cval, dtype=source_image.dtype)
+        if return_valid_mask:
+            return transformedImage, xp.zeros(transformedImage.shape, dtype=bool)
         return transformedImage
 
     # Convert to a type the interpolation.map_coordinates supports
@@ -322,9 +346,12 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                 return output_shared_mem_meta
             else:
                 if use_cp:
-                    return xp.full(output_area, cval, dtype=original_dtype).get()  # type: ignore[union-attr]
+                    empty_image = xp.full(output_area_shape, cval, dtype=original_dtype).get()  # type: ignore[union-attr]
                 else:
-                    return xp.full(output_area, cval, dtype=original_dtype)
+                    empty_image = xp.full(output_area_shape, cval, dtype=original_dtype)
+                if return_valid_mask:
+                    return empty_image, np.zeros(empty_image.shape, dtype=bool)
+                return empty_image
 
         del source_image
     else:
@@ -348,6 +375,23 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     else:
         order = int(interpolation_order)
     prefilter = order > 1
+    _h, _w = subroi_warpedImage.shape[:2]
+    scatter_in_bounds = (
+            (filtered_source_coords[:, 0] >= 0) & (filtered_source_coords[:, 0] < _h) &
+            (filtered_source_coords[:, 1] >= 0) & (filtered_source_coords[:, 1] < _w)
+    )
+    if clamp_source_coords:
+        _last_y = max(0, _h - 1)
+        _last_x = max(0, _w - 1)
+        filtered_source_coords = xp.stack([
+            xp.clip(filtered_source_coords[:, 0], 0, _last_y),
+            xp.clip(filtered_source_coords[:, 1], 0, _last_x),
+        ], axis=1)
+    elif return_valid_mask:
+        # Do not clamp out-of-bounds source coords to the edge (that smears border pixels).
+        # Only sample pixels whose inverse map lands inside the source image.
+        filtered_source_coords = filtered_source_coords[scatter_in_bounds]
+        inbounds_target_coords = inbounds_target_coords[scatter_in_bounds]
     with IgnoreUnderflow(
             f"Underflow error assembling image.  min_val={subroi_warpedImage.min()} max_val={subroi_warpedImage.max()} mean={subroi_warpedImage.mean()} standardDev={np.std(subroi_warpedImage)}"):
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,  # type: ignore[union-attr]
@@ -364,11 +408,11 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     output_shared_mem_meta = None
     if return_shared_memory:
         output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(
-            output_area if not use_cp else output_area.get(),  # type: ignore[union-attr]
+            output_area_shape,
             dtype=original_dtype)
         outputImage.fill(cval)
     else:
-        outputImage = xp.full(output_area, cval,
+        outputImage = xp.full(output_area_shape, cval,
                               dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
 
     target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(  # type: ignore[arg-type]
@@ -385,16 +429,38 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         outputImage.flat[target_coords_flat] = outputValues
     # outputImage[fixed_coords] = outputValues
 
+    # Coverage of the warp is exactly the set of output pixels that received a
+    # mapped sample (the scatter targets); derive it from the same flat indices
+    # instead of warping a separate ones-image.
+    valid_mask = None
+    if return_valid_mask:
+        valid_mask = xp.zeros(int(np.prod(outputImage.shape)), dtype=bool)
+        if target_coords_flat.shape[0] > 0:
+            valid_mask[target_coords_flat] = True
+        valid_mask = valid_mask.reshape(outputImage.shape)
+
     # Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
     # We need to check there are no NaN values 
     any_nan_values: bool = bool(xp.any(xp.isnan(subroi_warpedImage)))
+    cval_float = float(cval) if cval is not None else 0.0
     if any_nan_values:
         nan_mask = xp.logical_not(xp.isnan(subroi_warpedImage))
-        min_val = subroi_warpedImage[nan_mask].min()
-        max_val = subroi_warpedImage[nan_mask].max()
-        xp.clip(outputImage, a_min=min_val, a_max=max_val, out=outputImage)
+        source_peak = float(xp.max(subroi_warpedImage[nan_mask]))
     else:
-        xp.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
+        source_peak = float(xp.max(subroi_warpedImage))
+    preserve_cval_sentinel = cval_float > source_peak
+    if not preserve_cval_sentinel:
+        if any_nan_values:
+            min_val = subroi_warpedImage[nan_mask].min()
+            max_val = subroi_warpedImage[nan_mask].max()
+            xp.clip(outputImage, a_min=min_val, a_max=max_val, out=outputImage)
+        else:
+            xp.clip(outputImage, a_min=subroi_warpedImage.min(), a_max=subroi_warpedImage.max(), out=outputImage)
+
+    if return_valid_mask:
+        # CuPy scatter plus a global clip can leave non-cval values outside scatter
+        # targets (clip promotes zeros to source min). Re-apply cval on ~valid_mask last.
+        outputImage = xp.where(valid_mask, outputImage, xp.asarray(cval, dtype=outputImage.dtype))
 
     # outputImage = outputImage.reshape(area)
 
@@ -410,6 +476,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     #         return transformedImage
     if return_shared_memory:
         return output_shared_mem_meta
+    elif return_valid_mask:
+        return outputImage, valid_mask
     else:
         return outputImage
 
@@ -503,7 +571,8 @@ def SourceImageToTargetSpace(transform: ITransform,
                              DataToTransform,
                              output_botleft: NDArray | tuple[float, float] | None = None,
                              output_area: NDArray | tuple[float, float] | None = None,
-                             cval=None, extrapolate=False, return_shared_memory: bool = False):
+                             cval=None, extrapolate=False, return_shared_memory: bool = False,
+                             return_valid_mask: bool = False, clamp_source_coords: bool = False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :param output_shape: shape of the output image
@@ -520,7 +589,6 @@ def SourceImageToTargetSpace(transform: ITransform,
     :param bool extrapolate: If true map points that fall outside the bounding box of the transform
     """
 
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)
 
     if output_botleft is None:
@@ -555,31 +623,34 @@ def SourceImageToTargetSpace(transform: ITransform,
 
     (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
                                                                      extrapolate=extrapolate)
-    # (roi_read_coords, roi_write_coords) = write_to_target_roi_coords(transform, output_botleft, output_area,
-    #                                                                  extrapolate=extrapolate, use_cp=use_cp)
 
-    # timer.End('write_to_target_roi_coords', True)
-
-    # roi_read_coords = cp.asarray(roi_read_coords) if use_cp and not isinstance(roi_read_coords, cp.ndarray) else roi_read_coords
-    # roi_write_coords = cp.asarray(roi_write_coords) if use_cp and not isinstance(roi_write_coords, cp.ndarray) else roi_write_coords
-
+    # Serialise GPU map_coordinates only when this warp's coordinates are on-device.
+    # Do not key off GetActiveComputationLib() — coords follow GetROICoords / transform output type.
+    _use_gpu_warp = cp.get_array_module(roi_write_coords) is cp
+    _lock = _gpu_warp_lock if _use_gpu_warp else contextlib.nullcontext()
     if isinstance(ImagesToTransform, list):
         if not isinstance(cval, list):
             cval = [cval] * len(DataToTransform)
 
         output_list = []
-        for i, wi in enumerate(ImagesToTransform):
-            fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft,  # type: ignore[arg-type]
-                                            output_area=output_area, cval=cval[i],
-                                            return_shared_memory=return_shared_memory)
-            output_list.append(fi)
-            # nornir_imageregistration.close_shared_memory(DataToTransform[i])
+        with _lock:
+            for i, wi in enumerate(ImagesToTransform):
+                fi = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, wi, output_origin=output_botleft,  # type: ignore[arg-type]
+                                                output_area=output_area, cval=cval[i],
+                                                return_shared_memory=return_shared_memory,
+                                                return_valid_mask=return_valid_mask and i == 0,
+                                                clamp_source_coords=clamp_source_coords)
+                output_list.append(fi)
+                # nornir_imageregistration.close_shared_memory(DataToTransform[i])
 
         return output_list
     else:
-        result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform,
-                                            output_origin=output_botleft, output_area=output_area, cval=cval,  # type: ignore[arg-type]
-                                            return_shared_memory=return_shared_memory)
+        with _lock:
+            result = _TransformImageUsingCoords(roi_write_coords, roi_read_coords, ImagesToTransform,
+                                                output_origin=output_botleft, output_area=output_area, cval=cval,  # type: ignore[arg-type]
+                                                return_shared_memory=return_shared_memory,
+                                                return_valid_mask=return_valid_mask,
+                                                clamp_source_coords=clamp_source_coords)
         # nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
 
