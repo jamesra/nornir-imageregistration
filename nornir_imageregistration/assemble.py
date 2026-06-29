@@ -209,6 +209,8 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
        """
 
     xp = cp.get_array_module(input_image)
+    if cp.get_array_module(coordinates) is not xp:
+        coordinates = xp.asarray(coordinates)
 
     bottom_left = xp.floor(xp.min(coordinates, 0))
     # bottom_left[bottom_left < 0] = 0
@@ -300,6 +302,10 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         source_coords = nornir_imageregistration.EnsurePointsAre2DArray(source_coords)
         if not isinstance(source_image, cp.ndarray):
             source_image = cp.asarray(source_image)
+        if cp.get_array_module(source_coords) is not cp:
+            source_coords = cp.asarray(source_coords)
+        if cp.get_array_module(target_coords) is not cp:
+            target_coords = cp.asarray(target_coords)
         # Tuple/list origins are NumPy by Ensure* policy; promote for GPU warp math.
         output_origin = cp.asarray(output_origin, dtype=np.int32)
         output_area = cp.asarray(output_area, dtype=np.int32)

@@ -6,6 +6,7 @@ Deals with assembling images composed of mosaics or dividing images into tiles
 
 import copy
 from collections import deque
+import contextlib
 import logging
 import multiprocessing
 import os
@@ -57,6 +58,11 @@ _TRANSFORM_WORKERS: int = max(2, min(os.cpu_count() or 4, 8))
 
 _distance_cache_lock = threading.Lock()
 _composite_lock = threading.Lock()
+
+# Per-assemble-pass cache of scaled transforms keyed by (tile_id, source_scale, target_scale).
+# Cleared at the end of TilesToImage so InverseInterpolator built on first use is reused
+# if TransformTile is invoked again for the same tile and scales within one assemble.
+_scaled_transform_assemble_cache: dict[tuple[int, float, float], nornir_imageregistration.ITransform] | None = None
 
 # Canvas-space margin (pixels at the assemble output scale) beyond each tile bbox for warp overlap.
 _TILE_RENDER_MARGIN_CANVAS = 64.0
@@ -256,6 +262,78 @@ def _prefetch_tile_image(tile: nornir_imageregistration.tile.Tile) -> None:
     _ = tile.Image
 
 
+def _assemble_prefetch_enabled() -> bool:
+    """Return True when TilesToImage should prefetch upcoming tile PNGs on a thread pool."""
+    raw = os.environ.get('NORNIR_ASSEMBLE_PREFETCH', '').strip().lower()
+    if raw in ('0', 'false', 'no'):
+        return False
+    if raw in ('1', 'true', 'yes'):
+        return True
+    return (nornir_imageregistration.GetActiveComputationLib()
+            == nornir_imageregistration.ComputationLib.cupy)
+
+
+@contextlib.contextmanager
+def _scaled_transform_cache_scope():
+    """Enable scaled-transform reuse for the duration of one TilesToImage pass."""
+    global _scaled_transform_assemble_cache
+    prior = _scaled_transform_assemble_cache
+    _scaled_transform_assemble_cache = {}
+    try:
+        yield
+    finally:
+        _scaled_transform_assemble_cache = prior
+
+
+def _scale_key(source_space_scale: float, target_space_scale: float) -> tuple[float, float]:
+    return (float(source_space_scale), float(target_space_scale))
+
+
+def _build_scaled_transform(
+        base_transform: nornir_imageregistration.ITransform,
+        source_space_scale: float,
+        target_space_scale: float) -> nornir_imageregistration.ITransform:
+    """Return a transform scaled for the requested source/target pyramid levels."""
+    transform = base_transform
+    if source_space_scale == target_space_scale:
+        if source_space_scale != 1.0:
+            scaled_transform = __CreateScalableTransformCopy(base_transform)
+            scaled_transform.Scale(source_space_scale)
+            transform = scaled_transform
+    else:
+        if source_space_scale != 1.0:
+            scaled_transform = __CreateScalableTransformCopy(base_transform)
+            scaled_transform.ScaleWarped(source_space_scale)  # type: ignore[attr-defined]
+            transform = scaled_transform
+
+        if target_space_scale != 1.0:
+            scaled_transform = __CreateScalableTransformCopy(base_transform)
+            scaled_transform.ScaleFixed(target_space_scale)  # type: ignore[attr-defined]
+            transform = scaled_transform
+    return transform
+
+
+def _get_scaled_transform_for_tile(
+        tile: nornir_imageregistration.tile.Tile,
+        source_space_scale: float,
+        target_space_scale: float) -> nornir_imageregistration.ITransform:
+    """Return a scaled transform, reusing the per-assemble cache when active."""
+    if source_space_scale == 1.0 and target_space_scale == 1.0:
+        return tile.Transform
+
+    cache = _scaled_transform_assemble_cache
+    if cache is not None:
+        key = (tile.ID, *_scale_key(source_space_scale, target_space_scale))
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        scaled = _build_scaled_transform(tile.Transform, source_space_scale, target_space_scale)
+        cache[key] = scaled
+        return scaled
+
+    return _build_scaled_transform(tile.Transform, source_space_scale, target_space_scale)
+
+
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                  TargetRegion: nornir_imageregistration.Rectangle | List[float] | None = None,
                  target_space_scale: float | None = None,
@@ -309,35 +387,63 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
+    work_items: List[Tuple[nornir_imageregistration.tile.Tile, nornir_imageregistration.Rectangle]] = []
     for tile in tiles_list:
-        regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, tile.TargetSpaceBoundingBox)
-        if regionToRender is None or regionToRender.Area == 0:
-            continue
+        region_to_render = nornir_imageregistration.Rectangle.Intersect(targetRect, tile.TargetSpaceBoundingBox)
+        if region_to_render is not None and region_to_render.Area > 0:
+            work_items.append((tile, region_to_render))
 
-        global distance_image_cache
-        distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)  # type: ignore[arg-type]
+    prefetch_enabled = _assemble_prefetch_enabled()
+    prefetch_executor: ThreadPoolExecutor | None = None
+    prefetch_futures: dict[int, Future[None]] = {}
+    if prefetch_enabled and work_items:
+        prefetch_executor = ThreadPoolExecutor(max_workers=_PREFETCH_WORKERS)
 
-        transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
-                                             TargetRegion=regionToRender, SingleThreadedInvoke=True)
-        try:
-            transformed_image = transformedImageData.image
-            transformed_distance = transformedImageData.centerDistanceImage
-        except ValueError:
-            prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
-            if transformedImageData.errormsg is not None:
-                prettyoutput.LogErr(transformedImageData.errormsg)
-            continue
+        def _schedule_prefetch(index: int) -> None:
+            if index >= len(work_items) or index in prefetch_futures:
+                return
+            tile_to_load = work_items[index][0]
+            prefetch_futures[index] = prefetch_executor.submit(_prefetch_tile_image, tile_to_load)
 
-        CompositeOffset = (
-            transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale
-        ) - scaled_targetRect.BottomLeft  # type: ignore[operator]
-        CompositeOffset = CompositeOffset.astype(np.int64)
+        for prefetch_index in range(min(_PREFETCH_DEPTH, len(work_items))):
+            _schedule_prefetch(prefetch_index)
 
-        CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
-                                  transformed_image, transformed_distance,
-                                  CompositeOffset)
+    try:
+        with _scaled_transform_cache_scope():
+            for work_index, (tile, regionToRender) in enumerate(work_items):
+                if prefetch_enabled and prefetch_executor is not None:
+                    pending = prefetch_futures.pop(work_index, None)
+                    if pending is not None:
+                        pending.result()
+                    _schedule_prefetch(work_index + _PREFETCH_DEPTH)
 
-        del transformedImageData
+                global distance_image_cache
+                distanceImage = distance_image_cache.KeepGetOrCreate(distanceImage, tile.ImageSize)  # type: ignore[arg-type]
+
+                transformedImageData = TransformTile(tile, distanceImage, target_space_scale=target_space_scale,
+                                                     TargetRegion=regionToRender, SingleThreadedInvoke=True)
+                try:
+                    transformed_image = transformedImageData.image
+                    transformed_distance = transformedImageData.centerDistanceImage
+                except ValueError:
+                    prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
+                    if transformedImageData.errormsg is not None:
+                        prettyoutput.LogErr(transformedImageData.errormsg)
+                    continue
+
+                CompositeOffset = (
+                    transformedImageData.rendered_target_space_origin * transformedImageData.target_space_scale
+                ) - scaled_targetRect.BottomLeft  # type: ignore[operator]
+                CompositeOffset = CompositeOffset.astype(np.int64)
+
+                CompositeImageWithZBuffer(fullImage, fullImageZbuffer,
+                                          transformed_image, transformed_distance,
+                                          CompositeOffset)
+
+                del transformedImageData
+    finally:
+        if prefetch_executor is not None:
+            prefetch_executor.shutdown(wait=True)
 
     if isinstance(fullImage, np.memmap):
         xp = np
@@ -739,24 +845,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         target_space_scale = source_space_scale
 
     ########## Scale the transform output to fit the input image coordspace ####
-    transform = tile.Transform
-    if source_space_scale == target_space_scale:
-        if source_space_scale != 1.0:
-            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
-
-            scaledTransform.Scale(source_space_scale)
-            transform = scaledTransform
-
-    else:
-        if source_space_scale != 1.0:
-            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
-            scaledTransform.ScaleWarped(source_space_scale)  # type: ignore[attr-defined]
-            transform = scaledTransform
-
-        if target_space_scale != 1.0:
-            scaledTransform = __CreateScalableTransformCopy(tile.Transform)
-            scaledTransform.ScaleFixed(target_space_scale)  # type: ignore[attr-defined]
-            transform = scaledTransform
+    transform = _get_scaled_transform_for_tile(tile, source_space_scale, target_space_scale)
 
     ############################################################################
 
