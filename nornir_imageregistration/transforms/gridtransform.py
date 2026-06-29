@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, cast
 
 import numpy as np
@@ -42,6 +43,20 @@ from .base import ITransformScaling, ITransformRelativeScaling, \
     ITriangulatedTargetSpace
 
 _logger = logging.getLogger(__name__)
+
+
+def _assemble_inverse_use_scipy() -> bool:
+    """When True on CuPy, build grid inverse interpolators with SciPy Qhull instead of CuPy Delaunay."""
+    raw = os.environ.get('NORNIR_ASSEMBLE_INVERSE_SCIPY', '').strip().lower()
+    if raw in ('0', 'false', 'no'):
+        return False
+    if raw in ('1', 'true', 'yes'):
+        return True
+    # Default on when assemble skips RBF extrapolation; SciPy-first inverse regresses when extrapolate is on.
+    extrap_raw = os.environ.get('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', '').strip().lower()
+    if extrap_raw in ('1', 'true', 'yes'):
+        return False
+    return True
 
 
 def _is_cupy_degenerate_triangulation_error(exc: BaseException) -> bool:
@@ -752,9 +767,15 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
+            import nornir_imageregistration
+            force_scipy = (
+                    nornir_imageregistration.GetActiveComputationLib()
+                    == nornir_imageregistration.ComputationLib.cupy
+                    and _assemble_inverse_use_scipy())
             interp, uses_scipy = _build_linear_nd_interpolator(
                 self.TargetPoints,
                 self.SourcePoints,
+                force_scipy=force_scipy,
             )
             self._InverseInterpolator = interp
             self._scipy_inverse_interp = uses_scipy

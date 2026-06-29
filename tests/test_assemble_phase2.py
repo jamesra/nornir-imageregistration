@@ -43,6 +43,28 @@ class TestScaledTransformCache(unittest.TestCase):
         finally:
             os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
+    def test_grid_extrapolate_default_off(self):
+        env = os.environ.pop('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', None)
+        try:
+            self.assertFalse(at._assemble_grid_extrapolate())
+        finally:
+            if env is not None:
+                os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = env
+
+    def test_inverse_scipy_default_follows_extrapolate(self):
+        from nornir_imageregistration.transforms import gridtransform as gt
+        for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
+            os.environ.pop(k, None)
+        try:
+            self.assertTrue(gt._assemble_inverse_use_scipy())
+            os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = '1'
+            self.assertFalse(gt._assemble_inverse_use_scipy())
+            os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = '0'
+            self.assertTrue(gt._assemble_inverse_use_scipy())
+        finally:
+            for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
+                os.environ.pop(k, None)
+
 
 if __name__ == '__main__':
     unittest.main()

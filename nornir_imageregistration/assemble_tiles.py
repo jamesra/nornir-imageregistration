@@ -64,26 +64,6 @@ _composite_lock = threading.Lock()
 # if TransformTile is invoked again for the same tile and scales within one assemble.
 _scaled_transform_assemble_cache: dict[tuple[int, float, float], nornir_imageregistration.ITransform] | None = None
 
-# Canvas-space margin (pixels at the assemble output scale) beyond each tile bbox for warp overlap.
-_TILE_RENDER_MARGIN_CANVAS = 64.0
-
-
-def _IntersectTileRenderRegion(
-        target_rect: nornir_imageregistration.Rectangle,
-        tile: nornir_imageregistration.tile.Tile,
-        target_space_scale: float = 1.0,
-) -> nornir_imageregistration.Rectangle | None:
-    """Intersect the assemble target with an expanded tile bbox for warp overlap."""
-    bbox = tile.TargetSpaceBoundingBox
-    margin = _TILE_RENDER_MARGIN_CANVAS / float(target_space_scale)
-    inflated = nornir_imageregistration.Rectangle.CreateFromBounds([
-        bbox.MinY - margin,
-        bbox.MinX - margin,
-        bbox.MaxY + margin,
-        bbox.MaxX + margin,
-    ])
-    return nornir_imageregistration.Rectangle.Intersect(target_rect, inflated)
-
 
 def _max_assemble_buffer_bytes() -> int:
     """Return the maximum allowed assemble output buffer size in bytes."""
@@ -271,6 +251,17 @@ def _assemble_prefetch_enabled() -> bool:
         return True
     return (nornir_imageregistration.GetActiveComputationLib()
             == nornir_imageregistration.ComputationLib.cupy)
+
+
+def _assemble_grid_extrapolate() -> bool:
+    """Whether tile warps request RBF/grid extrapolation outside the discrete mesh."""
+    raw = os.environ.get('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', '').strip().lower()
+    if raw in ('0', 'false', 'no'):
+        return False
+    if raw in ('1', 'true', 'yes'):
+        return True
+    # Production default: skip RBF extrapolation for assemble; edge tiles are rare and costly.
+    return False
 
 
 @contextlib.contextmanager
@@ -911,7 +902,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         output_botleft=(target_minY, target_minX),
         output_area=(target_height, target_width),
         cval=[0, _distance_cval],
-        extrapolate=True,
+        extrapolate=_assemble_grid_extrapolate(),
         return_shared_memory=False,
     )
 
