@@ -6,7 +6,6 @@ Deals with assembling images composed of mosaics or dividing images into tiles
 
 import copy
 from collections import deque
-import json
 import logging
 import multiprocessing
 import os
@@ -78,23 +77,6 @@ def _IntersectTileRenderRegion(
         bbox.MaxX + margin,
     ])
     return nornir_imageregistration.Rectangle.Intersect(target_rect, inflated)
-
-
-# #region agent log
-def _assemble_debug_log(location: str, message: str, data: dict, hypothesis_id: str = "H-assemble") -> None:
-    try:
-        with open("/workspace/.cursor/debug-5c3155.log", "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "sessionId": "5c3155",
-                "timestamp": int(time.time() * 1000),
-                "location": location,
-                "message": message,
-                "data": data,
-                "hypothesisId": hypothesis_id,
-            }, default=str) + "\n")
-    except OSError:
-        pass
-# #endregion
 
 
 def _max_assemble_buffer_bytes() -> int:
@@ -175,13 +157,6 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     maxY = min(canvas_h, maxY)
     maxX = min(canvas_w, maxX)
     if minY >= maxY or minX >= maxX:
-        # #region agent log
-        _assemble_debug_log(
-            "assemble_tiles.py:CompositeImageWithZBuffer",
-            "composite skipped outside canvas",
-            {"offset": [int(offset[0]), int(offset[1])], "sub_shape": list(SubImage.shape)},
-        )
-        # #endregion
         return
 
     sub_image = SubImage[src_y0:src_y0 + (maxY - minY), src_x0:src_x0 + (maxX - minX)]
@@ -194,24 +169,6 @@ def CompositeImageWithZBuffer(FullImage, FullZBuffer, SubImage, SubZBuffer, offs
     # Strict > so uninitialized/sentinel z-buffer (== max) is not replaced by invalid tile margins.
     # Skip zero-valued samples so padding holes do not block overlapping neighbors.
     iUpdate = (full_slice > sub_zbuffer) & (sub_image != 0)
-    # #region agent log
-    sentinel = float(__MaxZBufferValue(sub_zbuffer.dtype))
-    sentinel_updates = iUpdate & (sub_zbuffer >= sentinel * 0.99) & (sub_image != 0)
-    n_sentinel_bad = int(np.count_nonzero(sentinel_updates))
-    n_update = int(np.count_nonzero(iUpdate))
-    if n_sentinel_bad > 0 or n_update == 0:
-        _assemble_debug_log(
-            "assemble_tiles.py:CompositeImageWithZBuffer",
-            "composite update stats",
-            {
-                "offset": [int(offset[0]), int(offset[1])],
-                "n_update": n_update,
-                "n_sentinel_bad": n_sentinel_bad,
-                "sub_shape": list(SubImage.shape),
-            },
-            hypothesis_id="H1",
-        )
-    # #endregion
     FullImage[minY:maxY, minX:maxX][iUpdate] = sub_image[iUpdate]
     full_slice[iUpdate] = sub_zbuffer[iUpdate]
 
@@ -438,14 +395,6 @@ def _composite_transformed_tile_onto_canvas(
         scaled_targetRect: nornir_imageregistration.Rectangle) -> None:
     """Composite one warped tile into the host-side output buffers."""
     if transformedImageData.errormsg is not None:
-        # #region agent log
-        _assemble_debug_log(
-            "assemble_tiles.py:_composite_transformed_tile_onto_canvas",
-            "transform tile failed",
-            {"errormsg": transformedImageData.errormsg},
-            hypothesis_id="H4",
-        )
-        # #endregion
         prettyoutput.LogErr('Convert task failed: ' + str(transformedImageData))
         prettyoutput.LogErr(transformedImageData.errormsg)
         return
@@ -551,28 +500,6 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     del full_image_zbuffer
 
     full_image = np.maximum(full_image, 0, out=full_image)
-
-    # #region agent log
-    _void_y, _void_x = 1974, 2450
-    _void_sample = None
-    if 0 <= _void_y < full_image.shape[0] and 0 <= _void_x < full_image.shape[1]:
-        _void_sample = {
-            "image": float(full_image[_void_y, _void_x]),
-            "mask": bool(mask[_void_y, _void_x]),
-        }
-    _assemble_debug_log(
-        "assemble_tiles.py:TilesToImageThreaded",
-        "assemble complete",
-        {
-            "work_items": len(work_items),
-            "mask_coverage": float(mask.mean()),
-            "output_shape": list(full_image.shape),
-            "target_space_scale": target_space_scale,
-            "void_1974_2450": _void_sample,
-        },
-        hypothesis_id="H7",
-    )
-    # #endregion
 
     if isinstance(full_image, np.memmap):
         full_image.flush()
@@ -960,26 +887,6 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         vm = vm & (fixedImage > 0)
         centerDistanceImage = xp.where(vm, cd, xp.asarray(sentinel, dtype=cd.dtype))
         fixedImage = xp.where(vm, fixedImage, xp.asarray(0, dtype=fixedImage.dtype))
-        # #region agent log
-        vm_host = vm.get() if hasattr(vm, 'get') else np.asarray(vm)
-        fi_host = fixedImage.get() if hasattr(fixedImage, 'get') else np.asarray(fixedImage)
-        cd_host = centerDistanceImage.get() if hasattr(centerDistanceImage, 'get') else np.asarray(centerDistanceImage)
-        _assemble_debug_log(
-            "assemble_tiles.py:TransformTile",
-            "warp coverage",
-            {
-                "tile": os.path.basename(tile.ImagePath),
-                "valid_frac": float(vm_host.mean()),
-                "invalid_nonzero_image": int(np.count_nonzero((~vm_host) & (fi_host != 0))),
-                "invalid_low_distance": int(np.count_nonzero((~vm_host) & (cd_host < sentinel * 0.99))),
-                "image_size": list(tile.ImageSize),
-                "source_shape": list(source_image.shape[:2]),
-                "warp_shape": list(fi_host.shape),
-                "distance_cval": _distance_cval,
-            },
-            hypothesis_id="H1" if float(vm_host.mean()) < 0.5 else "H5",
-        )
-        # #endregion
 
     source_image_dtype = source_image.dtype
     del source_image

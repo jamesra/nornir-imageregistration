@@ -261,14 +261,6 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                                                                                 TargetRegion=FixedRegion,
                                                                                 target_space_scale=target_space_scale)
         if use_cp and len(tilesPathList) > 1:
-            # #region agent log
-            from nornir_imageregistration.assemble_tiles import _assemble_debug_log
-            _assemble_debug_log(
-                "mosaic_tileset.py:AssembleImage",
-                "GPU threaded assemble path",
-                {"tile_count": len(tilesPathList), "target_space_scale": target_space_scale},
-            )
-            # #endregion
             return nornir_imageregistration.assemble_tiles.TilesToImageThreaded(self,  # type: ignore[return-value]
                                                                                   TargetRegion=FixedRegion,
                                                                                   target_space_scale=target_space_scale)

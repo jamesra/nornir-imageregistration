@@ -417,22 +417,6 @@ def _build_linear_nd_interpolator(
             'CuPy LinearNDInterpolator failed (%s); using CPU analytic grid interpolator',
             exc,
         )
-        # #region agent log
-        try:
-            import json
-            import time
-            with open("/workspace/.cursor/debug-5c3155.log", "a", encoding="utf-8") as _fh:
-                _fh.write(json.dumps({
-                    "sessionId": "5c3155",
-                    "timestamp": int(time.time() * 1000),
-                    "location": "gridtransform.py:_build_linear_nd_interpolator",
-                    "message": "degenerate culinear -> CPU analytic",
-                    "data": {"grid_dims": grid_dims, "n_control": int(len(target_points))},
-                    "hypothesisId": "H6",
-                }, default=str) + "\n")
-        except OSError:
-            pass
-        # #endregion
         # Degenerate cuLinearND often coincides with highly warped TargetPoints.  The GPU
         # analytic path (_CuGridTopologyInterpolator) uses bounding-box cell geometry and can
         # return mostly NaN/wrong inverses on those tiles (e.g. TEM section edge tiles),
