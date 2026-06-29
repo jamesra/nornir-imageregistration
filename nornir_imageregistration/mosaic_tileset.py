@@ -242,8 +242,8 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         ``TilesToImageParallel`` (multiprocess pool) whenever the tileset has more than
         one tile. CUDA initialization is deferred until CuPy is selected so fork-based
         workers do not inherit a broken GPU context.
-        On the GPU (CuPy) backend, ``TilesToImageThreaded`` overlaps per-tile I/O with
-        serialised GPU warps (see ``assemble._gpu_warp_lock``).
+        On the GPU (CuPy) backend, ``TilesToImage`` warps tiles serially on the GPU
+        (one batched image+distance warp per tile).
 
         :param FixedRegion: Rectangle bounding the region to assemble in target space.
         :param target_space_scale: Scalar for target space; used to downsample the output.
@@ -260,10 +260,6 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                                                                                 pool=None,
                                                                                 TargetRegion=FixedRegion,
                                                                                 target_space_scale=target_space_scale)
-        if use_cp and len(tilesPathList) > 1:
-            return nornir_imageregistration.assemble_tiles.TilesToImageThreaded(self,  # type: ignore[return-value]
-                                                                                  TargetRegion=FixedRegion,
-                                                                                  target_space_scale=target_space_scale)
         return nornir_imageregistration.assemble_tiles.TilesToImage(self,  # type: ignore[return-value]
                                                                     TargetRegion=FixedRegion,
                                                                     target_space_scale=target_space_scale)

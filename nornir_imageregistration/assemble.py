@@ -127,10 +127,7 @@ e coordinates.
 
     write_space_coords = GetROICoords(botleft, area)
 
-    xp_coords = cp.get_array_module(write_space_coords)
-    inverse_input = write_space_coords.astype(np.float32, copy=False)
-
-    read_space_coords = transform.InverseTransform(inverse_input, extrapolate=extrapolate).astype(np.float32,
+    read_space_coords = transform.InverseTransform(write_space_coords, extrapolate=extrapolate).astype(np.float32,
                                                                                                        copy=False)
     (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndices(read_space_coords)
 
@@ -283,8 +280,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     if return_valid_mask and return_shared_memory:
         raise ValueError("return_valid_mask is not supported with return_shared_memory")
 
-    xp = cp.get_array_module(target_coords)
-    use_cp = xp is cp
+    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+    xp = cp if use_cp else np
     sp = cupyx.scipy if use_cp else scipy
 
     # cupyx.scipy.ndimage.map_coordinates (and xp.full) must not receive Python bool: NVRTC sees "False"/"True".
@@ -303,9 +300,14 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         source_coords = nornir_imageregistration.EnsurePointsAre2DArray(source_coords)
         if not isinstance(source_image, cp.ndarray):
             source_image = cp.asarray(source_image)
-
-    # Match output metadata arrays to the coordinate backend (tuple origins stay NumPy from Ensure*).
-    output_origin = xp.asarray(output_origin, dtype=np.int32)
+        # Tuple/list origins are NumPy by Ensure* policy; promote for GPU warp math.
+        output_origin = cp.asarray(output_origin, dtype=np.int32)
+        output_area = cp.asarray(output_area, dtype=np.int32)
+    else:
+        if output_origin.dtype != np.int32:
+            output_origin = np.asarray(output_origin, dtype=np.int32)
+        if output_area.dtype != np.int32:
+            output_area = np.asarray(output_area, dtype=np.int32)
 
     if source_coords.shape[0] == 0:
         # No points transformed into the requested area, return empty image
@@ -375,23 +377,24 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     else:
         order = int(interpolation_order)
     prefilter = order > 1
-    _h, _w = subroi_warpedImage.shape[:2]
-    scatter_in_bounds = (
-            (filtered_source_coords[:, 0] >= 0) & (filtered_source_coords[:, 0] < _h) &
-            (filtered_source_coords[:, 1] >= 0) & (filtered_source_coords[:, 1] < _w)
-    )
-    if clamp_source_coords:
-        _last_y = max(0, _h - 1)
-        _last_x = max(0, _w - 1)
-        filtered_source_coords = xp.stack([
-            xp.clip(filtered_source_coords[:, 0], 0, _last_y),
-            xp.clip(filtered_source_coords[:, 1], 0, _last_x),
-        ], axis=1)
-    elif return_valid_mask:
-        # Do not clamp out-of-bounds source coords to the edge (that smears border pixels).
-        # Only sample pixels whose inverse map lands inside the source image.
-        filtered_source_coords = filtered_source_coords[scatter_in_bounds]
-        inbounds_target_coords = inbounds_target_coords[scatter_in_bounds]
+    if clamp_source_coords or return_valid_mask:
+        _h, _w = subroi_warpedImage.shape[:2]
+        scatter_in_bounds = (
+                (filtered_source_coords[:, 0] >= 0) & (filtered_source_coords[:, 0] < _h) &
+                (filtered_source_coords[:, 1] >= 0) & (filtered_source_coords[:, 1] < _w)
+        )
+        if clamp_source_coords:
+            _last_y = max(0, _h - 1)
+            _last_x = max(0, _w - 1)
+            filtered_source_coords = xp.stack([
+                xp.clip(filtered_source_coords[:, 0], 0, _last_y),
+                xp.clip(filtered_source_coords[:, 1], 0, _last_x),
+            ], axis=1)
+        elif return_valid_mask:
+            # Do not clamp out-of-bounds source coords to the edge (that smears border pixels).
+            # Only sample pixels whose inverse map lands inside the source image.
+            filtered_source_coords = filtered_source_coords[scatter_in_bounds]
+            inbounds_target_coords = inbounds_target_coords[scatter_in_bounds]
     with IgnoreUnderflow(
             f"Underflow error assembling image.  min_val={subroi_warpedImage.min()} max_val={subroi_warpedImage.max()} mean={subroi_warpedImage.mean()} standardDev={np.std(subroi_warpedImage)}"):
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,  # type: ignore[union-attr]
@@ -441,16 +444,13 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # Scipy's interpolation can infer values slightly outside the source data's range.  We clip the result to fit in the original range of values
     # We need to check there are no NaN values 
-    any_nan_values: bool = bool(xp.any(xp.isnan(subroi_warpedImage)))
     cval_float = float(cval) if cval is not None else 0.0
-    if any_nan_values:
-        nan_mask = xp.logical_not(xp.isnan(subroi_warpedImage))
-        source_peak = float(xp.max(subroi_warpedImage[nan_mask]))
-    else:
-        source_peak = float(xp.max(subroi_warpedImage))
-    preserve_cval_sentinel = cval_float > source_peak
+    # Distance warps pass max-float16 cval; image warps use 0. Skip clip for the sentinel
+    # without float(xp.max(...)) — that would sync the GPU on every tile warp.
+    preserve_cval_sentinel = cval_float > 1.0
     if not preserve_cval_sentinel:
         if any_nan_values:
+            nan_mask = xp.logical_not(xp.isnan(subroi_warpedImage))
             min_val = subroi_warpedImage[nan_mask].min()
             max_val = subroi_warpedImage[nan_mask].max()
             xp.clip(outputImage, a_min=min_val, a_max=max_val, out=outputImage)
