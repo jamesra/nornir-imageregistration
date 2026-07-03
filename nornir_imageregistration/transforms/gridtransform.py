@@ -510,6 +510,15 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def OnFixedPointChanged(self):
         super(GridTransform, self).OnFixedPointChanged()
+        try:
+            from nornir_imageregistration import interactive_edit
+            if interactive_edit.in_progress():
+                self._ForwardInterpolator = None
+                self._InverseInterpolator = None
+                super(ControlPointBase, self).OnTransformChanged()
+                return
+        except ImportError:
+            pass
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
         self._fixedtri = None
@@ -837,6 +846,15 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPUComponent, self).OnFixedPointChanged()
+        try:
+            from nornir_imageregistration import interactive_edit
+            if interactive_edit.in_progress():
+                self._ForwardInterpolator = None
+                self._InverseInterpolator = None
+                super(ControlPointBase_GPUComponent, self).OnTransformChanged()
+                return
+        except ImportError:
+            pass
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
         self._fixedtri = None
@@ -1113,6 +1131,15 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPU, self).OnFixedPointChanged()
+        try:
+            from nornir_imageregistration import interactive_edit
+            if interactive_edit.in_progress():
+                self._ForwardInterpolator = None
+                self._InverseInterpolator = None
+                super(ControlPointBase_GPUComponent, self).OnTransformChanged()
+                return
+        except ImportError:
+            pass
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
         super(GridTransform_GPU, self).OnTransformChanged()

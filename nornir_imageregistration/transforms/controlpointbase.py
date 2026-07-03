@@ -135,6 +135,13 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         return same_np.astype(bool, copy=False)
 
     def OnTransformChanged(self):
+        try:
+            from nornir_imageregistration import interactive_edit
+            if interactive_edit.in_progress():
+                super(ControlPointBase, self).OnTransformChanged()
+                return
+        except ImportError:
+            pass
         self.ClearDataStructures()
         super(ControlPointBase, self).OnTransformChanged()
 
@@ -225,7 +232,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
 
     @points.setter
     def points(self, val):
-        self._points = np.asarray(val, dtype=np.float32)
+        self._points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(val, dtype=np.float32)
         self.OnTransformChanged()
 
     @property
@@ -430,6 +437,13 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         return same_np.astype(bool, copy=False)
 
     def OnTransformChanged(self):
+        try:
+            from nornir_imageregistration import interactive_edit
+            if interactive_edit.in_progress():
+                super(ControlPointBase_GPUComponent, self).OnTransformChanged()
+                return
+        except ImportError:
+            pass
         self.ClearDataStructures()
         super(ControlPointBase_GPUComponent, self).OnTransformChanged()
 

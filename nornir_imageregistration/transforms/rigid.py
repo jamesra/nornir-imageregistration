@@ -28,6 +28,16 @@ from nornir_imageregistration.transforms.utils import IdentityMatrix, RotationMa
     FlipMatrixY, FlipMatrixX
 
 
+def _to_xp_array(arr, xp):
+    """Return *arr* on the same backend as *xp* without relying on implicit conversion.
+
+    cupy forbids ``numpy.asarray(cupy_array)``; use ``.get()`` explicitly instead.
+    """
+    if xp is np:
+        return arr.get() if hasattr(arr, 'get') else arr
+    return xp.asarray(arr)
+
+
 class RigidTranslation(base.ITransformScaling,
                        base.ITransformTranslation,
                        base.IRigidTransform,
@@ -342,7 +352,7 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(self.forward_matrix, xp.transpose(centered_points)))
+        output_points = xp.transpose(xp.matmul(_to_xp_array(self.forward_matrix, xp), xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
@@ -358,7 +368,7 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(self.inverse_matrix, xp.transpose(centered_points)))
+        output_points = xp.transpose(xp.matmul(_to_xp_array(self.inverse_matrix, xp), xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
