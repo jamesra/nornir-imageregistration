@@ -500,6 +500,9 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
     def ToITKString(self) -> str:
+        """Serialize to ITK string; use simpler Rigid2DTransform when scale is unity."""
+        if np.isclose(self._scalar, 1.0):
+            return Rigid.ToITKString(self)
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
                                                                                                    self.angle,
                                                                                                    self.source_space_center_of_rotation[

@@ -571,3 +571,89 @@ class TestRigidFactory(ImageTestBase):
                        shape])
 
         TransformAgreementCheck(r, m, p1)
+
+
+class TestCenteredSimilarityToITKString(unittest.TestCase):
+    """CenteredSimilarity2DTransform saves simpler Rigid2D strings when scalar is unity."""
+
+    def test_unity_scale_translate_only_uses_rigid_string(self) -> None:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(3.0, 7.0),
+            source_rotation_center=(0, 0),
+            angle=0,
+            scalar=1,
+        )
+        itk_string = transform.ToITKString()
+        self.assertTrue(itk_string.startswith("Rigid2DTransform_double_2_2"))
+        self.assertFalse(itk_string.startswith("CenteredSimilarity2DTransform"))
+
+    def test_unity_scale_with_rotation_uses_rigid_string(self) -> None:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(1.0, 2.0),
+            source_rotation_center=(10.0, 20.0),
+            angle=0.25,
+            scalar=1,
+        )
+        itk_string = transform.ToITKString()
+        self.assertTrue(itk_string.startswith("Rigid2DTransform_double_2_2"))
+
+    def test_non_unity_scale_uses_similarity_string(self) -> None:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(1.0, 2.0),
+            source_rotation_center=(0, 0),
+            angle=0.1,
+            scalar=1.05,
+        )
+        itk_string = transform.ToITKString()
+        self.assertTrue(itk_string.startswith("CenteredSimilarity2DTransform_double_2_2"))
+
+    def test_unity_scale_round_trip_preserves_geometry(self) -> None:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(4.0, 5.0),
+            source_rotation_center=(1.0, 2.0),
+            angle=0.15,
+            scalar=1,
+        )
+        ref_points = np.array([[0, 0], [10, 20], [30, 40]], dtype=float)
+        ref_targets = transform.Transform(ref_points)
+        loaded = nornir_imageregistration.transforms.LoadTransform(transform.ToITKString())
+        np.testing.assert_allclose(loaded.Transform(ref_points), ref_targets, atol=1e-5)
+
+    def test_unity_scale_save_load_save_is_idempotent(self) -> None:
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(2.0, 3.0),
+            source_rotation_center=(0, 0),
+            angle=0,
+            scalar=1,
+        )
+        ref_points = np.array([[0, 0], [5, 10]], dtype=float)
+        ref_targets = transform.Transform(ref_points)
+        first_string = transform.ToITKString()
+        reloaded = nornir_imageregistration.transforms.LoadTransform(first_string)
+        second_string = nornir_imageregistration.transforms.TransformToIRToolsString(reloaded)
+        self.assertTrue(first_string.startswith("Rigid2DTransform_double_2_2"))
+        self.assertTrue(second_string.startswith("Rigid2DTransform_double_2_2"))
+        np.testing.assert_allclose(reloaded.Transform(ref_points), ref_targets, atol=1e-5)
+
+
+class TestConvertTransformToRigidTransform(unittest.TestCase):
+    """Rigid conversions should emit CenteredSimilarity2DTransform for scaling support."""
+
+    def test_plain_rigid_becomes_similarity(self) -> None:
+        rigid = nornir_imageregistration.transforms.Rigid(
+            target_offset=(1.0, 2.0),
+            source_rotation_center=(3.0, 4.0),
+            angle=0.2,
+        )
+        converted = nornir_imageregistration.transforms.ConvertTransformToRigidTransform(rigid)
+        self.assertIsInstance(
+            converted, nornir_imageregistration.transforms.CenteredSimilarity2DTransform)
+        self.assertAlmostEqual(converted.scalar, 1.0)
+        self.assertTrue(hasattr(converted, "ScaleWarped"))
+
+    def test_rigid_translation_becomes_similarity(self) -> None:
+        rigid = nornir_imageregistration.transforms.RigidTranslation(target_offset=(5.0, 6.0))
+        converted = nornir_imageregistration.transforms.ConvertTransformToRigidTransform(rigid)
+        self.assertIsInstance(
+            converted, nornir_imageregistration.transforms.CenteredSimilarity2DTransform)
+        self.assertAlmostEqual(converted.scalar, 1.0)
