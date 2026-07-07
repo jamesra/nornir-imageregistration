@@ -657,3 +657,35 @@ class TestConvertTransformToRigidTransform(unittest.TestCase):
         self.assertIsInstance(
             converted, nornir_imageregistration.transforms.CenteredSimilarity2DTransform)
         self.assertAlmostEqual(converted.scalar, 1.0)
+
+
+class TestScaleWarpedAboutSourcePoint(unittest.TestCase):
+    """ScaleWarpedAboutSourcePoint pins the pivot in target space."""
+
+    def test_pivot_unchanged_in_target_space(self) -> None:
+        pivot = np.array([12.0, 34.0], dtype=np.float32)
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(5.0, 6.0),
+            source_rotation_center=(0.0, 0.0),
+            angle=0.2,
+            scalar=1.0,
+        )
+        target_before = np.squeeze(transform.Transform(pivot.reshape(1, 2)))
+        transform.ScaleWarpedAboutSourcePoint(1.1, pivot)
+        target_after = np.squeeze(transform.Transform(pivot.reshape(1, 2)))
+        np.testing.assert_allclose(target_before, target_after, atol=1e-4)
+
+    def test_off_pivot_point_moves(self) -> None:
+        pivot = np.array([0.0, 0.0], dtype=np.float32)
+        off_pivot = np.array([10.0, 0.0], dtype=np.float32)
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(0.0, 0.0),
+            source_rotation_center=(50.0, 50.0),
+            angle=0.0,
+            scalar=1.0,
+        )
+        target_before = np.squeeze(transform.Transform(off_pivot.reshape(1, 2)))
+        transform.ScaleWarpedAboutSourcePoint(2.0, pivot)
+        target_after = np.squeeze(transform.Transform(off_pivot.reshape(1, 2)))
+        self.assertFalse(np.allclose(target_before, target_after, atol=1e-4))
+        self.assertAlmostEqual(transform.scalar, 0.5)

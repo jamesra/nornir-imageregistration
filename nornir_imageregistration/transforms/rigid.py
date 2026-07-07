@@ -520,6 +520,27 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         self._update_transform_matrix()
         self.OnTransformChanged()
 
+    def ScaleWarpedAboutSourcePoint(
+            self,
+            scale_factor: float,
+            source_point_yx: NDArray[np.floating]) -> None:
+        """Scale the warped layer about a source-space pivot.
+
+        Updates scalar and target_offset so ``Transform(source_point_yx)`` is unchanged
+        in target space (cursor-pinned scale, mirroring RotateFixedAboutSourcePoint).
+        """
+        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
+        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._source_space_center_of_rotation = source_point.copy()
+        self._scalar /= scale_factor
+        self._update_transform_matrix()
+        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._target_offset = (
+            self._target_offset + (target_before - target_after).astype(np.float32)
+        ).astype(np.float32, copy=False)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
     def ScaleFixed(self, scalar: float):
         """Scale target space control points by scalar"""
         self._scalar *= scalar
