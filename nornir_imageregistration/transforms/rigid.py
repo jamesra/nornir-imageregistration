@@ -38,6 +38,13 @@ def _to_xp_array(arr, xp):
     return xp.asarray(arr)
 
 
+def _numpy_rotation_matrix_yx(rangle: float) -> NDArray[np.float32]:
+    """Return a 3x3 rotation matrix for (Y,X) homogeneous coordinates using NumPy only."""
+    angle = float(rangle)
+    cosine, sine = np.cos(angle), np.sin(angle)
+    return np.array([[cosine, sine, 0.0], [-sine, cosine, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+
+
 class RigidTranslation(base.ITransformScaling,
                        base.ITransformTranslation,
                        base.IRigidTransform,
@@ -87,6 +94,20 @@ class RigidTranslation(base.ITransformScaling,
     def TranslateWarped(self, offset: NDArray[np.floating]):
         """Translate all warped points by the specified amount"""
         self._target_offset = self._target_offset - np.asarray(offset, dtype=np.float32).ravel()[:2]
+        self.OnTransformChanged()
+
+    def RotateFixed(self, rangle: float, rotation_center: NDArray[np.floating] | None):
+        """Rotate all fixed points by the specified amount."""
+        self._angle = self._angle - rangle
+        if rotation_center is not None:
+            center = np.asarray(rotation_center, dtype=np.float32).ravel()[:2]
+            offset_yx = np.asarray(self._target_offset, dtype=np.float32) - center
+            rotated = _numpy_rotation_matrix_yx(-rangle) @ np.array(
+                [offset_yx[0], offset_yx[1], 1.0], dtype=np.float32)
+            self._target_offset = (center + rotated[:2]).astype(np.float32)
+        update_matrix = getattr(self, '_update_transform_matrix', None)
+        if update_matrix is not None:
+            update_matrix()
         self.OnTransformChanged()
 
     def Scale(self, scalar: float):
@@ -381,6 +402,27 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         if rotation_center is not None:
             self._source_space_center_of_rotation = xp.array(rotation_center)
 
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def RotateFixedAboutSourcePoint(
+            self,
+            rangle: float,
+            source_point_yx: NDArray[np.floating]) -> None:
+        """Rotate the fixed layer about a source-space pivot.
+
+        Updates angle and target_offset so ``Transform(source_point_yx)`` is unchanged
+        in target space (cursor-pinned composite rotation).
+        """
+        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
+        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._source_space_center_of_rotation = source_point.copy()
+        self._angle = self._angle - rangle
+        self._update_transform_matrix()
+        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._target_offset = (
+            self._target_offset + (target_before - target_after).astype(np.float32)
+        ).astype(np.float32, copy=False)
         self._update_transform_matrix()
         self.OnTransformChanged()
 
