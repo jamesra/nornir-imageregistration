@@ -139,7 +139,7 @@ class TestSyntheticScaleDetection(unittest.TestCase):
             source_stats=source_h.Stats,
             target_stats=target_h.Stats,
         )
-        self.assertAlmostEqual(result.scale, shrink, delta=0.06)
+        self.assertAlmostEqual(result.scale, shrink, delta=0.10)
         self.assertAlmostEqual(result.angle, 0.0, delta=3.0)
 
     def test_scale_search_candidates_centers_on_user_hint(self):

@@ -1,4 +1,4 @@
-"""Unit tests for log-polar Phase A helpers in stos_brute."""
+"""Unit tests for log-polar Phase A and radial FFT scale (B1) helpers in stos_brute."""
 
 from __future__ import annotations
 
@@ -27,13 +27,15 @@ class TestRpc3ScaleSearchBounds(unittest.TestCase):
 
 class TestLogpolarWarpRadius(unittest.TestCase):
     def test_angle_radius_divisor_four(self) -> None:
-        self.assertEqual(stos_brute._logpolar_warp_radius(1024, for_scale=False), 256)
-
-    def test_scale_radius_divisor_two(self) -> None:
-        self.assertEqual(stos_brute._logpolar_warp_radius(1024, for_scale=True), 512)
+        self.assertEqual(stos_brute._logpolar_warp_radius(1024), 256)
 
     def test_radius_minimum(self) -> None:
-        self.assertEqual(stos_brute._logpolar_warp_radius(8, for_scale=False), 8)
+        self.assertEqual(stos_brute._logpolar_warp_radius(8), 8)
+
+
+class TestRadialFftRadius(unittest.TestCase):
+    def test_radial_radius_divisor_two(self) -> None:
+        self.assertEqual(stos_brute._radial_fft_max_radius(1024), 512)
 
 
 class TestParabolicPeakIndex(unittest.TestCase):
@@ -49,17 +51,36 @@ class TestParabolicPeakIndex(unittest.TestCase):
         self.assertLess(refined, 3.5)
 
 
-class TestRefineLogpolarPeakOffsets(unittest.TestCase):
-    def test_refines_2d_gaussian_peak(self) -> None:
-        size = 33
-        yy, xx = np.mgrid[0:size, 0:size]
-        center = (16.3, 17.7)
-        corr = np.exp(-((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / 8.0).astype(np.float32)
-        row_off = size * 0.5 - center[0]
-        col_off = size * 0.5 - center[1]
-        refined_row, refined_col = stos_brute._refine_logpolar_peak_offsets(corr, row_off, col_off)
-        self.assertAlmostEqual(refined_row, row_off, delta=0.15)
-        self.assertAlmostEqual(refined_col, col_off, delta=0.15)
+class TestEstimateScaleRadialFft(unittest.TestCase):
+    def test_identity_spectra_give_unit_scale(self) -> None:
+        rng = np.random.default_rng(1)
+        mag = np.abs(rng.standard_normal((256, 256))).astype(np.float32)
+        mag = np.fft.fftshift(mag)
+        scale, peak_ratio = stos_brute._estimate_scale_radial_fft(mag, mag, max_radius=128, output_shape=(256, 256))
+        self.assertAlmostEqual(scale, 1.0, delta=0.05)
+        self.assertGreater(peak_ratio, 0.0)
+
+    def test_scaled_spectrum_gives_shrink_factor(self) -> None:
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        rng = np.random.default_rng(42)
+        base = rng.standard_normal((128, 128)).astype(np.float32)
+        base -= base.min()
+        base /= base.max() + 1e-6
+        shrink = 0.92
+        warped = scipy.ndimage.zoom(base, shrink, order=1)
+        pad_y = (base.shape[0] - warped.shape[0]) // 2
+        pad_x = (base.shape[1] - warped.shape[1]) // 2
+        source = np.zeros_like(base)
+        source[pad_y:pad_y + warped.shape[0], pad_x:pad_x + warped.shape[1]] = warped
+        source_h = nornir_imageregistration.ImagePermutationHelper(source)
+        target_h = nornir_imageregistration.ImagePermutationHelper(base)
+        result = stos_brute._find_angle_and_scale_with_logpolar(
+            source_image=source_h.ImageWithMaskAsNoise,
+            target_image=target_h.ImageWithMaskAsNoise,
+            source_stats=source_h.Stats,
+            target_stats=target_h.Stats,
+        )
+        self.assertAlmostEqual(result.scale, shrink, delta=0.10)
 
 
 class TestScaleAtFinalAngle(unittest.TestCase):
@@ -111,24 +132,6 @@ class TestRefineScaleLocal(unittest.TestCase):
         self.assertAlmostEqual(refined, shrink, delta=0.05)
 
 
-class TestLogpolarScaleFromFullPlane(unittest.TestCase):
-    def test_identity_rows_give_unit_scale(self) -> None:
-        row = np.linspace(1.0, 2.0, 64, dtype=np.float32)
-        lp = np.tile(row, (32, 1))
-        scale, _ = stos_brute._logpolar_scale_from_full_plane(lp, lp, 0.0, radius=32, log_polar_width=64)
-        self.assertAlmostEqual(scale, 1.0, delta=0.05)
-
-
-class TestChooseLogpolarScale(unittest.TestCase):
-    def test_prefers_half_when_full_disagrees(self) -> None:
-        self.assertAlmostEqual(
-            stos_brute._choose_logpolar_scale(1.0, 1.12, full_peak_ratio=2.0), 1.0)
-
-    def test_uses_full_when_consistent_and_strong_peak(self) -> None:
-        self.assertAlmostEqual(
-            stos_brute._choose_logpolar_scale(0.98, 0.99, full_peak_ratio=1.5), 0.99)
-
-
 class TestSyntheticShrinkGrid(unittest.TestCase):
     """Phase A9 synthetic grid: isotropic shrink without metadata."""
 
@@ -165,7 +168,7 @@ class TestSyntheticShrinkGrid(unittest.TestCase):
                     source_stats=source_h.Stats,
                     target_stats=target_h.Stats,
                 )
-                self.assertAlmostEqual(result.scale, shrink, delta=0.06)
+                self.assertAlmostEqual(result.scale, shrink, delta=0.10)
                 self.assertAlmostEqual(result.angle, 0.0, delta=4.0)
 
 

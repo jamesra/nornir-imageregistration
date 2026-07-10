@@ -16,6 +16,9 @@ Measured |percent change| from unity (|scale - 1| x 100):
 Blind search grids use min/max scalar +/- ~2% margin (0.90-1.12). Metadata or
 ``initial_scale_hint`` narrows refinement around the hinted residual.
 
+Scale is estimated with a decoupled log-polar warp of the DoG |FFT| magnitude spectrum
+(Reddy & Chatterji 1996, Phase B1); the angle half-plane estimates rotation only.
+
 Created on Oct 4, 2012
 
 @author: u0490822
@@ -70,12 +73,11 @@ _FALLBACK_MAX_HALF_WIDTH = 45.0
 _FALLBACK_WIDEN_UNCERTAINTY_SCALE = 2.0
 _FALLBACK_WEIGHT_RATIO_FLOOR = 0.85
 
-# Log-polar warp tuning (Phase A2–A4). Angle and scale use separate warps so radius/order
-# changes for scale do not destabilize angle (690–691 idoc regression with order=1 on angle).
-_LOGPOLAR_WARP_ORDER_ANGLE = 0
-_LOGPOLAR_RADIUS_DIVISOR_ANGLE = 4
-_LOGPOLAR_WARP_ORDER_SCALE = 1
-_LOGPOLAR_RADIUS_DIVISOR_SCALE = 2
+# Log-polar warp tuning (Phase A2–A4). Angle-only log-polar; scale uses radial FFT (B1).
+_LOGPOLAR_WARP_ORDER = 0
+_LOGPOLAR_RADIUS_DIVISOR = 4
+# B1 scale: log-polar warp of DoG |FFT| magnitude (radius divisor 2 vs angle 4).
+_RADIAL_FFT_RADIUS_DIVISOR = 2
 
 # RPC3 manual corpus (see module docstring). Reference-only; search bounds derived below.
 _RPC3_MANUAL_SCALE_MEAN = 1.0054
@@ -111,15 +113,14 @@ _SCALE_REFINE_WIDE_MIN_WEIGHT_RATIO = 1.12
 _SCALE_REFINE_WIDE_MAX_SEED_DELTA = 0.03
 
 
-def _logpolar_warp_radius(max_dimension: int, *, for_scale: bool = False) -> int:
-    """FFT magnitude radius for ``warp_polar`` (scale path uses a wider spectrum)."""
-    divisor = _LOGPOLAR_RADIUS_DIVISOR_SCALE if for_scale else _LOGPOLAR_RADIUS_DIVISOR_ANGLE
-    return max(8, max_dimension // divisor)
+def _logpolar_warp_radius(max_dimension: int) -> int:
+    """FFT magnitude radius for angle-only ``warp_polar``."""
+    return max(8, max_dimension // _LOGPOLAR_RADIUS_DIVISOR)
 
 
-def _logpolar_warp_order(*, for_scale: bool = False) -> int:
-    """Interpolation order for ``warp_polar`` (finer on the scale-only warp)."""
-    return _LOGPOLAR_WARP_ORDER_SCALE if for_scale else _LOGPOLAR_WARP_ORDER_ANGLE
+def _radial_fft_max_radius(max_dimension: int) -> int:
+    """Outer radius for B1 radial log-magnitude annuli."""
+    return max(8, max_dimension // _RADIAL_FFT_RADIUS_DIVISOR)
 
 
 def _logpolar_fft_magnitude(
@@ -150,45 +151,33 @@ def _parabolic_peak_index(values: NDArray[np.floating], peak_index: int) -> floa
     return float(peak_index) + float(np.clip(delta, -0.5, 0.5))
 
 
-def _refine_logpolar_peak_offsets(
-        correlation_shifted: NDArray[np.floating],
-        row_offset: float,
-        col_offset: float) -> tuple[float, float]:
-    """Sub-pixel refinement of a log-polar phase-correlation peak (A5)."""
-    height, width = correlation_shifted.shape
-    center_row = height * 0.5
-    center_col = width * 0.5
-    peak_row = int(np.clip(round(center_row - row_offset), 1, height - 2))
-    peak_col = int(np.clip(round(center_col - col_offset), 1, width - 2))
-    refined_row = _parabolic_peak_index(correlation_shifted[:, peak_col], peak_row)
-    refined_col = _parabolic_peak_index(correlation_shifted[peak_row, :], peak_col)
-    peak_row = int(np.clip(round(refined_row), 1, height - 2))
-    peak_col = int(np.clip(round(refined_col), 1, width - 2))
-    refined_row = _parabolic_peak_index(correlation_shifted[:, peak_col], peak_row)
-    refined_col = _parabolic_peak_index(correlation_shifted[peak_row, :], peak_col)
-    return center_row - refined_row, center_col - refined_col
+def _estimate_scale_radial_fft(
+        target_magnitude: NDArray[np.floating],
+        source_magnitude: NDArray[np.floating],
+        max_radius: int,
+        output_shape: tuple[int, int]) -> tuple[float, float]:
+    """Estimate isotropic scale from decoupled log-polar |FFT| correlation (B1).
 
-
-def _logpolar_scale_from_full_plane(
-        target_log_polar: NDArray[np.floating],
-        source_log_polar: NDArray[np.floating],
-        half_corr_row_offset: float,
-        radius: int,
-        log_polar_width: int) -> tuple[float, float]:
-    """Estimate isotropic scale from full log-polar rows at the angle peak (A4).
-
-    Returns ``(scale, peak_ratio)``. Callers should prefer the half-plane scale when
-    the full-plane peak is weak or disagrees strongly with the 2D half-plane estimate.
+    Full-plane ``warp_polar`` of the DoG magnitude spectrum (rotation decoupled from
+    the angle half-plane). Column shift along log-radius gives scale
+    (Reddy & Chatterji 1996). Returns ``(scale, peak_ratio)``.
     """
-    half_height = target_log_polar.shape[0] // 2
-    corr_center_row = half_height // 2
-    row = int(round(corr_center_row + half_corr_row_offset))
-    row = int(np.clip(row, 0, target_log_polar.shape[0] - 1))
-    target_row = target_log_polar[row:row + 1, :]
-    source_row = source_log_polar[row:row + 1, :]
+    target_log_polar = skimage.transform.warp_polar(
+        target_magnitude,
+        radius=max_radius,
+        output_shape=output_shape,
+        scaling='log',
+        order=_LOGPOLAR_WARP_ORDER,
+    )
+    source_log_polar = skimage.transform.warp_polar(
+        source_magnitude,
+        radius=max_radius,
+        output_shape=output_shape,
+        scaling='log',
+        order=_LOGPOLAR_WARP_ORDER,
+    )
     phase_correlation = nornir_imageregistration.phasecorrelation.image_phase_correlation(
-        target_row, source_row)
-    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+        target_log_polar, source_log_polar)
     phase_correlation_shifted = np.fft.fftshift(phase_correlation)
     peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
     try:
@@ -198,22 +187,10 @@ def _logpolar_scale_from_full_plane(
     except FloatingPointError:
         return 1.0, 0.0
     peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
-    width = phase_correlation_shifted.shape[1]
-    center_col = width * 0.5
-    peak_col = int(np.clip(round(center_col - peak.scaled_offset[1]), 1, width - 2))
-    refined_col = _parabolic_peak_index(phase_correlation_shifted[0, :], peak_col)
-    refined_col_offset = center_col - refined_col
-    klog = log_polar_width / np.log(radius)
-    return float(np.exp(refined_col_offset / klog)), peak_ratio
-
-
-def _choose_logpolar_scale(shift_scale_half: float, shift_scale_full: float, full_peak_ratio: float) -> float:
-    """Pick half- vs full-plane scale estimate (A4)."""
-    if full_peak_ratio < 1.1:
-        return shift_scale_half
-    if abs(shift_scale_full - shift_scale_half) > 0.05:
-        return shift_scale_half
-    return shift_scale_full
+    klog = output_shape[1] / float(np.log(max(max_radius, 2)))
+    refined_col_offset = float(peak.scaled_offset[1])
+    scale = float(np.exp(refined_col_offset / klog))
+    return float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX)), peak_ratio
 
 
 def _scale_at_final_angle(
@@ -246,6 +223,22 @@ class LogPolarDiagnostics:
     strength_delta_ratio: float
     degrees_per_pixel: float
     peak_strength: float
+
+
+def _logpolar_narrow_angle_range(
+        center_angle: float,
+        diagnostics: LogPolarDiagnostics,
+        *,
+        half_width_mult: float = 4.0,
+) -> list[float]:
+    """Narrow angle grid from log-polar row spacing (degrees per pixel in warp)."""
+    half_width = max(half_width_mult * diagnostics.degrees_per_pixel, 1.0)
+    step = max(0.2, float(diagnostics.degrees_per_pixel))
+    center = _normalize_angle_degrees(center_angle)
+    return sorted({
+        _normalize_angle_degrees(center + offset)
+        for offset in np.arange(-half_width, half_width + 1e-6, step)
+    })
 
 
 def _logpolar_confidence(d: LogPolarDiagnostics) -> float:
@@ -474,14 +467,17 @@ def _refine_scale_local(source_image: NDArray[np.floating],
 
     seed_weight = _score(seed)
     narrow_deltas = _SCALE_REFINE_NARROW_DELTAS
-    scale_sources = (
-        (*_SCALE_REFINE_TISSUE_GRID, *(seed + delta for delta in narrow_deltas))
-        if wide_search
-        else tuple(seed + delta for delta in narrow_deltas)
-    )
+    inverse_seed = (1.0 / seed) if wide_search and seed > 1e-6 else None
+    scale_sources_list: list[float] = [
+        *(seed + delta for delta in narrow_deltas),
+    ]
+    if wide_search:
+        scale_sources_list.extend(_SCALE_REFINE_TISSUE_GRID)
+        if inverse_seed is not None:
+            scale_sources_list.extend(inverse_seed + delta for delta in narrow_deltas)
     coarse_candidates = sorted({
         float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
-        for scale in scale_sources
+        for scale in scale_sources_list
     })
     best_scale = seed
     best_weight = seed_weight
@@ -963,19 +959,38 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
     if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
         detected_scale = float(best_match.scale)
+        final_angle = float(best_match.angle)
+        if (
+            get_last_hybrid_fallback_stats() is None
+            and best_match.diagnostics is not None
+            and best_match.diagnostics.angle_peak_ratio < 1.35
+        ):
+            angle_range = _logpolar_narrow_angle_range(final_angle, best_match.diagnostics)
+            angle_refined = _find_best_angle(
+                source_image=source_image,
+                target_image=target_image,
+                source_stats=source_stats,
+                target_stats=target_stats,
+                angle_range=angle_range,
+                min_overlap=settings.min_overlap,
+                SingleThread=SingleThread,
+                source_scale=1.0,
+            )
+            angle_refined.flippedud = is_flipped
+            if float(angle_refined.weight) > float(best_match.weight):
+                final_angle = float(angle_refined.angle)
         refine_initial = _refine_scale_initial_center(
             settings, metadata_scale_iso, detected_scale, resolved_scale_hint)
-        use_wide = settings.initial_scale_hint is None
         detected_scale = _refine_scale_local(
             source_image, target_image, source_stats, target_stats,
-            float(best_match.angle), refine_initial, settings.min_overlap,
-            wide_search=use_wide)
+            final_angle, refine_initial, settings.min_overlap,
+            wide_search=False)
 
         translation_results = ScoreOneAngle(source_original=source_image,
                                             target_original=target_image,
                                             target_image_shape=target_image.shape,
                                             source_image_shape=source_image.shape,
-                                            angle=float(best_match.angle),
+                                            angle=final_angle,
                                             target_stats=target_stats,
                                             source_stats=source_stats,
                                             target_image_prepadded=False,
@@ -985,7 +1000,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         best_refined_match = nornir_imageregistration.AlignmentRecord(
             peak=translation_results.peak,
             weight=translation_results.weight,
-            angle=float(best_match.angle),
+            angle=final_angle,
             flipped_ud=is_flipped,
             scale=metadata_scale_iso * detected_scale)
     else:
@@ -1323,10 +1338,10 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     desired_shape = np.array([desired_height, desired_width], dtype=int)
 
     max_dimension = max([desired_height, desired_width])
-    radius_angle = _logpolar_warp_radius(max_dimension, for_scale=False)
-    radius_scale = _logpolar_warp_radius(max_dimension, for_scale=True)
+    radius_angle = _logpolar_warp_radius(max_dimension)
+    radius_radial = _radial_fft_max_radius(max_dimension)
 
-    """Use the log-polar space to determine the best angle and then use the normal phase correlation to determine the best translation"""
+    """Angle from log-polar half-plane; scale from decoupled radial log-FFT (B1)."""
     padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(target_image,
                                                                                               min_overlap=min_overlap,
                                                                                               image_median=target_stats.median,
@@ -1344,33 +1359,21 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     target_window = HannWindowCache.GetOrCreate(padded_target.shape)
     source_window = HannWindowCache.GetOrCreate(padded_source.shape)
 
-    # A8: DoG for angle; DoG also for scale warp (raw magnitude regressed 690–691 angle).
     target_freq_shift_angle = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
     source_freq_shift_angle = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
-    target_freq_shift_scale = target_freq_shift_angle
-    source_freq_shift_scale = source_freq_shift_angle
+    target_freq_shift_radial = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
+    source_freq_shift_radial = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
 
     target_image_log_polar = skimage.transform.warp_polar(target_freq_shift_angle,
                                                           radius=radius_angle,
                                                           output_shape=desired_shape,
                                                           scaling='log',
-                                                          order=_logpolar_warp_order(for_scale=False))
+                                                          order=_LOGPOLAR_WARP_ORDER)
     source_image_log_polar = skimage.transform.warp_polar(source_freq_shift_angle,
                                                           radius=radius_angle,
                                                           output_shape=desired_shape,
                                                           scaling='log',
-                                                          order=_logpolar_warp_order(for_scale=False))
-
-    target_image_log_polar_scale = skimage.transform.warp_polar(target_freq_shift_scale,
-                                                                radius=radius_scale,
-                                                                output_shape=desired_shape,
-                                                                scaling='log',
-                                                                order=_logpolar_warp_order(for_scale=True))
-    source_image_log_polar_scale = skimage.transform.warp_polar(source_freq_shift_scale,
-                                                                radius=radius_scale,
-                                                                output_shape=desired_shape,
-                                                                scaling='log',
-                                                                order=_logpolar_warp_order(for_scale=True))
+                                                          order=_LOGPOLAR_WARP_ORDER)
 
     target_image_log_polar_left_half = target_image_log_polar[:target_image_log_polar.shape[0] // 2, :]
     source_image_log_polar_left_half = source_image_log_polar[:source_image_log_polar.shape[0] // 2, :]
@@ -1396,38 +1399,23 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     angle_scale_peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
     refined_row_offset = float(angle_scale_peak.scaled_offset[0])
-    refined_col_offset = float(angle_scale_peak.scaled_offset[1])
-    try:
-        phase_correlation_viz = peak_search  # normalized copy for visualization only
-    except FloatingPointError:
-        pass
 
     degrees_per_pixel = 360 / desired_shape[0]
     recovered_angle = float(degrees_per_pixel * refined_row_offset)
-    klog = desired_shape[1] / np.log(radius_angle)
-    shift_scale_half = float(np.exp(refined_col_offset / klog))
-    try:
-        shift_scale_full, full_scale_peak_ratio = _logpolar_scale_from_full_plane(
-            target_image_log_polar_scale,
-            source_image_log_polar_scale,
-            refined_row_offset,
-            radius_scale,
-            int(desired_shape[1]),
-        )
-    except FloatingPointError:
-        shift_scale_full = shift_scale_half
-        full_scale_peak_ratio = 0.0
-    shift_scale = _choose_logpolar_scale(shift_scale_half, shift_scale_full, full_scale_peak_ratio)
+    scale_seed, radial_peak_ratio = _estimate_scale_radial_fft(
+        target_freq_shift_radial,
+        source_freq_shift_radial,
+        radius_radial,
+        (int(desired_shape[0]), int(desired_shape[1])),
+    )
 
     if nornir_imageregistration.in_debug_mode():
         print(
-            f'logpolar scale half_plane={shift_scale_half} full_plane={shift_scale_full} '
-            f'chosen={shift_scale} full_peak_ratio={full_scale_peak_ratio} '
-            f'radius_angle={radius_angle} radius_scale={radius_scale}')
+            f'radial_fft scale_seed={scale_seed} peak_ratio={radial_peak_ratio} '
+            f'radius_radial={radius_radial} angle={recovered_angle:.4f}')
 
+    # B1 scale is a seed only; do not pre-scale before angle / 180° disambiguation.
     registration_source = source_image.astype(np.float32)
-    if not np.isclose(shift_scale, 1.0):
-        registration_source = _scale_registration_image(registration_source, shift_scale)
 
     # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
     rotated_padded_source = pad_and_rotate_image(image=registration_source,
@@ -1509,23 +1497,16 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     if nornir_imageregistration.in_debug_mode():
         print(
-            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} scale {shift_scale} {'rotated_180' if rotated_180 else ""}')
+            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} '
+            f'scale_seed {scale_seed} {'rotated_180' if rotated_180 else ""}')
 
-    # shiftr, shiftc = shifts[:2]
-    # degrees_per_pixel = 360 / desired_shape[0]
-    # recovered_angle = degrees_per_pixel * shiftr
-    # klog = desired_shape[1] / np.log(radius)
-    # shift_scale = np.exp(shiftc / klog)
-
-    #    return AngleScaleResult(angle=recovered_angle, scale=shift_scale, weight=angle_scale_peak.peak_strength)
     strength_delta_ratio = abs(float(original_peak.peak_strength) - float(rotated_peak.peak_strength)) / max(
         max(float(original_peak.peak_strength), float(rotated_peak.peak_strength)), 1e-6
     )
     ambiguous = bool(
         angle_scale_peak_ratio < 1.2
-        or translation_peak_ratio < 1.12
-        or strength_delta_ratio < 0.12
-        or (abs(shift_scale - 1.0) > 0.02 and angle_scale_peak_ratio < 1.35)
+        or (translation_peak_ratio < 1.12 and angle_scale_peak_ratio < 1.35)
+        or (strength_delta_ratio < 0.12 and angle_scale_peak_ratio < 1.35)
     )
 
     diagnostics = LogPolarDiagnostics(
@@ -1536,15 +1517,20 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
         peak_strength=float(angle_scale_peak.peak_strength),
     )
 
-    scale_seed = float(shift_scale)
-    if rotated_180 or abs(scale_seed - 1.0) > (_RPC3_MANUAL_ABS_PCT_CHANGE_MIN / 100.0):
+    shift_scale = float(scale_seed)
+    refine_threshold = _RPC3_MANUAL_ABS_PCT_CHANGE_MIN / 100.0
+    if rotated_180 or abs(scale_seed - 1.0) > refine_threshold:
         shift_scale = _scale_at_final_angle(
             source_image, target_image, source_stats, target_stats,
-            recovered_angle, scale_seed, min_overlap, wide_search=True)
+            recovered_angle, scale_seed, min_overlap, wide_search=False)
         if nornir_imageregistration.in_debug_mode():
             print(
-                f'logpolar fixed-angle scale: seed={scale_seed:.6f} refined={shift_scale:.6f} '
+                f'B1 fixed-angle scale: seed={scale_seed:.6f} refined={shift_scale:.6f} '
                 f'angle={recovered_angle:.4f}')
+    elif nornir_imageregistration.in_debug_mode():
+        print(
+            f'B1 scale seed={scale_seed:.6f} angle={recovered_angle:.4f} '
+            f'peak_ratio={radial_peak_ratio:.3f}')
 
     return AngleScaleResult(
         angle=recovered_angle,
