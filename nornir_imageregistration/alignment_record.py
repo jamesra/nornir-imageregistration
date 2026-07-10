@@ -194,6 +194,14 @@ class AlignmentRecord(object):
 
         target_translation = source_to_target_offset + self.peak
 
+        if not np.isclose(self._scale, 1.0):
+            return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                target_offset=target_translation,
+                source_rotation_center=source_center_of_rotation,
+                angle=self.rangle,
+                scalar=float(self._scale),
+                flip_ud=self.flippedud)
+
         return nornir_imageregistration.transforms.Rigid(target_offset=target_translation,
                                                          source_rotation_center=source_center_of_rotation,
                                                          angle=self.rangle,

@@ -346,6 +346,30 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.runStosBruteScaleMismatchWithMask()
 
+    def testStosBruteScaleMismatchWithMask_LogPolar(self):
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
+        ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
+        Downsample = '032'
+        Filter = 'Leveled'
+        TEM1Resolution = 2.176
+        TEM2Resolution = 2.143
+        WarpedImagePath = os.path.join(ImageRootPath, "502", Filter, "Images", str(Downsample),
+                                       "0502_TEM_{0}.png".format(Filter))
+        FixedImagePath = os.path.join(ImageRootPath, "503", Filter, "Images", str(Downsample),
+                                      "0503_TEM_{0}.png".format(Filter))
+        WarpedImageMaskPath = os.path.join(ImageRootPath, "502", "Mask", "Images", str(Downsample),
+                                           "0502_TEM_Mask.png")
+        FixedImageMaskPath = os.path.join(ImageRootPath, "503", "Mask", "Images", str(Downsample),
+                                          "0503_TEM_Mask.png")
+        WarpedImageScalar = TEM2Resolution / TEM1Resolution
+        AlignmentRecord = self.RunBasicBruteAlignmentWithMask(
+            FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath,
+            WarpedImageScaleFactors=WarpedImageScalar,
+            FlipUD=False,
+            AngleSearchRange=range(160, 200, 1),
+            method=SliceToSliceMethod.LogPolar)
+        self.assertAlmostEqual(AlignmentRecord.scale, WarpedImageScalar, delta=0.05)
+
     def runStosBruteScaleMismatchWithMask(self):
         ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
         Downsample = '032'
@@ -742,6 +766,115 @@ class TestLogPolarStosWithMask(setup_imagetest.ImageTestBase):
             inspect_png_output(path)
         else:
             plt.show()
+
+
+class TestHybridAdaptiveFallback(unittest.TestCase):
+    """Unit and property tests for continuous ambiguous fallback helpers."""
+
+    def test_smooth01_monotonic(self):
+        values = [0.5, 1.0, 1.25, 1.5, 2.0]
+        mapped = [stos_brute._smooth01(v, 1.0, 1.5) for v in values]
+        self.assertEqual(mapped[0], 0.0)
+        self.assertEqual(mapped[-1], 1.0)
+        for left, right in zip(mapped, mapped[1:]):
+            self.assertLessEqual(left, right)
+
+    def test_logpolar_confidence_weakest_signal(self):
+        weak = stos_brute.LogPolarDiagnostics(
+            angle_peak_ratio=1.5,
+            translation_peak_ratio=1.0,
+            strength_delta_ratio=0.25,
+            degrees_per_pixel=0.5,
+            peak_strength=10.0,
+        )
+        self.assertAlmostEqual(stos_brute._logpolar_confidence(weak), 0.0)
+
+        strong = stos_brute.LogPolarDiagnostics(
+            angle_peak_ratio=1.5,
+            translation_peak_ratio=1.3,
+            strength_delta_ratio=0.25,
+            degrees_per_pixel=0.5,
+            peak_strength=10.0,
+        )
+        self.assertAlmostEqual(stos_brute._logpolar_confidence(strong), 1.0)
+
+    def test_fallback_search_geometry_monotonic(self):
+        dpp = 0.35
+        prev_hw = float('inf')
+        for confidence in (0.0, 0.25, 0.5, 0.75, 1.0):
+            hw, coarse_step, _, _ = stos_brute._fallback_search_geometry(confidence, dpp)
+            self.assertLessEqual(hw, prev_hw)
+            prev_hw = hw
+            self.assertGreaterEqual(coarse_step, 0.2)
+
+    def test_median_ambiguous_diagnostics_near_fixed_c(self):
+        """Typical ambiguous pair (ratios just below thresholds) should land near ±20°."""
+        diagnostics = stos_brute.LogPolarDiagnostics(
+            angle_peak_ratio=1.19,
+            translation_peak_ratio=1.10,
+            strength_delta_ratio=0.10,
+            degrees_per_pixel=360.0 / 512.0,
+            peak_strength=5.0,
+        )
+        confidence = stos_brute._logpolar_confidence(diagnostics)
+        hw, _, _, _ = stos_brute._fallback_search_geometry(confidence, diagnostics.degrees_per_pixel)
+        self.assertGreaterEqual(hw, 15.0)
+        self.assertLessEqual(hw, 30.0)
+        angles = stos_brute._adaptive_fallback_angle_range(12.0, diagnostics)
+        self.assertGreaterEqual(len(angles), 25)
+        self.assertLessEqual(len(angles), 65)
+
+    def test_brute_fallback_needs_widen(self):
+        diagnostics = stos_brute.LogPolarDiagnostics(
+            angle_peak_ratio=1.1,
+            translation_peak_ratio=1.05,
+            strength_delta_ratio=0.08,
+            degrees_per_pixel=0.5,
+            peak_strength=10.0,
+        )
+        logpolar = stos_brute.AngleScaleResult(
+            angle=0.0, scale=1.0, weight=10.0, translation=(0.0, 0.0),
+            ambiguous=True, diagnostics=diagnostics,
+        )
+        good = AlignmentRecord((0, 0), 9.0, 0.0)
+        bad = AlignmentRecord((0, 0), 8.0, 0.0)
+        self.assertFalse(stos_brute._brute_fallback_needs_widen(good, logpolar))
+        self.assertTrue(stos_brute._brute_fallback_needs_widen(bad, logpolar))
+
+    def test_adaptive_fallback_angle_count_decreases_with_confidence(self):
+        import hypothesis
+        import hypothesis.strategies as st
+
+        @hypothesis.given(
+            angle_ratio=st.floats(1.0, 1.5),
+            trans_ratio=st.floats(1.0, 1.3),
+            delta_ratio=st.floats(0.0, 0.25),
+        )
+        @hypothesis.settings(max_examples=50, deadline=None)
+        def angle_count_monotonic(angle_ratio, trans_ratio, delta_ratio):
+            low_conf = stos_brute.LogPolarDiagnostics(
+                angle_peak_ratio=angle_ratio,
+                translation_peak_ratio=trans_ratio,
+                strength_delta_ratio=delta_ratio,
+                degrees_per_pixel=360.0 / 512.0,
+                peak_strength=1.0,
+            )
+            high_conf = stos_brute.LogPolarDiagnostics(
+                angle_peak_ratio=max(angle_ratio, 1.45),
+                translation_peak_ratio=max(trans_ratio, 1.25),
+                strength_delta_ratio=max(delta_ratio, 0.22),
+                degrees_per_pixel=360.0 / 512.0,
+                peak_strength=1.0,
+            )
+            low_c = stos_brute._logpolar_confidence(low_conf)
+            high_c = stos_brute._logpolar_confidence(high_conf)
+            hypothesis.assume(high_c > low_c + 0.05)
+            low_count = len(stos_brute._adaptive_fallback_angle_range(0.0, low_conf))
+            high_count = len(stos_brute._adaptive_fallback_angle_range(0.0, high_conf))
+            hypothesis.assume(low_count > 5 and high_count > 5)
+            assert low_count >= high_count
+
+        angle_count_monotonic()
 
 
 if __name__ == "__main__":

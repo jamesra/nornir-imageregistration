@@ -24,6 +24,10 @@ class StosBruteSettings(BaseModel):
 
     larget_dimension: int | None = None  # The input images should be scaled so the largest image dimension is equal to this value, default is 1024.  None means use the actual image size
     try_flipped: bool = False  # If True the algorithm will test the flipped version of the source image too
+    estimated_scale_hint: float | None = None
+    """Optional isotropic scale hint from log-polar on raw images (total scale; converted to residual internally)."""
+    initial_scale_hint: float | None = None
+    """Caller-provided total scale (e.g. current transform scalar) to seed scale search/refinement."""
     _method: SliceToSliceMethod
 
     @property
@@ -41,6 +45,8 @@ class StosBruteSettings(BaseModel):
                  source_image_scale_factors: NDArray[np.floating] | None = None,
                  larget_dimension: int | None = 1024,
                  try_flipped: bool = False,
+                 estimated_scale_hint: float | None = None,
+                 initial_scale_hint: float | None = None,
                  ):
         """
         :param angles: Angles to search for the best control point alignment or None if all angles should be searched
@@ -56,6 +62,8 @@ class StosBruteSettings(BaseModel):
         self.min_overlap = min_overlap
         self.larget_dimension = larget_dimension
         self.try_flipped = try_flipped
+        self.estimated_scale_hint = estimated_scale_hint
+        self.initial_scale_hint = initial_scale_hint
         self._method = SliceToSliceMethod.LogPolar if method is None else method
 
         self.source_image_scale_factors = source_image_scale_factors

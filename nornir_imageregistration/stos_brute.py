@@ -1,4 +1,21 @@
 """
+Slice-to-slice rigid registration (angle, isotropic scale, translation).
+
+Scale search bounds are calibrated from RPC3 TEM manual registrations (StosBrute64
+Manual, Blob @ downsample 64). Thirteen ``CenteredSimilarity2DTransform`` pairs
+(68-69, 69-70, 71-72, 72-73, 73-74, 75-76, 76-77, 78-79, 80-81, 82-84, 84-85,
+86-87, 89-90) under ``RPC3/TEM/StosBrute64/Manual/*_ctrl-TEM_Blob_map-TEM_Blob.stos``.
+
+Measured scale factor (scalar):
+  mean 1.0054, sample std 0.0717, min 0.9246, max 1.1016, median 1.0416
+  mode ~0.92 (4 pairs) and expand cluster ~1.04-1.10
+
+Measured |percent change| from unity (|scale - 1| x 100):
+  mean 6.6%, sample std 2.0%, min 3.9%, max 10.2%, median 7.4%, mode 7.5%
+
+Blind search grids use min/max scalar +/- ~2% margin (0.90-1.12). Metadata or
+``initial_scale_hint`` narrows refinement around the hinted residual.
+
 Created on Oct 4, 2012
 
 @author: u0490822
@@ -37,6 +54,281 @@ import nornir_shared.mathhelper
 import nornir_pools
 from nornir_imageregistration.hann_window_cache import HannWindowCache
 
+
+def _normalize_angle_degrees(angle: float) -> float:
+    a = float(angle)
+    while a > 180.0:
+        a -= 360.0
+    while a < -180.0:
+        a += 360.0
+    return a
+
+
+# Hybrid ambiguous-fallback tuning (calibrated against fixed ±20° at median ambiguous pairs).
+_FALLBACK_GAMMA = 2.0
+_FALLBACK_MAX_HALF_WIDTH = 45.0
+_FALLBACK_WIDEN_UNCERTAINTY_SCALE = 2.0
+_FALLBACK_WEIGHT_RATIO_FLOOR = 0.85
+
+# Log-polar warp tuning (Phase A2–A4). Angle and scale use separate warps so radius/order
+# changes for scale do not destabilize angle (690–691 idoc regression with order=1 on angle).
+_LOGPOLAR_WARP_ORDER_ANGLE = 0
+_LOGPOLAR_RADIUS_DIVISOR_ANGLE = 4
+_LOGPOLAR_WARP_ORDER_SCALE = 1
+_LOGPOLAR_RADIUS_DIVISOR_SCALE = 2
+
+# RPC3 manual corpus (see module docstring). Reference-only; search bounds derived below.
+_RPC3_MANUAL_SCALE_MEAN = 1.0054
+_RPC3_MANUAL_SCALE_STD = 0.0717
+_RPC3_MANUAL_SCALE_MIN = 0.9246
+_RPC3_MANUAL_SCALE_MAX = 1.1016
+_RPC3_MANUAL_SCALE_MEDIAN = 1.0416
+_RPC3_MANUAL_ABS_PCT_CHANGE_MEAN = 6.6
+_RPC3_MANUAL_ABS_PCT_CHANGE_STD = 2.0
+_RPC3_MANUAL_ABS_PCT_CHANGE_MIN = 3.9
+_RPC3_MANUAL_ABS_PCT_CHANGE_MAX = 10.2
+_RPC3_MANUAL_ABS_PCT_CHANGE_MEDIAN = 7.4
+_RPC3_MANUAL_ABS_PCT_CHANGE_MODE = 7.5
+# Margin beyond observed min/max scalar for blind search (~2%).
+_RPC3_SCALE_SEARCH_MARGIN = 0.02
+
+# 1D scale search at fixed angle (ScoreOneAngle weight), envelope from RPC3 manual stats.
+_SCALE_REFINE_MIN = _RPC3_MANUAL_SCALE_MIN - _RPC3_SCALE_SEARCH_MARGIN  # 0.9046 -> 0.90
+_SCALE_REFINE_MAX = _RPC3_MANUAL_SCALE_MAX + _RPC3_SCALE_SEARCH_MARGIN  # 1.1216 -> 1.12
+_SCALE_REFINE_MIN = round(_SCALE_REFINE_MIN, 2)
+_SCALE_REFINE_MAX = round(_SCALE_REFINE_MAX, 2)
+_SCALE_REFINE_COARSE_DELTAS: tuple[float, ...] = (
+    -0.08, -0.06, -0.04, -0.02, -0.01, 0.0, 0.01, 0.02, 0.04, 0.06, 0.08,
+)
+_SCALE_REFINE_NARROW_DELTAS: tuple[float, ...] = (-0.04, -0.02, -0.01, 0.0, 0.01, 0.02, 0.04)
+_SCALE_REFINE_TISSUE_GRID: tuple[float, ...] = tuple(
+    float(s) for s in np.geomspace(_SCALE_REFINE_MIN, _SCALE_REFINE_MAX, 11)
+)
+_SCALE_REFINE_LOCAL_HALF_WIDTH = 0.02
+_SCALE_REFINE_TERNARY_ITERATIONS = 14
+# Minimum ScoreOneAngle weight gain to accept a wide-grid scale far from the seed.
+_SCALE_REFINE_WIDE_MIN_WEIGHT_RATIO = 1.12
+_SCALE_REFINE_WIDE_MAX_SEED_DELTA = 0.03
+
+
+def _logpolar_warp_radius(max_dimension: int, *, for_scale: bool = False) -> int:
+    """FFT magnitude radius for ``warp_polar`` (scale path uses a wider spectrum)."""
+    divisor = _LOGPOLAR_RADIUS_DIVISOR_SCALE if for_scale else _LOGPOLAR_RADIUS_DIVISOR_ANGLE
+    return max(8, max_dimension // divisor)
+
+
+def _logpolar_warp_order(*, for_scale: bool = False) -> int:
+    """Interpolation order for ``warp_polar`` (finer on the scale-only warp)."""
+    return _LOGPOLAR_WARP_ORDER_SCALE if for_scale else _LOGPOLAR_WARP_ORDER_ANGLE
+
+
+def _logpolar_fft_magnitude(
+        padded_image: NDArray[np.floating],
+        window: NDArray[np.floating],
+        *,
+        use_dog: bool) -> NDArray[np.floating]:
+    """Magnitude spectrum for log-polar warping (A8: DoG for angle, raw for scale)."""
+    if use_dog:
+        filtered = skimage.filters.difference_of_gaussians(padded_image, low_sigma=4, high_sigma=20)
+    else:
+        filtered = padded_image.astype(np.float32, copy=False)
+    freq = np.fft.fft2(filtered * window)
+    return np.abs(np.fft.fftshift(freq))
+
+
+def _parabolic_peak_index(values: NDArray[np.floating], peak_index: int) -> float:
+    """Refine an integer peak index with three-point parabolic interpolation (A5)."""
+    if peak_index <= 0 or peak_index >= len(values) - 1:
+        return float(peak_index)
+    ym = float(values[peak_index - 1])
+    y0 = float(values[peak_index])
+    yp = float(values[peak_index + 1])
+    denom = ym - 2.0 * y0 + yp
+    if abs(denom) < 1e-12:
+        return float(peak_index)
+    delta = 0.5 * (ym - yp) / denom
+    return float(peak_index) + float(np.clip(delta, -0.5, 0.5))
+
+
+def _refine_logpolar_peak_offsets(
+        correlation_shifted: NDArray[np.floating],
+        row_offset: float,
+        col_offset: float) -> tuple[float, float]:
+    """Sub-pixel refinement of a log-polar phase-correlation peak (A5)."""
+    height, width = correlation_shifted.shape
+    center_row = height * 0.5
+    center_col = width * 0.5
+    peak_row = int(np.clip(round(center_row - row_offset), 1, height - 2))
+    peak_col = int(np.clip(round(center_col - col_offset), 1, width - 2))
+    refined_row = _parabolic_peak_index(correlation_shifted[:, peak_col], peak_row)
+    refined_col = _parabolic_peak_index(correlation_shifted[peak_row, :], peak_col)
+    peak_row = int(np.clip(round(refined_row), 1, height - 2))
+    peak_col = int(np.clip(round(refined_col), 1, width - 2))
+    refined_row = _parabolic_peak_index(correlation_shifted[:, peak_col], peak_row)
+    refined_col = _parabolic_peak_index(correlation_shifted[peak_row, :], peak_col)
+    return center_row - refined_row, center_col - refined_col
+
+
+def _logpolar_scale_from_full_plane(
+        target_log_polar: NDArray[np.floating],
+        source_log_polar: NDArray[np.floating],
+        half_corr_row_offset: float,
+        radius: int,
+        log_polar_width: int) -> tuple[float, float]:
+    """Estimate isotropic scale from full log-polar rows at the angle peak (A4).
+
+    Returns ``(scale, peak_ratio)``. Callers should prefer the half-plane scale when
+    the full-plane peak is weak or disagrees strongly with the 2D half-plane estimate.
+    """
+    half_height = target_log_polar.shape[0] // 2
+    corr_center_row = half_height // 2
+    row = int(round(corr_center_row + half_corr_row_offset))
+    row = int(np.clip(row, 0, target_log_polar.shape[0] - 1))
+    target_row = target_log_polar[row:row + 1, :]
+    source_row = source_log_polar[row:row + 1, :]
+    phase_correlation = nornir_imageregistration.phasecorrelation.image_phase_correlation(
+        target_row, source_row)
+    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
+    try:
+        peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
+        peak_search -= peak_search.min()
+        peak_search /= peak_search.max()
+    except FloatingPointError:
+        return 1.0, 0.0
+    peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
+    width = phase_correlation_shifted.shape[1]
+    center_col = width * 0.5
+    peak_col = int(np.clip(round(center_col - peak.scaled_offset[1]), 1, width - 2))
+    refined_col = _parabolic_peak_index(phase_correlation_shifted[0, :], peak_col)
+    refined_col_offset = center_col - refined_col
+    klog = log_polar_width / np.log(radius)
+    return float(np.exp(refined_col_offset / klog)), peak_ratio
+
+
+def _choose_logpolar_scale(shift_scale_half: float, shift_scale_full: float, full_peak_ratio: float) -> float:
+    """Pick half- vs full-plane scale estimate (A4)."""
+    if full_peak_ratio < 1.1:
+        return shift_scale_half
+    if abs(shift_scale_full - shift_scale_half) > 0.05:
+        return shift_scale_half
+    return shift_scale_full
+
+
+def _scale_at_final_angle(
+        source_image: NDArray[np.floating],
+        target_image: NDArray[np.floating],
+        source_stats: nornir_imageregistration.ImageStats,
+        target_stats: nornir_imageregistration.ImageStats,
+        final_angle: float,
+        scale_seed: float,
+        min_overlap: float,
+        *,
+        wide_search: bool = False) -> float:
+    """Re-estimate scale at the finalized angle (A1/A7); log-polar scale is only a seed."""
+    return _refine_scale_local(
+        source_image, target_image, source_stats, target_stats,
+        final_angle, scale_seed, min_overlap, wide_search=wide_search)
+
+
+def _smooth01(value: float, low: float, high: float) -> float:
+    """Linear ramp low→0, high→1, clamped."""
+    if high <= low:
+        return 1.0 if value >= high else 0.0
+    return float(np.clip((value - low) / (high - low), 0.0, 1.0))
+
+
+@dataclass(frozen=True)
+class LogPolarDiagnostics:
+    angle_peak_ratio: float
+    translation_peak_ratio: float
+    strength_delta_ratio: float
+    degrees_per_pixel: float
+    peak_strength: float
+
+
+def _logpolar_confidence(d: LogPolarDiagnostics) -> float:
+    return min(
+        _smooth01(d.angle_peak_ratio, 1.0, 1.5),
+        _smooth01(d.translation_peak_ratio, 1.0, 1.3),
+        _smooth01(d.strength_delta_ratio, 0.0, 0.25),
+    )
+
+
+def _fallback_search_geometry(
+        confidence: float,
+        degrees_per_pixel: float,
+        *,
+        uncertainty_scale: float = 1.0,
+) -> tuple[float, float, float, float]:
+    """Return half_width_deg, coarse_step_deg, fine_half_width_deg, fine_step_deg."""
+    uncertainty = min(1.0, ((1.0 - confidence) ** _FALLBACK_GAMMA) * uncertainty_scale)
+    min_hw = max(3.0 * degrees_per_pixel, 2.0)
+    half_width = min(_FALLBACK_MAX_HALF_WIDTH, min_hw + (_FALLBACK_MAX_HALF_WIDTH - min_hw) * uncertainty)
+    coarse_step = 0.2 + 1.8 * uncertainty
+    fine_half_width = min(1.8, half_width * (0.1 + 0.2 * confidence))
+    return half_width, coarse_step, fine_half_width, 0.2
+
+
+def _angles_from_geometry(
+        center: float,
+        half_width: float,
+        coarse_step: float,
+        fine_half_width: float,
+        fine_step: float,
+) -> list[float]:
+    center = _normalize_angle_degrees(center)
+    coarse = {
+        _normalize_angle_degrees(center + offset)
+        for offset in np.arange(-half_width, half_width + 1e-6, coarse_step)
+    }
+    fine = {
+        _normalize_angle_degrees(center + offset)
+        for offset in np.arange(-fine_half_width, fine_half_width + 1e-6, fine_step)
+    }
+    return sorted(coarse | fine)
+
+
+def _adaptive_fallback_angle_range(
+        recovered_angle: float,
+        diagnostics: LogPolarDiagnostics,
+        *,
+        uncertainty_scale: float = 1.0,
+) -> list[float]:
+    confidence = _logpolar_confidence(diagnostics)
+    geometry = _fallback_search_geometry(
+        confidence, diagnostics.degrees_per_pixel, uncertainty_scale=uncertainty_scale,
+    )
+    return _angles_from_geometry(recovered_angle, *geometry)
+
+
+def _brute_fallback_needs_widen(
+        brute: AlignmentRecord,
+        logpolar: 'AngleScaleResult',
+) -> bool:
+    d = logpolar.diagnostics
+    if d is None:
+        return False
+    weight_ratio = brute.weight / max(d.peak_strength, 1e-6)
+    return weight_ratio < _FALLBACK_WEIGHT_RATIO_FLOOR
+
+
+@dataclass
+class HybridFallbackStats:
+    confidence: float
+    angle_count: int
+    pass_used: int
+
+
+_last_hybrid_fallback_stats: HybridFallbackStats | None = None
+
+
+def get_last_hybrid_fallback_stats() -> HybridFallbackStats | None:
+    """Stats from the most recent ambiguous log-polar fallback (for benchmarks)."""
+    return _last_hybrid_fallback_stats
+
+
 def _correlation_peak_ratio(arr: NDArray) -> float:
     arr_np = np.asarray(arr)
     if np.iscomplexobj(arr_np):
@@ -56,6 +348,181 @@ def _correlation_peak_ratio(arr: NDArray) -> float:
     return first / second
 
 
+def _normalize_scale_xy(scale_factors: float | Sequence[float] | NDArray[np.floating] | None) -> tuple[float, float]:
+    """Return (scale_y, scale_x) for warped→fixed pixel-size correction."""
+    if scale_factors is None:
+        return 1.0, 1.0
+    arr = np.asarray(scale_factors, dtype=np.float64).ravel()
+    if arr.size == 0:
+        return 1.0, 1.0
+    if arr.size == 1:
+        s = float(arr[0])
+        return s, s
+    return float(arr[0]), float(arr[1])
+
+
+def _isotropic_scale_from_xy(scale_y: float, scale_x: float) -> float:
+    if np.isclose(scale_y, scale_x):
+        return scale_y
+    return float(np.sqrt(scale_y * scale_x))
+
+
+def _scale_registration_image(image: NDArray[np.floating],
+                              scale_y: float,
+                              scale_x: float | None = None) -> NDArray[np.floating]:
+    """Resample *image* for registration (warped/source → fixed scale)."""
+    if scale_x is None:
+        scale_x = scale_y
+    if np.isclose(scale_y, 1.0) and np.isclose(scale_x, 1.0):
+        return image
+    if np.isclose(scale_y, scale_x):
+        return nornir_imageregistration.ScaleImage(image, scale_y)
+    sp = cupyx.scipy.get_array_module(image)
+    order = 1 if min(scale_y, scale_x) < 1.0 else 3
+    if sp is np:
+        return sp.ndimage.zoom(image.astype(np.float32, copy=False), zoom=(scale_y, scale_x), order=order)
+    return sp.ndimage.zoom(image, zoom=(scale_y, scale_x), order=order)
+
+
+def _scaled_shape(shape: tuple[int, int], scale_y: float, scale_x: float) -> tuple[int, int]:
+    return int(round(shape[0] * scale_y)), int(round(shape[1] * scale_x))
+
+
+def _resolve_scale_search_params(
+        settings: StosBruteSettings,
+        metadata_scale_iso: float,
+        logpolar_residual_scale: float | None = None,
+) -> tuple[float | None, bool]:
+    """Return (residual scale center for search/refine, force_scale_search)."""
+    metadata_known = abs(metadata_scale_iso - 1.0) > 0.001
+    meta = metadata_scale_iso if abs(metadata_scale_iso) > 1e-12 else 1.0
+
+    if settings.initial_scale_hint is not None:
+        return float(settings.initial_scale_hint) / meta, True
+
+    if settings.estimated_scale_hint is not None:
+        return float(settings.estimated_scale_hint) / meta, True
+
+    if logpolar_residual_scale is not None:
+        residual = float(logpolar_residual_scale)
+        force = metadata_known or abs(residual - 1.0) > 0.002
+        return residual, force
+
+    if metadata_known:
+        return 1.0, True
+
+    return None, False
+
+
+def _scale_search_candidates(metadata_applied: float,
+                             hint: float | None,
+                             *,
+                             force_search: bool = False) -> list[float]:
+    """Isotropic scale factors to try on source (after metadata pre-scale)."""
+    center = 1.0 if hint is None else float(hint)
+    metadata_known = abs(metadata_applied - 1.0) > 0.001
+    if not force_search and abs(center - 1.0) < 0.002 and not metadata_known:
+        return list(_SCALE_REFINE_TISSUE_GRID)
+    deltas = _SCALE_REFINE_COARSE_DELTAS
+    candidates = {
+        float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
+        for scale in (*_SCALE_REFINE_TISSUE_GRID, *(center + d for d in deltas))
+    }
+    if metadata_known:
+        candidates.add(1.0)
+    return sorted(candidates)
+
+
+def _refine_scale_initial_center(settings: StosBruteSettings,
+                                 metadata_scale_iso: float,
+                                 logpolar_detected_scale: float,
+                                 resolved_residual_hint: float | None) -> float:
+    """Scale center for local refinement: user hint beats log-polar estimate."""
+    if settings.initial_scale_hint is not None:
+        meta = metadata_scale_iso if abs(metadata_scale_iso) > 1e-12 else 1.0
+        return float(settings.initial_scale_hint) / meta
+    if resolved_residual_hint is not None:
+        return float(resolved_residual_hint)
+    return float(logpolar_detected_scale)
+
+
+def _refine_scale_local(source_image: NDArray[np.floating],
+                        target_image: NDArray[np.floating],
+                        source_stats: nornir_imageregistration.ImageStats,
+                        target_stats: nornir_imageregistration.ImageStats,
+                        angle: float,
+                        initial_scale: float,
+                        min_overlap: float,
+                        *,
+                        wide_search: bool = False) -> float:
+    """Refine isotropic scale with coarse grid + local ternary search (A6)."""
+    seed = float(np.clip(initial_scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
+
+    def _score(scale: float) -> float:
+        record = ScoreOneAngle(
+            target_original=target_image,
+            source_original=source_image,
+            target_image_shape=target_image.shape,
+            source_image_shape=source_image.shape,
+            angle=angle,
+            target_stats=target_stats,
+            source_stats=source_stats,
+            min_overlap=min_overlap,
+            source_scale=float(scale),
+        )
+        return float(record.weight)
+
+    seed_weight = _score(seed)
+    narrow_deltas = _SCALE_REFINE_NARROW_DELTAS
+    scale_sources = (
+        (*_SCALE_REFINE_TISSUE_GRID, *(seed + delta for delta in narrow_deltas))
+        if wide_search
+        else tuple(seed + delta for delta in narrow_deltas)
+    )
+    coarse_candidates = sorted({
+        float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
+        for scale in scale_sources
+    })
+    best_scale = seed
+    best_weight = seed_weight
+    for scale in coarse_candidates:
+        weight = _score(scale)
+        if weight > best_weight:
+            best_weight = weight
+            best_scale = float(scale)
+
+    lo = max(_SCALE_REFINE_MIN, best_scale - _SCALE_REFINE_LOCAL_HALF_WIDTH)
+    hi = min(_SCALE_REFINE_MAX, best_scale + _SCALE_REFINE_LOCAL_HALF_WIDTH)
+    for _ in range(_SCALE_REFINE_TERNARY_ITERATIONS):
+        third = (hi - lo) / 3.0
+        if third < 1e-6:
+            break
+        m1 = lo + third
+        m2 = hi - third
+        if _score(m1) < _score(m2):
+            lo = m1
+        else:
+            hi = m2
+    refined = float((lo + hi) * 0.5)
+    refined_weight = _score(refined)
+    if refined_weight > best_weight:
+        best_weight = refined_weight
+        best_scale = refined
+    if (
+        wide_search
+        and abs(best_scale - seed) > _SCALE_REFINE_WIDE_MAX_SEED_DELTA
+        and best_weight < seed_weight * _SCALE_REFINE_WIDE_MIN_WEIGHT_RATIO
+    ):
+        return seed
+    if (
+        not wide_search
+        and abs(best_scale - seed) > 0.02
+        and best_weight < seed_weight * 1.35
+    ):
+        return seed
+    return best_scale
+
+
 @dataclass
 class AngleScaleResult:
     angle: float
@@ -64,6 +531,7 @@ class AngleScaleResult:
     translation: tuple[float, float]
     flippedud: bool = False
     ambiguous: bool = False
+    diagnostics: LogPolarDiagnostics | None = None
 
 
 def _coerce_to_source_module(x: NDArray, xp) -> NDArray:
@@ -187,7 +655,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                   Cluster: bool = False,
                                   TestFlip: bool = True,
                                   estimate_angle: bool = True,
-                                  method: SliceToSliceMethod = SliceToSliceMethod.LogPolar) -> nornir_imageregistration.AlignmentRecord:
+                                  method: SliceToSliceMethod = SliceToSliceMethod.LogPolar,
+                                  initial_scale_hint: float | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
 
@@ -203,6 +672,7 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
        :param float MinOverlap: The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
+       :param float initial_scale_hint: Total scale on warped image (e.g. current transform) to seed scale search
        """
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
@@ -226,6 +696,7 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
         estimate_angle = False
         # raise ValueError("LogPolar method is redundant with setting estimate_angle to true")
 
+    estimated_scale_hint = None
     if estimate_angle:
         # Estimate the angle and scale
         estimated_angle_best_match = _find_angle_and_scale_with_logpolar(
@@ -236,13 +707,16 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
             min_overlap=MinOverlap)
         if abs(estimated_angle_best_match.angle) > 0.25:
             AngleSearchRange.add(estimated_angle_best_match.angle)  # type: ignore[union-attr]
+        estimated_scale_hint = float(estimated_angle_best_match.scale)
 
     settings = StosBruteSettings(method=method,
                                  angles=AngleSearchRange,
                                  min_overlap=MinOverlap,
                                  source_image_scale_factors=WarpedImageScaleFactors,
                                  larget_dimension=LargestDimension,
-                                 try_flipped=TestFlip)
+                                 try_flipped=TestFlip,
+                                 estimated_scale_hint=estimated_scale_hint,
+                                 initial_scale_hint=initial_scale_hint)
 
     return SliceToSliceRigidRegistrationWithPreprocessedImages(source_image_data=source_image_data,
                                                                target_image_data=target_image_data,
@@ -308,6 +782,14 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     target_image = cp.asarray(target_image) if use_cp and not isinstance(target_image, cp.ndarray) else target_image
     source_image = cp.asarray(source_image) if use_cp and not isinstance(source_image, cp.ndarray) else source_image
 
+    metadata_scale_y, metadata_scale_x = _normalize_scale_xy(settings.source_image_scale_factors)
+    metadata_scale_iso = _isotropic_scale_from_xy(metadata_scale_y, metadata_scale_x)
+    if settings.source_image_scaling_required:
+        source_image = _scale_registration_image(source_image, metadata_scale_y, metadata_scale_x)
+        source_stats = nornir_imageregistration.ImageStats.CalcStats(source_image)
+
+    detected_scale = 1.0
+
     scalar = 1.0
     if settings.larget_dimension is not None:
         scalar = nornir_imageregistration.ScalarForMaxDimension(settings.larget_dimension,
@@ -320,38 +802,129 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
 
     def _find_logpolar_with_fallback(candidate_source_image: NDArray[np.floating]) -> AngleScaleResult:
+        global _last_hybrid_fallback_stats
+
         logpolar_result = _find_angle_and_scale_with_logpolar(source_image=candidate_source_image,
                                                               target_image=target_image,
                                                               source_stats=source_stats,
                                                               target_stats=target_stats,
                                                               min_overlap=settings.min_overlap)
         if not logpolar_result.ambiguous:
+            _last_hybrid_fallback_stats = None
             return logpolar_result
+
+        diagnostics = logpolar_result.diagnostics
+        assert diagnostics is not None
+
+        confidence = _logpolar_confidence(diagnostics)
+        pass_used = 1
+        fallback_angles = _adaptive_fallback_angle_range(logpolar_result.angle, diagnostics)
+        angle_count = len(fallback_angles)
 
         brute_force_result = _find_best_angle(source_image=candidate_source_image,
                                               target_image=target_image,
                                               source_stats=source_stats,
                                               target_stats=target_stats,
-                                              angle_range=settings.angle_range,
+                                              angle_range=fallback_angles,
                                               min_overlap=settings.min_overlap,
                                               SingleThread=SingleThread,
                                               use_cluster=Cluster)
-        return AngleScaleResult(angle=float(brute_force_result.angle),
-                                scale=float(logpolar_result.scale),
+
+        if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
+            widened_angles = _adaptive_fallback_angle_range(
+                logpolar_result.angle,
+                diagnostics,
+                uncertainty_scale=_FALLBACK_WIDEN_UNCERTAINTY_SCALE,
+            )
+            pass_used = 2
+            angle_count = len(widened_angles)
+            widened_result = _find_best_angle(source_image=candidate_source_image,
+                                                target_image=target_image,
+                                                source_stats=source_stats,
+                                                target_stats=target_stats,
+                                                angle_range=widened_angles,
+                                                min_overlap=settings.min_overlap,
+                                                SingleThread=SingleThread,
+                                                use_cluster=Cluster)
+            if widened_result.weight > brute_force_result.weight:
+                brute_force_result = widened_result
+
+        if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
+            pass_used = 3
+            angle_count = len(settings.angle_range)
+            full_sweep_result = _find_best_angle(source_image=candidate_source_image,
+                                                 target_image=target_image,
+                                                 source_stats=source_stats,
+                                                 target_stats=target_stats,
+                                                 angle_range=settings.angle_range,
+                                                 min_overlap=settings.min_overlap,
+                                                 SingleThread=SingleThread,
+                                                 use_cluster=Cluster)
+            if full_sweep_result.weight > brute_force_result.weight:
+                brute_force_result = full_sweep_result
+
+        _last_hybrid_fallback_stats = HybridFallbackStats(
+            confidence=confidence,
+            angle_count=angle_count,
+            pass_used=pass_used,
+        )
+
+        if nornir_imageregistration.in_debug_mode():
+            logging.getLogger(__name__).debug(
+                'hybrid fallback: confidence=%.3f angles=%d pass=%d weight=%.4f',
+                confidence, angle_count, pass_used, brute_force_result.weight,
+            )
+
+        final_angle = float(brute_force_result.angle)
+        scale_seed = float(logpolar_result.scale)
+        scale_at_angle = _scale_at_final_angle(
+            candidate_source_image, target_image, source_stats, target_stats,
+            final_angle, scale_seed, settings.min_overlap, wide_search=True)
+
+        if nornir_imageregistration.in_debug_mode():
+            logging.getLogger(__name__).debug(
+                'hybrid fallback scale: logpolar_seed=%.6f refined=%.6f angle=%.4f',
+                scale_seed, scale_at_angle, final_angle,
+            )
+
+        return AngleScaleResult(angle=final_angle,
+                                scale=scale_at_angle,
                                 weight=float(brute_force_result.weight),
                                 translation=(float(brute_force_result.peak[0]), float(brute_force_result.peak[1])),
-                                ambiguous=False)
+                                ambiguous=False,
+                                diagnostics=diagnostics)
+
+    resolved_scale_hint, force_scale_search = _resolve_scale_search_params(
+        settings, metadata_scale_iso)
+    if (settings.method == nornir_imageregistration.settings.SliceToSliceMethod.BruteForce
+            and resolved_scale_hint is None and not force_scale_search):
+        logpolar_probe = _find_angle_and_scale_with_logpolar(
+            source_image=source_image,
+            target_image=target_image,
+            source_stats=source_stats,
+            target_stats=target_stats,
+            min_overlap=settings.min_overlap)
+        resolved_scale_hint, force_scale_search = _resolve_scale_search_params(
+            settings, metadata_scale_iso, float(logpolar_probe.scale))
 
     # Replace extrema with noise
     if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
         best_match = _find_logpolar_with_fallback(source_image)
+        detected_scale = float(best_match.scale)
     else:
-        best_match = _find_best_angle(source_image=source_image, target_image=target_image,
-                                      source_stats=source_stats, target_stats=target_stats,
-                                      angle_range=settings.angle_range,
-                                      min_overlap=settings.min_overlap,
-                                      SingleThread=SingleThread,
-                                      use_cluster=Cluster)
+        best_match, detected_scale = _find_best_angle_with_scale_search(
+            source_image=source_image,
+            target_image=target_image,
+            source_stats=source_stats,
+            target_stats=target_stats,
+            angle_range=settings.angle_range,
+            min_overlap=settings.min_overlap,
+            metadata_applied=metadata_scale_iso,
+            scale_hint=resolved_scale_hint,
+            SingleThread=SingleThread,
+            use_cluster=Cluster,
+            force_search=force_scale_search,
+        )
 
     is_flipped = False
     if settings.try_flipped:
@@ -361,32 +934,64 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
         if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
             best_match_flipped = _find_logpolar_with_fallback(source_flipped)
+            detected_scale = float(best_match_flipped.scale)
         else:
-            best_match_flipped = _find_best_angle(source_image=source_flipped, target_image=target_image,
-                                                  source_stats=source_stats, target_stats=target_stats,
-                                                  angle_range=settings.angle_range,
-                                                  min_overlap=settings.min_overlap,
-                                                  SingleThread=SingleThread, use_cluster=Cluster)
+            best_match_flipped, flip_scale = _find_best_angle_with_scale_search(
+                source_image=source_flipped,
+                target_image=target_image,
+                source_stats=source_stats,
+                target_stats=target_stats,
+                angle_range=settings.angle_range,
+                min_overlap=settings.min_overlap,
+                metadata_applied=metadata_scale_iso,
+                scale_hint=resolved_scale_hint,
+                SingleThread=SingleThread,
+                use_cluster=Cluster,
+                force_search=force_scale_search,
+            )
+            detected_scale = flip_scale
         best_match_flipped.flippedud = True
 
         # Determine if the best match is flipped or not
         is_flipped = best_match_flipped.weight > best_match.weight
         source_image = source_flipped if is_flipped else source_image
         best_match = best_match_flipped if is_flipped else best_match
+        if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+            detected_scale = float(best_match.scale)
+        elif is_flipped:
+            detected_scale = flip_scale
 
-    if not settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+    if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+        detected_scale = float(best_match.scale)
+        refine_initial = _refine_scale_initial_center(
+            settings, metadata_scale_iso, detected_scale, resolved_scale_hint)
+        use_wide = settings.initial_scale_hint is None
+        detected_scale = _refine_scale_local(
+            source_image, target_image, source_stats, target_stats,
+            float(best_match.angle), refine_initial, settings.min_overlap,
+            wide_search=use_wide)
 
-        # Todo: We do not utilize the scale information from the log-polar method
+        translation_results = ScoreOneAngle(source_original=source_image,
+                                            target_original=target_image,
+                                            target_image_shape=target_image.shape,
+                                            source_image_shape=source_image.shape,
+                                            angle=float(best_match.angle),
+                                            target_stats=target_stats,
+                                            source_stats=source_stats,
+                                            target_image_prepadded=False,
+                                            min_overlap=settings.min_overlap,
+                                            source_scale=detected_scale)
 
-        # Note Clement - the RefinedAngleSearch list below is not centered around the current best angle
-        # Default angle search range every 2 degrees
-        # Old RefinedAngleSearch list: [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)]
-        # New RefinedAngleSearch list (length 39): [(x * 0.1 + best_match.angle) for x in range(-19, 20)]
-        # New optional RefinedAngleSearch list (length 18): [(x * 0.2 + best_match.angle) for x in range(-9, 10)]
+        best_refined_match = nornir_imageregistration.AlignmentRecord(
+            peak=translation_results.peak,
+            weight=translation_results.weight,
+            angle=float(best_match.angle),
+            flipped_ud=is_flipped,
+            scale=metadata_scale_iso * detected_scale)
+    else:
         if not settings.angle_range_defined():
             best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
                                                   source_stats=source_stats, target_stats=target_stats,
-                                                  # [(x * 0.1) + best_match.angle - 1.9 for x in range(0, 18)],
                                                   angle_range=[(x * 0.2 + best_match.angle) for x in range(-9, 10)],
                                                   min_overlap=settings.min_overlap, SingleThread=SingleThread)
             best_refined_match.flippedud = is_flipped
@@ -403,39 +1008,72 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             else:
                 best_refined_match = best_match
                 best_refined_match.flippedud = is_flipped
-    else:
-        # TODO: Preserve scale information
+
+        refine_initial = _refine_scale_initial_center(
+            settings, metadata_scale_iso, detected_scale, resolved_scale_hint)
+        use_wide_scale_search = (
+            (force_scale_search or resolved_scale_hint is None)
+            and settings.initial_scale_hint is None)
+        detected_scale = _refine_scale_local(
+            source_image, target_image, source_stats, target_stats,
+            float(best_refined_match.angle), refine_initial, settings.min_overlap,
+            wide_search=use_wide_scale_search)
+
         translation_results = ScoreOneAngle(source_original=source_image,
                                             target_original=target_image,
                                             target_image_shape=target_image.shape,
                                             source_image_shape=source_image.shape,
-                                            angle=best_match.angle,
+                                            angle=float(best_refined_match.angle),
                                             target_stats=target_stats,
                                             source_stats=source_stats,
                                             target_image_prepadded=False,
-                                            min_overlap=settings.min_overlap)
+                                            min_overlap=settings.min_overlap,
+                                            source_scale=detected_scale)
 
-        best_refined_match = nornir_imageregistration.AlignmentRecord(peak=translation_results.peak,
-                                                                      weight=translation_results.weight,
-                                                                      angle=best_match.angle,
-                                                                      flipped_ud=best_match.flippedud,
-                                                                      scale=best_match.scale)
+        best_refined_match = nornir_imageregistration.AlignmentRecord(
+            peak=translation_results.peak,
+            weight=translation_results.weight,
+            angle=float(best_refined_match.angle),
+            flipped_ud=is_flipped,
+            scale=metadata_scale_iso * detected_scale)
 
     if scalar != 1.0:
         AdjustedPeak = (best_refined_match.peak[0] * (1 / scalar), best_refined_match.peak[1] * (1 / scalar))  # type: ignore[union-attr]
-        best_refined_match = nornir_imageregistration.AlignmentRecord(AdjustedPeak, best_refined_match.weight,
-                                                                      best_refined_match.angle, is_flipped)
-
-    if settings.source_image_scaling_required and not settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-        # AdjustedPeak = best_refined_match.peak * (1.0 / WarpedImageScaleFactors)
-        best_refined_match = nornir_imageregistration.AlignmentRecord(best_refined_match.peak,  # type: ignore[union-attr]
-                                                                      best_refined_match.weight,
-                                                                      best_refined_match.angle, is_flipped,
-                                                                      settings.source_image_scale_factors)  # type: ignore[arg-type]
-
-    # best_refined_match.CorrectPeakForOriginalImageSize(imFixed.shape, source_image.shape)
+        best_refined_match = nornir_imageregistration.AlignmentRecord(
+            AdjustedPeak,
+            best_refined_match.weight,
+            best_refined_match.angle,
+            is_flipped,
+            scale=best_refined_match.scale)
 
     return best_refined_match  # type: ignore[return-value]
+
+
+def _peak_from_correlation_image(
+        correlation_image: NDArray,
+        target_image_shape: tuple[int, int],
+        source_image_shape: tuple[int, int],
+        angle: float,
+        min_overlap: float,
+        xp) -> nornir_imageregistration.AlignmentRecord:
+    """fftshift, overlap mask, find_peak → AlignmentRecord."""
+    xp_scipy = cupyx.scipy.get_array_module(correlation_image)
+    correlation_image = xp_scipy.fft.fftshift(correlation_image)
+    try:
+        correlation_image -= correlation_image.min()
+    except FloatingPointError as e:
+        print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
+        return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
+
+    overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
+        target_image_shape, source_image_shape, correlation_image.shape, min_overlap,
+        MaxOverlap=1.0, xp=xp)
+
+    peak, weight, _cutoff_value, _cutoff_percent = nornir_imageregistration.phasecorrelation.find_peak(
+        correlation_image, overlap_mask)
+    del overlap_mask
+    del correlation_image
+    return nornir_imageregistration.AlignmentRecord(peak, weight, angle)
 
 
 def _score_one_angle_core(
@@ -447,15 +1085,23 @@ def _score_one_angle_core(
         target_stats: nornir_imageregistration.ImageStats,
         source_stats: nornir_imageregistration.ImageStats,
         target_image_prepadded: bool,
-        min_overlap: float) -> nornir_imageregistration.AlignmentRecord:
+        min_overlap: float,
+        source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
     """Score one angle using arrays already on the active computation backend."""
 
     xp = cp.get_array_module(im_target)
-    xp_scipy = cupyx.scipy.get_array_module(im_target)
 
-    rotated_source = pad_and_rotate_image(image=im_source,
+    working_source = im_source
+    working_source_shape = source_image_shape
+    working_source_stats = source_stats
+    if not np.isclose(source_scale, 1.0):
+        working_source = _scale_registration_image(im_source, source_scale)
+        working_source_shape = _scaled_shape(source_image_shape, source_scale, source_scale)
+        working_source_stats = nornir_imageregistration.ImageStats.CalcStats(working_source)
+
+    rotated_source = pad_and_rotate_image(image=working_source,
                                           angle=angle,
-                                          image_stats=source_stats,
+                                          image_stats=working_source_stats,
                                           min_overlap=min_overlap)
 
     assert rotated_source.shape[0] > 0
@@ -490,8 +1136,8 @@ def _score_one_angle_core(
             rotated_source,
             new_width=target_width,
             new_height=target_height,
-            image_median=source_stats.median,
-            image_stddev=source_stats.std,
+            image_median=working_source_stats.median,
+            image_stddev=working_source_stats.std,
             min_overlap=1.0)
 
     assert np.array_equal(padded_target.shape, rotated_padded_source.shape)
@@ -508,23 +1154,67 @@ def _score_one_angle_core(
         del padded_target
     del rotated_padded_source
 
-    correlation_image = xp_scipy.fft.fftshift(correlation_image)
-    try:
-        correlation_image -= correlation_image.min()
-    except FloatingPointError as e:
-        print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
-        return nornir_imageregistration.AlignmentRecord((0, 0), 0, 0)
+    return _peak_from_correlation_image(
+        correlation_image, target_image_shape, working_source_shape, angle, min_overlap, xp)
 
-    overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
-        target_image_shape, source_image_shape, correlation_image.shape, min_overlap,
-        MaxOverlap=1.0, xp=xp)
 
-    (peak, weight, cutoff_value, cutoff_percent) = nornir_imageregistration.phasecorrelation.find_peak(
-        correlation_image, overlap_mask)
-    del overlap_mask
-    del correlation_image
+def _find_best_angle_at_scale(source_image: NDArray[np.floating],
+                              target_image: NDArray[np.floating],
+                              source_stats: nornir_imageregistration.ImageStats,
+                              target_stats: nornir_imageregistration.ImageStats,
+                              angle_range: NDArray[np.floating] | Sequence[float],
+                              min_overlap: float,
+                              source_scale: float,
+                              SingleThread: bool,
+                              use_cluster: bool) -> nornir_imageregistration.AlignmentRecord:
+    if np.isclose(source_scale, 1.0):
+        return _find_best_angle(source_image=source_image,
+                                target_image=target_image,
+                                source_stats=source_stats,
+                                target_stats=target_stats,
+                                angle_range=angle_range,
+                                min_overlap=min_overlap,
+                                SingleThread=SingleThread,
+                                use_cluster=use_cluster,
+                                source_scale=1.0)
 
-    return nornir_imageregistration.AlignmentRecord(peak, weight, angle)
+    scaled_source = _scale_registration_image(source_image, source_scale)
+    scaled_stats = nornir_imageregistration.ImageStats.CalcStats(scaled_source)
+    return _find_best_angle(source_image=scaled_source,
+                            target_image=target_image,
+                            source_stats=scaled_stats,
+                            target_stats=target_stats,
+                            angle_range=angle_range,
+                            min_overlap=min_overlap,
+                            SingleThread=SingleThread,
+                            use_cluster=use_cluster,
+                            source_scale=1.0)
+
+
+def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
+                                       target_image: NDArray[np.floating],
+                                       source_stats: nornir_imageregistration.ImageStats,
+                                       target_stats: nornir_imageregistration.ImageStats,
+                                       angle_range: NDArray[np.floating] | Sequence[float],
+                                       min_overlap: float,
+                                       metadata_applied: float,
+                                       scale_hint: float | None,
+                                       SingleThread: bool,
+                                       use_cluster: bool,
+                                       *,
+                                       force_search: bool = False) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+    candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
+    best_match: nornir_imageregistration.AlignmentRecord | None = None
+    best_scale = 1.0
+    for candidate in candidates:
+        match = _find_best_angle_at_scale(source_image, target_image, source_stats, target_stats,
+                                          angle_range, min_overlap, candidate,
+                                          SingleThread, use_cluster)
+        if best_match is None or match.weight > best_match.weight:
+            best_match = match
+            best_scale = candidate
+    assert best_match is not None
+    return best_match, best_scale
 
 
 def ScoreManyAnglesGpu(target_original: NDArray,
@@ -570,7 +1260,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                   target_stats: nornir_imageregistration.ImageStats | None = None,
                   source_stats: nornir_imageregistration.ImageStats | None = None,
                   target_image_prepadded: bool = True,
-                  min_overlap: float = 0.75) -> nornir_imageregistration.AlignmentRecord:
+                  min_overlap: float = 0.75,
+                  source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
     """Returns an alignment score for a fixed image and an image rotated at a specified angle"""
 
     # print(f'Scoring {angle} degrees')
@@ -595,7 +1286,8 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
             target_stats,
             source_stats,
             target_image_prepadded,
-            min_overlap)
+            min_overlap,
+            source_scale=source_scale)
     finally:
         nornir_imageregistration.close_shared_memory(target_original)  # type: ignore[arg-type]
         nornir_imageregistration.close_shared_memory(source_original)  # type: ignore[arg-type]
@@ -631,7 +1323,8 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     desired_shape = np.array([desired_height, desired_width], dtype=int)
 
     max_dimension = max([desired_height, desired_width])
-    radius = max_dimension // 4  # only take lower frequencies
+    radius_angle = _logpolar_warp_radius(max_dimension, for_scale=False)
+    radius_scale = _logpolar_warp_radius(max_dimension, for_scale=True)
 
     """Use the log-polar space to determine the best angle and then use the normal phase correlation to determine the best translation"""
     padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(target_image,
@@ -648,35 +1341,36 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                                                                               new_height=desired_height,
                                                                                               new_width=desired_width)
 
-    dg_target_image = skimage.filters.difference_of_gaussians(padded_target, low_sigma=4, high_sigma=20)
-    dg_source_image = skimage.filters.difference_of_gaussians(padded_source, low_sigma=4, high_sigma=20)
-
-    # target_window = skimage.filters.window('hann', padded_target.shape)
-    # source_window = skimage.filters.window('hann', padded_source.shape)
     target_window = HannWindowCache.GetOrCreate(padded_target.shape)
     source_window = HannWindowCache.GetOrCreate(padded_source.shape)
 
-    window_target_image = dg_target_image * target_window
-    window_source_image = dg_source_image * source_window
+    # A8: DoG for angle; DoG also for scale warp (raw magnitude regressed 690–691 angle).
+    target_freq_shift_angle = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
+    source_freq_shift_angle = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
+    target_freq_shift_scale = target_freq_shift_angle
+    source_freq_shift_scale = source_freq_shift_angle
 
-    target_freq = np.fft.fft2(window_target_image)
-    source_freq = np.fft.fft2(window_source_image)
-
-    target_freq_shift = np.abs(np.fft.fftshift(target_freq))
-    source_freq_shift = np.abs(np.fft.fftshift(source_freq))
-
-    # Create a log-polar space image of both images
-
-    target_image_log_polar = skimage.transform.warp_polar(target_freq_shift,
-                                                          radius=radius,
+    target_image_log_polar = skimage.transform.warp_polar(target_freq_shift_angle,
+                                                          radius=radius_angle,
                                                           output_shape=desired_shape,
                                                           scaling='log',
-                                                          order=0)
-    source_image_log_polar = skimage.transform.warp_polar(source_freq_shift,
-                                                          radius=radius,
+                                                          order=_logpolar_warp_order(for_scale=False))
+    source_image_log_polar = skimage.transform.warp_polar(source_freq_shift_angle,
+                                                          radius=radius_angle,
                                                           output_shape=desired_shape,
                                                           scaling='log',
-                                                          order=0)
+                                                          order=_logpolar_warp_order(for_scale=False))
+
+    target_image_log_polar_scale = skimage.transform.warp_polar(target_freq_shift_scale,
+                                                                radius=radius_scale,
+                                                                output_shape=desired_shape,
+                                                                scaling='log',
+                                                                order=_logpolar_warp_order(for_scale=True))
+    source_image_log_polar_scale = skimage.transform.warp_polar(source_freq_shift_scale,
+                                                                radius=radius_scale,
+                                                                output_shape=desired_shape,
+                                                                scaling='log',
+                                                                order=_logpolar_warp_order(for_scale=True))
 
     target_image_log_polar_left_half = target_image_log_polar[:target_image_log_polar.shape[0] // 2, :]
     source_image_log_polar_left_half = source_image_log_polar[:source_image_log_polar.shape[0] // 2, :]
@@ -692,42 +1386,51 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     phase_correlation_shifted = np.fft.fftshift(phase_correlation)
     angle_scale_peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
     try:
-        phase_correlation_shifted -= phase_correlation_shifted.min()
-        phase_correlation_shifted /= phase_correlation_shifted.max()  # Remove before release, this is for visualization
+        peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
+        peak_search -= peak_search.min()
+        peak_search /= peak_search.max()
     except FloatingPointError as e:
         print(f"Floating point error: {e} for {phase_correlation.min()} or {phase_correlation.max()}")
         record = AngleScaleResult(angle=0, scale=1.0, weight=0, translation=(0, 0))
         return record
 
-    angle_scale_peak = nornir_imageregistration.phasecorrelation.find_peak(phase_correlation_shifted)
-
-    # Because of the fftshift we need to add 180 to the angle to get the correct angle
-    # recovered_angle = (360 / (desired_shape[0] / 2)) * (angle_scale_peak.scaled_offset[0] + (desired_shape[0] / 2))
-    # recovered_angle = (360 / (desired_shape[0])) * (angle_scale_peak.scaled_offset[0] + (desired_shape[0] / 2))
+    angle_scale_peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
+    refined_row_offset = float(angle_scale_peak.scaled_offset[0])
+    refined_col_offset = float(angle_scale_peak.scaled_offset[1])
+    try:
+        phase_correlation_viz = peak_search  # normalized copy for visualization only
+    except FloatingPointError:
+        pass
 
     degrees_per_pixel = 360 / desired_shape[0]
-    recovered_angle = (degrees_per_pixel * angle_scale_peak.scaled_offset[0])  # + 180
-    klog = desired_shape[1] / np.log(radius)
-    shift_scale = np.exp(angle_scale_peak.scaled_offset[1] / klog)
+    recovered_angle = float(degrees_per_pixel * refined_row_offset)
+    klog = desired_shape[1] / np.log(radius_angle)
+    shift_scale_half = float(np.exp(refined_col_offset / klog))
+    try:
+        shift_scale_full, full_scale_peak_ratio = _logpolar_scale_from_full_plane(
+            target_image_log_polar_scale,
+            source_image_log_polar_scale,
+            refined_row_offset,
+            radius_scale,
+            int(desired_shape[1]),
+        )
+    except FloatingPointError:
+        shift_scale_full = shift_scale_half
+        full_scale_peak_ratio = 0.0
+    shift_scale = _choose_logpolar_scale(shift_scale_half, shift_scale_full, full_scale_peak_ratio)
 
-    # rotated_source = sp.ndimage.rotate(source_image.astype(np.float32), -recovered_angle, reshape=True)
-    # rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(rotated_source,
-    #                                                                                               MinOverlap=min_overlap,
-    #                                                                                               ImageMedian=source_stats.median,
-    #                                                                                               ImageStdDev=source_stats.std,
-    #                                                                                               NewHeight=desired_height,
-    #                                                                                               NewWidth=desired_width)
+    if nornir_imageregistration.in_debug_mode():
+        print(
+            f'logpolar scale half_plane={shift_scale_half} full_plane={shift_scale_full} '
+            f'chosen={shift_scale} full_peak_ratio={full_scale_peak_ratio} '
+            f'radius_angle={radius_angle} radius_scale={radius_scale}')
 
-    # Check if we need to grow the boundaries to accomodate the rotation
-    # rotated_bounds = nornir_imageregistration.transforms.utils.GetRotatedBoundaries(source_image.shape,angle=recovered_angle)
-    # rotated_desired_height = max(desired_height, rotated_bounds.Height)
-    # rotated_desired_width = max(desired_width, rotated_bounds.Width)
-    # rotated_desired_shape = np.array((rotated_desired_height, rotated_desired_width), dtype=int)
-    # rotated_desired_shape = nornir_imageregistration.NearestPowerOfTwo(rotated_desired_shape)
-    # rotated_desired_height, rotated_desired_width = rotated_desired_shape
+    registration_source = source_image.astype(np.float32)
+    if not np.isclose(shift_scale, 1.0):
+        registration_source = _scale_registration_image(registration_source, shift_scale)
 
     # Check whether the angle is correct or needs to be adjusted by 180 degrees, also collect the translation vector
-    rotated_padded_source = pad_and_rotate_image(image=source_image.astype(np.float32),
+    rotated_padded_source = pad_and_rotate_image(image=registration_source,
                                                  angle=recovered_angle,
                                                  image_stats=source_stats,
                                                  min_overlap=min_overlap,
@@ -774,7 +1477,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     #                                                                                               NewHeight=desired_height,
     #                                                                                               NewWidth=desired_width)
 
-    rotated_padded_source = pad_and_rotate_image(image=source_image.astype(np.float32),
+    rotated_padded_source = pad_and_rotate_image(image=registration_source,
                                                  angle=recovered_angle + 180,
                                                  image_stats=source_stats,
                                                  min_overlap=min_overlap,
@@ -806,7 +1509,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     if nornir_imageregistration.in_debug_mode():
         print(
-            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} {'rotated_180' if rotated_180 else ""}')
+            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} scale {shift_scale} {'rotated_180' if rotated_180 else ""}')
 
     # shiftr, shiftc = shifts[:2]
     # degrees_per_pixel = 360 / desired_shape[0]
@@ -822,7 +1525,26 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
         angle_scale_peak_ratio < 1.2
         or translation_peak_ratio < 1.12
         or strength_delta_ratio < 0.12
+        or (abs(shift_scale - 1.0) > 0.02 and angle_scale_peak_ratio < 1.35)
     )
+
+    diagnostics = LogPolarDiagnostics(
+        angle_peak_ratio=angle_scale_peak_ratio,
+        translation_peak_ratio=translation_peak_ratio,
+        strength_delta_ratio=strength_delta_ratio,
+        degrees_per_pixel=float(degrees_per_pixel),
+        peak_strength=float(angle_scale_peak.peak_strength),
+    )
+
+    scale_seed = float(shift_scale)
+    if rotated_180 or abs(scale_seed - 1.0) > (_RPC3_MANUAL_ABS_PCT_CHANGE_MIN / 100.0):
+        shift_scale = _scale_at_final_angle(
+            source_image, target_image, source_stats, target_stats,
+            recovered_angle, scale_seed, min_overlap, wide_search=True)
+        if nornir_imageregistration.in_debug_mode():
+            print(
+                f'logpolar fixed-angle scale: seed={scale_seed:.6f} refined={shift_scale:.6f} '
+                f'angle={recovered_angle:.4f}')
 
     return AngleScaleResult(
         angle=recovered_angle,
@@ -830,6 +1552,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
         weight=angle_scale_peak.peak_strength,
         translation=selected_peak.scaled_offset,
         ambiguous=ambiguous,
+        diagnostics=diagnostics,
     )
 
 
@@ -840,7 +1563,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      angle_range: NDArray[np.floating] | Sequence[float],
                      min_overlap: float = 0.5,
                      SingleThread: bool = False,
-                     use_cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
+                     use_cluster: bool = False,
+                     source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
     """Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier"""
 
