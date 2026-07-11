@@ -444,17 +444,17 @@ class StosFile(object):
         OutLines.append("0")
         OutLines.append("0")
 
-        if os.path.exists(self.ControlImageFullPath):
-            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(
-                self.ControlImageFullPath)
-            self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
-        elif self.ControlImageDim is not None:
+        if self.ControlImageDim is not None:
             if len(self.ControlImageDim) == 2:
                 self.ControlImageDim = [1.0, 1.0, int(self.ControlImageDim[0]), int(self.ControlImageDim[1])]
             elif len(self.ControlImageDim) == 4:
                 pass
             else:
                 raise ValueError("Unexpected number of dimensions of Control Image")
+        elif os.path.exists(self.ControlImageFullPath):
+            [ControlImageHeight, ControlImageWidth] = nornir_imageregistration.core.GetImageSize(
+                self.ControlImageFullPath)
+            self.ControlImageDim = [1.0, 1.0, int(ControlImageWidth), int(ControlImageHeight)]
         else:
             raise ValueError("Control Image not found and Control Image Dim is None")
 
