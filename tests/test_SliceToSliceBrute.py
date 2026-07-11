@@ -93,6 +93,50 @@ def CheckAlignmentRecord(test: unittest.TestCase, arecord: alignment_record.Alig
     test.assertAlmostEqual(arecord.peak[0], Y, msg="Wrong Y offset: %s" % str(arecord), delta=sdelta)
 
 
+def AssertScaleTranslateCenterPlacement(
+        test: unittest.TestCase,
+        arecord: alignment_record.AlignmentRecord,
+        fixed_image_path: str,
+        warped_image_path: str,
+        expected_peak_yx: tuple[float, float],
+        peak_delta: float = 40.0) -> None:
+    """Assert ToImageTransform maps source center near target_center + expected peak.
+
+    Fails loudly if scale-about-origin bias of size (s-1)*|c| would dominate placement.
+    """
+    fixed_shape = nornir_imageregistration.GetImageSize(fixed_image_path)
+    warped_shape = nornir_imageregistration.GetImageSize(warped_image_path)
+    transform = arecord.ToImageTransform(fixed_shape, warped_shape)
+
+    source_center = (np.asarray(warped_shape, dtype=float) - 1.0) / 2.0
+    target_center = (np.asarray(fixed_shape, dtype=float) - 1.0) / 2.0
+    expected_peak = np.asarray(expected_peak_yx, dtype=float)
+    expected_mapped = target_center + expected_peak
+
+    mapped = nornir_imageregistration.EnsureNumpyArray(
+        transform.Transform(source_center.reshape(1, 2)))[0]
+    placement_err = float(np.linalg.norm(mapped - expected_mapped))
+
+    scale = float(arecord.scale)
+    origin_scale_bias = abs(scale - 1.0) * float(np.linalg.norm(source_center))
+    test.assertLess(
+        placement_err,
+        max(peak_delta, 0.5 * origin_scale_bias + peak_delta),
+        msg=(
+            f"mapped source center {mapped} vs expected {expected_mapped} "
+            f"(peak≈{expected_peak}, scale={scale}); err={placement_err:.1f} "
+            f"should not be dominated by origin-scale bias ~{origin_scale_bias:.1f}"
+        ),
+    )
+    # Peak itself should be in the ballpark of the known approximate answer.
+    peak = np.asarray(arecord.peak, dtype=float)
+    test.assertLess(
+        float(np.linalg.norm(peak - expected_peak)),
+        peak_delta,
+        msg=f"alignment peak {peak} far from expected {expected_peak}",
+    )
+
+
 class TestStos(setup_imagetest.ImageTestBase):
 
     def testStosWrite(self):
@@ -361,6 +405,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                                            "0502_TEM_Mask.png")
         FixedImageMaskPath = os.path.join(ImageRootPath, "503", "Mask", "Images", str(Downsample),
                                           "0503_TEM_Mask.png")
+        if not os.path.exists(FixedImagePath):
+            self.skipTest(f"CaptureResolutionMismatch fixture missing: {FixedImagePath}")
         WarpedImageScalar = TEM2Resolution / TEM1Resolution
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(
             FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath,
@@ -369,6 +415,9 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
             AngleSearchRange=range(160, 200, 1),
             method=SliceToSliceMethod.LogPolar)
         self.assertAlmostEqual(AlignmentRecord.scale, WarpedImageScalar, delta=0.05)
+        # Approximate correct answer from fixture comments: X=-165, Y=+90
+        AssertScaleTranslateCenterPlacement(
+            self, AlignmentRecord, FixedImagePath, WarpedImagePath, expected_peak_yx=(90.0, -165.0))
 
     def runStosBruteScaleMismatchWithMask(self):
         ImageRootPath = os.path.join(self.ImportedDataPath, "Alignment", "CaptureResolutionMismatch")
@@ -394,6 +443,9 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         FixedImageMaskPath = os.path.join(ImageRootPath, "503", "Mask", "Images", str(Downsample),
                                           "0503_TEM_Mask.png")
 
+        if not os.path.exists(FixedImagePath):
+            self.skipTest(f"CaptureResolutionMismatch fixture missing: {FixedImagePath}")
+
         WarpedImageScalar = TEM2Resolution / TEM1Resolution
         # WarpedImageScalar = 0.91 #TEM2Resolution / TEM1Resolution
 
@@ -406,6 +458,9 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
                                                               AngleSearchRange=range(160, 200, 1))
 
         self.Logger.info("Best alignment: " + str(AlignmentRecord))
+
+        AssertScaleTranslateCenterPlacement(
+            self, AlignmentRecord, FixedImagePath, WarpedImagePath, expected_peak_yx=(90.0, -165.0))
 
         savedstosObj = AlignmentRecord.ToStos(FixedImagePath, WarpedImagePath, FixedImageMaskPath, WarpedImageMaskPath,
                                               PixelSpacing=1)

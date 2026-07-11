@@ -231,10 +231,10 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
     """
     Applies a rotation+translation transform
     The order of operations is:
-    1. Scaling
-    2. Rotation
-    3. Translation
-    4. Flip
+    1. Scaling about the source rotation center (identity when scalar is 1)
+    2. Rotation about the source rotation center
+    3. Optional flip about that centered frame
+    4. Translation
 
     Remember that matrix multiplacation is applied in reverse order, so the last operation is the first to be applied
     """
@@ -336,13 +336,20 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         self._update_transform_matrix()
 
     def _update_transform_matrix(self):
-        """Update the forward and inverse matrices"""
+        """Update the forward and inverse matrices.
+
+        Order matches ITK CenteredSimilarity2D: scale then rotate about
+        ``source_space_center_of_rotation``, then translate (and optional flip)::
+
+            p' = Flip @ R @ s @ (p - c) + c + t
+        """
+        # Right-to-left: T(-c), S, R, Flip, T(c), T(t)
         self.forward_matrix = self._forward_translation_matrix @ self._forward_center_of_rotation_translation @ \
                               self._flip_y_matrix @ self._forward_rotation_matrix @ \
-                              self._inverse_center_of_rotation_translation @ self._forward_scale_matrix
+                              self._forward_scale_matrix @ self._inverse_center_of_rotation_translation
         xp = cp.get_array_module(self.forward_matrix)
         self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
-        self.alt_inverse_matrix = self._inverse_scale_matrix @ self._forward_center_of_rotation_translation @ \
+        self.alt_inverse_matrix = self._forward_center_of_rotation_translation @ self._inverse_scale_matrix @ \
                                   self._inverse_rotation_matrix @ self._flip_y_matrix @ \
                                   self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
         inv_np = self.inverse_matrix.get() if hasattr(self.inverse_matrix, 'get') else self.inverse_matrix  # type: ignore[attr-defined]
@@ -462,12 +469,14 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
 
 class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
     """
-    Applies a scaling+rotation+translation transform
+    Applies a scaling+rotation+translation transform about the source rotation center
+    (ITK CenteredSimilarity2D semantics): ``p' = Flip @ R @ s @ (p - c) + c + t``.
+
     The order of operations is:
-    1. Scaling
-    2. Rotation
-    3. Translation
-    4. Flip
+    1. Scaling about the source rotation center
+    2. Rotation about the source rotation center
+    3. Optional flip
+    4. Translation
 
     Remember that matrix multiplacation is applied in reverse order, so the last operation is the first to be applied
     """
@@ -503,8 +512,10 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         """Serialize to ITK string; use simpler Rigid2DTransform when scale is unity."""
         if np.isclose(self._scalar, 1.0):
             return Rigid.ToITKString(self)
+        # ITK CS2D strings store the negated angle; ParseCenteredSimilarity2DTransform
+        # applies angle = -float(...) on load. Writing -self.angle makes save/load round-trip.
         return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
-                                                                                                   self.angle,
+                                                                                                   -self.angle,
                                                                                                    self.source_space_center_of_rotation[
                                                                                                        1],
                                                                                                    self.source_space_center_of_rotation[

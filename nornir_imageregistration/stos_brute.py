@@ -79,6 +79,11 @@ _LOGPOLAR_RADIUS_DIVISOR = 4
 # B1 scale: log-polar warp of DoG |FFT| magnitude (radius divisor 2 vs angle 4).
 _RADIAL_FFT_RADIUS_DIVISOR = 2
 
+# Match Pyre Operations→Log Polar (Fast): StosBruteSettings.min_overlap + LimitImageSize=818.
+# AlignSections / buildmanager LogPolar should use these so GPU container matches desktop Pyre.
+LOGPOLAR_PIPELINE_MIN_OVERLAP = 0.75
+LOGPOLAR_PIPELINE_LARGEST_DIMENSION = 818
+
 # RPC3 manual corpus (see module docstring). Reference-only; search bounds derived below.
 _RPC3_MANUAL_SCALE_MEAN = 1.0054
 _RPC3_MANUAL_SCALE_STD = 0.0717
@@ -812,6 +817,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         diagnostics = logpolar_result.diagnostics
         assert diagnostics is not None
 
+        # Hybrid fallback stays on the active backend (CuPy ScoreManyAnglesGpu when enabled).
+        # Weak-pair NumPy≠CuPy is underdetermination, not a host-scoring requirement.
         confidence = _logpolar_confidence(diagnostics)
         pass_used = 1
         fallback_angles = _adaptive_fallback_angle_range(logpolar_result.angle, diagnostics)
@@ -835,13 +842,13 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             pass_used = 2
             angle_count = len(widened_angles)
             widened_result = _find_best_angle(source_image=candidate_source_image,
-                                                target_image=target_image,
-                                                source_stats=source_stats,
-                                                target_stats=target_stats,
-                                                angle_range=widened_angles,
-                                                min_overlap=settings.min_overlap,
-                                                SingleThread=SingleThread,
-                                                use_cluster=Cluster)
+                                              target_image=target_image,
+                                              source_stats=source_stats,
+                                              target_stats=target_stats,
+                                              angle_range=widened_angles,
+                                              min_overlap=settings.min_overlap,
+                                              SingleThread=SingleThread,
+                                              use_cluster=Cluster)
             if widened_result.weight > brute_force_result.weight:
                 brute_force_result = widened_result
 

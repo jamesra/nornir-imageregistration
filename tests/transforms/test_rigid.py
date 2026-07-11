@@ -334,6 +334,53 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
 
         TransformCheck(self, T, sourcePoint, targetPoint)
 
+    def testScaleAboutNonZeroCenter(self):
+        """ITK CenteredSimilarity: scale about c, then translate — center maps to c + t."""
+        scale = 2.0
+        center = np.asarray([100.0, 200.0], dtype=float)
+        peak = np.asarray([3.0, -5.0], dtype=float)
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=peak,
+            source_rotation_center=center,
+            angle=0.0,
+            scalar=scale)
+
+        # Center must stay fixed under scale-about-center, then move by peak only.
+        TransformCheck(self, T, center.reshape(1, 2), (center + peak).reshape(1, 2))
+
+        # A point offset from center scales about center: c + s*(p-c) + t
+        offset_pt = center + np.asarray([10.0, -20.0], dtype=float)
+        expected = center + scale * (offset_pt - center) + peak
+        TransformCheck(self, T, offset_pt.reshape(1, 2), expected.reshape(1, 2))
+
+        TransformInverseCheck(self, T, np.vstack([center, offset_pt]))
+
+    def testScaleAboutLargeCenterTemMagnitude(self):
+        """Anti-regression: TEM1/TEM2-scale about a full-res center must not bias translate.
+
+        Before the centered-scale matrix fix, Transform(c) was ~s*c (origin scale),
+        an error of about (s-1)*c ≈ 19 px for s=1.038 and c≈500.
+        """
+        scale = 1.038
+        center = np.asarray([499.5, 499.5], dtype=float)
+        T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(0.0, 0.0),
+            source_rotation_center=center,
+            angle=0.0,
+            scalar=scale)
+
+        TransformCheck(self, T, center.reshape(1, 2), center.reshape(1, 2))
+
+        offset_pt = center + np.asarray([40.0, -25.0], dtype=float)
+        expected_centered = center + scale * (offset_pt - center)
+        TransformCheck(self, T, offset_pt.reshape(1, 2), expected_centered.reshape(1, 2))
+
+        # Document the old bug: origin-based scale would land far from the centered result.
+        origin_scaled = offset_pt * scale
+        err_if_origin_scale = float(np.linalg.norm(origin_scaled - expected_centered))
+        self.assertGreater(err_if_origin_scale, 10.0,
+                           "Fixture assumes origin-scale bias is large at this center/scale")
+
     def testScaleWithTranslation(self):
         """
         Check if we retain the scale between source and target space, but change the scale of both spaces simultaneously,
@@ -343,8 +390,8 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
         xp = nornir_imageregistration.GetComputationModule()
         angle = 0
         scale = 10
-        offset = xp.array((5, 5))
-        source_rotation_center = xp.array((0, 0))
+        offset = np.array((5, 5), dtype=float)
+        source_rotation_center = np.array((0, 0), dtype=float)
         T = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(offset,
                                                                               source_rotation_center=source_rotation_center,
                                                                               angle=angle,
@@ -354,13 +401,13 @@ class TestTransforms_CenteredSimilarity(unittest.TestCase):
                                 [2, 0],
                                 [-2, -1]])
 
-        targetPoint = (sourcePoint * scale) + offset
+        targetPoint = (sourcePoint * scale) + xp.asarray(offset)
 
         TransformCheck(self, T, sourcePoint, targetPoint)
 
         T.Scale(1 / scale)
         adjusted_scale = 1 / scale
-        targetPoint = (sourcePoint * scale) + (offset * adjusted_scale)
+        targetPoint = (sourcePoint * scale) + (xp.asarray(offset) * adjusted_scale)
         TransformCheck(self, T, sourcePoint, targetPoint)
 
     @hypothesis.given(r_angle=st.floats(min_value=-np.pi, max_value=np.pi),
@@ -607,6 +654,20 @@ class TestCenteredSimilarityToITKString(unittest.TestCase):
         itk_string = transform.ToITKString()
         self.assertTrue(itk_string.startswith("CenteredSimilarity2DTransform_double_2_2"))
 
+    def test_non_unity_scale_round_trip_preserves_geometry(self) -> None:
+        """Scaled CS2D must round-trip through ITK strings without flipping angle sign."""
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(-92.46865844726562, 91.00515747070312),
+            source_rotation_center=(234.70594787597656, 361.69439697265625),
+            angle=7.613996145581269,
+            scalar=1.0466634271776583,
+        )
+        ref_points = np.array([[0.0, 0.0], [100.0, 200.0], [30.0, 40.0]], dtype=float)
+        ref_targets = transform.Transform(ref_points)
+        loaded = nornir_imageregistration.transforms.LoadTransform(transform.ToITKString())
+        np.testing.assert_allclose(loaded.angle, transform.angle, atol=1e-9)
+        np.testing.assert_allclose(loaded.Transform(ref_points), ref_targets, atol=1e-5)
+
     def test_unity_scale_round_trip_preserves_geometry(self) -> None:
         transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=(4.0, 5.0),
@@ -618,6 +679,54 @@ class TestCenteredSimilarityToITKString(unittest.TestCase):
         ref_targets = transform.Transform(ref_points)
         loaded = nornir_imageregistration.transforms.LoadTransform(transform.ToITKString())
         np.testing.assert_allclose(loaded.Transform(ref_points), ref_targets, atol=1e-5)
+
+    def test_non_unity_scale_round_trip_preserves_centered_geometry(self) -> None:
+        """ITK string round-trip must keep scale-about-center (not origin) semantics."""
+        center = np.array([100.0, 200.0], dtype=float)
+        peak = np.array([3.0, -5.0], dtype=float)
+        scale = 1.05
+        # angle=0 isolates scale-about-center + translate geometry from rotation.
+        transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=peak,
+            source_rotation_center=center,
+            angle=0.0,
+            scalar=scale,
+        )
+        offset_pt = center + np.array([10.0, -8.0], dtype=float)
+        ref_points = np.vstack([center, offset_pt, np.array([0.0, 0.0], dtype=float)])
+        ref_targets = transform.Transform(ref_points)
+        itk_string = transform.ToITKString()
+        self.assertTrue(itk_string.startswith("CenteredSimilarity2DTransform_double_2_2"))
+        loaded = nornir_imageregistration.transforms.LoadTransform(itk_string)
+        np.testing.assert_allclose(loaded.Transform(ref_points), ref_targets, atol=1e-4)
+
+        # Center moves by translation only; offset point uses centered scale (not s*p).
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(loaded.Transform(center.reshape(1, 2)))[0],
+            center + peak,
+            atol=1e-3)
+        expected_offset = center + scale * (offset_pt - center) + peak
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(loaded.Transform(offset_pt.reshape(1, 2)))[0],
+            expected_offset,
+            atol=1e-3)
+
+        # With rotation, center still round-trips (scale must not inject origin bias into t).
+        rotated = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=peak,
+            source_rotation_center=center,
+            angle=0.2,
+            scalar=scale,
+        )
+        rotated_loaded = nornir_imageregistration.transforms.LoadTransform(rotated.ToITKString())
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(rotated.Transform(center.reshape(1, 2)))[0],
+            nornir_imageregistration.EnsureNumpyArray(rotated_loaded.Transform(center.reshape(1, 2)))[0],
+            atol=1e-3)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(rotated_loaded.Transform(center.reshape(1, 2)))[0],
+            center + peak,
+            atol=1e-3)
 
     def test_unity_scale_save_load_save_is_idempotent(self) -> None:
         transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(

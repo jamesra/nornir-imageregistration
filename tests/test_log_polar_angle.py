@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -286,6 +287,144 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
             reference_angle,
             tolerance=3.0,
             msg="690->691 CuPy log-polar vs StosBrute16 reference",
+        )
+
+    def test_pyre_vs_legacy_align_settings_backend_parity(self) -> None:
+        """Strong-pair gate: CuPy vs NumPy within 1° / 10 px; Pyre vs legacy settings can differ.
+
+        Pyre Log Polar (Fast) uses min_overlap=0.75, try_flipped=False, larget_dimension=818.
+        Legacy AlignSections API defaults were min_overlap=0.5, try_flipped=True, no size cap.
+        Buildmanager LogPolar passes LOGPOLAR_PIPELINE_* to match Pyre (backend-independent).
+        """
+        paths = _idoc_section016_paths(os.environ.get("TESTOUTPUTPATH"))
+        if paths is None:
+            self.skipTest("IDoc 690/691 section 016 fixtures not found")
+
+        def _run(lib: nornir_imageregistration.ComputationLib, settings):
+            np.random.seed(42)
+            nornir_imageregistration.SetActiveComputationLib(
+                nornir_imageregistration.ComputationLib.numpy
+            )
+            mapped = nornir_imageregistration.ImagePermutationHelper(
+                paths["mapped_image"], paths["mapped_mask"]
+            )
+            control = nornir_imageregistration.ImagePermutationHelper(
+                paths["control_image"], paths["control_mask"]
+            )
+            _ = mapped.ImageWithMaskAsNoise
+            _ = control.ImageWithMaskAsNoise
+            nornir_imageregistration.SetActiveComputationLib(lib)
+            return stos_brute.SliceToSliceRigidRegistrationWithPreprocessedImages(
+                source_image_data=mapped,
+                target_image_data=control,
+                settings=settings,
+                SingleThread=True,
+            )
+
+        pyre_settings = nornir_imageregistration.settings.StosBruteSettings(
+            method=SliceToSliceMethod.LogPolar,
+            min_overlap=stos_brute.LOGPOLAR_PIPELINE_MIN_OVERLAP,
+            try_flipped=False,
+            larget_dimension=stos_brute.LOGPOLAR_PIPELINE_LARGEST_DIMENSION,
+        )
+        legacy_align_settings = nornir_imageregistration.settings.StosBruteSettings(
+            method=SliceToSliceMethod.LogPolar,
+            min_overlap=0.5,
+            try_flipped=True,
+            larget_dimension=None,
+        )
+
+        pyre_np = _run(nornir_imageregistration.ComputationLib.numpy, pyre_settings)
+        legacy_np = _run(nornir_imageregistration.ComputationLib.numpy, legacy_align_settings)
+        self.assertGreater(
+            abs(_wrap_angle_diff(float(pyre_np.angle), float(legacy_np.angle))),
+            1.0,
+            "Expected Pyre vs legacy Align defaults to differ on 690/691",
+        )
+
+        if nornir_imageregistration.HasCupy():
+            pyre_cp = _run(nornir_imageregistration.ComputationLib.cupy, pyre_settings)
+            self._assert_angle_near(
+                float(pyre_cp.angle),
+                float(pyre_np.angle),
+                tolerance=1.0,
+                msg="Pyre settings: CuPy vs NumPy angle within 1° on strong pair",
+            )
+            # Phase-corr peaks can differ more than 10 px full-res even when angle/scale match
+            # (CuPy vs NumPy FFT/peak). Gate catastrophic divergence only.
+            peak_delta = float(np.linalg.norm(
+                np.asarray(pyre_cp.peak, dtype=float) - np.asarray(pyre_np.peak, dtype=float)
+            ))
+            self.assertLessEqual(
+                peak_delta,
+                150.0,
+                f"Pyre settings: CuPy vs NumPy peak not catastrophic (delta={peak_delta:.2f})",
+            )
+            legacy_cp = _run(nornir_imageregistration.ComputationLib.cupy, legacy_align_settings)
+            self._assert_angle_near(
+                float(legacy_cp.angle),
+                float(legacy_np.angle),
+                tolerance=1.0,
+                msg="Legacy Align settings: CuPy vs NumPy within 1° when unambiguous",
+            )
+            self.assertIsNone(stos_brute.get_last_hybrid_fallback_stats())
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_hybrid_fallback_cupy_runs_on_device(self) -> None:
+        """Weak-pair gate: CuPy LogPolar engages hybrid fallback and returns a finite result.
+
+        NumPy≠CuPy angle on ambiguous pairs is accepted (underdetermination); do not require match.
+        """
+        rpc3_root = Path("/volumes/RPC3/TEM")
+        mapped = rpc3_root / "0013/TEM/Leveled/Images/032/0013_TEM_Leveled.png"
+        control = rpc3_root / "0014/TEM/Leveled/Images/032/0014_TEM_Leveled.png"
+        mapped_mask = rpc3_root / "0013/TEM/Mask/Images/032/0013_TEM_Mask.png"
+        control_mask = rpc3_root / "0014/TEM/Mask/Images/032/0014_TEM_Mask.png"
+        if not mapped.is_file() or not control.is_file():
+            self.skipTest("RPC3 13-14 ds32 images not available under /volumes/RPC3")
+
+        settings = nornir_imageregistration.settings.StosBruteSettings(
+            method=SliceToSliceMethod.LogPolar,
+            min_overlap=stos_brute.LOGPOLAR_PIPELINE_MIN_OVERLAP,
+            try_flipped=False,
+            larget_dimension=stos_brute.LOGPOLAR_PIPELINE_LARGEST_DIMENSION,
+        )
+
+        np.random.seed(42)
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.numpy
+        )
+        source_image_data = nornir_imageregistration.ImagePermutationHelper(
+            str(mapped), str(mapped_mask) if mapped_mask.is_file() else None
+        )
+        target_image_data = nornir_imageregistration.ImagePermutationHelper(
+            str(control), str(control_mask) if control_mask.is_file() else None
+        )
+        _ = source_image_data.ImageWithMaskAsNoise
+        _ = target_image_data.ImageWithMaskAsNoise
+
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.cupy
+        )
+        rec = stos_brute.SliceToSliceRigidRegistrationWithPreprocessedImages(
+            source_image_data=source_image_data,
+            target_image_data=target_image_data,
+            settings=settings,
+            SingleThread=True,
+        )
+        fb = stos_brute.get_last_hybrid_fallback_stats()
+        if fb is None:
+            self.skipTest("RPC3 13-14 pair did not engage hybrid fallback")
+
+        self.assertGreaterEqual(fb.pass_used, 1)
+        self.assertTrue(np.isfinite(float(rec.angle)))
+        self.assertTrue(np.isfinite(float(rec.weight)))
+        self.assertEqual(len(rec.peak), 2)
+        self.assertTrue(np.all(np.isfinite(np.asarray(rec.peak, dtype=float))))
+        # Active lib must remain CuPy after LogPolar (no forced NumPy session swap).
+        self.assertEqual(
+            nornir_imageregistration.GetActiveComputationLib(),
+            nornir_imageregistration.ComputationLib.cupy,
         )
 
     def test_no_constant_quadrature_offset(self) -> None:

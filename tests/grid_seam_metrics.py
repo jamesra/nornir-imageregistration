@@ -25,7 +25,7 @@ SEAM_HALF_WIDTH = SEAM_WIDTH_PIXELS / 2.0
 REFINE_MAX_PASSES = 10
 REFINE_PASS_TOLERANCE = 0.10
 
-GRID690_DATASET = "RC2_4Square_Assembled"
+GRID_REFINE_INPUT_SECTION_DATASET = "RC2_4Square_Assembled"
 GOLDEN_GRID_MOSAIC_NAME = "Grid_Cel96_Mes8_sp4_Mes8_Thr0.5.mosaic"
 REFINE_CELL_SIZE = (96, 96)
 REFINE_MESH_SHAPE = (8, 8)
@@ -100,7 +100,7 @@ class RegistrationComparisonSummary:
     grid_beats_translation: bool
 
 
-def grid690_fixture_is_usable(fixture_root: str) -> bool:
+def grid_refine_input_section_fixture_is_usable(fixture_root: str) -> bool:
     """Return True when translated mosaic and L4 tiles referenced by the mosaic exist."""
     translated_path = os.path.join(fixture_root, "Translated_Prune_Max0.5.mosaic")
     if not os.path.isfile(translated_path):
@@ -109,17 +109,17 @@ def grid690_fixture_is_usable(fixture_root: str) -> bool:
         mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(translated_path)
     except (OSError, ValueError):
         return False
-    tile_dir = _grid690_tile_dir(fixture_root)
+    tile_dir = _grid_refine_input_section_tile_dir(fixture_root)
     for image_name in mosaic.ImageToTransform.keys():
         if not os.path.isfile(os.path.join(tile_dir, image_name)):
             return False
     return True
 
 
-def grid690_fixture_root() -> str:
-    """Return the RC2 section 0690 fixture directory when present."""
+def grid_refine_input_section_fixture_root() -> str:
+    """Return the RC2 section 0690 grid-refine input fixture directory when present."""
     relative_tail = os.path.join(
-        "PlatformRaw", "IDOC", GRID690_DATASET, "TEM", "0690", "TEM")
+        "PlatformRaw", "IDOC", GRID_REFINE_INPUT_SECTION_DATASET, "TEM", "0690", "TEM")
     candidates: list[str] = []
     testinput = os.environ.get("TESTINPUTPATH", "").strip()
     if testinput:
@@ -128,7 +128,7 @@ def grid690_fixture_root() -> str:
         os.path.join(
             os.path.dirname(__file__),
             "fixtures",
-            "RC2_4Square_Assembled_Grid690",
+            "grid_refine_input_section",
             "TEM",
             "0690",
             "TEM",
@@ -143,13 +143,82 @@ def grid690_fixture_root() -> str:
         ),
     ])
     for candidate in candidates:
-        if grid690_fixture_is_usable(candidate):
+        if grid_refine_input_section_fixture_is_usable(candidate):
             return candidate
     return candidates[0] if candidates else relative_tail
 
 
-def grid690_golden_mosaic_path(fixture_root: str) -> str:
-    """Return the C++ golden grid mosaic path for the Grid690 fixture."""
+def _grid_refine_input_section_testinput_root() -> str | None:
+    """Return the TESTINPUTPATH-based fixture directory when TESTINPUTPATH is set."""
+    testinput = os.environ.get("TESTINPUTPATH", "").strip()
+    if not testinput:
+        return None
+    return os.path.join(
+        testinput,
+        "PlatformRaw",
+        "IDOC",
+        GRID_REFINE_INPUT_SECTION_DATASET,
+        "TEM",
+        "0690",
+        "TEM",
+    )
+
+
+def require_grid_refine_input_section_fixture() -> str:
+    """Return a usable grid refine input section fixture root for pytest.
+
+    Skip when no fixture is available and strict mode is off. Fail when
+    ``TESTINPUTPATH`` is set but incomplete, or when
+    ``NORNIR_REQUIRE_GRID_REFINE_INPUT_SECTION=1`` and the fixture is missing.
+    """
+    import unittest
+
+    testinput_root = _grid_refine_input_section_testinput_root()
+    strict = os.environ.get("NORNIR_REQUIRE_GRID_REFINE_INPUT_SECTION", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if testinput_root is not None:
+        testinput_dir_exists = os.path.isdir(testinput_root)
+        if (testinput_dir_exists
+                and not grid_refine_input_section_fixture_is_usable(testinput_root)):
+            tile_dir = _grid_refine_input_section_tile_dir(testinput_root)
+            raise AssertionError(
+                f"Grid refine input section fixture incomplete under TESTINPUTPATH at "
+                f"{testinput_root}. Need Translated_Prune_Max0.5.mosaic and mosaic tiles "
+                f"under {tile_dir}. Install {GRID_REFINE_INPUT_SECTION_DATASET} under "
+                f"TESTINPUTPATH/PlatformRaw/IDOC/.")
+
+    fixture_root = grid_refine_input_section_fixture_root()
+    if not grid_refine_input_section_fixture_is_usable(fixture_root):
+        tile_dir = _grid_refine_input_section_tile_dir(fixture_root)
+        message = (
+            f"Grid refine input section fixture incomplete at {fixture_root}. "
+            f"Need Translated_Prune_Max0.5.mosaic and mosaic tiles under {tile_dir}. "
+            f"Install {GRID_REFINE_INPUT_SECTION_DATASET} under TESTINPUTPATH/PlatformRaw/IDOC/.")
+        if strict:
+            raise AssertionError(message)
+        raise unittest.SkipTest(message)
+
+    grid_paths = [
+        os.path.join(fixture_root, name)
+        for name in os.listdir(fixture_root)
+        if name.startswith("Grid_") and name.endswith(".mosaic")
+        and name != GOLDEN_GRID_MOSAIC_NAME
+    ]
+    if grid_paths:
+        message = (
+            "Grid refine input section fixture must not include non-golden Grid_*.mosaic; "
+            "tests run RefineGridMosaic fresh.")
+        if strict or testinput_root is not None:
+            raise AssertionError(message)
+        raise unittest.SkipTest(message)
+    return fixture_root
+
+
+def grid_refine_input_section_golden_mosaic_path(fixture_root: str) -> str:
+    """Return the C++ golden grid mosaic path for the grid refine input section fixture."""
     return os.path.join(fixture_root, GOLDEN_GRID_MOSAIC_NAME)
 
 
@@ -421,15 +490,15 @@ def measure_mosaic_seam_scores(
     )
 
 
-def load_translated_grid690_mosaic(
+def load_translated_grid_refine_input_section_mosaic(
         fixture_root: str) -> nornir_imageregistration.mosaic.Mosaic:
-    """Load the translated input mosaic for the Grid690 functional fixture."""
+    """Load the translated input mosaic for the grid refine input section fixture."""
     translated_path = os.path.join(fixture_root, "Translated_Prune_Max0.5.mosaic")
     return nornir_imageregistration.Mosaic.LoadFromMosaicFile(translated_path)
 
 
-def _grid690_tile_dir(fixture_root: str) -> str:
-    """Return the L4 tile directory for the Grid690 fixture."""
+def _grid_refine_input_section_tile_dir(fixture_root: str) -> str:
+    """Return the L4 tile directory for the grid refine input section fixture."""
     return os.path.join(fixture_root, "Leveled", "TilePyramid", "004")
 
 
@@ -622,7 +691,7 @@ def assert_refined_beats_translated(
             f"{[(score.pair_label, score.mae) for score in refined.pair_scores]}")
 
 
-def refine_grid690_passes(
+def refine_grid_input_section_passes(
         fixture_root: str,
         *,
         max_passes: int = REFINE_MAX_PASSES) -> tuple[
@@ -640,8 +709,8 @@ def refine_grid690_passes(
     if max_passes < 1:
         raise ValueError("max_passes must be >= 1")
 
-    tile_dir = _grid690_tile_dir(fixture_root)
-    translated_mosaic = load_translated_grid690_mosaic(fixture_root)
+    tile_dir = _grid_refine_input_section_tile_dir(fixture_root)
+    translated_mosaic = load_translated_grid_refine_input_section_mosaic(fixture_root)
     pass_scores: list[RefinePassScore] = []
 
     translated_summary = score_mosaic_on_translated_overlaps(
@@ -691,18 +760,18 @@ def refine_grid690_passes(
         last_displacement = displacement
 
     if final_diagnostics is None:
-        raise RuntimeError("refine_grid690_passes did not run any refinement passes")
+        raise RuntimeError("refine_grid_input_section_passes did not run any refinement passes")
 
     return mosaic, final_diagnostics, tuple(pass_scores)
 
 
-def refine_grid690(
+def refine_grid_input_section(
         fixture_root: str) -> tuple[
     nornir_imageregistration.mosaic.Mosaic,
     nornir_imageregistration.local_distortion_correction.MosaicRefinementDiagnostics]:
     """Run grid refinement on the section 0690 fixture with repro pipeline parameters."""
     translated_path = os.path.join(fixture_root, "Translated_Prune_Max0.5.mosaic")
-    tile_dir = _grid690_tile_dir(fixture_root)
+    tile_dir = _grid_refine_input_section_tile_dir(fixture_root)
     refined, diagnostics = nornir_imageregistration.RefineGridMosaic(
         translated_path,
         tile_dir,

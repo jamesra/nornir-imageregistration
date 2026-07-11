@@ -59,7 +59,7 @@ def main() -> int:
     print("  - find_offset / ScoreOneAngle: use GetOverlapMaskOnDevice")
     print()
     print("Remaining intentional boundaries:")
-    print("  - stos_brute log-polar: skimage CPU path (.get() once per call)")
+    print("  - stos_brute log-polar seed: skimage CPU path (.get() once); scoring follows active lib (CuPy when enabled)")
     print("  - computational_lib: NumPy in multiprocessing child processes")
     print("  - AttemptAlignPoint: per-vertex ROI registration (future batching target)")
     print()

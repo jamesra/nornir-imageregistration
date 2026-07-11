@@ -293,6 +293,28 @@ class TestAlignmentRecord(unittest.TestCase):
         # OK, we should be able to map points
         TransformCheck(self, transform, [[4.5, 4.5]], [[5.5, 5.5]])
 
+    def testAlignmentTransformPeakWithScale(self):
+        """Peak is post-scale translation; scale is about the source image center."""
+        peak = (2.0, -3.0)
+        scale = 1.5
+        shape = (100, 100)
+        record = nornir_imageregistration.AlignmentRecord(peak=peak, weight=100, angle=0, scale=scale)
+        transform = record.ToImageTransform(shape, shape)
+
+        self.assertIsInstance(transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform)
+        self.assertAlmostEqual(float(transform.scalar), scale)
+
+        center = (np.asarray(shape, dtype=float) - 1.0) / 2.0
+        peak_arr = np.asarray(peak, dtype=float)
+
+        # Image center maps by peak only (scale about center leaves it fixed).
+        TransformCheck(self, transform, center.reshape(1, 2), (center + peak_arr).reshape(1, 2))
+
+        offset = np.asarray([10.0, -8.0], dtype=float)
+        source = center + offset
+        expected = center + scale * offset + peak_arr
+        TransformCheck(self, transform, source.reshape(1, 2), expected.reshape(1, 2))
+
 
 class TestIO(setup_imagetest.ImageTestBase):
 

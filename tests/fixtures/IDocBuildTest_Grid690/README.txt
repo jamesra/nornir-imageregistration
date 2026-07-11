@@ -1,3 +1,3 @@
-IDocBuildTest_Grid690 — legacy bundled fixture (superseded by RC2_4Square_Assembled_Grid690)
+IDocBuildTest_Grid690 — legacy bundled fixture (superseded by grid_refine_input_section)
 
-See tests/fixtures/RC2_4Square_Assembled_Grid690/README.txt for the current Grid690 functional test fixture.
+See tests/fixtures/grid_refine_input_section/README.txt for the current grid refine input section functional test fixture.
