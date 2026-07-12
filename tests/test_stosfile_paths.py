@@ -62,15 +62,31 @@ class TestStosPathHelpers(unittest.TestCase):
         self.assertEqual(normalized, "a/b/c.png")
 
     def test_path_from_stos_file_relative(self) -> None:
-        stos_dir = "/volume/TEM/StosBrute16"
-        stored = "../../0691/TEM/Blob/Images/016/0691_TEM_Blob.png"
-        resolved = _path_from_stos_file(stored, stos_dir)
-        self.assertTrue(os.path.isabs(resolved))
-        self.assertTrue(resolved.endswith(os.path.join("0691", "TEM", "Blob", "Images", "016", "0691_TEM_Blob.png")))
+        # Use a real absolute base so Windows and POSIX agree on isabs().
+        with tempfile.TemporaryDirectory() as root:
+            stos_dir = os.path.join(root, "TEM", "StosBrute16")
+            stored = "../../0691/TEM/Blob/Images/016/0691_TEM_Blob.png"
+            resolved = _path_from_stos_file(stored, stos_dir)
+            self.assertTrue(os.path.isabs(resolved))
+            self.assertTrue(
+                resolved.endswith(
+                    os.path.join("0691", "TEM", "Blob", "Images", "016", "0691_TEM_Blob.png")
+                )
+            )
+            # ../../ from TEM/StosBrute16 lands at root/0691/...
+            self.assertEqual(
+                os.path.normpath(resolved),
+                os.path.normpath(
+                    os.path.join(root, "0691", "TEM", "Blob", "Images", "016", "0691_TEM_Blob.png")
+                ),
+            )
 
     def test_path_from_stos_file_absolute(self) -> None:
-        absolute = os.path.abspath("/tmp/abs.png")
-        self.assertEqual(_path_from_stos_file(absolute, "/any/stos/dir"), os.path.normpath(absolute))
+        absolute = os.path.abspath(os.path.join(tempfile.gettempdir(), "abs.png"))
+        self.assertEqual(
+            _path_from_stos_file(absolute, os.path.join(tempfile.gettempdir(), "any", "stos")),
+            os.path.normpath(absolute),
+        )
 
 
 class TestStosFileRelativePaths(unittest.TestCase):
