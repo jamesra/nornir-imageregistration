@@ -218,3 +218,6 @@ pip-log.txt
 .mr.developer.cfg
 /Logs/
 /__pycache__/
+
+# Accidental Windows temp plot artifacts (literal backslash path names on WSL)
+C:\\Temp\\*.png
