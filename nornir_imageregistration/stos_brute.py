@@ -84,6 +84,10 @@ _RADIAL_FFT_RADIUS_DIVISOR = 2
 LOGPOLAR_PIPELINE_MIN_OVERLAP = 0.75
 LOGPOLAR_PIPELINE_LARGEST_DIMENSION = 818
 
+# Accept flipud only when final ScoreOneAngle weight beats upright by this factor.
+# Early LogPolar peak_strength can prefer a wrong flip (e.g. RPC3 770–769).
+_FLIP_FINAL_WEIGHT_MARGIN = 1.05
+
 # RPC3 manual corpus (see module docstring). Reference-only; search bounds derived below.
 _RPC3_MANUAL_SCALE_MEAN = 1.0054
 _RPC3_MANUAL_SCALE_STD = 0.0717
@@ -929,18 +933,129 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             force_search=force_scale_search,
         )
 
-    is_flipped = False
-    if settings.try_flipped:
-        # source_flipped = np.copy(source_image)
-        _xp_img = cp.get_array_module(source_image)
-        source_flipped = _xp_img.flipud(source_image)
+    def _finalize_logpolar_candidate(
+            candidate_source: NDArray[np.floating],
+            seed: AngleScaleResult,
+            flipped_ud: bool) -> nornir_imageregistration.AlignmentRecord:
+        """Narrow-angle/scale refine + ScoreOneAngle for one LogPolar orientation."""
+        detected = float(seed.scale)
+        final_angle = float(seed.angle)
+        if (
+            get_last_hybrid_fallback_stats() is None
+            and seed.diagnostics is not None
+            and seed.diagnostics.angle_peak_ratio < 1.35
+        ):
+            angle_range = _logpolar_narrow_angle_range(final_angle, seed.diagnostics)
+            angle_refined = _find_best_angle(
+                source_image=candidate_source,
+                target_image=target_image,
+                source_stats=source_stats,
+                target_stats=target_stats,
+                angle_range=angle_range,
+                min_overlap=settings.min_overlap,
+                SingleThread=SingleThread,
+                source_scale=1.0,
+            )
+            if float(angle_refined.weight) > float(seed.weight):
+                final_angle = float(angle_refined.angle)
+        refine_initial = _refine_scale_initial_center(
+            settings, metadata_scale_iso, detected, resolved_scale_hint)
+        detected = _refine_scale_local(
+            candidate_source, target_image, source_stats, target_stats,
+            final_angle, refine_initial, settings.min_overlap,
+            wide_search=False)
+        translation_results = ScoreOneAngle(
+            source_original=candidate_source,
+            target_original=target_image,
+            target_image_shape=target_image.shape,
+            source_image_shape=candidate_source.shape,
+            angle=final_angle,
+            target_stats=target_stats,
+            source_stats=source_stats,
+            target_image_prepadded=False,
+            min_overlap=settings.min_overlap,
+            source_scale=detected)
+        return nornir_imageregistration.AlignmentRecord(
+            peak=translation_results.peak,
+            weight=translation_results.weight,
+            angle=final_angle,
+            flipped_ud=flipped_ud,
+            scale=metadata_scale_iso * detected)
 
-        if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-            best_match_flipped = _find_logpolar_with_fallback(source_flipped)
-            detected_scale = float(best_match_flipped.scale)
+    def _finalize_bruteforce_candidate(
+            candidate_source: NDArray[np.floating],
+            seed: nornir_imageregistration.AlignmentRecord,
+            seed_scale: float,
+            flipped_ud: bool) -> nornir_imageregistration.AlignmentRecord:
+        """Angle/scale refine + ScoreOneAngle for one BruteForce orientation."""
+        if not settings.angle_range_defined():
+            refined = _find_best_angle(
+                source_image=candidate_source, target_image=target_image,
+                source_stats=source_stats, target_stats=target_stats,
+                angle_range=[(x * 0.2 + seed.angle) for x in range(-9, 10)],
+                min_overlap=settings.min_overlap, SingleThread=SingleThread)
         else:
-            best_match_flipped, flip_scale = _find_best_angle_with_scale_search(
-                source_image=source_flipped,
+            min_step_size = 0.25
+            if len(settings.angle_range) > 2:
+                refined_angle_search_range = NarrowAngleSearchRangeWithResult(
+                    settings.angle_range, min_step_size, seed.angle)
+                refined = _find_best_angle(
+                    source_image=candidate_source, target_image=target_image,
+                    source_stats=source_stats, target_stats=target_stats,
+                    angle_range=np.array(list(refined_angle_search_range), float),
+                    min_overlap=settings.min_overlap, SingleThread=SingleThread)
+            else:
+                refined = seed
+
+        refine_initial = _refine_scale_initial_center(
+            settings, metadata_scale_iso, seed_scale, resolved_scale_hint)
+        use_wide_scale_search = (
+            (force_scale_search or resolved_scale_hint is None)
+            and settings.initial_scale_hint is None)
+        detected = _refine_scale_local(
+            candidate_source, target_image, source_stats, target_stats,
+            float(refined.angle), refine_initial, settings.min_overlap,
+            wide_search=use_wide_scale_search)
+        translation_results = ScoreOneAngle(
+            source_original=candidate_source,
+            target_original=target_image,
+            target_image_shape=target_image.shape,
+            source_image_shape=candidate_source.shape,
+            angle=float(refined.angle),
+            target_stats=target_stats,
+            source_stats=source_stats,
+            target_image_prepadded=False,
+            min_overlap=settings.min_overlap,
+            source_scale=detected)
+        return nornir_imageregistration.AlignmentRecord(
+            peak=translation_results.peak,
+            weight=translation_results.weight,
+            angle=float(refined.angle),
+            flipped_ud=flipped_ud,
+            scale=metadata_scale_iso * detected)
+
+    upright_source = source_image
+    upright_seed = best_match
+    upright_scale = float(detected_scale)
+
+    # Finalize upright before any flipped LogPolar call so hybrid-fallback
+    # globals still describe the upright seed.
+    if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+        upright_final = _finalize_logpolar_candidate(upright_source, upright_seed, False)
+    else:
+        upright_final = _finalize_bruteforce_candidate(
+            upright_source, upright_seed, upright_scale, False)  # type: ignore[arg-type]
+
+    best_refined_match = upright_final
+    if settings.try_flipped:
+        _xp_img = cp.get_array_module(source_image)
+        flipped_source = _xp_img.flipud(source_image)
+        if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
+            flipped_seed = _find_logpolar_with_fallback(flipped_source)
+            flipped_final = _finalize_logpolar_candidate(flipped_source, flipped_seed, True)
+        else:
+            flipped_seed, flipped_scale = _find_best_angle_with_scale_search(
+                source_image=flipped_source,
                 target_image=target_image,
                 source_stats=source_stats,
                 target_stats=target_stats,
@@ -952,112 +1067,12 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 use_cluster=Cluster,
                 force_search=force_scale_search,
             )
-            detected_scale = flip_scale
-        best_match_flipped.flippedud = True
+            flipped_final = _finalize_bruteforce_candidate(
+                flipped_source, flipped_seed, flipped_scale, True)
+        if float(flipped_final.weight) > float(upright_final.weight) * _FLIP_FINAL_WEIGHT_MARGIN:
+            best_refined_match = flipped_final
 
-        # Determine if the best match is flipped or not
-        is_flipped = best_match_flipped.weight > best_match.weight
-        source_image = source_flipped if is_flipped else source_image
-        best_match = best_match_flipped if is_flipped else best_match
-        if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-            detected_scale = float(best_match.scale)
-        elif is_flipped:
-            detected_scale = flip_scale
-
-    if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-        detected_scale = float(best_match.scale)
-        final_angle = float(best_match.angle)
-        if (
-            get_last_hybrid_fallback_stats() is None
-            and best_match.diagnostics is not None
-            and best_match.diagnostics.angle_peak_ratio < 1.35
-        ):
-            angle_range = _logpolar_narrow_angle_range(final_angle, best_match.diagnostics)
-            angle_refined = _find_best_angle(
-                source_image=source_image,
-                target_image=target_image,
-                source_stats=source_stats,
-                target_stats=target_stats,
-                angle_range=angle_range,
-                min_overlap=settings.min_overlap,
-                SingleThread=SingleThread,
-                source_scale=1.0,
-            )
-            angle_refined.flippedud = is_flipped
-            if float(angle_refined.weight) > float(best_match.weight):
-                final_angle = float(angle_refined.angle)
-        refine_initial = _refine_scale_initial_center(
-            settings, metadata_scale_iso, detected_scale, resolved_scale_hint)
-        detected_scale = _refine_scale_local(
-            source_image, target_image, source_stats, target_stats,
-            final_angle, refine_initial, settings.min_overlap,
-            wide_search=False)
-
-        translation_results = ScoreOneAngle(source_original=source_image,
-                                            target_original=target_image,
-                                            target_image_shape=target_image.shape,
-                                            source_image_shape=source_image.shape,
-                                            angle=final_angle,
-                                            target_stats=target_stats,
-                                            source_stats=source_stats,
-                                            target_image_prepadded=False,
-                                            min_overlap=settings.min_overlap,
-                                            source_scale=detected_scale)
-
-        best_refined_match = nornir_imageregistration.AlignmentRecord(
-            peak=translation_results.peak,
-            weight=translation_results.weight,
-            angle=final_angle,
-            flipped_ud=is_flipped,
-            scale=metadata_scale_iso * detected_scale)
-    else:
-        if not settings.angle_range_defined():
-            best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
-                                                  source_stats=source_stats, target_stats=target_stats,
-                                                  angle_range=[(x * 0.2 + best_match.angle) for x in range(-9, 10)],
-                                                  min_overlap=settings.min_overlap, SingleThread=SingleThread)
-            best_refined_match.flippedud = is_flipped
-        else:
-            min_step_size = 0.25
-            if len(settings.angle_range) > 2:
-                refined_angle_search_range = NarrowAngleSearchRangeWithResult(settings.angle_range, min_step_size,
-                                                                              best_match.angle)
-                best_refined_match = _find_best_angle(source_image=source_image, target_image=target_image,
-                                                      source_stats=source_stats, target_stats=target_stats,
-                                                      angle_range=np.array(list(refined_angle_search_range), float),
-                                                      min_overlap=settings.min_overlap, SingleThread=SingleThread)
-                best_refined_match.flippedud = is_flipped
-            else:
-                best_refined_match = best_match
-                best_refined_match.flippedud = is_flipped
-
-        refine_initial = _refine_scale_initial_center(
-            settings, metadata_scale_iso, detected_scale, resolved_scale_hint)
-        use_wide_scale_search = (
-            (force_scale_search or resolved_scale_hint is None)
-            and settings.initial_scale_hint is None)
-        detected_scale = _refine_scale_local(
-            source_image, target_image, source_stats, target_stats,
-            float(best_refined_match.angle), refine_initial, settings.min_overlap,
-            wide_search=use_wide_scale_search)
-
-        translation_results = ScoreOneAngle(source_original=source_image,
-                                            target_original=target_image,
-                                            target_image_shape=target_image.shape,
-                                            source_image_shape=source_image.shape,
-                                            angle=float(best_refined_match.angle),
-                                            target_stats=target_stats,
-                                            source_stats=source_stats,
-                                            target_image_prepadded=False,
-                                            min_overlap=settings.min_overlap,
-                                            source_scale=detected_scale)
-
-        best_refined_match = nornir_imageregistration.AlignmentRecord(
-            peak=translation_results.peak,
-            weight=translation_results.weight,
-            angle=float(best_refined_match.angle),
-            flipped_ud=is_flipped,
-            scale=metadata_scale_iso * detected_scale)
+    is_flipped = bool(best_refined_match.flippedud)
 
     if scalar != 1.0:
         AdjustedPeak = (best_refined_match.peak[0] * (1 / scalar), best_refined_match.peak[1] * (1 / scalar))  # type: ignore[union-attr]

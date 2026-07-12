@@ -2656,13 +2656,15 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             if nornir_imageregistration.in_debug_mode():
                 erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
                 erec.SourceROI = arecord.SourceROI  # type: ignore[attr-defined]
+                source_roi = erec.SourceROI  # type: ignore[attr-defined]
+                xp = cp.get_array_module(source_roi)
                 erec.TranslatedSourceROI = nornir_imageregistration.CropImage(
-                    erec.SourceROI,  # type: ignore[attr-defined]
+                    source_roi,
                     int(np.floor(-erec.peak[1])),
                     int(np.floor(-erec.peak[0])),
-                    erec.SourceROI.shape[1],  # type: ignore[attr-defined]
-                    erec.SourceROI.shape[0],  # type: ignore[attr-defined]
-                    cval=float(np.median(erec.SourceROI.flat)))  # type: ignore[attr-defined]
+                    source_roi.shape[1],
+                    source_roi.shape[0],
+                    cval=float(xp.median(source_roi)))
 
             alignment_records.append(erec)
 
@@ -2715,11 +2717,15 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         if nornir_imageregistration.in_debug_mode():
             erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
             erec.SourceROI = arecord.SourceROI  # type: ignore[attr-defined]
-            erec.TranslatedSourceROI = nornir_imageregistration.CropImage(erec.SourceROI, int(np.floor(-erec.peak[1])),  # type: ignore[attr-defined]
-                                                                          int(np.floor(-erec.peak[0])),
-                                                                          erec.SourceROI.shape[1],  # type: ignore[attr-defined]
-                                                                          erec.SourceROI.shape[0],  # type: ignore[attr-defined]
-                                                                          cval=float(np.median(erec.SourceROI.flat)))  # type: ignore[attr-defined]
+            source_roi = erec.SourceROI  # type: ignore[attr-defined]
+            xp = cp.get_array_module(source_roi)
+            erec.TranslatedSourceROI = nornir_imageregistration.CropImage(
+                source_roi,
+                int(np.floor(-erec.peak[1])),
+                int(np.floor(-erec.peak[0])),
+                source_roi.shape[1],
+                source_roi.shape[0],
+                cval=float(xp.median(source_roi)))
 
         # erec.TargetPSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.TargetROI)
         # erec.SourcePSDScore = nornir_imageregistration.image_stats.ScoreImageWithPowerSpectralDensity(t.SourceROI)

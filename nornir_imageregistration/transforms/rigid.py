@@ -38,6 +38,57 @@ def _to_xp_array(arr, xp):
     return xp.asarray(arr)
 
 
+def _flipped_rigid_to_affine_itk_string(transform: "Rigid") -> str:
+    """Encode a flip_ud rigid/CS2D as FixedCenterOfRotationAffineTransform.
+
+    ITK Rigid2D / CenteredSimilarity2D strings cannot store a Y reflection; the
+    2x2 affine linear part carries Flip @ R @ S about the rotation center.
+    """
+    F = _to_xp_array(transform.forward_matrix, np)
+    F = np.asarray(F, dtype=np.float64)
+    # Column-form linear map for [y, x]; AffineMatrixTransform uses row vectors.
+    linear = F[0:2, 0:2]
+    matrix = linear.T.copy()
+    center = np.asarray(transform.source_space_center_of_rotation, dtype=np.float64).ravel()[:2]
+    offset = np.asarray(transform.target_offset, dtype=np.float64).ravel()[:2]
+    # Match AffineMatrixTransform.ToITKString layout (8 vp + center fp).
+    return (
+        f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 "
+        f"{matrix[0, 1]} {matrix[0, 0]} {matrix[1, 1]} {matrix[1, 0]} "
+        f"{offset[1]} {offset[0]} 0 0 "
+        f"fp 2 {center[1]} {center[0]}"
+    )
+
+
+def rigid_family_to_itk_string(transform: "RigidTranslation") -> str:
+    """Serialize RigidTranslation / Rigid / CS2D to an ITK string.
+
+    Uses FixedCenterOfRotationAffine **only** when ``flip_ud`` is True.
+    Unflipped transforms always stay Rigid2D (unity scale) or CenteredSimilarity2D.
+    """
+    if bool(getattr(transform, "flip_ud", False)):
+        if not hasattr(transform, "forward_matrix"):
+            raise TypeError(
+                f"{type(transform).__name__} reports flip_ud but has no forward_matrix; "
+                "cannot persist flip without a matrix-based Rigid/CS2D")
+        return _flipped_rigid_to_affine_itk_string(transform)  # type: ignore[arg-type]
+
+    scalar = float(getattr(transform, "scalar", 1.0))
+    angle = float(getattr(transform, "angle", 0.0) or 0.0)
+    offset = np.asarray(transform.target_offset, dtype=np.float64).ravel()[:2]
+    center = np.asarray(transform.source_space_center_of_rotation, dtype=np.float64).ravel()[:2]
+    if np.isclose(scalar, 1.0):
+        return (
+            f"Rigid2DTransform_double_2_2 vp 3 {angle} {offset[1]} {offset[0]} "
+            f"fp 2 {center[1]} {center[0]}"
+        )
+    # ITK CS2D stores negated angle; ParseCenteredSimilarity2DTransform negates on load.
+    return (
+        f"CenteredSimilarity2DTransform_double_2_2 vp 6 {scalar} {-angle} "
+        f"{center[1]} {center[0]} {offset[1]} {offset[0]} fp 0"
+    )
+
+
 def _numpy_rotation_matrix_yx(rangle: float) -> NDArray[np.float32]:
     """Return a 3x3 rotation matrix for (Y,X) homogeneous coordinates using NumPy only."""
     angle = float(rangle)
@@ -195,9 +246,7 @@ class RigidTranslation(base.ITransformScaling,
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
 
     def ToITKString(self) -> str:
-        # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"Rigid2DTransf" \
-               f"orm_double_2_2 vp 3 {self._angle} {self._target_offset[1]} {self._target_offset[0]} fp 2 {self._source_space_center_of_rotation[1]} {self._source_space_center_of_rotation[0]}"
+        return rigid_family_to_itk_string(self)
 
     def Transform(self, points: NDArray[np.floating], **kwargs):
 
@@ -361,13 +410,8 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
     def ToITKString(self) -> str:
-        # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self.angle, self._target_offset[1],
-                                                                                  self._target_offset[0],
-                                                                                  self.source_space_center_of_rotation[
-                                                                                      1],
-                                                                                  self.source_space_center_of_rotation[
-                                                                                      0])
+        """Serialize via rigid_family_to_itk_string (Affine only when flip_ud)."""
+        return rigid_family_to_itk_string(self)
 
     def Transform(self, points: NDArray[np.floating], **kwargs):
 
@@ -509,21 +553,8 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
     def ToITKString(self) -> str:
-        """Serialize to ITK string; use simpler Rigid2DTransform when scale is unity."""
-        if np.isclose(self._scalar, 1.0):
-            return Rigid.ToITKString(self)
-        # ITK CS2D strings store the negated angle; ParseCenteredSimilarity2DTransform
-        # applies angle = -float(...) on load. Writing -self.angle makes save/load round-trip.
-        return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
-                                                                                                   -self.angle,
-                                                                                                   self.source_space_center_of_rotation[
-                                                                                                       1],
-                                                                                                   self.source_space_center_of_rotation[
-                                                                                                       0],
-                                                                                                   self._target_offset[
-                                                                                                       1],
-                                                                                                   self._target_offset[
-                                                                                                       0])
+        """Serialize via rigid_family_to_itk_string (Affine only when flip_ud)."""
+        return rigid_family_to_itk_string(self)
 
     def ScaleWarped(self, scalar: float):
         """Scale source space control points by scalar"""

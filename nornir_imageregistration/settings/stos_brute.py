@@ -23,7 +23,7 @@ class StosBruteSettings(BaseModel):
     this handles cases where multiple scopes are used with slightly differnt magnification values """
 
     larget_dimension: int | None = None  # The input images should be scaled so the largest image dimension is equal to this value, default is 1024.  None means use the actual image size
-    try_flipped: bool = False  # If True the algorithm will test the flipped version of the source image too
+    try_flipped: bool = True  # If True the algorithm will test the flipped version of the source image too
     estimated_scale_hint: float | None = None
     """Optional isotropic scale hint from log-polar on raw images (total scale; converted to residual internally)."""
     initial_scale_hint: float | None = None
@@ -44,7 +44,7 @@ class StosBruteSettings(BaseModel):
                  min_overlap: float = 0.75,
                  source_image_scale_factors: NDArray[np.floating] | None = None,
                  larget_dimension: int | None = 1024,
-                 try_flipped: bool = False,
+                 try_flipped: bool = True,
                  estimated_scale_hint: float | None = None,
                  initial_scale_hint: float | None = None,
                  ):

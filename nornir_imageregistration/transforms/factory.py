@@ -396,20 +396,62 @@ def ParseFixedCenterOfRotationAffineTransform(parts: list[str], pixelSpacing: fl
     xp = cp if use_cp else np
     matrix = xp.array(((vp[1], vp[0]), (vp[3], vp[2])))
     post_transform_translation = xp.array((post_transform_translation_y, post_transform_translation_x))
+    pre_transform_translation = xp.array((-src_image_center_y, -src_image_center_x))
 
     if use_cp:
-        return nornir_imageregistration.transforms.AffineMatrixTransform_GPU(matrix=matrix,  # type: ignore[abstract]
-                                                                             pre_transform_translation=xp.array(
-                                                                                 (-src_image_center_y,
-                                                                                  -src_image_center_x)),
-                                                                             post_transform_translation=post_transform_translation)
+        affine = nornir_imageregistration.transforms.AffineMatrixTransform_GPU(
+            matrix=matrix,  # type: ignore[abstract]
+            pre_transform_translation=pre_transform_translation,
+            post_transform_translation=post_transform_translation)
     else:
-        return nornir_imageregistration.transforms.AffineMatrixTransform(matrix=matrix,  # type: ignore[abstract]
-                                                                         pre_transform_translation=xp.array(
-                                                                             (
-                                                                                 -src_image_center_y,
-                                                                                 -src_image_center_x)),
-                                                                         post_transform_translation=post_transform_translation)
+        affine = nornir_imageregistration.transforms.AffineMatrixTransform(
+            matrix=matrix,  # type: ignore[abstract]
+            pre_transform_translation=pre_transform_translation,
+            post_transform_translation=post_transform_translation)
+
+    return _try_decompose_affine_to_rigid_with_flip(affine)
+
+
+def _try_decompose_affine_to_rigid_with_flip(affine) -> ITransform:
+    """If *affine* is a Y-reflected similarity, return Rigid/CS2D with flip_ud=True.
+
+    Non-flipped rigids never serialize as Affine; only flipped saves use this ITK
+    type. Unreflected affines are left as AffineMatrixTransform.
+    """
+    try:
+        pre = nornir_imageregistration.EnsureNumpyArray(affine.pre_transform_translation)
+        center = -np.asarray(pre, dtype=np.float64).ravel()[:2]
+        # Sample a small cloud about the center for rigid-component estimation.
+        offsets = np.array(
+            [[0.0, 0.0], [25.0, 0.0], [0.0, 25.0], [25.0, 25.0],
+             [-20.0, 10.0], [10.0, -20.0], [15.0, -15.0], [-15.0, -10.0]],
+            dtype=np.float64)
+        source = center + offsets
+        target = nornir_imageregistration.EnsureNumpyArray(affine.Transform(source))
+        target = np.asarray(target, dtype=np.float64)
+        components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
+            target, source)
+        if not components.reflected:
+            return affine
+        rebuilt = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=components.translation,
+            source_rotation_center=components.source_rotation_center,
+            angle=components.angle,
+            scalar=components.scale,
+            flip_ud=True)
+        rebuilt_target = nornir_imageregistration.EnsureNumpyArray(rebuilt.Transform(source))
+        residual = float(np.max(np.abs(np.asarray(rebuilt_target, dtype=np.float64) - target)))
+        if residual > 0.05:
+            return affine
+        if np.isclose(components.scale, 1.0):
+            return nornir_imageregistration.transforms.Rigid(
+                target_offset=components.translation,
+                source_rotation_center=components.source_rotation_center,
+                angle=components.angle,
+                flip_ud=True)
+        return rebuilt
+    except (ValueError, TypeError, np.linalg.LinAlgError):
+        return affine
 
 
 def ParseRigid2DTransform(parts: Sequence[str], pixelSpacing: float | None = None, negate_angle: bool = False):

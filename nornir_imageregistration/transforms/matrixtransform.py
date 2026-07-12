@@ -24,6 +24,11 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
     '''
 
     @property
+    def type(self):
+        """Nearest editable family; flipped rigids decompose to CS2D on load."""
+        return nornir_imageregistration.transforms.TransformType.RIGID
+
+    @property
     def matrix(self) -> NDArray:
         return self._matrix
 
@@ -94,8 +99,20 @@ class AffineMatrixTransform(base.ITransform, base.ITransformTranslation, Default
                                                                                                      pixelSpacing)
 
     def ToITKString(self):
-        # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {self._pre_transform_translation[1]} {self._pre_transform_translation[0]}"
+        """Serialize as ITK FixedCenterOfRotationAffineTransform (8 vp + center fp)."""
+        # vp: m01 m00 m11 m10 post_x post_y pad pad; fp: center_x center_y
+        # pre_transform_translation is (-center_y, -center_x).
+        pre = self._pre_transform_translation
+        post = self._post_transform_translation
+        cx = -float(pre[1])
+        cy = -float(pre[0])
+        m = self._matrix
+        return (
+            f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 "
+            f"{m[0, 1]} {m[0, 0]} {m[1, 1]} {m[1, 0]} "
+            f"{post[1]} {post[0]} 0 0 "
+            f"fp 2 {cx} {cy}"
+        )
 
     def Transform(self, points, **kwargs):
         p1 = points + self._pre_transform_translation
@@ -118,6 +135,11 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
     '''
     classdocs
     '''
+
+    @property
+    def type(self):
+        """Nearest editable family; flipped rigids decompose to CS2D on load."""
+        return nornir_imageregistration.transforms.TransformType.RIGID
 
     @property
     def matrix(self) -> NDArray:
@@ -190,8 +212,20 @@ class AffineMatrixTransform_GPU(base.ITransform, base.ITransformTranslation, Def
                                                                                                      pixelSpacing)
 
     def ToITKString(self):
-        # TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 {self._matrix[0, 1]} {self._matrix[0, 0]} {self._matrix[1, 1]} {self._matrix[1, 0]} fp 2 {self._pre_transform_translation[1]} {self._pre_transform_translation[0]}"
+        """Serialize as ITK FixedCenterOfRotationAffineTransform (8 vp + center fp)."""
+        # vp: m01 m00 m11 m10 post_x post_y pad pad; fp: center_x center_y
+        # pre_transform_translation is (-center_y, -center_x).
+        pre = self._pre_transform_translation
+        post = self._post_transform_translation
+        cx = -float(pre[1])
+        cy = -float(pre[0])
+        m = self._matrix
+        return (
+            f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 "
+            f"{m[0, 1]} {m[0, 0]} {m[1, 1]} {m[1, 0]} "
+            f"{post[1]} {post[0]} 0 0 "
+            f"fp 2 {cx} {cy}"
+        )
 
     def Transform(self, points, **kwargs):
         points = cp.array(points) if not isinstance(points, cp.ndarray) else points

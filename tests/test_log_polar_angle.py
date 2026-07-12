@@ -289,10 +289,60 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
             msg="690->691 CuPy log-polar vs StosBrute16 reference",
         )
 
+    def test_rpc3_770_769_try_flipped_does_not_false_flip(self) -> None:
+        """770–769: early LogPolar peak_strength prefers flip, but final ScoreOneAngle must not.
+
+        Manual stos is upright ~149°; AlignSections with try_flipped used to lock onto ~0.5° flipud.
+        """
+        rpc3 = Path("/storage4/RPC3/TEM")
+        if not rpc3.is_dir():
+            rpc3 = Path("/volumes/RPC3/TEM")
+        mapped = rpc3 / "0770/TEM/Blob/Images/064/0770_TEM_Blob.png"
+        control = rpc3 / "0769/TEM/Blob/Images/064/0769_TEM_Blob.png"
+        mapped_mask = rpc3 / "0770/TEM/Mask/Images/064/0770_TEM_Mask.png"
+        control_mask = rpc3 / "0769/TEM/Mask/Images/064/0769_TEM_Mask.png"
+        if not (mapped.is_file() and control.is_file()):
+            self.skipTest("RPC3 770/769 Blob@64 images not available")
+
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.numpy
+        )
+        source = nornir_imageregistration.ImagePermutationHelper(
+            str(mapped), str(mapped_mask) if mapped_mask.is_file() else None
+        )
+        target = nornir_imageregistration.ImagePermutationHelper(
+            str(control), str(control_mask) if control_mask.is_file() else None
+        )
+        _ = source.ImageWithMaskAsNoise
+        _ = target.ImageWithMaskAsNoise
+        settings = nornir_imageregistration.settings.StosBruteSettings(
+            method=SliceToSliceMethod.LogPolar,
+            min_overlap=stos_brute.LOGPOLAR_PIPELINE_MIN_OVERLAP,
+            try_flipped=True,
+            larget_dimension=stos_brute.LOGPOLAR_PIPELINE_LARGEST_DIMENSION,
+        )
+        result = stos_brute.SliceToSliceRigidRegistrationWithPreprocessedImages(
+            source_image_data=source,
+            target_image_data=target,
+            settings=settings,
+            SingleThread=True,
+        )
+        self.assertFalse(
+            result.flippedud,
+            f"770–769 must stay upright; got flippedud with angle={result.angle:.3f}",
+        )
+        self._assert_angle_near(
+            result.angle,
+            149.0,
+            tolerance=5.0,
+            msg="770–769 try_flipped=True should match Manual ~149°",
+        )
+
     def test_pyre_vs_legacy_align_settings_backend_parity(self) -> None:
         """Strong-pair gate: CuPy vs NumPy within 1° / 10 px; Pyre vs legacy settings can differ.
 
-        Pyre Log Polar (Fast) uses min_overlap=0.75, try_flipped=False, larget_dimension=818.
+        Pyre Log Polar (Fast) defaults try_flipped=True; this parity case uses min_overlap=0.75,
+        try_flipped=False, larget_dimension=818 for a controlled comparison.
         Legacy AlignSections API defaults were min_overlap=0.5, try_flipped=True, no size cap.
         Buildmanager LogPolar passes LOGPOLAR_PIPELINE_* to match Pyre (backend-independent).
         """

@@ -653,6 +653,68 @@ class TestCenteredSimilarityToITKString(unittest.TestCase):
         )
         itk_string = transform.ToITKString()
         self.assertTrue(itk_string.startswith("CenteredSimilarity2DTransform_double_2_2"))
+        self.assertNotIn("FixedCenterOfRotationAffine", itk_string)
+
+    def test_unflipped_rigid_family_never_uses_affine(self) -> None:
+        """Affine ITK strings are only for flip_ud; unflipped stay Rigid2D/CS2D."""
+        cases = [
+            nornir_imageregistration.transforms.RigidTranslation((1.0, 2.0)),
+            nornir_imageregistration.transforms.Rigid(
+                (1.0, 2.0), (3.0, 4.0), 0.2, flip_ud=False),
+            nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                (1.0, 2.0), (3.0, 4.0), 0.2, 1.0, flip_ud=False),
+            nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                (1.0, 2.0), (3.0, 4.0), 0.2, 1.05, flip_ud=False),
+        ]
+        for transform in cases:
+            with self.subTest(type=type(transform).__name__, scalar=getattr(transform, "scalar", 1)):
+                itk = transform.ToITKString()
+                self.assertFalse(
+                    itk.startswith("FixedCenterOfRotationAffineTransform"),
+                    f"unflipped {type(transform).__name__} must not use Affine: {itk}")
+                self.assertFalse(bool(getattr(transform, "flip_ud", False)))
+
+    def test_flip_ud_uses_affine_string_and_round_trips(self) -> None:
+        """flip_ud must persist via FixedCenterOfRotationAffine and restore flip_ud."""
+        for scale in (1.0, 1.05):
+            with self.subTest(scale=scale):
+                transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                    target_offset=(10.0, -20.0),
+                    source_rotation_center=(100.0, 200.0),
+                    angle=0.5,
+                    scalar=scale,
+                    flip_ud=True,
+                )
+                itk_string = transform.ToITKString()
+                self.assertTrue(
+                    itk_string.startswith("FixedCenterOfRotationAffineTransform_double_2_2"))
+                ref_points = np.array(
+                    [[0.0, 0.0], [50.0, 80.0], [100.0, 200.0], [30.0, 40.0]], dtype=float)
+                ref_targets = transform.Transform(ref_points)
+                loaded = nornir_imageregistration.transforms.LoadTransform(itk_string)
+                self.assertTrue(getattr(loaded, "flip_ud", False))
+                np.testing.assert_allclose(
+                    nornir_imageregistration.EnsureNumpyArray(loaded.Transform(ref_points)),
+                    nornir_imageregistration.EnsureNumpyArray(ref_targets),
+                    atol=1e-5)
+
+    def test_rigid_flip_ud_round_trips(self) -> None:
+        transform = nornir_imageregistration.transforms.Rigid(
+            target_offset=(3.0, -4.0),
+            source_rotation_center=(50.0, 60.0),
+            angle=0.3,
+            flip_ud=True,
+        )
+        itk_string = transform.ToITKString()
+        self.assertTrue(itk_string.startswith("FixedCenterOfRotationAffineTransform_double_2_2"))
+        ref_points = np.array([[0.0, 0.0], [10.0, 20.0], [40.0, 50.0]], dtype=float)
+        ref_targets = transform.Transform(ref_points)
+        loaded = nornir_imageregistration.transforms.LoadTransform(itk_string)
+        self.assertTrue(getattr(loaded, "flip_ud", False))
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(loaded.Transform(ref_points)),
+            nornir_imageregistration.EnsureNumpyArray(ref_targets),
+            atol=1e-5)
 
     def test_non_unity_scale_round_trip_preserves_geometry(self) -> None:
         """Scaled CS2D must round-trip through ITK strings without flipping angle sign."""
