@@ -36,13 +36,13 @@ from grid_seam_metrics import (  # noqa: E402  (tests/ helper)
     GOLDEN_GRID_MOSAIC_NAME,
     SEAM_MIN_OVERLAP,
     compare_mosaic_target_points_to_golden,
-    grid690_fixture_is_usable,
-    grid690_fixture_root,
+    grid_refine_input_section_fixture_is_usable,
+    grid_refine_input_section_fixture_root,
     measure_mosaic_seam_scores,
-    refine_grid690,
-    _grid690_tile_dir,
+    refine_grid_input_section,
+    _grid_refine_input_section_tile_dir,
 )
-from grid690_diagnostics import REGISTRATION_DOWNSAMPLE  # noqa: E402  (tests/ helper)
+from grid_refine_input_section_diagnostics import REGISTRATION_DOWNSAMPLE  # noqa: E402
 
 GOLDEN_TARGET_DELTA_LIMIT = 2.2
 SEAM_MAE_LIMIT = 35.0
@@ -55,7 +55,7 @@ def _run(fixture_root: str, batched: bool):
     # legacy serial path for the A/B comparison.
     os.environ['NORNIR_REFINE_BATCHED_GPU'] = '1' if batched else '0'
     _release_refinement_worker_memory()
-    return refine_grid690(fixture_root)
+    return refine_grid_input_section(fixture_root)
 
 
 def main() -> int:
@@ -63,12 +63,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--fixture-root', type=Path, default=None,
-                        help='Grid690 fixture root (defaults to TESTINPUTPATH discovery)')
+                        help='Grid refine input section fixture root '
+                             '(defaults to TESTINPUTPATH / local fixtures discovery)')
     args = parser.parse_args()
 
-    fixture_root = str(args.fixture_root) if args.fixture_root else grid690_fixture_root()
-    if not grid690_fixture_is_usable(fixture_root):
-        print(f'ERROR: Grid690 fixture not usable at {fixture_root}', file=sys.stderr)
+    fixture_root = (
+        str(args.fixture_root) if args.fixture_root
+        else grid_refine_input_section_fixture_root())
+    if not grid_refine_input_section_fixture_is_usable(fixture_root):
+        print(f'ERROR: Grid refine input section fixture not usable at {fixture_root}',
+              file=sys.stderr)
         return 2
 
     if not nornir_imageregistration.HasCupy():
@@ -80,7 +84,7 @@ def main() -> int:
     print(f'Fixture:  {fixture_root}')
     print(f'UsingCupy: {nornir_imageregistration.UsingCupy()}')
 
-    tile_dir = _grid690_tile_dir(fixture_root)
+    tile_dir = _grid_refine_input_section_tile_dir(fixture_root)
     golden_path = os.path.join(fixture_root, GOLDEN_GRID_MOSAIC_NAME)
     golden = (nornir_imageregistration.Mosaic.LoadFromMosaicFile(golden_path)
               if os.path.isfile(golden_path) else None)

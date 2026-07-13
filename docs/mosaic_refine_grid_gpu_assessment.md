@@ -543,3 +543,9 @@ after explicit sign-off - the NumPy batched vertex path (output-shifting,
 for the NumPy flip: CPU-serial vs CPU-batched 0.226 px mean / 0.253 max
 (limits 1.0 / 3.0), golden 1.857 -> 1.880 (< 2.2), functional + legacy-parity
 tests pass under the batched default.
+
+## Related comparison
+
+For STOS vs mosaic safeguard differences, shared `refine_shared` helpers, and
+env gates such as `NORNIR_REFINE_MOSAIC_CUTOFF` / `NORNIR_REFINE_STOS_REGULARIZE`,
+see [grid_refine_stos_vs_mosaic.md](grid_refine_stos_vs_mosaic.md).

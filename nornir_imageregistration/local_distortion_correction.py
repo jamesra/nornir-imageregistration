@@ -3,7 +3,13 @@ Created on Apr 7, 2015
 
 @author: u0490822
 
-This module performs local distortions of images to refine alignments of mosaics and sections
+This module performs local distortions of images to refine alignments of mosaics and sections.
+
+Public APIs are also re-exported from ``nornir_imageregistration.mosaic_refine`` and
+``nornir_imageregistration.stos_refine``. Shared measurement, cutoff, displacement
+regularization, and ``NORNIR_REFINE_*`` runtime config live in
+``nornir_imageregistration.refine_shared``. See
+``docs/grid_refine_stos_vs_mosaic.md`` for the STOS vs mosaic comparison.
 """
 import gc
 import logging
@@ -29,6 +35,17 @@ from nornir_imageregistration.mathfuncs import EMA, estimate_cutoff
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
+from nornir_imageregistration.refine_shared import (
+    get_runtime_config,
+    get_phase_timer,
+    is_alignable_cell,
+    filter_records_by_registration_weight,
+    filter_weights_by_estimate_cutoff,
+    measure_translation_cell,
+    measure_translation_cells_batched,
+    regularize_displacements as shared_regularize_displacements,
+)
+from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
@@ -51,94 +68,16 @@ AlignmentRecordList = Sequence[nornir_imageregistration.EnhancedAlignmentRecord]
 AlignmentRecordKey = tuple[int, int]
 
 
-class _RefinePhaseTimer:
-    """Accumulate wall time per named phase of grid refinement (opt-in).
-
-    Enabled by setting ``NORNIR_REFINE_PHASE_TIMING`` to a truthy value. When
-    disabled, ``section`` is a no-op context manager so default runs are
-    unaffected (mirrors the ``_log_refinement_gpu_memory`` gating style).
-
-    Under CuPy each section synchronizes the device on exit so the recorded
-    wall time reflects actual kernel completion. The mosaic vertex loop already
-    forces a per-vertex host sync (``.get()`` on each peak), so this adds no new
-    serialization to the CuPy hot path while it is measured.
-    """
-
-    PHASES = ('prewarp', 'cell_extract', 'fft', 'host_sync', 'regularize', 'apply')
-
-    def __init__(self) -> None:
-        flag = os.environ.get('NORNIR_REFINE_PHASE_TIMING', '0').strip().lower()
-        self.enabled = flag not in ('', '0', 'false', 'no', 'off')
-        self.totals: dict[str, float] = defaultdict(float)
-        self.counts: dict[str, int] = defaultdict(int)
-        # Guards the accumulator dicts; the tile-measurement loop may run on a
-        # thread pool, so concurrent ``section`` exits must not lose updates.
-        self._lock = threading.Lock()
-
-    def reset(self) -> None:
-        """Clear all accumulated phase totals and counts."""
-        with self._lock:
-            self.totals = defaultdict(float)
-            self.counts = defaultdict(int)
-
-    def snapshot(self) -> dict[str, float]:
-        """Return a copy of the current cumulative per-phase totals."""
-        return dict(self.totals)
-
-    @contextlib.contextmanager
-    def section(self, name: str):
-        """Time the wrapped block into the *name* bucket (no-op when disabled)."""
-        if not self.enabled:
-            yield
-            return
-        start = time.perf_counter()
-        try:
-            yield
-        finally:
-            if nornir_imageregistration.UsingCupy() and cp is not None:
-                try:
-                    cp.cuda.Device().synchronize()
-                except Exception:  # pragma: no cover - defensive against thunk/no-GPU
-                    pass
-            elapsed = time.perf_counter() - start
-            with self._lock:
-                self.totals[name] += elapsed
-                self.counts[name] += 1
-
-
-_PHASE_TIMER = _RefinePhaseTimer()
+_PHASE_TIMER = get_phase_timer()
 
 
 def _use_batched_vertex_measurement() -> bool:
     """Return True when the batched vertex-measurement path should be used.
 
-    The batched path (one batched FFT + vectorized peak finder + single host
-    sync) replaces the per-vertex serial loop. It is backend-agnostic
-    (``_measure_grid_vertex_displacements_batched`` dispatches via
-    ``cp.get_array_module``), so it benefits NumPy (one stacked ``fft2`` + one
-    batched validity reduction instead of N tiny FFTs and N ``count_nonzero``
-    syncs) as well as CuPy.
-
-    Default ON for both backends. Enabling it changes the peak algorithm
-    (argmax + local centroid vs connected-component ``find_peak``), which shifts
-    registration output at the sub-pixel level, but parity has been validated
-    against golden on both backends (CuPy and NumPy each stay < 2.2 px golden and
-    within ~0.23 px of the serial path; see
-    docs/mosaic_refine_grid_gpu_assessment.md). CuPy was promoted first (~2.4x);
-    NumPy was promoted after explicit sign-off (~+42 % throughput).
-
-    Controlled by ``NORNIR_REFINE_BATCHED`` (truthy/falsey); the legacy
-    ``NORNIR_REFINE_BATCHED_GPU`` name is honored as an alias. Set it to a falsey
-    value to force the legacy serial path for A/B comparison or fallback. The env
-    var is read per call so benchmarks/tests can toggle it within a process.
+    Delegates to ``RefineRuntimeConfig`` (``NORNIR_REFINE_BATCHED`` /
+    ``NORNIR_REFINE_BATCHED_GPU``). Default ON for both backends.
     """
-    flag = os.environ.get('NORNIR_REFINE_BATCHED', '').strip().lower()
-    if flag == '':
-        flag = os.environ.get('NORNIR_REFINE_BATCHED_GPU', '').strip().lower()
-
-    if flag in ('0', 'false', 'no', 'off'):
-        return False
-    return True
+    return get_runtime_config(refresh=True).batched_vertex_measurement
 
 
 def _log_phase_breakdown(label: str, baseline: dict[str, float]) -> None:
@@ -373,32 +312,9 @@ def _base_target_for_refinement_cell(
 
 def _filter_weighted_point_pair_updates(point_pair_updates: np.ndarray) -> np.ndarray:
     """
-    Drop low-confidence overlap updates using the same estimate_cutoff heuristic as STOS refine.
-
-    Not part of the mosaic refine path: legacy ir-refine-grid has no weight-percentile
-    gating (it relies on regularize_displacements). Retained for STOS-style callers/tests.
+    Drop low-confidence overlap updates using the shared estimate_cutoff helper.
     """
-    if point_pair_updates.size == 0:
-        return point_pair_updates
-
-    positive_weight = point_pair_updates['Weight'] > 0
-    if not np.any(positive_weight):
-        return point_pair_updates[:0]
-
-    weights = np.asarray(point_pair_updates['Weight'][positive_weight], dtype=np.float64)
-    if weights.shape[0] < 3:
-        return point_pair_updates[positive_weight]
-
-    try:
-        _, inflection_percentile, _, polyfit_weights = estimate_cutoff(weights)
-        cutoff_value = float(polyfit_weights[inflection_percentile])  # type: ignore[index]
-    except ValueError:
-        return point_pair_updates[positive_weight]
-
-    keep_mask = positive_weight.copy()
-    positive_indices = np.flatnonzero(positive_weight)
-    keep_mask[positive_indices] = weights >= cutoff_value
-    return point_pair_updates[keep_mask]
+    return filter_records_by_registration_weight(point_pair_updates)
 
 
 def _phase_correlate_refinement_cell(
@@ -409,32 +325,8 @@ def _phase_correlate_refinement_cell(
         min_overlap: float = 0.25,
         max_overlap: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
     """Preprocess and phase-correlate one refinement FFT cell (translate-path parity)."""
-    xp = cp.get_array_module(cell_a)
-    cell_a = xp.asarray(cell_a, dtype=np.float64)
-    cell_b = xp.asarray(cell_b, dtype=np.float64)
-    subregion_shape = np.asarray(subregion_shape, dtype=np.int64)
-
-    if (cell_a.size == 0 or cell_b.size == 0
-            or cell_a.min() == cell_a.max() or cell_b.min() == cell_b.max()
-            or cell_a.max() == 0 or cell_b.max() == 0):
-        return nornir_imageregistration.AlignmentRecord(peak=np.zeros(2, dtype=np.float64), weight=0.0)
-
-    normalized_a = cell_a - cell_a.min()
-    normalized_a /= normalized_a.max()
-    normalized_b = cell_b - cell_b.min()
-    normalized_b /= normalized_b.max()
-
-    # Match legacy refine_one_point_fft: FFT the raw equal-size cells directly.
-    # Random-noise padding would make refinement passes nondeterministic and is
-    # not part of the C++ pipeline for grid refinement cells.
-    return nornir_imageregistration.phasecorrelation.find_offset(
-        normalized_a,
-        normalized_b,
-        min_overlap=min_overlap,
-        max_overlap=max_overlap,
-        target_shape=subregion_shape,
-        source_shape=subregion_shape,
-        fft_required=True)
+    return measure_translation_cell(
+        cell_a, cell_b, subregion_shape, min_overlap=min_overlap, max_overlap=max_overlap)
 
 
 @dataclass
@@ -703,6 +595,7 @@ def _measure_grid_vertex_displacements(
     num_vertices = centers_scaled.shape[0]
     shifts = np.zeros((num_vertices, 2), dtype=np.float64)
     measured = np.zeros(num_vertices, dtype=bool)
+    weights = np.zeros(num_vertices, dtype=np.float64)
 
     fixed_shape = np.asarray(fixed.image.shape, dtype=np.float64)
     for k in range(num_vertices):
@@ -742,7 +635,25 @@ def _measure_grid_vertex_displacements(
 
         shifts[k, :] = peak
         measured[k] = True
+        weights[k] = float(record.weight)
 
+    return _apply_optional_mosaic_weight_cutoff(shifts, measured, weights)
+
+
+def _apply_optional_mosaic_weight_cutoff(
+        shifts: NDArray[np.floating],
+        measured: NDArray[np.bool_],
+        weights: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """When ``NORNIR_REFINE_MOSAIC_CUTOFF`` is set, drop low-weight vertex measurements."""
+    if not get_runtime_config(refresh=True).mosaic_cutoff:
+        return shifts, measured
+    keep = filter_weights_by_estimate_cutoff(weights)
+    drop = measured & ~keep
+    if np.any(drop):
+        shifts = shifts.copy()
+        measured = measured.copy()
+        shifts[drop, :] = 0.0
+        measured[drop] = False
     return shifts, measured
 
 
@@ -816,7 +727,7 @@ def _measure_grid_vertex_displacements_batched(
         [cand_moving_cells[i] for i in range(len(candidate_indices)) if eligible_mask[i]], axis=0)
 
     with _PHASE_TIMER.section('fft'):
-        peaks_dev, weights_dev = nornir_imageregistration.batched_phase_correlation.batched_find_offset(
+        peaks_dev, weights_dev = measure_translation_cells_batched(
             fixed_stack,
             moving_stack,
             cell_shape,
@@ -829,14 +740,16 @@ def _measure_grid_vertex_displacements_batched(
         weights = np.asarray(
             nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
 
+    weight_field = np.zeros(num_vertices, dtype=np.float64)
     for batch_pos, k in enumerate(eligible_indices):
         peak = peaks[batch_pos]
         if weights[batch_pos] <= 0 or np.any(np.isnan(peak)):
             continue
         shifts[k, :] = peak
         measured[k] = True
+        weight_field[k] = float(weights[batch_pos])
 
-    return shifts, measured
+    return _apply_optional_mosaic_weight_cutoff(shifts, measured, weight_field)
 
 
 def _regularize_displacements(
@@ -844,59 +757,8 @@ def _regularize_displacements(
         measured: NDArray[np.bool_],
         mesh_dims: tuple[int, int],
         median_radius: int = 1) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """
-    Port of legacy ``regularize_displacements`` (mosaic_refinement_common.cxx).
-
-    Stages: median filter (radius ``median_radius``) on the measured displacement fields,
-    radius-1 ring gap-fill for unmeasured vertices, then Gaussian blur (sigma=1) over the
-    entire fields. Returns regularized per-vertex (y, x) shifts and the measured/filled
-    flags (the legacy ``db`` image, accumulated into ``mass`` by the caller).
-    """
-    mesh_rows, mesh_cols = int(mesh_dims[0]), int(mesh_dims[1])
-    dy = np.asarray(shifts[:, 0], dtype=np.float64).reshape(mesh_rows, mesh_cols)
-    dx = np.asarray(shifts[:, 1], dtype=np.float64).reshape(mesh_rows, mesh_cols)
-    db = np.asarray(measured, dtype=np.float64).reshape(mesh_rows, mesh_cols)
-
-    # Stage 1: median denoise (ITK MedianImageFilter w/ zero-flux Neumann == 'nearest').
-    if median_radius > 0:
-        size = 2 * int(median_radius) + 1
-        dy = scipy.ndimage.median_filter(dy, size=size, mode='nearest')
-        dx = scipy.ndimage.median_filter(dx, size=size, mode='nearest')
-
-    # Stage 2: gap-fill unmeasured vertices from the radius-1 ring (the legacy loop's
-    # "expanding" radius is capped at 1 by `max_r = std::min(1, ...)`), using the legacy
-    # offset pattern. Samples read the median-filtered fields; db is updated on success.
-    dy_filled = dy.copy()
-    dx_filled = dx.copy()
-    db_filled = db.copy()
-    unmeasured_rows, unmeasured_cols = np.nonzero(db == 0)
-    for row, col in zip(unmeasured_rows.tolist(), unmeasured_cols.tolist()):
-        py = 0.0
-        px = 0.0
-        w = 0.0
-        r = 1
-        x0, x1 = col - r, col + r
-        y0, y1 = row - r, row + r
-        d = 2 * r + 1
-        for o in range(d):
-            # Legacy ring pattern in (x=col, y=row) coordinates.
-            for cx, cy in ((x0, y0 + o + 1), (x1, y0 + o), (x0 + o, y0), (x0 + o + 1, y1)):
-                if 0 <= cx < mesh_cols and 0 <= cy < mesh_rows and db[cy, cx] != 0:
-                    px += dx[cy, cx]
-                    py += dy[cy, cx]
-                    w += 1.0
-        if w != 0.0:
-            dy_filled[row, col] = py / w
-            dx_filled[row, col] = px / w
-            db_filled[row, col] = 1.0
-
-    # Stage 3: Gaussian blur over the full fields (ITK DiscreteGaussianImageFilter with
-    # variance=1, max_error=0.1 -> compact kernel; truncate=2.0 approximates it).
-    dy_filled = scipy.ndimage.gaussian_filter(dy_filled, sigma=1.0, mode='nearest', truncate=2.0)
-    dx_filled = scipy.ndimage.gaussian_filter(dx_filled, sigma=1.0, mode='nearest', truncate=2.0)
-
-    out_shifts = np.column_stack((dy_filled.reshape(-1), dx_filled.reshape(-1)))
-    return out_shifts, db_filled.reshape(-1)
+    """Port of legacy ``regularize_displacements``; delegates to refine_shared."""
+    return shared_regularize_displacements(shifts, measured, mesh_dims, median_radius=median_radius)
 
 
 def _grid_refine_neighbors(
@@ -961,8 +823,130 @@ def _max_refinement_displacement(
 def _refinement_pool_for_overlap_tasks(target_space_scale: float):
     """Return a pool sized for overlap refinement without multiplying warp memory by worker count."""
     if nornir_imageregistration.UsingCupy() or target_space_scale >= 1.0:
-        return nornir_pools.GetGlobalSerialPool()
-    return nornir_pools.GetGlobalMultithreadingPool()
+        return get_runtime_config(refresh=True).pool_for_cell_tasks(True)
+    return get_runtime_config(refresh=True).pool_for_cell_tasks(False)
+
+
+def _angles_are_translation_only(angles_to_search: Iterable[float] | None) -> bool:
+    """Return True when the angle search is empty or only zero (translation-only cells)."""
+    if angles_to_search is None:
+        return False
+    angles = np.asarray(list(angles_to_search), dtype=np.float64).reshape(-1)
+    if angles.size == 0:
+        return True
+    return bool(np.all(np.isclose(angles, 0.0)))
+
+
+def _maybe_regularize_stos_alignment_peaks(
+        alignment_points: list[nornir_imageregistration.EnhancedAlignmentRecord]
+) -> list[nornir_imageregistration.EnhancedAlignmentRecord]:
+    """Optionally spatially regularize STOS peaks (``NORNIR_REFINE_STOS_REGULARIZE=1``)."""
+    if not get_runtime_config(refresh=True).stos_regularize:
+        return alignment_points
+    if len(alignment_points) < 3:
+        return alignment_points
+
+    rows = [int(rec.ID[0]) for rec in alignment_points]
+    cols = [int(rec.ID[1]) for rec in alignment_points]
+    mesh_rows = max(rows) + 1
+    mesh_cols = max(cols) + 1
+    shifts = np.zeros((mesh_rows * mesh_cols, 2), dtype=np.float64)
+    measured = np.zeros(mesh_rows * mesh_cols, dtype=bool)
+    index_of: dict[tuple[int, int], int] = {}
+    for rec in alignment_points:
+        r, c = int(rec.ID[0]), int(rec.ID[1])
+        idx = r * mesh_cols + c
+        shifts[idx, :] = np.asarray(rec.peak, dtype=np.float64).reshape(2)
+        measured[idx] = True
+        index_of[(r, c)] = idx
+
+    regularized, _ = shared_regularize_displacements(
+        shifts, measured, (mesh_rows, mesh_cols), median_radius=1)
+
+    updated: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
+    for rec in alignment_points:
+        r, c = int(rec.ID[0]), int(rec.ID[1])
+        peak = regularized[index_of[(r, c)], :]
+        updated.append(nornir_imageregistration.EnhancedAlignmentRecord(
+            ID=rec.ID,
+            TargetPoint=rec.TargetPoint,
+            SourcePoint=rec.SourcePoint,
+            peak=peak,
+            weight=rec.weight,
+            angle=rec.angle,
+            flipped_ud=rec.flippedud))
+    return updated
+
+
+def _attempt_align_points_translation_batched(
+        keys: list[tuple[int, int]],
+        source_points: np.ndarray,
+        target_points: np.ndarray,
+        rigid_transforms: Sequence[nornir_imageregistration.ITransform],
+        settings: nornir_imageregistration.settings.GridRefinement
+) -> list[nornir_imageregistration.EnhancedAlignmentRecord] | None:
+    """Measure translation-only STOS cells with the shared batched FFT helper.
+
+    Returns ``None`` when ROI extraction fails for too many cells (caller falls back).
+    """
+    fixed_cells: list[NDArray] = []
+    moving_cells: list[NDArray] = []
+    kept_indices: list[int] = []
+    for i, key in enumerate(keys):
+        try:
+            target_roi, source_roi = BuildAlignmentROIs(
+                transform=rigid_transforms[i],
+                targetImage_param=settings.target_image,
+                sourceImage_param=settings.source_image,
+                target_image_stats=settings.target_image_stats,
+                source_image_stats=settings.source_image_stats,
+                target_controlpoint=target_points[i, :],
+                alignmentArea=settings.cell_size,
+                description='')
+        except ValueError:
+            continue
+        if not is_alignable_cell(target_roi) or not is_alignable_cell(source_roi):
+            continue
+        fixed_cells.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(target_roi), dtype=np.float64))
+        moving_cells.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(source_roi), dtype=np.float64))
+        kept_indices.append(i)
+
+    if len(kept_indices) < 3:
+        return None
+
+    shapes = {cell.shape for cell in fixed_cells + moving_cells}
+    if len(shapes) != 1:
+        return None
+
+    cell_shape = np.asarray(next(iter(shapes)), dtype=np.int64)
+    fixed_stack = np.stack(fixed_cells, axis=0)
+    moving_stack = np.stack(moving_cells, axis=0)
+    if nornir_imageregistration.UsingCupy():
+        fixed_stack = cp.asarray(fixed_stack)
+        moving_stack = cp.asarray(moving_stack)
+
+    peaks_dev, weights_dev = measure_translation_cells_batched(
+        fixed_stack,
+        moving_stack,
+        cell_shape,
+        min_overlap=float(settings.min_alignment_overlap),
+        max_overlap=1.0)
+    peaks = np.asarray(nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
+    weights = np.asarray(nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
+
+    records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
+    for batch_pos, i in enumerate(kept_indices):
+        if weights[batch_pos] <= 0 or np.any(np.isnan(peaks[batch_pos])):
+            continue
+        records.append(nornir_imageregistration.EnhancedAlignmentRecord(
+            ID=keys[i],
+            TargetPoint=target_points[i, :],
+            SourcePoint=source_points[i, :],
+            peak=peaks[batch_pos],
+            weight=float(weights[batch_pos]),
+            angle=0.0,
+            flipped_ud=False))
+    return records if len(records) > 0 else None
 
 
 def _cupy_memory_pool_stats() -> tuple[int | None, int | None]:
@@ -1004,99 +988,30 @@ def _release_refinement_worker_memory() -> None:
 
 
 def _prewarp_dispatch_mode() -> str:
-    """Return the prewarp dispatch mode tokens.
-
-    Read from ``NORNIR_REFINE_PREWARP_MODE`` (default ``''``). Tokens may be
-    combined (for example ``'thread+cache'``):
-
-    - ``thread``: dispatch the per-tile warp on the shared thread pool under
-      CuPy, overlapping host tile-load + coordinate compute (the CPU SciPy
-      LinearND inverse) with warp kernels. This is the CuPy default (proven
-      byte-identical to serial and ~20% faster on a full section); add
-      ``serial`` to opt out.
-    - ``serial``: force the legacy serial CuPy prewarp loop (thread opt-out).
-    - ``cache``: allow the cross-pass prewarp cache under CuPy (re-render only
-      tiles whose lattice revision changed). Off by default because it was
-      historically disabled under CuPy; gated by golden parity validation.
-
-    An empty mode keeps the per-backend defaults (thread under CuPy, multiprocess
-    pool on CPU).
-    """
-    return os.environ.get('NORNIR_REFINE_PREWARP_MODE', '').strip().lower()
+    """Return the prewarp dispatch mode tokens from RefineRuntimeConfig."""
+    return get_runtime_config(refresh=True).prewarp_mode
 
 
 def _prewarp_thread_dispatch_enabled() -> bool:
-    """Return True when per-tile prewarp should run on the shared thread pool.
-
-    Thread dispatch overlaps the host-side prewarp work (tile load + the CPU
-    SciPy LinearND inverse) with warp kernels. It is the **CuPy default**
-    (output-neutral: the per-tile warp is identical, only the dispatch differs;
-    verified byte-identical to the serial loop). ``serial`` in the mode opts out.
-
-    CPU is unaffected: it already parallelizes prewarp on the multiprocess pool,
-    so thread dispatch stays opt-in (``thread``) there.
-    """
-    mode = _prewarp_dispatch_mode()
-    if 'serial' in mode:
-        return False
-    if 'thread' in mode:
-        return True
-    return nornir_imageregistration.UsingCupy()
+    """Return True when per-tile prewarp should run on the shared thread pool."""
+    return get_runtime_config(refresh=True).prewarp_thread_dispatch_enabled(
+        nornir_imageregistration.UsingCupy())
 
 
 def _tile_measure_parallel_enabled() -> bool:
-    """Return True when per-tile vertex measurement should run on a thread pool.
-
-    Each tile's measurement is independent (reads the shared read-only
-    ``prewarped`` dict, writes only its own result), so dispatching tiles across
-    threads is output-neutral. Under NumPy the per-cell FFT/BLAS release the GIL
-    so this yields real parallelism; under CuPy the kernels serialize on the
-    default stream but host-side setup/regularize overlap.
-
-    Controlled by ``NORNIR_REFINE_TILE_PARALLEL``. Default is decided by the
-    head-to-head benchmark below; until then it is opt-in.
-    """
-    flag = os.environ.get('NORNIR_REFINE_TILE_PARALLEL', '').strip().lower()
-    if flag in ('0', 'false', 'no', 'off'):
-        return False
-    if flag in ('1', 'true', 'yes', 'on'):
-        return True
-    return False
+    """Return True when per-tile vertex measurement should run on a thread pool."""
+    return get_runtime_config(refresh=True).tile_measure_parallel
 
 
 def _prewarp_single_warp_coverage_enabled() -> bool:
-    """Return True for the opt-in single-warp prewarp (Step 7 / warp optimization).
-
-    Default (False) keeps the legacy two-warp prewarp: warp the image, then warp
-    a separate ones-image and threshold ``coverage > 0.999``. That legacy
-    coverage is clipped to the source min/max, so it is uniformly True for tiles
-    whose warped footprint is interior (the per-pixel coverage was effectively
-    unused). When ``NORNIR_REFINE_PREWARP_MODE`` contains ``singlewarp``, derive
-    the true coverage from the warp's scatter indices in a single warp, halving
-    the warp kernels. This changes the validity mask (and thus registration
-    output) slightly versus the legacy behavior, so it is opt-in.
-    """
-    return 'singlewarp' in _prewarp_dispatch_mode()
+    """Return True for the opt-in single-warp prewarp coverage path."""
+    return get_runtime_config(refresh=True).prewarp_single_warp_coverage_enabled()
 
 
 def _refine_gpu_transform_enabled() -> bool:
-    """Return True for the opt-in on-device inverse transform during prewarp.
-
-    Default (False) keeps the CPU ``GridWithRBFFallback`` (SciPy LinearND
-    inverse), whose ``InverseTransform`` forces the prewarp ROI grid to host each
-    pass (D2H grid -> SciPy LinearND -> NumPy read coords, re-uploaded by the
-    warp). When ``NORNIR_REFINE_GPU_TRANSFORM`` is truthy and CuPy is the active
-    backend with cupyx ``LinearNDInterpolator`` available, the refinement grid
-    transform is built as ``GridWithRBFFallback_GPUComponent`` so the discrete
-    inverse stays on-device.
-
-    cupyx LinearND is the same algorithm as SciPy LinearND but not bit-identical
-    (GPU Delaunay + float), so this shifts registration output slightly; it is
-    opt-in and parity gated (see docs/mosaic_refine_grid_gpu_assessment.md). The
-    env var is read per call so benchmarks/tests can toggle it within a process.
-    """
-    flag = os.environ.get('NORNIR_REFINE_GPU_TRANSFORM', '').strip().lower()
-    if flag in ('', '0', 'false', 'no', 'off'):
+    """Return True for the opt-in on-device inverse transform during prewarp."""
+    cfg = get_runtime_config(refresh=True)
+    if not cfg.gpu_transform:
         return False
     if not nornir_imageregistration.UsingCupy():
         return False
@@ -1105,15 +1020,9 @@ def _refine_gpu_transform_enabled() -> bool:
 
 
 def _prewarp_cache_enabled() -> bool:
-    """Return False when cross-pass prewarp caching is disabled for A/B testing or on CuPy."""
-    if os.environ.get('NORNIR_DISABLE_PREWARP_CACHE', '').strip().lower() in (
-            '1', 'true', 'yes', 'on'):
-        return False
-    # CuPy cross-pass cache changes mosaic outputs; keep CPU-only caching by
-    # default, but allow opt-in via NORNIR_REFINE_PREWARP_MODE=cache (Step 7).
-    if nornir_imageregistration.UsingCupy():
-        return 'cache' in _prewarp_dispatch_mode()
-    return True
+    """Return False when cross-pass prewarp caching is disabled."""
+    return get_runtime_config(refresh=True).prewarp_cache_enabled(
+        nornir_imageregistration.UsingCupy())
 
 
 def _compute_padded_overlap_geometry(
@@ -2270,6 +2179,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if len(alignment_points) == 0:
             raise ValueError(f"No alignment points generated at pass #{i}")
 
+        alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
+
         prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
 
         updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
@@ -2616,13 +2527,24 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
 
     nPoints = len(keys)
 
-    pool = nornir_pools.GetGlobalSerialPool() if nornir_imageregistration.UsingCupy() else nornir_pools.GetGlobalMultithreadingPool()
+    pool = get_runtime_config(refresh=True).pool_for_cell_tasks(
+        nornir_imageregistration.UsingCupy())
     # pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
 
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints,
                                                                cell_size=settings.cell_size)
+
+    if _angles_are_translation_only(settings.angles_to_search) and nPoints > 0:
+        batched = _attempt_align_points_translation_batched(
+            keys=keys,
+            source_points=sourcePoints,
+            target_points=targetPoints,
+            rigid_transforms=rigid_transforms,
+            settings=settings)
+        if batched is not None:
+            return batched
 
     if settings.single_thread_processing:
         target_image = settings.target_image
@@ -3236,22 +3158,26 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                                                               target_points=target_controlpoint,  # type: ignore[arg-type]
                                                               cell_size=alignmentArea)  # type: ignore[arg-type]
 
-    target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
-                                                            targetImage_param=targetImage,
-                                                            sourceImage_param=sourceImage,
-                                                            target_image_stats=target_image_stats,
-                                                            source_image_stats=source_image_stats,
-                                                            target_controlpoint=target_controlpoint,
-                                                            alignmentArea=alignmentArea,
-                                                            description=taskname)
+    try:
+        target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
+                                                                targetImage_param=targetImage,
+                                                                sourceImage_param=sourceImage,
+                                                                target_image_stats=target_image_stats,
+                                                                source_image_stats=source_image_stats,
+                                                                target_controlpoint=target_controlpoint,
+                                                                alignmentArea=alignmentArea,
+                                                                description=taskname)
+    except ValueError:
+        # Entirely out-of-bounds source ROIs are not alignable (same as AttemptAlignPoint).
+        return None
 
     target_image_roi = EnsureMaxContrast(target_image_roi)
     source_image_roi = EnsureMaxContrast(source_image_roi)
 
     # Just ignore pure color regions
-    if not np.any(target_image_roi != target_image_roi[0][0]):
+    if not is_alignable_cell(target_image_roi):
         return None
-    if not np.any(source_image_roi != source_image_roi[0][0]):
+    if not is_alignable_cell(source_image_roi):
         return None
 
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
@@ -3323,9 +3249,9 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         return None
 
     # Just ignore pure color regions
-    if not np.any(target_image_roi != target_image_roi[0][0]):
+    if not is_alignable_cell(target_image_roi):
         return None
-    if not np.any(source_image_roi != source_image_roi[0][0]):
+    if not is_alignable_cell(source_image_roi):
         return None
 
     # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])

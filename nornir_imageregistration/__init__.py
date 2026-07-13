@@ -381,7 +381,10 @@ import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.layout as layout
 import nornir_imageregistration.local_distortion_correction as local_distortion_correction
-from nornir_imageregistration.local_distortion_correction import WeightMethod
+import nornir_imageregistration.refine_shared as refine_shared
+import nornir_imageregistration.mosaic_refine as mosaic_refine
+import nornir_imageregistration.stos_refine as stos_refine
+from nornir_imageregistration.stos_refine import WeightMethod
 import nornir_imageregistration.tileset_functions as tileset_functions
 import nornir_imageregistration.views as views
 import nornir_imageregistration.volume as volume
@@ -391,7 +394,8 @@ from nornir_imageregistration.arrange_mosaic import TranslateTiles2
 
 from nornir_imageregistration.volume import Volume
 from nornir_imageregistration.overlapmasking import GetOverlapMask, GetOverlapMaskOnDevice
-from nornir_imageregistration.local_distortion_correction import RefineMosaic, RefineGridMosaic, RefineStosFile, RefineTransform, MosaicRefinementDiagnostics
+from nornir_imageregistration.mosaic_refine import RefineMosaic, RefineGridMosaic, MosaicRefinementDiagnostics
+from nornir_imageregistration.stos_refine import RefineStosFile, RefineTransform
 
 from nornir_imageregistration.spatial.indices import *
 from nornir_imageregistration.views import ShowWithPassFail

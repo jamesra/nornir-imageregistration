@@ -301,16 +301,25 @@ class TestROIExtractionFromGrid(setup_imagetest.ImageTestBase):
             #                                                                               extrapolate=True, cval=np.nan)
 
             adjusted_transform = adjusted_transforms[i]
-            target_roi, source_roi = nornir_imageregistration.local_distortion_correction.BuildAlignmentROIs(
-                transform=adjusted_transform,
-                targetImage_param=target_image,
-                sourceImage_param=source_image,
-                target_image_stats=target_stats,
-                source_image_stats=source_stats,
-                target_controlpoint=source_point,
-                alignmentArea=cell_size)
+            # BuildAlignmentROIs centers the shared ROI in target space (same as
+            # AttemptAlignPoint / STOS refine). Passing the source point here
+            # mis-centers translated/rotated grids and can yield entirely OOB cells.
+            target_point = np.asarray(
+                adjusted_transform.Transform(source_point), dtype=float).reshape(-1)
+            try:
+                target_roi, source_roi = nornir_imageregistration.local_distortion_correction.BuildAlignmentROIs(
+                    transform=adjusted_transform,
+                    targetImage_param=target_image,
+                    sourceImage_param=source_image,
+                    target_image_stats=target_stats,
+                    source_image_stats=source_stats,
+                    target_controlpoint=target_point,
+                    alignmentArea=cell_size)
+            except ValueError as exc:
+                # Entirely out-of-bounds source ROIs are skipped in refine callers.
+                self.fail(
+                    f"Unexpected OOB ROI at source={source_point} target={target_point}: {exc}")
 
-            target_point = adjusted_transform.Transform(source_point)
             roi_diff = np.abs(target_roi - source_roi)
             target_roi_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(target_point, cell_size)
             source_roi_rect = nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(source_point, cell_size)

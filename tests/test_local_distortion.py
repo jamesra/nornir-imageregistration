@@ -273,19 +273,20 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
 
     def testStosRefinementRPC2_1156_1155_Grid16_to_Grid8(self):
         """
-        This is an incorrectly aligned brute output.  The goal is to have the alignment exit without going off the rails or producing horrible output.
+        Optional developer fixture: incorrectly aligned brute output that must
+        refine without going off the rails.
+
+        Skipped unless the machine-local RPC2 path exists. Prefer
+        ``testStosRefinementIDoc690_691`` for CI / portable coverage.
         """
 
         # Do not stress about this test until you verify the input transform was
         # not affected by the grid transform saving bug and that it is a valid
         # starting point
-
-        # self.TestName = "StosRefinementRC2_617"
-        # stosFilePath = self.GetStosFilePath("StosRefinementRPC3_14_13_DS32_From_Brute",
-        #                                     "14-13_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
-        # self.RunStosRefinement(stosFilePath, ImageDir=os.path.dirname(stosFilePath), SaveImages=False, SavePlots=True)
         stosFilePath = os.path.join("D:", "Data", "RPC2", "TEM", "Grid8", "Automatic",
                                     "1156-1155_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+        if not os.path.isfile(stosFilePath):
+            self.skipTest(f"Machine-local RPC2 STOS fixture not present: {stosFilePath}")
         RefineStosFile(InputStos=stosFilePath,
                        OutputStosPath=os.path.join(self.TestOutputPath, 'Final.stos'),
                        num_iterations=5,
@@ -298,6 +299,36 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
                        min_unmasked_area=0.49,
                        SaveImages=True,
                        SavePlots=True)
+
+    def testStosRefinementIDoc690_691(self):
+        """RefineStosFile on the bundled idoc 690/691 brute fixture must emit a .stos."""
+        stosFilePath = os.path.join(
+            os.path.dirname(__file__),
+            "fixtures",
+            "idoc_690_691",
+            "StosBrute16",
+            "690-691_ctrl-TEM_Leveled_map-TEM_Leveled.stos",
+        )
+        if not os.path.isfile(stosFilePath):
+            self.skipTest(f"Bundled STOS fixture missing: {stosFilePath}")
+
+        output_path = os.path.join(self.TestOutputPath, "Final_idoc_690_691.stos")
+        RefineStosFile(InputStos=stosFilePath,
+                       OutputStosPath=output_path,
+                       num_iterations=2,
+                       cell_size=(64, 64),
+                       grid_spacing=(64, 64),
+                       angles_to_search=[0],
+                       max_travel_for_finalization=None,
+                       max_travel_for_finalization_improvement=None,
+                       min_alignment_overlap=0.5,
+                       min_unmasked_area=0.49,
+                       SaveImages=False,
+                       SavePlots=False)
+        self.assertTrue(os.path.isfile(output_path), "RefineStosFile did not write output .stos")
+        refined = nornir_imageregistration.files.StosFile.Load(output_path)
+        self.assertIsNotNone(refined.Transform)
+        self.assertGreater(len(refined.Transform.strip()), 0)
 
     # def testStosRefinementRPC3_449_450(self):
     #     """
