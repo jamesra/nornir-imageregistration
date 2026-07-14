@@ -7,6 +7,7 @@ import unittest
 
 import numpy as np
 
+import nornir_imageregistration
 from nornir_imageregistration.refine_shared import (
     RefineRuntimeConfig,
     filter_weights_by_estimate_cutoff,
@@ -15,6 +16,11 @@ from nornir_imageregistration.refine_shared import (
     normalize_cell,
     regularize_displacements,
 )
+
+try:
+    import cupy as cp
+except (ModuleNotFoundError, ImportError):
+    cp = None
 
 
 class TestRefineShared(unittest.TestCase):
@@ -49,6 +55,28 @@ class TestRefineShared(unittest.TestCase):
         self.assertTrue(np.any(keep))
         self.assertTrue(np.any(~keep) or keep.sum() == keep.size)
 
+    def test_estimate_registration_weight_cutoff_flat_fallback(self) -> None:
+        """Curves without a verified inflection use the keep-all fallback."""
+        from nornir_imageregistration.refine_shared import estimate_registration_weight_cutoff
+
+        # Strictly convex exponential percentile curves often have no sign-change
+        # in the second derivative after polyfit smoothing.
+        weights = np.exp(np.linspace(0.0, 2.0, 50))
+        cutoff = estimate_registration_weight_cutoff(weights)
+        self.assertTrue(cutoff.used_fallback)
+        self.assertEqual(cutoff.inflection_percentile_index, 0)
+        keep = weights >= float(cutoff.percentile_curve[cutoff.inflection_percentile_index])
+        self.assertTrue(np.all(keep) or keep.sum() >= weights.size - 1)
+
+    def test_estimate_registration_weight_cutoff_linear_fallback(self) -> None:
+        """Strictly linear scores often lack a verified inflection; must not raise."""
+        from nornir_imageregistration.refine_shared import estimate_registration_weight_cutoff
+
+        linear = np.linspace(0.1, 1.0, 40)
+        cutoff = estimate_registration_weight_cutoff(linear)
+        self.assertEqual(cutoff.percentile_curve.shape[0], 101)
+        self.assertGreaterEqual(float(np.sum(linear >= cutoff.cutoff_value)), 1.0)
+
     def test_regularize_displacements_gap_fill(self) -> None:
         """Unmeasured vertices receive filled values from neighbors."""
         mesh = (3, 3)
@@ -61,19 +89,78 @@ class TestRefineShared(unittest.TestCase):
         self.assertGreaterEqual(float(db.sum()), 1.0)
 
     def test_runtime_config_env_flags(self) -> None:
-        """RefineRuntimeConfig reads mosaic cutoff and STOS fallback flags."""
+        """RefineRuntimeConfig reads mosaic cutoff and STOS regularize flags."""
         os.environ['NORNIR_REFINE_MOSAIC_CUTOFF'] = '1'
-        os.environ['NORNIR_STOS_REFINE_FALLBACK'] = '1'
         os.environ['NORNIR_REFINE_STOS_REGULARIZE'] = '1'
         try:
             cfg = RefineRuntimeConfig.from_env()
             self.assertTrue(cfg.mosaic_cutoff)
-            self.assertTrue(cfg.stos_refine_fallback)
             self.assertTrue(cfg.stos_regularize)
         finally:
             os.environ.pop('NORNIR_REFINE_MOSAIC_CUTOFF', None)
-            os.environ.pop('NORNIR_STOS_REFINE_FALLBACK', None)
             os.environ.pop('NORNIR_REFINE_STOS_REGULARIZE', None)
+
+    def test_grid_refinement_uploads_images_once_under_cupy(self) -> None:
+        """When CuPy is active, GridRefinement promotes full images to device once."""
+        if not nornir_imageregistration.HasCupy() or cp is None:
+            self.skipTest("CuPy unavailable")
+
+        previous = nornir_imageregistration.GetActiveComputationLib()
+        try:
+            nornir_imageregistration.SetActiveComputationLib(
+                nornir_imageregistration.ComputationLib.cupy)
+            rng = np.random.default_rng(1)
+            target = rng.random((64, 64)).astype(np.float32)
+            source = rng.random((64, 64)).astype(np.float32)
+            target_stats = nornir_imageregistration.ImageStats.Create(target)
+            source_stats = nornir_imageregistration.ImageStats.Create(source)
+            with nornir_imageregistration.settings.GridRefinement(
+                    target_image=target,
+                    source_image=source,
+                    target_image_stats=target_stats,
+                    source_image_stats=source_stats,
+                    target_mask=np.ones((64, 64), dtype=bool),
+                    source_mask=np.ones((64, 64), dtype=bool),
+                    cell_size=(16, 16),
+                    grid_spacing=(16, 16),
+                    angles_to_search=[0],
+                    num_iterations=1) as settings:
+                self.assertTrue(settings.cupy_processing)
+                self.assertIsInstance(settings.target_image, cp.ndarray)
+                self.assertIsInstance(settings.source_image, cp.ndarray)
+                # Tissue masks stay on the host for cell-overlap filtering.
+                self.assertIsInstance(settings.target_mask, np.ndarray)
+                self.assertFalse(isinstance(settings.target_mask, cp.ndarray))
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous)
+
+    def test_grid_refinement_keeps_numpy_images_on_numpy(self) -> None:
+        """NumPy backend must not promote GridRefinement images to CuPy."""
+        previous = nornir_imageregistration.GetActiveComputationLib()
+        try:
+            nornir_imageregistration.SetActiveComputationLib(
+                nornir_imageregistration.ComputationLib.numpy)
+            rng = np.random.default_rng(2)
+            target = rng.random((32, 32)).astype(np.float32)
+            source = rng.random((32, 32)).astype(np.float32)
+            target_stats = nornir_imageregistration.ImageStats.Create(target)
+            source_stats = nornir_imageregistration.ImageStats.Create(source)
+            with nornir_imageregistration.settings.GridRefinement(
+                    target_image=target,
+                    source_image=source,
+                    target_image_stats=target_stats,
+                    source_image_stats=source_stats,
+                    cell_size=(8, 8),
+                    grid_spacing=(8, 8),
+                    angles_to_search=[0],
+                    num_iterations=1,
+                    single_thread_processing=True) as settings:
+                self.assertFalse(settings.cupy_processing)
+                self.assertIsInstance(settings.target_image, np.ndarray)
+                if cp is not None:
+                    self.assertFalse(isinstance(settings.target_image, cp.ndarray))
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous)
 
 
 if __name__ == '__main__':

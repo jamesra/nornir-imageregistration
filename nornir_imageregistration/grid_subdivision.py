@@ -14,6 +14,7 @@ import nornir_imageregistration
 from nornir_imageregistration import IGrid
 from nornir_imageregistration.transforms.base import ITransform
 
+from nornir_shared import prettyoutput
 from nornir_shared.mathhelper import NearestPowerOfTwo
 
 try:
@@ -111,26 +112,72 @@ class GridDivisionBase(IGrid):
             return self._TargetPoints
         return None
 
-    def RemoveMaskedPoints(self, mask: NDArray[np.bool_]) -> None:
+    @staticmethod
+    def _mask_summary(mask: NDArray) -> str:
+        """Compact mask diagnostics for operator-facing error messages."""
+        mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
+        if mask_host.size == 0:
+            return "mask_shape=(); mask_true_fraction=n/a"
+        true_count = int(np.count_nonzero(mask_host))
+        return (
+            f"mask_shape={tuple(int(s) for s in mask_host.shape)}; "
+            f"mask_true_count={true_count}; "
+            f"mask_true_fraction={true_count / float(mask_host.size):.4f}"
+        )
+
+    def RemoveMaskedPoints(self, mask: NDArray[np.bool_], *, context: str | None = None,
+                           allow_empty: bool = False) -> int:
         """
+        Keep only points where ``mask`` is True.
+
         :param mask: a boolean mask that determines which points are kept.
+        :param context: optional operator-facing description of which filter emptied the grid.
+        :param allow_empty: when True, emptying the grid clears points and returns 0 instead of raising.
+        :return: number of points remaining after filtering.
         """
+        keep = np.asarray(mask, dtype=bool).reshape(-1)
+        if keep.size != self.num_points:
+            raise ValueError(
+                f"Point keep-mask length {keep.size} does not match grid point count {self.num_points}")
 
-        if not np.any(mask):
-            raise ValueError("Masking operation removes all points from grid refinement")
+        if not np.any(keep):
+            msg = (
+                f"Masking operation removes all {self.num_points} points from grid refinement"
+                + (f" ({context})" if context else "")
+                + f". cell_size={np.asarray(self.cell_size).tolist()}; "
+                f"grid_spacing={np.asarray(self.grid_spacing).tolist()}. "
+                "Check that blended tissue masks still have unmasked area under the "
+                "control-point cells (extrema masking can erase thin tissue), that the "
+                "current transform places points on tissue, and that min_unmasked_area "
+                "is not set too high."
+            )
+            if allow_empty:
+                prettyoutput.Log(msg + " Continuing with an empty unfinalized set.")
+                empty_ix = np.zeros(0, dtype=bool)
+                self._coords = self._coords[empty_ix, :]
+                self._SourcePoints = self._SourcePoints[empty_ix, :]
+                if self._TargetPoints is not None:
+                    self._TargetPoints = self._TargetPoints[empty_ix, :]
+                return 0
 
-        self._coords = self._coords[mask, :]
-        self._SourcePoints = self._SourcePoints[mask, :]
+            prettyoutput.LogErr(msg)
+            raise ValueError(msg)
+
+        self._coords = self._coords[keep, :]
+        self._SourcePoints = self._SourcePoints[keep, :]
 
         if self._TargetPoints is not None:
-            self._TargetPoints = self._TargetPoints[mask, :]
+            self._TargetPoints = self._TargetPoints[keep, :]
+        return int(self.num_points)
 
     def ApplyTargetImageMask(self, target_mask: NDArray[np.bool_] | None):
         if target_mask is not None:
             self.FilterOutofBoundsTargetPoints(target_mask.shape)
             valid = nornir_imageregistration.index_with_array(target_mask, self._TargetPoints)
 
-            self.RemoveMaskedPoints(valid)
+            self.RemoveMaskedPoints(
+                valid,
+                context=f"target image mask at point centers; {self._mask_summary(target_mask)}")
 
     def __CalculateMaskedCells(self, mask: NDArray[np.bool_], points: NDArray, min_unmasked_area: float | None = None):
         """
@@ -138,62 +185,139 @@ class GridDivisionBase(IGrid):
         :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
         """
+        # Mask cell crops and overlap tests stay on the host: points are small and
+        # CropImage / count_nonzero need a shared array module with the keep-mask.
+        points_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
+        mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
 
-        xp = cp.get_array_module(points)
-
-        if points.shape[0] == 0:
+        if points_host.shape[0] == 0:
             raise ValueError("points must have non-zero length")
 
         if min_unmasked_area is None:
             min_unmasked_area = 0
 
-        cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
-        half_cell = self._cell_size / 2.0
-        cell_area = xp.prod(self._cell_size)
+        cell_true_count = np.zeros(points_host.shape[0], dtype=np.float64)
+        half_cell = np.asarray(self._cell_size, dtype=np.float64) / 2.0
+        cell_area = float(np.prod(self._cell_size))
 
-        origins = points - xp.asarray(half_cell, dtype=np.int32)
+        origins = points_host - half_cell
+        # #region agent log
+        _dbg_point_rows: list[dict] = []
+        # #endregion
 
-        for iRow in range(0, points.shape[0]):
+        for iRow in range(0, points_host.shape[0]):
             o = origins[iRow, :]
 
-            cell = nornir_imageregistration.CropImage(mask,
+            cell = nornir_imageregistration.CropImage(mask_host,
                                                       int(o[1]), int(o[0]),
                                                       int(self._cell_size[1]), int(self._cell_size[0]),
                                                       cval=False)
-            cell_true_count[iRow] = xp.count_nonzero(cell)  # type: ignore[call-arg, arg-type]
+            cell_true_count[iRow] = float(np.count_nonzero(cell))
+            # #region agent log
+            cy, cx = float(points_host[iRow, 0]), float(points_host[iRow, 1])
+            in_bounds = (0 <= cy < mask_host.shape[0]) and (0 <= cx < mask_host.shape[1])
+            center_val = None
+            if in_bounds:
+                center_val = bool(mask_host[int(cy), int(cx)])
+            # swapped-axis probe: if coords were interpreted as (x,y) instead of (y,x)
+            swapped_in = (0 <= cx < mask_host.shape[0]) and (0 <= cy < mask_host.shape[1])
+            swapped_val = bool(mask_host[int(cx), int(cy)]) if swapped_in else None
+            _dbg_point_rows.append({
+                "i": iRow,
+                "cy": cy, "cx": cx,
+                "origin_y": float(o[0]), "origin_x": float(o[1]),
+                "overlap": float(cell_true_count[iRow] / cell_area),
+                "true_count": float(cell_true_count[iRow]),
+                "in_bounds": in_bounds,
+                "center_mask": center_val,
+                "swapped_in_bounds": swapped_in,
+                "swapped_center_mask": swapped_val,
+            })
+            # #endregion
 
-        overlaps = cell_true_count / float(cell_area)
+        overlaps = cell_true_count / cell_area
         valid = overlaps > min_unmasked_area
+        # #region agent log
+        try:
+            import json, time
+            with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({
+                    "sessionId": "ec0d67",
+                    "hypothesisId": "A,B,E,F",
+                    "location": "grid_subdivision.py:__CalculateMaskedCells",
+                    "message": "per-point cell mask overlaps",
+                    "data": {
+                        "mask_shape": [int(s) for s in mask_host.shape],
+                        "min_unmasked_area": float(min_unmasked_area),
+                        "cell_size": [int(x) for x in np.asarray(self._cell_size).tolist()],
+                        "n_points": int(points_host.shape[0]),
+                        "n_valid": int(np.count_nonzero(valid)),
+                        "overlap_min": float(np.min(overlaps)),
+                        "overlap_max": float(np.max(overlaps)),
+                        "overlap_mean": float(np.mean(overlaps)),
+                        "points": _dbg_point_rows,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
         return valid
 
-    def RemoveCellsUsingTargetImageMask(self, target_mask: NDArray[np.bool_], min_unmasked_area: float):
+    def RemoveCellsUsingTargetImageMask(self, target_mask: NDArray[np.bool_], min_unmasked_area: float,
+                                        *, allow_empty: bool = False) -> int:
         """
         :param ndarray target_mask: mask image used for calculation
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        :param allow_empty: when True, emptying the grid is allowed (returns 0)
+        :return: number of points remaining after filtering (unchanged if mask is None)
         """
         if target_mask is not None:
+            points_before = self.num_points
             valid = self.__CalculateMaskedCells(mask=target_mask, points=self._TargetPoints,
                                                 min_unmasked_area=min_unmasked_area)
-            self.RemoveMaskedPoints(valid)
+            return self.RemoveMaskedPoints(
+                valid,
+                allow_empty=allow_empty,
+                context=(
+                    f"target cell tissue mask; points_before={points_before}; "
+                    f"min_unmasked_area={float(min_unmasked_area):g}; "
+                    f"{self._mask_summary(target_mask)}"
+                ))
+        return int(self.num_points)
 
     def ApplySourceImageMask(self, source_mask: NDArray[np.bool_] | None):
         if source_mask is not None:
             self.FilterOutofBoundsSourcePoints(source_mask.shape)
             valid = nornir_imageregistration.index_with_array(source_mask, self._SourcePoints)
-            self.RemoveMaskedPoints(valid)
+            self.RemoveMaskedPoints(
+                valid,
+                context=f"source image mask at point centers; {self._mask_summary(source_mask)}")
 
-    def RemoveCellsUsingSourceImageMask(self, source_mask: NDArray[np.bool_], min_unmasked_area: float):
+    def RemoveCellsUsingSourceImageMask(self, source_mask: NDArray[np.bool_], min_unmasked_area: float,
+                                        *, allow_empty: bool = False) -> int:
         """
         :param ndarray source_mask: mask image used for calculation
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        :param allow_empty: when True, emptying the grid is allowed (returns 0)
+        :return: number of points remaining after filtering (unchanged if mask is None)
         """
         if source_mask is not None:
+            points_before = self.num_points
             valid = self.__CalculateMaskedCells(mask=source_mask, points=self._SourcePoints,
                                                 min_unmasked_area=min_unmasked_area)
-            self.RemoveMaskedPoints(valid)
+            return self.RemoveMaskedPoints(
+                valid,
+                allow_empty=allow_empty,
+                context=(
+                    f"source cell tissue mask; points_before={points_before}; "
+                    f"min_unmasked_area={float(min_unmasked_area):g}; "
+                    f"{self._mask_summary(source_mask)}"
+                ))
+        return int(self.num_points)
 
-    def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None) \
-            -> None:
+    def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None,
+                                      *, allow_empty: bool = False) -> int:
 
         xp = nornir_imageregistration.GetComputationModule() if target_shape is None else cp.get_array_module(
             target_shape)  # type: ignore[arg-type]
@@ -201,12 +325,19 @@ class GridDivisionBase(IGrid):
         if not isinstance(target_shape, np.ndarray):
             target_shape = xp.asarray(target_shape)
 
+        points_before = self.num_points
         valid_inbounds = xp.logical_and(xp.all(self._TargetPoints >= xp.asarray((0, 0)), 1),
                                         xp.all(self._TargetPoints < target_shape, 1))  # type: ignore[operator]
-        self.RemoveMaskedPoints(valid_inbounds)
+        return self.RemoveMaskedPoints(
+            np.asarray(nornir_imageregistration.EnsureNumpyArray(valid_inbounds), dtype=bool),
+            allow_empty=allow_empty,
+            context=(
+                f"target out-of-bounds filter; points_before={points_before}; "
+                f"target_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(target_shape)).tolist())}"
+            ))
 
-    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None) \
-            -> None:
+    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None,
+                                      *, allow_empty: bool = False) -> int:
         xp = nornir_imageregistration.GetComputationModule() if source_shape is None else cp.get_array_module(
             source_shape)  # type: ignore[arg-type]
 
@@ -215,9 +346,16 @@ class GridDivisionBase(IGrid):
         elif not isinstance(source_shape, np.ndarray):
             source_shape = xp.asarray(source_shape)
 
+        points_before = self.num_points
         valid_inbounds = xp.logical_and(xp.all(self._SourcePoints >= xp.asarray((0, 0)), 1),
                                         xp.all(self._SourcePoints < source_shape, 1))  # type: ignore[operator]
-        self.RemoveMaskedPoints(valid_inbounds)
+        return self.RemoveMaskedPoints(
+            np.asarray(nornir_imageregistration.EnsureNumpyArray(valid_inbounds), dtype=bool),
+            allow_empty=allow_empty,
+            context=(
+                f"source out-of-bounds filter; points_before={points_before}; "
+                f"source_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(source_shape)).tolist())}"
+            ))
 
     def __str__(self):
         return f"grid_dims:{self._grid_dims[0]},{self._grid_dims[1]} grid_spacing:{self._grid_spacing[0]},{self._grid_spacing[1]} cell_size:{self._cell_size[0]},{self._cell_size[1]}"

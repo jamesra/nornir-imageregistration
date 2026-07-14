@@ -31,7 +31,7 @@ import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_imageregistration.assemble_tiles
 from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
-from nornir_imageregistration.mathfuncs import EMA, estimate_cutoff
+from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
@@ -41,6 +41,7 @@ from nornir_imageregistration.refine_shared import (
     is_alignable_cell,
     filter_records_by_registration_weight,
     filter_weights_by_estimate_cutoff,
+    estimate_registration_weight_cutoff,
     measure_translation_cell,
     measure_translation_cells_batched,
     regularize_displacements as shared_regularize_displacements,
@@ -888,51 +889,60 @@ def _attempt_align_points_translation_batched(
     """Measure translation-only STOS cells with the shared batched FFT helper.
 
     Returns ``None`` when ROI extraction fails for too many cells (caller falls back).
+    Under CuPy, ROIs stay on-device through ``xp.stack`` and the batched FFT; peaks
+    sync to host once (same pattern as mosaic ``_measure_grid_vertex_displacements_batched``).
     """
     fixed_cells: list[NDArray] = []
     moving_cells: list[NDArray] = []
     kept_indices: list[int] = []
-    for i, key in enumerate(keys):
-        try:
-            target_roi, source_roi = BuildAlignmentROIs(
-                transform=rigid_transforms[i],
-                targetImage_param=settings.target_image,
-                sourceImage_param=settings.source_image,
-                target_image_stats=settings.target_image_stats,
-                source_image_stats=settings.source_image_stats,
-                target_controlpoint=target_points[i, :],
-                alignmentArea=settings.cell_size,
-                description='')
-        except ValueError:
-            continue
-        if not is_alignable_cell(target_roi) or not is_alignable_cell(source_roi):
-            continue
-        fixed_cells.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(target_roi), dtype=np.float64))
-        moving_cells.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(source_roi), dtype=np.float64))
-        kept_indices.append(i)
 
-    if len(kept_indices) < 3:
-        return None
+    with _PHASE_TIMER.section('cell_extract'):
+        for i, _key in enumerate(keys):
+            try:
+                target_roi, source_roi = BuildAlignmentROIs(
+                    transform=rigid_transforms[i],
+                    targetImage_param=settings.target_image,
+                    sourceImage_param=settings.source_image,
+                    target_image_stats=settings.target_image_stats,
+                    source_image_stats=settings.source_image_stats,
+                    target_controlpoint=target_points[i, :],
+                    alignmentArea=settings.cell_size,
+                    description='')
+            except ValueError:
+                continue
+            if not is_alignable_cell(target_roi) or not is_alignable_cell(source_roi):
+                continue
+            # Keep cells on the ROI array module (CuPy when images were uploaded once).
+            xp_roi = cp.get_array_module(target_roi)
+            fixed_cells.append(xp_roi.asarray(target_roi, dtype=np.float64))
+            moving_cells.append(xp_roi.asarray(source_roi, dtype=np.float64))
+            kept_indices.append(i)
 
-    shapes = {cell.shape for cell in fixed_cells + moving_cells}
-    if len(shapes) != 1:
-        return None
+        if len(kept_indices) < 3:
+            return None
 
-    cell_shape = np.asarray(next(iter(shapes)), dtype=np.int64)
-    fixed_stack = np.stack(fixed_cells, axis=0)
-    moving_stack = np.stack(moving_cells, axis=0)
-    if nornir_imageregistration.UsingCupy():
-        fixed_stack = cp.asarray(fixed_stack)
-        moving_stack = cp.asarray(moving_stack)
+        shapes = {tuple(int(s) for s in cell.shape) for cell in fixed_cells + moving_cells}
+        if len(shapes) != 1:
+            return None
 
-    peaks_dev, weights_dev = measure_translation_cells_batched(
-        fixed_stack,
-        moving_stack,
-        cell_shape,
-        min_overlap=float(settings.min_alignment_overlap),
-        max_overlap=1.0)
-    peaks = np.asarray(nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
-    weights = np.asarray(nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
+        xp = cp.get_array_module(fixed_cells[0])
+        cell_shape = np.asarray(next(iter(shapes)), dtype=np.int64)
+        fixed_stack = xp.stack(fixed_cells, axis=0)
+        moving_stack = xp.stack(moving_cells, axis=0)
+
+    with _PHASE_TIMER.section('fft'):
+        peaks_dev, weights_dev = measure_translation_cells_batched(
+            fixed_stack,
+            moving_stack,
+            cell_shape,
+            min_overlap=float(settings.min_alignment_overlap),
+            max_overlap=1.0)
+
+    with _PHASE_TIMER.section('host_sync'):
+        peaks = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
+        weights = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
 
     records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
     for batch_pos, i in enumerate(kept_indices):
@@ -2177,6 +2187,30 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                                          finalized=finalized_points)
 
         if len(alignment_points) == 0:
+            if len(finalized_points) > 0:
+                prettyoutput.Log(
+                    f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
+                    f"finishing with {len(finalized_points)} locked points")
+                # #region agent log
+                try:
+                    import json, time
+                    with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({
+                            "sessionId": "ec0d67",
+                            "runId": "post-fix",
+                            "hypothesisId": "G",
+                            "location": "local_distortion_correction.py:RefineTransform",
+                            "message": "soft exit: empty unfinalized with locked points",
+                            "data": {
+                                "pass": int(i),
+                                "n_finalized": int(len(finalized_points)),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                break
             raise ValueError(f"No alignment points generated at pass #{i}")
 
         alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
@@ -2213,14 +2247,21 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         #                                           finalize_percentile_this_pass)
 
         # Using the set of alignment record scores, estimate the cutoff value that separates successful registrations from failed registrations
-        cutoff_percentile_this_pass, inflection_percentile, cutoff_value_this_pass, polyfit_weights = estimate_cutoff(
+        weight_cutoff = estimate_registration_weight_cutoff(
             updated_and_finalized_weights_distance[:, WeightMethod.Registration])
+        cutoff_percentile_this_pass = weight_cutoff.cutoff_percentile_index
+        inflection_percentile = weight_cutoff.inflection_percentile_index
+        cutoff_value_this_pass = weight_cutoff.cutoff_value
+        polyfit_weights = weight_cutoff.percentile_curve
+        if weight_cutoff.used_fallback:
+            prettyoutput.Log(
+                "No inflection in registration weights; including nearly all measured points this pass")
 
         # cutoff_value = cutoff_ema.ema_value
 
         # transform_cutoff_percentile = (cutoff_percentile_this_pass + inflection_percentile) // 2
         transform_cutoff_percentile = inflection_percentile
-        transform_cutoff_value = polyfit_weights[transform_cutoff_percentile]  # type: ignore[reportOptionalSubscript]
+        transform_cutoff_value = polyfit_weights[transform_cutoff_percentile]
         cutoff_value = transform_cutoff_value
         cutoff_ema.add(transform_cutoff_value)
         # transform_cutoff_value = cutoff_ema.ema_value
@@ -2454,10 +2495,17 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
     #                                                                       transform=transform)
 
     # Remove finalized points from refinement consideration
-    if finalized is not None and len(finalized) > 0:
+    allow_empty = finalized is not None and len(finalized) > 0
+    if allow_empty:
         not_finalized = [tuple(grid_data.coords[i, :]) not in finalized for i in range(grid_data.coords.shape[0])]
         valid = np.asarray(not_finalized, bool)
-        grid_data.RemoveMaskedPoints(valid)
+        if grid_data.RemoveMaskedPoints(
+                valid,
+                allow_empty=True,
+                context=f"excluding {len(finalized)} already-finalized points") == 0:
+            prettyoutput.Log(
+                f"All grid points already finalized ({len(finalized)}); nothing left to measure")
+            return []
 
     # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
 
@@ -2468,17 +2516,96 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
     #    overage = ((grid_dims * grid_spacing) - target_image.shape) / 2.0
     #    TargetPoints = np.round(TargetPoints - overage).astype(np.int64)
     # TODO, ensure fixedPoints are within the bounds of target_image
-    grid_data.FilterOutofBoundsSourcePoints(settings.source_image.shape)
-    grid_data.RemoveCellsUsingSourceImageMask(settings.source_mask, settings.min_unmasked_area)
+    grid_data.FilterOutofBoundsSourcePoints(settings.source_image.shape, allow_empty=allow_empty)
+    grid_data.RemoveCellsUsingSourceImageMask(settings.source_mask, settings.min_unmasked_area,
+                                              allow_empty=allow_empty)
     # nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.SourcePoints, source_mask, OutputFilename=None)
 
     if grid_data.num_points == 0:
+        if allow_empty:
+            prettyoutput.Log(
+                "No unfinalized points remain after source-mask / bounds filtering; "
+                f"continuing with {len(finalized)} locked points")
+            return []
         # There is nothing to refine, perhaps the image is too small for the grid cell size?
-        # prettyoutput.LogErr("No points meet criteria for grid refinement")
-        raise ValueError("No points meet criteria for grid refinement")
+        msg = (
+            "No points meet criteria for grid refinement after source-mask / "
+            f"bounds filtering (cell_size={np.asarray(settings.cell_size).tolist()}, "
+            f"grid_spacing={np.asarray(settings.grid_spacing).tolist()}, "
+            f"min_unmasked_area={float(settings.min_unmasked_area):g})"
+        )
+        prettyoutput.LogErr(msg)
+        raise ValueError(msg)
 
     grid_data.PopulateTargetPoints(transform)
-    grid_data.RemoveCellsUsingTargetImageMask(settings.target_mask, settings.min_unmasked_area)
+    # #region agent log
+    try:
+        import json, time
+        _src = np.asarray(nornir_imageregistration.EnsureNumpyArray(settings.source_image))
+        _tgt = np.asarray(nornir_imageregistration.EnsureNumpyArray(settings.target_image))
+        _sm = None if settings.source_mask is None else np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(settings.source_mask))
+        _tm = None if settings.target_mask is None else np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(settings.target_mask))
+        _sp = np.asarray(grid_data.SourcePoints, dtype=np.float64)
+        _tp = np.asarray(grid_data.TargetPoints, dtype=np.float64)
+        with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
+            _f.write(json.dumps({
+                "sessionId": "ec0d67",
+                "hypothesisId": "C,D",
+                "location": "local_distortion_correction.py:_RefineGridPointsForTwoImages",
+                "message": "shapes and points before target cell mask",
+                "data": {
+                    "source_image_shape": list(_src.shape),
+                    "target_image_shape": list(_tgt.shape),
+                    "source_mask_shape": None if _sm is None else list(_sm.shape),
+                    "target_mask_shape": None if _tm is None else list(_tm.shape),
+                    "source_mask_true_frac": None if _sm is None else float(np.count_nonzero(_sm) / _sm.size),
+                    "target_mask_true_frac": None if _tm is None else float(np.count_nonzero(_tm) / _tm.size),
+                    "n_points": int(grid_data.num_points),
+                    "n_finalized": int(len(finalized) if finalized else 0),
+                    "allow_empty": bool(allow_empty),
+                    "min_unmasked_area": float(settings.min_unmasked_area),
+                    "transform_type": type(transform).__name__,
+                    "source_points": _sp.reshape(-1, 2).tolist(),
+                    "target_points": _tp.reshape(-1, 2).tolist(),
+                    "target_vs_mask_shape_match": (
+                        None if _tm is None else list(_tgt.shape) == list(_tm.shape)),
+                },
+                "timestamp": int(time.time() * 1000),
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
+    remaining = grid_data.RemoveCellsUsingTargetImageMask(
+        settings.target_mask, settings.min_unmasked_area, allow_empty=allow_empty)
+    if remaining == 0:
+        if allow_empty:
+            prettyoutput.Log(
+                "No unfinalized points remain after target-mask filtering; "
+                f"continuing with {len(finalized)} locked points")
+            # #region agent log
+            try:
+                import json, time
+                with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({
+                        "sessionId": "ec0d67",
+                        "runId": "post-fix",
+                        "hypothesisId": "G",
+                        "location": "local_distortion_correction.py:_RefineGridPointsForTwoImages",
+                        "message": "soft empty after target cell mask",
+                        "data": {
+                            "n_finalized": int(len(finalized) if finalized else 0),
+                            "allow_empty": True,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            return []
+        # RemoveMaskedPoints already raised when allow_empty is False
+        raise ValueError("No points meet criteria for grid refinement after target-mask filtering")
 
     # nornir_imageregistration.views.grid_data.PlotGridPositionsAndMask(grid_data.TargetPoints, target_mask, OutputFilename=None)
     # grid_data.ApplyWarpedImageMask(source_mask)
@@ -2536,7 +2663,9 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     rigid_transforms = ApproximateRigidTransformBySourcePoints(input_transform=transform, source_points=sourcePoints,
                                                                cell_size=settings.cell_size)
 
-    if _angles_are_translation_only(settings.angles_to_search) and nPoints > 0:
+    if (_use_batched_vertex_measurement()
+            and _angles_are_translation_only(settings.angles_to_search)
+            and nPoints > 0):
         batched = _attempt_align_points_translation_batched(
             keys=keys,
             source_points=sourcePoints,

@@ -2,12 +2,53 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 
 from nornir_imageregistration.mathfuncs import estimate_cutoff
+
+
+class RegistrationWeightCutoff(NamedTuple):
+    """Cutoff indices/values for registration-weight gating in STOS refine."""
+
+    cutoff_percentile_index: int
+    inflection_percentile_index: int
+    cutoff_value: float
+    percentile_curve: NDArray[np.floating]
+    used_fallback: bool
+
+
+def estimate_registration_weight_cutoff(
+        weights: NDArray[np.floating]) -> RegistrationWeightCutoff:
+    """Run ``estimate_cutoff`` on registration weights with a keep-all fallback.
+
+    When the percentile curve has no inflection (flat or strictly mono scores),
+    return index ``0`` and the minimum percentile sample so callers that keep
+    ``weight >= cutoff`` retain essentially all measurements instead of aborting.
+    """
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if weights.size == 0:
+        raise ValueError("Cannot estimate cutoff from empty registration weights")
+
+    try:
+        result = estimate_cutoff(weights)
+        curve = result.y_fit
+        if curve is None:
+            percentile_points = np.linspace(0, 100, 101)
+            curve = np.percentile(weights, percentile_points)
+        return RegistrationWeightCutoff(
+            int(result.cutoff_percentile_index),
+            int(result.highest_inflection_point),
+            float(result.cutoff_value),
+            np.asarray(curve, dtype=np.float64),
+            False,
+        )
+    except ValueError:
+        percentile_points = np.linspace(0, 100, 101)
+        curve = np.asarray(np.percentile(weights, percentile_points), dtype=np.float64)
+        return RegistrationWeightCutoff(0, 0, float(curve[0]), curve, True)
 
 
 def filter_weights_by_estimate_cutoff(weights: NDArray[np.floating]) -> NDArray[np.bool_]:
@@ -27,14 +68,12 @@ def filter_weights_by_estimate_cutoff(weights: NDArray[np.floating]) -> NDArray[
         keep[positive] = True
         return keep
 
-    try:
-        _, inflection_percentile, _, polyfit_weights = estimate_cutoff(positive_weights)
-        cutoff_value = float(polyfit_weights[inflection_percentile])  # type: ignore[index]
-    except ValueError:
-        keep[positive] = True
-        return keep
-
-    keep[positive] = positive_weights >= cutoff_value
+    cutoff = estimate_registration_weight_cutoff(positive_weights)
+    # Match RefineTransform / prior mosaic behavior: gate at the inflection
+    # sample on the fitted percentile curve, not the Average-method elbow value
+    # (which can sit above the max observed weight).
+    gate = float(cutoff.percentile_curve[cutoff.inflection_percentile_index])
+    keep[positive] = positive_weights >= gate
     return keep
 
 

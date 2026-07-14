@@ -5,6 +5,7 @@ from nornir_imageregistration.refine_shared.cell_validity import is_alignable_ce
 from nornir_imageregistration.refine_shared.cutoff import (
     filter_records_by_registration_weight,
     filter_weights_by_estimate_cutoff,
+    estimate_registration_weight_cutoff,
 )
 from nornir_imageregistration.refine_shared.cell_measurement import (
     normalize_cell,
@@ -20,6 +21,7 @@ __all__ = [
     'is_alignable_cell',
     'filter_records_by_registration_weight',
     'filter_weights_by_estimate_cutoff',
+    'estimate_registration_weight_cutoff',
     'normalize_cell',
     'measure_translation_cell',
     'measure_translation_cells_batched',

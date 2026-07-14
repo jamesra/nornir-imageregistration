@@ -114,6 +114,22 @@ class testCenteredGridDivision(unittest.TestCase):
 
 class TestGridDivisionAndMasking(unittest.TestCase):
 
+    def test_empty_target_mask_raises_operator_visible_error(self) -> None:
+        """All-false target masks must LogErr-friendly detail before aborting refine."""
+        grid = CenteredGridDivision(
+            source_shape=(200, 200),
+            cell_size=(64, 64),
+            grid_spacing=(64, 64))
+        grid.PopulateTargetPoints(
+            nornir_imageregistration.transforms.RigidTranslation(target_offset=(0, 0)))
+        empty_mask = np.zeros((200, 200), dtype=bool)
+        with self.assertRaises(ValueError) as raised:
+            grid.RemoveCellsUsingTargetImageMask(empty_mask, min_unmasked_area=0.49)
+        message = str(raised.exception)
+        self.assertIn("target cell tissue mask", message)
+        self.assertIn("mask_true_fraction=0.0000", message)
+        self.assertIn("min_unmasked_area=0.49", message)
+
     def test_masking_simple(self):
         cell_size = np.asarray((128, 128), dtype=int)
         grid_spacing = np.asarray((96, 96), dtype=int)

@@ -12,6 +12,11 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 from nornir_imageregistration.nornir_image_types import ImageLike
 
+try:
+    import cupy as cp
+except (ModuleNotFoundError, ImportError):
+    import nornir_imageregistration.cupy_thunk as cp
+
 
 class GridRefinement:
     """
@@ -115,7 +120,8 @@ class GridRefinement:
         :param bool cupy_processing: True if the refinement will be done on the GPU.  When set, arrays are created as cupy arrays instead of NDArrays
         """
 
-        self._single_thread_processing = single_thread_processing or nornir_imageregistration.UsingCupy()
+        self._cupy_processing = nornir_imageregistration.UsingCupy()
+        self._single_thread_processing = single_thread_processing or self._cupy_processing
 
         if target_image is None:
             raise ValueError("target_image must be specified")
@@ -161,6 +167,13 @@ class GridRefinement:
             self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)  # type: ignore[arg-type]
             self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToSharedArray(self.target_mask)  # type: ignore[arg-type]
         else:
+            # Under CuPy, upload full *images* once so BuildAlignmentROIs / assemble
+            # do not cp.asarray the entire source on every cell warp. Tissue masks stay
+            # on the host: grid cell masking uses CropImage / count_nonzero for small
+            # ROIs and benefits from a shared NumPy keep-mask with target/source points.
+            if self._cupy_processing:
+                self.target_image = self._as_cupy_array(self.target_image)
+                self.source_image = self._as_cupy_array(self.source_image)
             self.source_image_meta = self.source_image
             self.target_image_meta = self.target_image
             self.source_mask_meta = self.source_mask
@@ -243,6 +256,13 @@ class GridRefinement:
                                                            min_alignment_overlap=min_alignment_overlap,
                                                            min_unmasked_area=min_unmasked_area,
                                                            single_thread_processing=single_thread_processing)
+
+    @staticmethod
+    def _as_cupy_array(image: NDArray) -> NDArray:
+        """Return *image* as a CuPy ndarray when it is not already one."""
+        if isinstance(image, cp.ndarray):
+            return image
+        return cp.asarray(image)
 
     def __str__(self):
         return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'

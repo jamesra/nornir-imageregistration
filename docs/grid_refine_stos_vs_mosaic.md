@@ -69,7 +69,7 @@ number; callers may still override per pipeline.
 | Path | On refine failure |
 |------|-------------------|
 | Mosaic `GridTransform` | Clean partial output and re-raise |
-| STOS `__RunPythonGridRefinementCmd` | Log error; copy input `.stos` only when `NORNIR_STOS_REFINE_FALLBACK=1` (or legacy debug-off path disabled by default) |
+| STOS `__RunPythonGridRefinementCmd` | Write sibling `*.unrefined.stos` (scaled input, else identity) for Pyre, leave official output absent, and re-raise |
 
 ## Runtime configuration
 
