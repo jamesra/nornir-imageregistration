@@ -2191,25 +2191,6 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 prettyoutput.Log(
                     f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
                     f"finishing with {len(finalized_points)} locked points")
-                # #region agent log
-                try:
-                    import json, time
-                    with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
-                        _f.write(json.dumps({
-                            "sessionId": "ec0d67",
-                            "runId": "post-fix",
-                            "hypothesisId": "G",
-                            "location": "local_distortion_correction.py:RefineTransform",
-                            "message": "soft exit: empty unfinalized with locked points",
-                            "data": {
-                                "pass": int(i),
-                                "n_finalized": int(len(finalized_points)),
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 break
             raise ValueError(f"No alignment points generated at pass #{i}")
 
@@ -2538,45 +2519,6 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
         raise ValueError(msg)
 
     grid_data.PopulateTargetPoints(transform)
-    # #region agent log
-    try:
-        import json, time
-        _src = np.asarray(nornir_imageregistration.EnsureNumpyArray(settings.source_image))
-        _tgt = np.asarray(nornir_imageregistration.EnsureNumpyArray(settings.target_image))
-        _sm = None if settings.source_mask is None else np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(settings.source_mask))
-        _tm = None if settings.target_mask is None else np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(settings.target_mask))
-        _sp = np.asarray(grid_data.SourcePoints, dtype=np.float64)
-        _tp = np.asarray(grid_data.TargetPoints, dtype=np.float64)
-        with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
-            _f.write(json.dumps({
-                "sessionId": "ec0d67",
-                "hypothesisId": "C,D",
-                "location": "local_distortion_correction.py:_RefineGridPointsForTwoImages",
-                "message": "shapes and points before target cell mask",
-                "data": {
-                    "source_image_shape": list(_src.shape),
-                    "target_image_shape": list(_tgt.shape),
-                    "source_mask_shape": None if _sm is None else list(_sm.shape),
-                    "target_mask_shape": None if _tm is None else list(_tm.shape),
-                    "source_mask_true_frac": None if _sm is None else float(np.count_nonzero(_sm) / _sm.size),
-                    "target_mask_true_frac": None if _tm is None else float(np.count_nonzero(_tm) / _tm.size),
-                    "n_points": int(grid_data.num_points),
-                    "n_finalized": int(len(finalized) if finalized else 0),
-                    "allow_empty": bool(allow_empty),
-                    "min_unmasked_area": float(settings.min_unmasked_area),
-                    "transform_type": type(transform).__name__,
-                    "source_points": _sp.reshape(-1, 2).tolist(),
-                    "target_points": _tp.reshape(-1, 2).tolist(),
-                    "target_vs_mask_shape_match": (
-                        None if _tm is None else list(_tgt.shape) == list(_tm.shape)),
-                },
-                "timestamp": int(time.time() * 1000),
-            }) + "\n")
-    except Exception:
-        pass
-    # #endregion
     remaining = grid_data.RemoveCellsUsingTargetImageMask(
         settings.target_mask, settings.min_unmasked_area, allow_empty=allow_empty)
     if remaining == 0:
@@ -2584,25 +2526,6 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
             prettyoutput.Log(
                 "No unfinalized points remain after target-mask filtering; "
                 f"continuing with {len(finalized)} locked points")
-            # #region agent log
-            try:
-                import json, time
-                with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps({
-                        "sessionId": "ec0d67",
-                        "runId": "post-fix",
-                        "hypothesisId": "G",
-                        "location": "local_distortion_correction.py:_RefineGridPointsForTwoImages",
-                        "message": "soft empty after target cell mask",
-                        "data": {
-                            "n_finalized": int(len(finalized) if finalized else 0),
-                            "allow_empty": True,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }) + "\n")
-            except Exception:
-                pass
-            # #endregion
             return []
         # RemoveMaskedPoints already raised when allow_empty is False
         raise ValueError("No points meet criteria for grid refinement after target-mask filtering")

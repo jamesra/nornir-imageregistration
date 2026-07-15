@@ -201,9 +201,6 @@ class GridDivisionBase(IGrid):
         cell_area = float(np.prod(self._cell_size))
 
         origins = points_host - half_cell
-        # #region agent log
-        _dbg_point_rows: list[dict] = []
-        # #endregion
 
         for iRow in range(0, points_host.shape[0]):
             o = origins[iRow, :]
@@ -213,55 +210,9 @@ class GridDivisionBase(IGrid):
                                                       int(self._cell_size[1]), int(self._cell_size[0]),
                                                       cval=False)
             cell_true_count[iRow] = float(np.count_nonzero(cell))
-            # #region agent log
-            cy, cx = float(points_host[iRow, 0]), float(points_host[iRow, 1])
-            in_bounds = (0 <= cy < mask_host.shape[0]) and (0 <= cx < mask_host.shape[1])
-            center_val = None
-            if in_bounds:
-                center_val = bool(mask_host[int(cy), int(cx)])
-            # swapped-axis probe: if coords were interpreted as (x,y) instead of (y,x)
-            swapped_in = (0 <= cx < mask_host.shape[0]) and (0 <= cy < mask_host.shape[1])
-            swapped_val = bool(mask_host[int(cx), int(cy)]) if swapped_in else None
-            _dbg_point_rows.append({
-                "i": iRow,
-                "cy": cy, "cx": cx,
-                "origin_y": float(o[0]), "origin_x": float(o[1]),
-                "overlap": float(cell_true_count[iRow] / cell_area),
-                "true_count": float(cell_true_count[iRow]),
-                "in_bounds": in_bounds,
-                "center_mask": center_val,
-                "swapped_in_bounds": swapped_in,
-                "swapped_center_mask": swapped_val,
-            })
-            # #endregion
 
         overlaps = cell_true_count / cell_area
         valid = overlaps > min_unmasked_area
-        # #region agent log
-        try:
-            import json, time
-            with open("/workspace/.cursor/debug-ec0d67.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({
-                    "sessionId": "ec0d67",
-                    "hypothesisId": "A,B,E,F",
-                    "location": "grid_subdivision.py:__CalculateMaskedCells",
-                    "message": "per-point cell mask overlaps",
-                    "data": {
-                        "mask_shape": [int(s) for s in mask_host.shape],
-                        "min_unmasked_area": float(min_unmasked_area),
-                        "cell_size": [int(x) for x in np.asarray(self._cell_size).tolist()],
-                        "n_points": int(points_host.shape[0]),
-                        "n_valid": int(np.count_nonzero(valid)),
-                        "overlap_min": float(np.min(overlaps)),
-                        "overlap_max": float(np.max(overlaps)),
-                        "overlap_mean": float(np.mean(overlaps)),
-                        "points": _dbg_point_rows,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }) + "\n")
-        except Exception:
-            pass
-        # #endregion
         return valid
 
     def RemoveCellsUsingTargetImageMask(self, target_mask: NDArray[np.bool_], min_unmasked_area: float,

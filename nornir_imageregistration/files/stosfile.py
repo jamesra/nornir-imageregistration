@@ -58,6 +58,8 @@ def _path_from_stos_file(stored_path: str, stos_dir: str) -> str:
 def __argumentToStos(Argument):
     stosObj = None
     if isinstance(Argument, str):
+        if not os.path.exists(Argument):
+            raise FileNotFoundError(Argument)
         stosObj = StosFile.Load(Argument)
     elif isinstance(Argument, StosFile):
         stosObj = Argument
