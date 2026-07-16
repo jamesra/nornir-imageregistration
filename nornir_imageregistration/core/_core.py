@@ -2125,13 +2125,19 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
     image = nornir_imageregistration.EnsureNumpyArray(image)
 
     if bpp is None:
-        bpp = nornir_imageregistration.ImageBpp(image)
-        if bpp > 16:
-            prettyoutput.LogErr(
-                "Saving image at 32 bits-per-pixel, check SaveImageParameters for efficiency:\n{0}".format(
-                    ImageFullPath))
+        if nornir_imageregistration.IsFloatArray(image):
+            # Float storage width (e.g. float32 itemsize) is not export bit depth.
+            bpp = 16
+        else:
+            bpp = nornir_imageregistration.ImageBpp(image)
+            if bpp > 16:
+                prettyoutput.LogErr(
+                    "Saving image at 32 bits-per-pixel, check SaveImageParameters for efficiency:\n{0}".format(
+                        ImageFullPath))
+    elif nornir_imageregistration.IsFloatArray(image) and bpp > 16:
+        bpp = 16
 
-    if bpp > 8:
+    if bpp > 8 and not nornir_imageregistration.IsFloatArray(image):
         # Ensure we even have the data to bother saving a higher bit depth
         detected_bpp = nornir_imageregistration.ImageBpp(image)
         if detected_bpp < bpp:
@@ -2168,15 +2174,19 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
             del image
             im = Image.fromarray(Uint8_image, mode="L")
         elif nornir_imageregistration.IsFloatArray(image):
-            # TODO: I believe Pillow-SIMD finally added the ability to save I;16 for 16bpp PNG images 
-            # if image.dtype == np.float16:
-            #    image = image.astype(np.float32)
-
+            # Pillow cannot construct images directly from float16 arrays.
             if image.dtype == np.float16:
-                im = image.astype(np.float32)
+                image = image.astype(np.float32, copy=False)
 
-            im = Image.fromarray(image * ((1 << bpp) - 1))
-            im = im.convert('I')
+            if bpp <= 8:
+                Uint8_image = image_to_uint8(image)
+                im = Image.fromarray(Uint8_image, mode="L")
+            else:
+                uint16_image = uint16_img_from_float_array(image)
+                if ext.lower() == '.png':
+                    im = uint16_img_from_uint16_array(uint16_image)
+                else:
+                    im = Image.fromarray(uint16_image, mode="I;16")
         else:
             if bpp < 32:
                 if ext.lower() == '.png':
