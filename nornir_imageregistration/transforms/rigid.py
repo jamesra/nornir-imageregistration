@@ -202,8 +202,10 @@ class RigidTranslation(base.ITransformScaling,
         # The Transform/InverseTransform methods use xp.asarray() to convert to the
         # appropriate device type on demand; keeping these as NumPy avoids the failure
         # np.asarray(cupy_array) when callers pass NumPy points with CuPy active.
-        self._target_offset = np.asarray(target_offset, dtype=np.float32).ravel()[:2]
-        self._source_space_center_of_rotation = np.asarray(source_rotation_center, dtype=np.float32).ravel()[:2]
+        # Host boundary: CuPy forbids implicit np.asarray(cupy_array); use .get() via _to_xp_array.
+        self._target_offset = np.asarray(_to_xp_array(target_offset, np), dtype=np.float32).ravel()[:2]
+        self._source_space_center_of_rotation = np.asarray(
+            _to_xp_array(source_rotation_center, np), dtype=np.float32).ravel()[:2]
         self._angle = angle  # type: float
 
     def __getstate__(self):

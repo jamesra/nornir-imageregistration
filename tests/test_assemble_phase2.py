@@ -51,19 +51,35 @@ class TestScaledTransformCache(unittest.TestCase):
             if env is not None:
                 os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = env
 
-    def test_inverse_scipy_default_follows_extrapolate(self):
+    def test_inverse_scipy_default_cupy_extrapolate_still_cupy(self):
         from nornir_imageregistration.transforms import gridtransform as gt
         for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
             os.environ.pop(k, None)
         try:
+            self.assertFalse(gt._assemble_inverse_use_scipy())
+            os.environ['NORNIR_ASSEMBLE_INVERSE_SCIPY'] = '1'
             self.assertTrue(gt._assemble_inverse_use_scipy())
+            os.environ.pop('NORNIR_ASSEMBLE_INVERSE_SCIPY', None)
             os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = '1'
             self.assertFalse(gt._assemble_inverse_use_scipy())
-            os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = '0'
-            self.assertTrue(gt._assemble_inverse_use_scipy())
         finally:
             for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
                 os.environ.pop(k, None)
+
+    def test_distance_warp_order_default_cubic(self):
+        from nornir_imageregistration import assemble
+        env = os.environ.pop('NORNIR_ASSEMBLE_DISTANCE_WARP_ORDER', None)
+        try:
+            self.assertIsNone(assemble._assemble_distance_warp_order())
+            os.environ['NORNIR_ASSEMBLE_DISTANCE_WARP_ORDER'] = '0'
+            self.assertEqual(assemble._assemble_distance_warp_order(), 0)
+            os.environ['NORNIR_ASSEMBLE_DISTANCE_WARP_ORDER'] = '1'
+            self.assertEqual(assemble._assemble_distance_warp_order(), 1)
+        finally:
+            if env is not None:
+                os.environ['NORNIR_ASSEMBLE_DISTANCE_WARP_ORDER'] = env
+            else:
+                os.environ.pop('NORNIR_ASSEMBLE_DISTANCE_WARP_ORDER', None)
 
 
 if __name__ == '__main__':

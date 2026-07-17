@@ -42,7 +42,7 @@ from . import TransformType
 from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITransformTranslation, \
     IControlPointEdit, ITransformSourceRotation, ITransformTargetRotation, ITriangulatedTargetSpace, \
     ITriangulatedSourceSpace, IControlPointAddRemove
-from .controlpointbase import ControlPointBase
+from .controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
 
 class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
                     ITransformSourceRotation,
@@ -478,7 +478,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
                                  ITransformSourceRotation,
                                  ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
-                                 IControlPointAddRemove, ControlPointBase):
+                                 IControlPointAddRemove, ControlPointBase_GPUComponent):
     '''
     Triangulation transform has an nx4 array of points, with rows organized as
     [controlx controly warpedx warpedy]
@@ -502,13 +502,22 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         return self._FixedKDTree
 
+    @staticmethod
+    def _host_points_for_qhull(points: NDArray[np.floating]) -> np.ndarray:
+        """Copy control points to NumPy for Qhull / SciPy spatial (host-only APIs)."""
+        getter = getattr(points, "get", None)
+        if callable(getter):
+            return np.asarray(getter())
+        return np.asarray(points)
+
     @property
     def fixedtri(self) -> scipy.spatial.Delaunay:
         if self._fixedtri is None:
             # try:
             # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
             # except:
-            self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
+            self._fixedtri = scipy.spatial.Delaunay(
+                self._host_points_for_qhull(self.TargetPoints), incremental=False)
 
         return self._fixedtri
 
@@ -522,7 +531,8 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             # try:
             # self._warpedtri = Delaunay(self.SourcePoints, incremental =True)
             # except:
-            self._warpedtri = scipy.spatial.Delaunay(self.SourcePoints, incremental=False)
+            self._warpedtri = scipy.spatial.Delaunay(
+                self._host_points_for_qhull(self.SourcePoints), incremental=False)
 
         return self._warpedtri
 
@@ -582,15 +592,18 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def AddPoints(self, new_points: NDArray[np.floating]):
         '''Add the point and return the index'''
         numPts = self.NumControlPoints
-        new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(new_points)
+        new_points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(new_points)
 
         duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
-        new_points = new_points[~duplicates, :]
+        duplicates_cp = cp.asarray(np.atleast_1d(np.asarray(duplicates)).ravel())
+        new_points = new_points[~duplicates_cp, :]
+        if new_points.ndim == 1:
+            new_points = cp.reshape(new_points, (1, 4))
 
         if new_points.shape[0] == 0:
             return
 
-        self._points = np.append(self.points, new_points, 0)
+        self._points = cp.concatenate((self.points, new_points), axis=0)
         # self._points = Triangulation_GPUComponent.RemoveDuplicates(self._points)
 
         # We won't see a change in the number of points if the new point was a duplicate
@@ -601,7 +614,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def AddPoint(self, pointpair: NDArray[np.floating]) -> int:
         '''Add the point and return the index'''
-        new_points = nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(pointpair)
+        new_points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(pointpair)
         self.AddPoints(new_points)
 
         Distance, index = self.NearestFixedPoint((float(pointpair[0]), float(pointpair[1])))
@@ -673,8 +686,10 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         MPool = nornir_pools.GetGlobalMultithreadingPool()
         TPool = nornir_pools.GetGlobalThreadPool()
-        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", scipy.spatial.Delaunay, self.TargetPoints)
-        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", scipy.spatial.Delaunay, self.SourcePoints)
+        host_target = self._host_points_for_qhull(self.TargetPoints)
+        host_source = self._host_points_for_qhull(self.SourcePoints)
+        FixedTriTask = MPool.add_task("Fixed Triangle Delaunay", scipy.spatial.Delaunay, host_target)
+        WarpedTriTask = MPool.add_task("Warped Triangle Delaunay", scipy.spatial.Delaunay, host_source)
 
         # Cannot pickle KDTree, so use Python's thread pool
 
@@ -821,9 +836,10 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             triangles = self.FixedTriangles
 
         fixedTriangleVerticies = self.TargetPoints[triangles]
-        swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
-        Centroids = np.mean(swappedTriangleVerticies, 1)
-        return np.swapaxes(Centroids, 0, 1)
+        xp = cp.get_array_module(fixedTriangleVerticies)
+        swappedTriangleVerticies = xp.swapaxes(fixedTriangleVerticies, 0, 2)
+        Centroids = xp.mean(swappedTriangleVerticies, 1)
+        return xp.swapaxes(Centroids, 0, 1)
 
     def GetWarpedCentroids(self, triangles=None):
         '''Centroids of warped triangles'''
@@ -831,9 +847,10 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             triangles = self.WarpedTriangles
 
         warpedTriangleVerticies = self.SourcePoints[triangles]
-        swappedTriangleVerticies = np.swapaxes(warpedTriangleVerticies, 0, 2)
-        Centroids = np.mean(swappedTriangleVerticies, 1)
-        return np.swapaxes(Centroids, 0, 1)
+        xp = cp.get_array_module(warpedTriangleVerticies)
+        swappedTriangleVerticies = xp.swapaxes(warpedTriangleVerticies, 0, 2)
+        Centroids = xp.mean(swappedTriangleVerticies, 1)
+        return xp.swapaxes(Centroids, 0, 1)
 
     def __init__(self, pointpairs: NDArray[np.floating]):
         '''

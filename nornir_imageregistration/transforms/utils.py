@@ -147,10 +147,67 @@ def FlipMatrixX() -> NDArray[np.floating]:
     return xp.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]])
 
 
+DEFAULT_MAX_BLEND_WEIGHT: float = 0.9
+DEFAULT_REBLEND_ITERATIONS: int = 8
+DEFAULT_REBLEND_TOLERANCE: float = 0.5
+DEFAULT_REBLEND_WEIGHT_TOLERANCE: float = 0.01
+
+
+def _travel_blend_weights(distances: NDArray[np.floating],
+                          travel_limit: float,
+                          linear_factor: float | None = None,
+                          max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> NDArray[np.floating]:
+    """Return per-point linear blend weights from deviation distance and travel_limit."""
+    xp = cp.get_array_module(distances)
+    base = linear_factor if linear_factor is not None else 0.0
+    normalized = xp.clip(distances / travel_limit, 0.0, 1.0)
+    travel_weight = normalized * normalized * (3.0 - 2.0 * normalized)
+    weights = base + (1.0 - base) * travel_weight
+    if max_blend is not None:
+        weights = xp.minimum(weights, max_blend)
+    return weights
+
+
+def _blend_target_points(target_points: NDArray[np.floating],
+                         linear_points: NDArray[np.floating],
+                         linear_factors: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Blend target-space control points toward linear predictions."""
+    xp = cp.get_array_module(target_points, linear_points)
+    weights = xp.asarray(linear_factors, dtype=float).reshape(-1, 1)
+    return target_points * (1.0 - weights) + linear_points * weights
+
+
+def _control_points_from_blended_targets(transform: IControlPoints,
+                                         output_target_points: NDArray[np.floating]) -> ITransform:
+    """Build a mesh or grid transform with blended target control points."""
+    source_points = transform.SourcePoints
+    xp = cp.get_array_module(output_target_points, source_points)
+    output_target_points = xp.asarray(output_target_points)
+    source_points = xp.asarray(source_points)
+    use_gpu = xp is cp or nornir_imageregistration.UsingCupy()
+    if isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
+        output_grid = nornir_imageregistration.ITKGridDivision(source_shape=transform.grid.source_shape,
+                                                               cell_size=transform.grid.cell_size,
+                                                               grid_dims=transform.grid.grid_dims,
+                                                               transform=None)
+        output_grid.TargetPoints = output_target_points
+        if use_gpu:
+            return nornir_imageregistration.transforms.GridWithRBFFallback_GPUComponent(output_grid)
+        return nornir_imageregistration.transforms.GridWithRBFFallback(output_grid)
+    output_points = xp.hstack((output_target_points, source_points))
+    if use_gpu:
+        return nornir_imageregistration.transforms.MeshWithRBFFallback_GPUComponent(output_points)
+    return nornir_imageregistration.transforms.MeshWithRBFFallback(output_points)
+
+
 def BlendWithLinear(transform: IControlPoints,
                     linear_factor: float | None = None,
                     travel_limit: float | None = None,
-                    ignore_rotation: bool = False) -> ITransform:
+                    ignore_rotation: bool = False,
+                    reblend_iterations: int = 1,
+                    reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE,
+                    reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE,
+                    max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> ITransform:
     """
     Blends a transform with the estimate linear transform of its control points.  The goal is to "flatten" a transform to gradually reduce folds and other high distortion areas.
     :param transform:
@@ -169,14 +226,25 @@ def BlendWithLinear(transform: IControlPoints,
     if linear_factor == 1.0:
         return linear_transform
 
+    if reblend_iterations > 1:
+        return BlendTransformsIteratively(transform,
+                                          linear_transform=linear_transform,
+                                          linear_factor=linear_factor,
+                                          travel_limit=travel_limit,
+                                          reblend_iterations=reblend_iterations,
+                                          reblend_tolerance=reblend_tolerance,
+                                          reblend_weight_tolerance=reblend_weight_tolerance,
+                                          max_blend=max_blend)
+
     return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor,
-                           travel_limit=travel_limit)  # type: ignore[return-value]
+                           travel_limit=travel_limit, max_blend=max_blend)  # type: ignore[return-value]
 
 
 def BlendTransforms(transform: IControlPoints,
                     linear_transform: ITransform,
                     linear_factor: float | None = None,
-                    travel_limit: float | None = None):
+                    travel_limit: float | None = None,
+                    max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT):
     """Blend control-point transform with a linear transform and return a new transform.
 
     Transforms control points through both transform and linear_transform, blends the
@@ -186,7 +254,8 @@ def BlendTransforms(transform: IControlPoints,
     :param transform: Control-point transform (mesh or grid) to blend.
     :param linear_transform: Linear transform used in the blend.
     :param linear_factor: Weight of the linear transform (0–1). None uses travel_limit.
-    :param travel_limit: Max distance for full blend; beyond this, linear blend is reduced.
+    :param travel_limit: Distance scale for smooth per-point blend toward linear_transform.
+    :param max_blend: Cap per-point linear weight below 1.0 to avoid full rigid snap.
     :return: Mesh triangulation, grid triangulation, or linear transform matching input type.
     """
 
@@ -200,47 +269,62 @@ def BlendTransforms(transform: IControlPoints,
         raise ValueError(f"travel_limit must be positive {travel_limit}")
 
     if linear_factor == 0 and travel_limit is None:
-        # Why are we calling this?  Should I throw?
         return transform
 
     source_points = transform.SourcePoints
     target_points = transform.TargetPoints
-
     linear_points = linear_transform.Transform(source_points)
+    xp = cp.get_array_module(target_points, linear_points, source_points)
+    target_points = xp.asarray(target_points)
+    linear_points = xp.asarray(linear_points)
 
     if travel_limit is not None:
-        delta = linear_points - target_points
-        dist_squared = delta * delta
-        hyp = np.sum(dist_squared, axis=1)
-        distances = np.sqrt(hyp)
-
-        # Arbitrary, but for a first pass points less than half of the travel distance use the transform
-        # points more than halfway to the travel_limit have progressively more rigid tranfsorm blended in
-        travel_blend_start_distance = travel_limit / 2  # type: ignore[operator]
-        travel_blend_range = travel_limit - travel_blend_start_distance
-        linear_factors = (distances - travel_blend_start_distance) / travel_blend_range
-        linear_factors.clip(0, 1.0, out=linear_factors)
-        linear_factors = linear_factors.squeeze()
-        blended_target_points = (target_points.swapaxes(0, 1) * (1.0 - linear_factors)).swapaxes(0, 1)
-        blended_linear_points = (linear_points.swapaxes(0, 1) * linear_factors).swapaxes(0, 1)
-        output_target_points = blended_target_points + blended_linear_points
+        distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
+        linear_factors = _travel_blend_weights(distances, travel_limit, linear_factor, max_blend)
     else:
-        blended_target_points = target_points * (1.0 - linear_factor)  # type: ignore[operator]
-        blended_linear_points = linear_points * linear_factor  # type: ignore[operator]
-        output_target_points = blended_target_points + blended_linear_points
+        linear_factors = xp.full(target_points.shape[0], linear_factor, dtype=float)
 
-    if isinstance(transform, nornir_imageregistration.transforms.IGridTransform):
-        output_grid = nornir_imageregistration.ITKGridDivision(source_shape=transform.grid.source_shape,
-                                                               cell_size=transform.grid.cell_size,
-                                                               grid_dims=transform.grid.grid_dims,
-                                                               transform=None)
-        output_grid.TargetPoints = output_target_points
-        output = nornir_imageregistration.transforms.GridWithRBFFallback(output_grid)
-        return output
-    else:
-        output_points = np.append(output_target_points, source_points, 1)
-        output = nornir_imageregistration.transforms.MeshWithRBFFallback(output_points)
-        return output
+    output_target_points = _blend_target_points(target_points, linear_points, linear_factors)
+    return _control_points_from_blended_targets(transform, output_target_points)
+
+
+def BlendTransformsIteratively(transform: IControlPoints,
+                               linear_transform: ITransform,
+                               linear_factor: float | None = None,
+                               travel_limit: float | None = None,
+                               reblend_iterations: int = DEFAULT_REBLEND_ITERATIONS,
+                               reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE,
+                               reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE,
+                               max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> ITransform:
+    """Iteratively blend toward linear_transform until points stabilize or iteration cap is reached."""
+    if reblend_iterations <= 1:
+        return BlendTransforms(transform,
+                               linear_transform=linear_transform,
+                               linear_factor=linear_factor,
+                               travel_limit=travel_limit,
+                               max_blend=max_blend)
+
+    xp = cp.get_array_module(transform.TargetPoints)
+    current_target_points = xp.asarray(transform.TargetPoints, dtype=float)
+    source_points = transform.SourcePoints
+    for _ in range(reblend_iterations):
+        target_points = current_target_points
+        linear_points = xp.asarray(linear_transform.Transform(source_points))
+
+        if travel_limit is not None:
+            distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
+            weights = _travel_blend_weights(distances, travel_limit, linear_factor, max_blend)
+        else:
+            weights = xp.full(target_points.shape[0], linear_factor, dtype=float)
+
+        new_target_points = _blend_target_points(target_points, linear_points, weights)
+        movement = float(xp.max(xp.sqrt(xp.sum((new_target_points - target_points) ** 2, axis=1))))
+        current_target_points = new_target_points
+
+        if movement < reblend_tolerance or float(xp.max(weights)) < reblend_weight_tolerance:
+            break
+
+    return _control_points_from_blended_targets(transform, current_target_points)
 
 
 def FixedOriginOffset(transforms: Sequence[ITransform]) -> NDArray[np.floating]:

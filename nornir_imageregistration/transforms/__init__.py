@@ -13,6 +13,13 @@ __all__ = ['base', 'triangulation', 'Triangulation', "meshwithrbffallback", "fac
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+
 import nornir_imageregistration.transforms.transform_type as transform_type
 from nornir_imageregistration.transforms.transform_type import TransformType
 
@@ -22,8 +29,9 @@ NumberOfControlPointsToTriggerMultiprocessing = 20
 
 
 def distance(A: NDArray[np.floating], B: NDArray[np.floating]) -> NDArray[np.floating]:
-    """Distance between two arrays of points with equal numbers"""
-    return np.sqrt(np.sum(np.square(A - B), 1))
+    """Distance between two arrays of points with equal numbers (numpy or cupy)."""
+    xp = cp.get_array_module(A, B)
+    return xp.sqrt(xp.sum(xp.square(A - B), 1))
 
 
 def float_to_shortest_string(val: float, precision=6) -> str:

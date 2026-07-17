@@ -177,6 +177,45 @@ e coordinates.
     return valid_read_space_coords, valid_write_space_coords
 
 
+def assembly_source_sample_mask(
+        transform: ITransform,
+        fixed_image_shape: NDArray | tuple[int, int] | list[int],
+        source_image_shape: NDArray | tuple[int, int] | list[int],
+        *,
+        extrapolate: bool = False) -> NDArray[np.bool_]:
+    """Return True at fixed pixels whose inverse transform lands inside the source image."""
+    transform = transform_for_host_assembly(transform)
+    fixed_shape = np.asarray(fixed_image_shape, dtype=np.int64).ravel()
+    source_shape = np.asarray(source_image_shape, dtype=np.int64).ravel()
+    fixed_h, fixed_w = int(fixed_shape[0]), int(fixed_shape[1])
+    source_h, source_w = int(source_shape[0]), int(source_shape[1])
+
+    read_coords, write_coords = write_to_target_roi_coords(
+        transform,
+        (0, 0),
+        (fixed_h, fixed_w),
+        extrapolate=extrapolate,
+    )
+    read_coords = nornir_imageregistration.EnsureNumpyArray(read_coords)
+    write_coords = nornir_imageregistration.EnsureNumpyArray(write_coords)
+
+    mask = np.zeros((fixed_h, fixed_w), dtype=bool)
+    if write_coords.shape[0] == 0:
+        return mask
+
+    in_source = (
+            (read_coords[:, 0] >= 0) & (read_coords[:, 0] < source_h)
+            & (read_coords[:, 1] >= 0) & (read_coords[:, 1] < source_w)
+    )
+    if not np.any(in_source):
+        return mask
+
+    valid_write = write_coords[in_source]
+    flat = nornir_imageregistration.ravel_index(valid_write, mask.shape).astype(np.int64, copy=False)
+    mask.ravel()[flat] = True
+    return mask
+
+
 def get_valid_coords(coords: NDArray, image_shape, origin=(0, 0), area=None) -> tuple[NDArray, NDArray]:
     """Given an Nx2 array off image coordinates, remove the coordinates that
     fall outside the image_shape boundaries.
@@ -875,12 +914,23 @@ def TransformImage(transform: ITransform,
         )
         if isinstance(result, tuple):
             result = result[0]
-        return nornir_imageregistration.EnsureNumpyArray(
+        output = nornir_imageregistration.EnsureNumpyArray(
             result,
             dtype=_assembly_output_dtype(warpedImage.dtype),
-        )  # type: ignore[return-value]
+        )
+        if enforce_background_cval is not None:
+            sample_mask = assembly_source_sample_mask(
+                transform,
+                fixedImageShape,
+                warpedImage.shape[:2],
+                extrapolate=extrapolate_flag,
+            )
+            output = output.copy()
+            output[~sample_mask] = enforce_background_cval
+        return output  # type: ignore[return-value]
     else:
-        outputImage = np.zeros(fixedImageShape, dtype=warpedImage.dtype)
+        output_dtype = _assembly_output_dtype(warpedImage.dtype) or warpedImage.dtype
+        outputImage = np.zeros(fixedImageShape, dtype=output_dtype)
         sharedwarpedimage_metadata, sharedWarpedImage = nornir_imageregistration.npArrayToSharedArray(warpedImage)
         mpool = nornir_pools.GetGlobalLocalMachinePool()
 
@@ -928,7 +978,17 @@ def TransformImage(transform: ITransform,
             nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
             del sharedWarpedImage
 
-    return nornir_imageregistration.EnsureNumpyArray(outputImage, dtype=_assembly_output_dtype(warpedImage.dtype))
+    outputImage = nornir_imageregistration.EnsureNumpyArray(outputImage, dtype=_assembly_output_dtype(warpedImage.dtype))
+    if enforce_background_cval is not None:
+        sample_mask = assembly_source_sample_mask(
+            transform,
+            fixedImageShape,
+            warpedImage.shape[:2],
+            extrapolate=extrapolate_flag,
+        )
+        outputImage = outputImage.copy()
+        outputImage[~sample_mask] = enforce_background_cval
+    return outputImage
 
 
 def _assembly_working_dtype(source_dtype: np.dtype) -> np.dtype:

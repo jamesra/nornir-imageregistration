@@ -2,6 +2,13 @@ import copy
 
 import numpy as np
 
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+
 import nornir_imageregistration
 from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 import nornir_imageregistration.transforms
@@ -13,13 +20,15 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
 
     :param Centroids: Nx2 array of centroid points.
     :param TriangleVerts: Nx3x2 array of triangle vertices (3 points per triangle).
-    :return: 1D array of length N (minimum centroid-to-vertex distance per row).
+    :return: 1D array of length N (minimum centroid-to-vertex distance per row), same
+        array module as *Centroids*.
     """
+    xp = cp.get_array_module(Centroids)
     numCentroids = Centroids.shape[0]
-    d_measure = np.zeros(numCentroids)
+    d_measure = xp.zeros(numCentroids, dtype=Centroids.dtype)
     for i in range(0, Centroids.shape[0]):
-        distances = pairwise_cdist([Centroids[i]], TriangleVerts[i])
-        d_measure[i] = np.min(distances)
+        distances = pairwise_cdist(Centroids[i:i + 1], TriangleVerts[i])
+        d_measure[i] = xp.min(distances)
 
     return d_measure
 
@@ -84,7 +93,8 @@ def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
         return nornir_imageregistration.transforms.GridWithRBFFallback(new_grid)
     elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IControlPoints):
         AToC_source_points = AToB_mapped_Transform.InverseTransform(BToC_Unaltered_Transform.SourcePoints)  # type: ignore[attr-defined]
-        AToC_pointPairs = np.hstack((BToC_Unaltered_Transform.ControlPoints, AToC_source_points))  # type: ignore[attr-defined]
+        xp = cp.get_array_module(BToC_Unaltered_Transform.TargetPoints, AToC_source_points)  # type: ignore[attr-defined]
+        AToC_pointPairs = xp.hstack((BToC_Unaltered_Transform.TargetPoints, AToC_source_points))  # type: ignore[attr-defined]
         return nornir_imageregistration.transforms.MeshWithRBFFallback(AToC_pointPairs)
 
     raise NotImplementedError()
@@ -95,7 +105,8 @@ def _AddGridTransforms(BToC_Unaltered_Transform: ITransform,
     mappedControlPoints = AToB_mapped_Transform.TargetPoints  # type: ignore[attr-defined]
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
 
-    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))  # type: ignore[attr-defined]
+    xp = cp.get_array_module(txMappedControlPoints, AToB_mapped_Transform.SourcePoints)  # type: ignore[attr-defined]
+    AToC_pointPairs = xp.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))  # type: ignore[attr-defined]
 
     old_grid = AToB_mapped_Transform.grid
     new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
@@ -112,7 +123,8 @@ def _AddMeshTransforms(BToC_Unaltered_Transform: ITransform,
     mappedControlPoints = AToB_mapped_Transform.TargetPoints
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
 
-    AToC_pointPairs = np.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))
+    xp = cp.get_array_module(txMappedControlPoints, AToB_mapped_Transform.SourcePoints)
+    AToC_pointPairs = xp.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))
 
     newTransform = None
     if create_copy:
@@ -146,24 +158,42 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
         OC_Centroids = B_To_C_Transform.Transform(B_Centroids)
         AC_Centroids = A_To_C_Transform.Transform(A_Centroids)  # type: ignore[attr-defined]
 
+        # Follow the arrays from Transform() (may be CuPy even when control points are NumPy).
+        xp = cp.get_array_module(OC_Centroids, AC_Centroids, A_Centroids, B_Centroids)
+        A_Centroids = xp.asarray(A_Centroids)
+        B_Centroids = xp.asarray(B_Centroids)
+        OC_Centroids = xp.asarray(OC_Centroids)
+        AC_Centroids = xp.asarray(AC_Centroids)
+
         # Measure the discrepancy in the the results and create a bool array indicating which centroids failed
         Distances = distance(OC_Centroids, AC_Centroids)
         CentroidMisplaced = Distances > epsilon  # type: ignore[operator]
 
+        # SciPy Delaunay.simplices are always NumPy; convert the mask at that host boundary
+        # before indexing triangles, then index SourcePoints with the integer result.
+        warped_triangles = A_To_B_Transform.WarpedTriangles  # type: ignore[attr-defined]
+        if cp.get_array_module(CentroidMisplaced) is cp:
+            misplaced_for_tri = np.asarray(CentroidMisplaced.get())
+        else:
+            misplaced_for_tri = np.asarray(CentroidMisplaced)
+
         # In extreme distortion we don't want to add new control points forever or converge on existing control points.
         # So ignore centroids falling too close to an existing vertex
-        CentroidVertexDistances = np.zeros(CentroidMisplaced.shape, bool)
-        A_CentroidTriangles = A_To_B_Transform.SourcePoints[A_To_B_Transform.WarpedTriangles[CentroidMisplaced]]  # type: ignore[attr-defined, index]
-        CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(A_Centroids[CentroidMisplaced],
-                                                                              A_CentroidTriangles)
+        CentroidVertexDistances = xp.zeros(CentroidMisplaced.shape, dtype=Distances.dtype)
+        if xp.any(CentroidMisplaced):
+            source_points = xp.asarray(A_To_B_Transform.SourcePoints)  # type: ignore[attr-defined]
+            A_CentroidTriangles = source_points[warped_triangles[misplaced_for_tri]]
+            CentroidVertexDistances[CentroidMisplaced] = CentroidToVertexDistance(
+                A_Centroids[CentroidMisplaced],
+                A_CentroidTriangles)
         CentroidFarEnough = CentroidVertexDistances > epsilon
 
         # Add new verticies for the qualifying centroids
-        AddCentroid = np.logical_and(CentroidMisplaced, CentroidFarEnough)
-        PointsAdded = np.any(AddCentroid)
+        AddCentroid = xp.logical_and(CentroidMisplaced, CentroidFarEnough)
+        PointsAdded = bool(xp.any(AddCentroid))
 
         if PointsAdded:
-            New_ControlPoints = np.hstack((B_Centroids[AddCentroid], A_Centroids[AddCentroid]))
+            New_ControlPoints = xp.hstack((B_Centroids[AddCentroid], A_Centroids[AddCentroid]))
             starting_num_points = A_To_B_Transform.points.shape[0]
             A_To_B_Transform.AddPoints(New_ControlPoints)  # type: ignore[attr-defined]
             ending_num_points = A_To_B_Transform.points.shape[0]
@@ -194,22 +224,41 @@ def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB
                                       create_copy: bool = True,
                                       linear_factor: float | None = None,
                                       travel_limit: float | None = None,
-                                      ignore_rotation: bool = False):
+                                      ignore_rotation: bool = False,
+                                      reblend_iterations: int = 1,
+                                      reblend_tolerance: float | None = None,
+                                      reblend_weight_tolerance: float | None = None,
+                                      B_To_C_Linear: ITransform | None = None):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param BToC_Unaltered_Transform:
     :param AToB_mapped_Transform:
     :param EnrichTolerance:
     :param bool create_copy: True if a new transform should be returned.  If false replace the passed A to B transform points.  Default is True.
+    :param B_To_C_Linear: Optional pre-composed rigid B→C (chain-consistent linear target). When None, rigid-fit B→C mesh.
     :return: ndarray of points that can be assigned as control points for a transform'''
 
     nonlinear_transform = AddTransforms(BToC_Unaltered_Transform, AToB_mapped_Transform, EnrichTolerance, True)
-    linear_BToC_Ttransform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
-        BToC_Unaltered_Transform,
-        ignore_rotation=ignore_rotation)
+    if B_To_C_Linear is not None:
+        linear_BToC_Ttransform = B_To_C_Linear
+    else:
+        linear_BToC_Ttransform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
+            BToC_Unaltered_Transform,
+            ignore_rotation=ignore_rotation)
     linear_transform = AddTransforms(linear_BToC_Ttransform, AToB_mapped_Transform, EnrichTolerance, True)
 
-    blended_transform = nornir_imageregistration.transforms.utils.BlendTransforms(nonlinear_transform, linear_transform,  # type: ignore[arg-type]
-                                                                                  linear_factor=linear_factor,
-                                                                                  travel_limit=travel_limit)
+    blend_kwargs: dict = {
+        'linear_factor': linear_factor,
+        'travel_limit': travel_limit,
+        'reblend_iterations': reblend_iterations,
+    }
+    if reblend_tolerance is not None:
+        blend_kwargs['reblend_tolerance'] = reblend_tolerance
+    if reblend_weight_tolerance is not None:
+        blend_kwargs['reblend_weight_tolerance'] = reblend_weight_tolerance
+
+    blended_transform = nornir_imageregistration.transforms.utils.BlendTransformsIteratively(
+        nonlinear_transform,  # type: ignore[arg-type]
+        linear_transform,
+        **blend_kwargs)
 
     return blended_transform

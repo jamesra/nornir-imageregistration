@@ -9,8 +9,15 @@ import numpy as np
 
 import nornir_imageregistration
 import nornir_shared.tasktimer
+from nornir_shared import prettyoutput
 
 from nornir_imageregistration import Rectangle, RectLike
+
+
+def _assemble_serial_gpu_enabled() -> bool:
+    """Return True when CuPy should use serial TilesToImage instead of threaded."""
+    raw = os.environ.get('NORNIR_ASSEMBLE_SERIAL_GPU', '').strip().lower()
+    return raw in ('1', 'true', 'yes', 'on')
 
 
 def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
@@ -242,8 +249,10 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         ``TilesToImageParallel`` (multiprocess pool) whenever the tileset has more than
         one tile. CUDA initialization is deferred until CuPy is selected so fork-based
         workers do not inherit a broken GPU context.
-        On the GPU (CuPy) backend, ``TilesToImage`` warps tiles serially on the GPU
-        (one batched image+distance warp per tile).
+        On the GPU (CuPy) backend, ``TilesToImageThreaded`` overlaps per-tile CPU
+        inverse-transform work while ``map_coordinates`` stays serialized by the GPU
+        warp lock. Set ``NORNIR_ASSEMBLE_SERIAL_GPU=1`` to fall back to serial
+        ``TilesToImage``.
 
         :param FixedRegion: Rectangle bounding the region to assemble in target space.
         :param target_space_scale: Scalar for target space; used to downsample the output.
@@ -258,6 +267,10 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         if not use_cp and len(tilesPathList) > 1:
             return nornir_imageregistration.assemble_tiles.TilesToImageParallel(self,  # type: ignore[return-value]
                                                                                 pool=None,
+                                                                                TargetRegion=FixedRegion,
+                                                                                target_space_scale=target_space_scale)
+        if use_cp and not _assemble_serial_gpu_enabled() and len(tilesPathList) > 1:
+            return nornir_imageregistration.assemble_tiles.TilesToImageThreaded(self,  # type: ignore[return-value]
                                                                                 TargetRegion=FixedRegion,
                                                                                 target_space_scale=target_space_scale)
         return nornir_imageregistration.assemble_tiles.TilesToImage(self,  # type: ignore[return-value]
@@ -323,17 +336,27 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
             raise ValueError(f"Expected working_image_origin of (0,0) for assemble {working_image_origin}")
 
         task_timer = nornir_shared.tasktimer.TaskTimer()
+        skipped_empty_strips = 0
+        skipped_empty_cells = 0
+        yielded_tiles = 0
+        expected_tile_count = int(np.prod(grid_dims))
 
-        with ThreadPoolExecutor(
-                max_workers=1) as executor:  # max_workers=1 because we only want to assemble one column at a time, but want to generate results while the tasks complete
+        # Overlap next-column AssembleImage with ImageToTilesGenerator on CPU
+        # (peak RAM ≈ 2× strip). Keep serial strips on CuPy — concurrent GPU
+        # canvases near-fill VRAM on large sections (RPC3 601 measured ~22 GB).
+        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+        strip_workers = 1 if use_cp else 2
+        with ThreadPoolExecutor(max_workers=strip_workers) as executor:
             iColumn = 0
             assemble_tasks = []
             while iColumn < grid_dims[1]:
                 # Assemble a strip of images, divide them up and save
                 origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
 
-                working_image_shape = template_image_shape
-                working_image_grid_dims = template_image_grid_dims
+                working_image_shape = template_image_shape.copy() \
+                    if hasattr(template_image_shape, 'copy') else np.asarray(template_image_shape).copy()
+                working_image_grid_dims = template_image_grid_dims.copy() \
+                    if hasattr(template_image_grid_dims, 'copy') else np.asarray(template_image_grid_dims).copy()
                 # If we are on the final column don't make it larger than necessary
                 if working_image_grid_dims[1] + iColumn > grid_dims[1]:
                     working_image_grid_dims[1] = grid_dims[1] - iColumn
@@ -342,40 +365,56 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
                 fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)  # type: ignore[arg-type]
 
+                if len(self.TargetSpaceIntersections(fixed_region)) == 0:
+                    skipped_empty_strips += 1
+                    skipped_empty_cells += int(np.prod(working_image_grid_dims))
+                    iColumn += working_image_grid_dims[1]
+                    continue
+
                 assemble_column_task = executor.submit(self.AssembleImage,
                                                        FixedRegion=fixed_region,
                                                        target_space_scale=target_space_scale)
                 assemble_column_task.iColumn = iColumn  # type: ignore[attr-defined]
                 assemble_column_task.working_image_grid_dims = working_image_grid_dims  # type: ignore[attr-defined]
+                assemble_column_task.expected_cells_in_strip = int(np.prod(working_image_grid_dims))  # type: ignore[attr-defined]
                 assemble_tasks.append(assemble_column_task)
 
                 iColumn += working_image_grid_dims[1]
 
-                # source_space_scale=source_space_scale)
-
-                # del _mask
-
             # As each task completes, yield results via the generator
             for task in as_completed(assemble_tasks):
-                (working_image, _) = task.result()
+                working_image, working_mask = task.result()
 
                 working_image_grid_dims = task.working_image_grid_dims  # type: ignore[attr-defined]
                 iColumn = task.iColumn  # type: ignore[attr-defined]
+                expected_cells_in_strip = task.expected_cells_in_strip  # type: ignore[attr-defined]
 
                 task_timer.Start(
                     f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
 
-                (yield from nornir_imageregistration.ImageToTilesGenerator(source_image=working_image,
-                                                                           tile_size=tile_dims,
-                                                                           grid_shape=working_image_grid_dims,
-                                                                           coord_offset=(0, iColumn)))  # type: ignore[arg-type]
+                strip_yielded = 0
+                for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
+                        source_image=working_image,
+                        tile_size=tile_dims,
+                        grid_shape=working_image_grid_dims,
+                        coord_offset=(0, iColumn),
+                        coverage_mask=working_mask):
+                    strip_yielded += 1
+                    yielded_tiles += 1
+                    yield tile_entry
+
+                skipped_empty_cells += expected_cells_in_strip - strip_yielded
                 task_timer.End(
                     f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
                 del working_image
+                del working_mask
 
-                iColumn += working_image_grid_dims[1]
+        if skipped_empty_strips > 0 or skipped_empty_cells > 0:
+            prettyoutput.Log(
+                f"Optimized tileset: skipped {skipped_empty_strips} empty column strip(s), "
+                f"{skipped_empty_cells} empty cell(s); wrote {yielded_tiles} of {expected_tile_count} grid cells")
 
-            return
+        return
 
     def ArrangeTilesWithTranslate(self,
                                   config: nornir_imageregistration.settings.TranslateSettings):

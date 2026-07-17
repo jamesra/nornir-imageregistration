@@ -97,6 +97,9 @@ from nornir_imageregistration.mmap_metadata import *
 import nornir_imageregistration.nornir_image_types as nornir_image_types
 from nornir_imageregistration.nornir_image_types import *
 
+from . import exceptions
+from .exceptions import MissingTilesetInputError
+
 
 def GetComputationModule() -> types.ModuleType:
     """Return the computational module in use (numpy or cupy)."""

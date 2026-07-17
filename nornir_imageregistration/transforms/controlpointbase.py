@@ -527,6 +527,11 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         return self._FixedBoundingBox
 
     @property
+    def TargetBoundingBox(self):
+        """Bounding box of target-space control points (alias of FixedBoundingBox)."""
+        return self.FixedBoundingBox
+
+    @property
     def points(self) -> NDArray[np.floating]:
         return self._points
 
@@ -561,6 +566,11 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
             self._MappedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.SourcePoints)
 
         return self._MappedBoundingBox
+
+    @property
+    def SourceBoundingBox(self):
+        """Bounding box of source-space control points (alias of MappedBoundingBox)."""
+        return self.MappedBoundingBox
 
     @property
     def FixedBoundingBoxWidth(self):

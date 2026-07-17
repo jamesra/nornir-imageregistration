@@ -4,6 +4,8 @@ import copy
 import logging
 import os
 
+import numpy as np
+
 import nornir_imageregistration
 from nornir_imageregistration import ITransform
 from nornir_imageregistration.transforms.base import ITransformScaling, ITransformRelativeScaling
@@ -593,15 +595,17 @@ class StosFile(object):
     def BlendWithLinear(self, linear_factor: float | None = None,
                         travel_limit: float | None = None,
                         ignore_rotation: bool = False,
+                        reblend_iterations: int = 1,
+                        reblend_tolerance: float | None = None,
                         ):
         '''
         Blends a stos file using a control point transform with a rigid linear approximation of
         the same transform (rotation, translation, scaling) with the passed blending factor
         :param linear_factor:  0 to 1.0, amount of weight to assign points passed through linear transform
         :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
-        :param travel_limit: Transformed points that are beyond the travel_limit distance from the predicted rigid location are placed
-        at the rigid transform position.  This allows local movement but blocks global distortion from travelling features (Suggested by
-        Art Wetzel)
+        :param travel_limit: Per-point distance scale for smooth blend toward rigid prediction.
+        :param reblend_iterations: Iterative blend passes; values above 1 re-blend until convergence.
+        :param reblend_tolerance: Stop iterating when max point movement falls below this threshold.
         :return:
         '''
 
@@ -609,9 +613,15 @@ class StosFile(object):
         assert (transformObj is not None)
 
         if isinstance(transformObj, nornir_imageregistration.IControlPoints):
-            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, linear_factor,
-                                                                                          travel_limit=travel_limit,
-                                                                                          ignore_rotation=ignore_rotation)
+            blend_kwargs: dict = {
+                'linear_factor': linear_factor,
+                'travel_limit': travel_limit,
+                'ignore_rotation': ignore_rotation,
+                'reblend_iterations': reblend_iterations,
+            }
+            if reblend_tolerance is not None:
+                blend_kwargs['reblend_tolerance'] = reblend_tolerance
+            blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, **blend_kwargs)
             updated_transform = blended_transform.ToITKString()
             transform_changed = updated_transform != self.Transform
             self.Transform = updated_transform
@@ -796,12 +806,34 @@ class StosFile(object):
         return True
 
 
+def IdentityRigidTransform() -> nornir_imageregistration.transforms.CenteredSimilarity2DTransform:
+    """Return a centered similarity transform that maps coordinates to themselves."""
+    return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        target_offset=np.array([0.0, 0.0], dtype=np.float32),
+        source_rotation_center=np.array([0.0, 0.0], dtype=np.float32),
+        angle=0.0,
+        scalar=1.0)
+
+
+def RigidTransformFromStosPath(stos_path: str,
+                               ignore_rotation: bool = False) -> ITransform:
+    """Load a STOS file and estimate the best rigid/similarity transform for its control points."""
+    loaded = StosFile.Load(stos_path)
+    transform_obj = nornir_imageregistration.transforms.LoadTransform(loaded.Transform)  # type: ignore[arg-type]
+    return nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
+        transform_obj,
+        ignore_rotation=ignore_rotation)
+
+
 def AddStosTransforms(A_To_B,
                       B_To_C,
                       EnrichTolerance: float | None,
                       linear_factor: float | None = None,
                       travel_limit: float | None = None,
-                      ignore_rotation: bool = False) -> StosFile:
+                      ignore_rotation: bool = False,
+                      reblend_iterations: int = 1,
+                      reblend_tolerance: float | None = None,
+                      B_To_C_Linear: nornir_imageregistration.transforms.ITransform | None = None) -> StosFile:
     '''
     :param EnrichTolerance:
     :param A_To_B: Commonly a single section transform, "4->3"
@@ -828,7 +860,10 @@ def AddStosTransforms(A_To_B,
             create_copy=False,
             linear_factor=linear_factor,
             travel_limit=travel_limit,
-            ignore_rotation=ignore_rotation)
+            ignore_rotation=ignore_rotation,
+            reblend_iterations=reblend_iterations,
+            reblend_tolerance=reblend_tolerance,
+            B_To_C_Linear=B_To_C_Linear)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.TargetSectionNumber = B_To_C_Stos.TargetSectionNumber

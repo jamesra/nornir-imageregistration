@@ -2104,12 +2104,12 @@ def uint16_img_from_uint16_array(data):
 def uint16_img_from_float_array(image):
     """Convert a float image (0-1 or 0-max) to a Pillow 16-bit image."""
     assert (nornir_imageregistration.IsFloatArray(image))
-    iMax = image.max()
-    if iMax <= 1:
-        image = image * (1 << 16) - 1
-    else:
-        pass
-
+    image = np.asarray(image, dtype=np.float32)
+    image = np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0)
+    iMax = float(image.max())
+    if iMax <= 1.0:
+        image = image * ((1 << 16) - 1)
+    image = np.clip(image, 0.0, None)
     return image.astype(np.uint16)
 
 
@@ -2424,18 +2424,21 @@ def ImageToTilesGenerator(source_image: NDArray,
                           tile_size: NDArray,
                           grid_shape: NDArray | None = None,
                           coord_offset: NDArray | None = None,
-                          cval: float | int | str | None = 0):
+                          cval: float | int | str | None = 0,
+                          coverage_mask: NDArray | None = None):
     """An iterator generating that divides a large image into a collection of smaller non-overlapping tiles.
     :param source_image: The image to divide
     :param tile_size: Shape of each tile
     :param grid_shape: Dimensions of grid, if None the grid is large enough to reproduce the source_image with zero padding if needed
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
+    :param coverage_mask: When set, only yield tiles where this boolean mask has any True pixels in the tile ROI
     :return: (iCol,iRow, tile_image)
     """
     source_image = ImageParamToImageArray(source_image)
 
-    grid_shape = TileGridShape(source_image.shape, tile_size)
+    if grid_shape is None:
+        grid_shape = TileGridShape(source_image.shape, tile_size)
 
     if coord_offset is None:
         coord_offset = np.array([0, 0])
@@ -2453,6 +2456,19 @@ def ImageToTilesGenerator(source_image: NDArray,
     else:
         source_image_padded = source_image
 
+    coverage_mask_padded = None
+    if coverage_mask is not None:
+        coverage_mask = ImageParamToImageArray(coverage_mask)
+        mask_h, mask_w = int(coverage_mask.shape[0]), int(coverage_mask.shape[1])
+        if (mask_h, mask_w) != (req_h, req_w):
+            coverage_mask_padded = CropImage(coverage_mask,
+                                             Xo=0, Yo=0,
+                                             Width=int(math.ceil(required_shape[1])),
+                                             Height=int(math.ceil(required_shape[0])),
+                                             cval=False)
+        else:
+            coverage_mask_padded = coverage_mask
+
     # nornir_imageregistration.ShowGrayscale(source_image_padded)
 
     # Build the output dictionary
@@ -2465,7 +2481,15 @@ def ImageToTilesGenerator(source_image: NDArray,
         EndX = tile_size[1]
 
         for iCol in range(grid_shape[1]):
-            t = (iRow + coord_offset[0], iCol + coord_offset[1], source_image_padded[StartY:EndY, StartX:EndX])  # type: ignore[index]
+            tile_image = source_image_padded[StartY:EndY, StartX:EndX]  # type: ignore[index]
+            if coverage_mask_padded is not None:
+                mask_tile = coverage_mask_padded[StartY:EndY, StartX:EndX]
+                if not bool(np.any(np.asarray(
+                        nornir_imageregistration.EnsureNumpyArray(mask_tile)))):
+                    StartX += tile_size[1]
+                    EndX += tile_size[1]
+                    continue
+            t = (iRow + coord_offset[0], iCol + coord_offset[1], tile_image)
             # nornir_imageregistration.ShowGrayscale(tile)
             (yield t)
 

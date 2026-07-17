@@ -46,17 +46,25 @@ _logger = logging.getLogger(__name__)
 
 
 def _assemble_inverse_use_scipy() -> bool:
-    """When True on CuPy, build grid inverse interpolators with SciPy Qhull instead of CuPy Delaunay."""
+    """When True on CuPy, build grid inverse interpolators with SciPy Qhull instead of CuPy Delaunay.
+
+    Production default (unset ``NORNIR_ASSEMBLE_INVERSE_SCIPY``): **CuPy** ``cuLinearNDInterpolator``
+    (faster). Set ``NORNIR_ASSEMBLE_INVERSE_SCIPY=1`` to restore SciPy Qhull on the host.
+
+    **Pixel effect (CuPy default vs SciPy):** inverse maps each output pixel to slightly different
+    subpixel source coordinates. Image warps still use cubic ``map_coordinates``; differences
+    quantize to **±1 DN** on 8-bit tiles (RPC3 601: ~84% of tiles have >=1 changed pixel;
+    within affected tiles up to ~22% of pixels, all |delta|=1). Degenerate meshes still fall back to SciPy.
+    """
     raw = os.environ.get('NORNIR_ASSEMBLE_INVERSE_SCIPY', '').strip().lower()
     if raw in ('0', 'false', 'no'):
         return False
     if raw in ('1', 'true', 'yes'):
         return True
-    # Default on when assemble skips RBF extrapolation; SciPy-first inverse regresses when extrapolate is on.
     extrap_raw = os.environ.get('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', '').strip().lower()
     if extrap_raw in ('1', 'true', 'yes'):
         return False
-    return True
+    return False
 
 
 def _is_cupy_degenerate_triangulation_error(exc: BaseException) -> bool:
@@ -125,23 +133,30 @@ def _inverse_transform_with_linear_nd_fallback(
         source_points_attr: str = 'SourcePoints',
 ) -> NDArray[np.floating]:
     """Run inverse transform with optional SciPy fallback after CuPy triangulation failure."""
-    points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
     private_attr = f'_{interpolator_property}'
     retried = False
     while True:
         interp = getattr(transform, interpolator_property)
+        uses_scipy = bool(getattr(transform, scipy_flag_attr, False))
+        if uses_scipy:
+            points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        else:
+            points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
         if interp is None:
+            if uses_scipy:
+                trans_points = np.empty(points.shape, dtype=output_dtype or np.float64)
+                trans_points[:] = np.nan
+                return trans_points
             trans_points = cp.empty(points.shape, dtype=output_dtype)
             trans_points[:] = cp.nan
             return trans_points
 
         try:
-            if getattr(transform, scipy_flag_attr):
-                pn = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-                trans_points = interp(pn)
+            if uses_scipy:
+                trans_points = interp(points)
                 if output_dtype is not None and output_dtype is not points.dtype:
                     trans_points = trans_points.astype(output_dtype, copy=False)
-                return cp.asarray(trans_points)
+                return trans_points
             result = interp(points)
             if output_dtype is not None:
                 return result.astype(output_dtype, copy=False)
@@ -164,6 +179,10 @@ def _inverse_transform_with_linear_nd_fallback(
         log = logging.getLogger(str(transform.__class__))
         log.warning("Could not transform points: " + str(points))
         setattr(transform, private_attr, None)
+        if uses_scipy:
+            trans_points = np.empty(points.shape, dtype=output_dtype or np.float64)
+            trans_points[:] = np.nan
+            return trans_points
         trans_points = cp.empty(points.shape, dtype=output_dtype)
         trans_points[:] = cp.nan
         return trans_points
@@ -802,7 +821,16 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def InverseTransform(self, points, **kwargs):
         """Map points from the fixed space to the warped space"""
-        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+        if getattr(self, '_scipy_inverse_interp', False):
+            points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+        elif self._InverseInterpolator is None:
+            _ = self.InverseInterpolator
+            if getattr(self, '_scipy_inverse_interp', False):
+                points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+            else:
+                points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+        else:
+            points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
         return _inverse_transform_with_linear_nd_fallback(
             self,
             points,

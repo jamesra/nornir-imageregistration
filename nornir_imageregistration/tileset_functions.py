@@ -18,11 +18,14 @@ import numpy
 Image.MAX_IMAGE_PIXELS = None
 import os
 import enum
+import errno
 import shutil
 from functools import partial
 import nornir_pools
 import nornir_shared.files
 import nornir_imageregistration.temporaryfiles as temporaryfiles
+from nornir_imageregistration.exceptions import MissingTilesetInputError, as_missing_tileset_error
+
 
 
 class Quadrant(enum.IntEnum):
@@ -76,7 +79,10 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
     """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
        of small IO calls instead of reading the entire file.
        The temporary files are not removed so the next tileset level can utilize the local data.
+       
        Use ClearTempDirectories to clean up the temporary data
+
+       The temporary and output directories are assumed to exist.  If they do not exist, an exception will be raised.
 
        Do not use the temporary local cache if the local input cached files exist.  If they do not, use the remote files
        and write the output to the temp cache for the next level.
@@ -100,9 +106,9 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         if output_level_temp_dir is None:
             output_level_dir = os.path.basename(os.path.dirname(OutputFileFullPath))
             temp_output_dir = os.path.join(temporaryfiles.gettempdir(), output_level_dir)
-            os.makedirs(temp_output_dir, exist_ok=True)
         else:
             temp_output_dir = output_level_temp_dir
+ 
 
         TopLeftBase = os.path.basename(TopLeft)
         TopRightBase = os.path.basename(TopRight)
@@ -152,8 +158,17 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
                                        temp_output, executor=executor)
 
-        # Copy the file, but leave the temp in case we genereate the next level
-        executor.submit(shutil.copyfile, temp_output, OutputFileFullPath)
+        # Copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
+        try:
+            shutil.copyfile(temp_output, OutputFileFullPath)
+        except MissingTilesetInputError:
+            raise
+        except (FileNotFoundError, OSError) as e:
+            if isinstance(e, FileNotFoundError) or e.errno == errno.ENOENT:
+                dest_dir = os.path.dirname(OutputFileFullPath)
+                missing_paths = [dest_dir] if dest_dir else []
+                raise as_missing_tileset_error(OutputFileFullPath, missing_paths, e) from e
+            raise
 
         # Remove the input because this function is used to generate levels, and once we generate the next level we don't need the source level
         if use_temp_dir:
@@ -180,7 +195,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         raise
     finally:
         if should_cleanup_executor:
-            executor.shutdown(wait=False)  # Copies and deletes finish in the background
+            executor.shutdown(wait=True)
 
 
 def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopRight: str, BottomLeft: str,
@@ -261,15 +276,26 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
         for future in as_completed(list(future_to_position.keys())):
             future.result()  # Trigger any exceptions from futures to be raised
 
-        if imComposite is not None:
-            resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
-            imFinal = imComposite.resize(resize_size, resample=Image.Resampling.LANCZOS)  # type: ignore[union-attr]
-            try:
-                imFinal.save(OutputFileFullPath, optimize=True)
-            except FileExistsError:
-                pass
+        if imComposite is None:
+            raise MissingTilesetInputError(
+                OutputFileFullPath,
+                [TopLeft, TopRight, BottomLeft, BottomRight],
+            )
 
-            del imComposite
+        resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
+        imFinal = imComposite.resize(resize_size, resample=Image.Resampling.LANCZOS)  # type: ignore[union-attr]
+        try:
+            imFinal.save(OutputFileFullPath, optimize=True)
+        except FileExistsError:
+            pass
+        except (FileNotFoundError, OSError) as e:
+            if e.errno == errno.ENOENT or isinstance(e, FileNotFoundError):
+                output_dir = os.path.dirname(OutputFileFullPath)
+                missing_paths = [output_dir] if output_dir else []
+                raise as_missing_tileset_error(OutputFileFullPath, missing_paths, e) from e
+            raise
+
+        del imComposite
 
         return
     finally:

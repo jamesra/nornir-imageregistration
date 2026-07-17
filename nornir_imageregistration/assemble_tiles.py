@@ -548,26 +548,45 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
         if region_to_render is not None and region_to_render.Area > 0:
             work_items.append((tile, region_to_render))
 
-    with ThreadPoolExecutor(max_workers=_TRANSFORM_WORKERS) as transform_executor:
-        futures = [
-            transform_executor.submit(_transform_tile_worker, tile, region, target_space_scale)
-            for tile, region in work_items
-        ]
-        for future in as_completed(futures):
-            transformed_image_data = future.result()
-            with _composite_lock:
-                _composite_transformed_tile_onto_canvas(
-                    transformed_image_data, full_image, full_image_zbuffer, scaled_target_rect)
-            transformed_image_data.Clear()
-            del transformed_image_data
+    with _scaled_transform_cache_scope():
+        # Prime scaled transforms / InverseInterpolator on the main thread so
+        # worker threads do not race on first-use transform state.
+        for tile, _region in work_items:
+            scaled_transform = _get_scaled_transform_for_tile(
+                tile, source_space_scale, target_space_scale)
+            if hasattr(scaled_transform, 'InverseInterpolator'):
+                _ = scaled_transform.InverseInterpolator
 
-    mask = np.less(full_image_zbuffer, __MaxZBufferValue(full_image_zbuffer.dtype))
+        with ThreadPoolExecutor(max_workers=_TRANSFORM_WORKERS) as transform_executor:
+            # Submit all warps concurrently, but composite in work_items order so
+            # z-buffer ties match serial TilesToImage (as_completed is nondeterministic).
+            futures = [
+                transform_executor.submit(_transform_tile_worker, tile, region, target_space_scale)
+                for tile, region in work_items
+            ]
+            for future in futures:
+                transformed_image_data = future.result()
+                with _composite_lock:
+                    _composite_transformed_tile_onto_canvas(
+                        transformed_image_data, full_image, full_image_zbuffer, scaled_target_rect)
+                transformed_image_data.Clear()
+                del transformed_image_data
+
+    if isinstance(full_image, np.memmap):
+        xp = np
+    else:
+        xp = nornir_imageregistration.GetComputationModule()
+    mask = xp.less(full_image_zbuffer, __MaxZBufferValue(full_image_zbuffer.dtype))
     del full_image_zbuffer
 
-    full_image = np.maximum(full_image, 0, out=full_image)
+    full_image = xp.maximum(full_image, 0, out=full_image)
 
     if isinstance(full_image, np.memmap):
         full_image.flush()
+    elif hasattr(full_image, 'get'):
+        full_image = full_image.get()
+        if hasattr(mask, 'get'):
+            mask = mask.get()
 
     return full_image, mask
 
