@@ -879,7 +879,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             if interactive_edit.in_progress():
                 self._ForwardInterpolator = None
                 self._InverseInterpolator = None
-                super(ControlPointBase_GPUComponent, self).OnTransformChanged()
+                super(ControlPointBase, self).OnTransformChanged()
                 return
         except ImportError:
             pass
