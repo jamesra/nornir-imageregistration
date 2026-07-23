@@ -51,14 +51,14 @@ class TestChainConsistentRigidLinear(unittest.TestCase):
         blended_default = AddTransformsWithLinearCorrection(
             mesh_bc,
             mesh_ab,  # type: ignore[arg-type]
-            linear_factor=0.2,
+            min_blend=0.2,
         )
         alternate_rigid_bc = nornir_imageregistration.transforms.RigidTranslation(
             target_offset=np.array([15.0, 10.0], dtype=np.float32))
         blended_override = AddTransformsWithLinearCorrection(
             mesh_bc,
             mesh_ab,  # type: ignore[arg-type]
-            linear_factor=0.2,
+            min_blend=0.2,
             B_To_C_Linear=alternate_rigid_bc,
         )
 

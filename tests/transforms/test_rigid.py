@@ -829,6 +829,27 @@ class TestConvertTransformToRigidTransform(unittest.TestCase):
             converted, nornir_imageregistration.transforms.CenteredSimilarity2DTransform)
         self.assertAlmostEqual(converted.scalar, 1.0)
 
+    def test_similarity_flip_ud_preserved(self) -> None:
+        rigid = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=(1.0, 2.0),
+            source_rotation_center=(3.0, 4.0),
+            angle=0.3,
+            scalar=1.1,
+            flip_ud=True,
+        )
+        converted = nornir_imageregistration.transforms.ConvertTransformToRigidTransform(rigid)
+        self.assertTrue(converted.flip_ud)
+
+    def test_rigid_flip_ud_preserved(self) -> None:
+        rigid = nornir_imageregistration.transforms.Rigid(
+            target_offset=(1.0, 2.0),
+            source_rotation_center=(3.0, 4.0),
+            angle=0.2,
+            flip_ud=True,
+        )
+        converted = nornir_imageregistration.transforms.ConvertTransformToRigidTransform(rigid)
+        self.assertTrue(converted.flip_ud)
+
 
 class TestScaleWarpedAboutSourcePoint(unittest.TestCase):
     """ScaleWarpedAboutSourcePoint pins the pivot in target space."""

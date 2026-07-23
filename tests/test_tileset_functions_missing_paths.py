@@ -61,7 +61,7 @@ class TestTilesetMissingPaths(unittest.TestCase):
 
             self.assertIn(os.path.dirname(output_path), ctx.exception.missing_paths)
 
-    def test_missing_dest_parent_on_copy_raises(self) -> None:
+    def test_missing_dest_parent_is_created_on_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             work_dir = os.path.join(temp_dir, 'work')
             os.makedirs(work_dir, exist_ok=True)
@@ -75,19 +75,18 @@ class TestTilesetMissingPaths(unittest.TestCase):
                     handle.write(b'png')
 
             with mock.patch.object(tileset_functions, 'CreateOneTilesetTileWithPillow', side_effect=fake_pillow):
-                with self.assertRaises(MissingTilesetInputError) as ctx:
-                    tileset_functions.CreateOneTilesetTileWithPillowOverNetwork(
-                        (64, 64),
-                        TopLeft=os.path.join(work_dir, 'tl.png'),
-                        TopRight=os.path.join(work_dir, 'tr.png'),
-                        BottomLeft=os.path.join(work_dir, 'bl.png'),
-                        BottomRight=os.path.join(work_dir, 'br.png'),
-                        OutputFileFullPath=dest_path,
-                        temp_input_dir=None,
-                        output_level_temp_dir=work_dir,
-                    )
+                tileset_functions.CreateOneTilesetTileWithPillowOverNetwork(
+                    (64, 64),
+                    TopLeft=os.path.join(work_dir, 'tl.png'),
+                    TopRight=os.path.join(work_dir, 'tr.png'),
+                    BottomLeft=os.path.join(work_dir, 'bl.png'),
+                    BottomRight=os.path.join(work_dir, 'br.png'),
+                    OutputFileFullPath=dest_path,
+                    temp_input_dir=None,
+                    output_level_temp_dir=work_dir,
+                )
 
-            self.assertIn(os.path.dirname(dest_path), ctx.exception.missing_paths)
+            self.assertTrue(os.path.isfile(dest_path))
 
 
 if __name__ == '__main__':

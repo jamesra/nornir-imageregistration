@@ -222,13 +222,16 @@ def _AddAndEnrichTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Tr
 def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,
                                       EnrichTolerance: float | None = None,
                                       create_copy: bool = True,
-                                      linear_factor: float | None = None,
+                                      min_blend: float | None = None,
                                       travel_limit: float | None = None,
                                       ignore_rotation: bool = False,
                                       reblend_iterations: int = 1,
                                       reblend_tolerance: float | None = None,
                                       reblend_weight_tolerance: float | None = None,
-                                      B_To_C_Linear: ITransform | None = None):
+                                      max_blend: float | None = None,
+                                      B_To_C_Linear: ITransform | None = None,
+                                      *,
+                                      linear_factor: float | None = None):
     '''Takes the control points of a mapping from A to B and returns control points mapping from A to C
     :param BToC_Unaltered_Transform:
     :param AToB_mapped_Transform:
@@ -247,14 +250,17 @@ def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB
     linear_transform = AddTransforms(linear_BToC_Ttransform, AToB_mapped_Transform, EnrichTolerance, True)
 
     blend_kwargs: dict = {
-        'linear_factor': linear_factor,
+        'min_blend': min_blend,
         'travel_limit': travel_limit,
         'reblend_iterations': reblend_iterations,
+        'linear_factor': linear_factor,
     }
     if reblend_tolerance is not None:
         blend_kwargs['reblend_tolerance'] = reblend_tolerance
     if reblend_weight_tolerance is not None:
         blend_kwargs['reblend_weight_tolerance'] = reblend_weight_tolerance
+    if max_blend is not None:
+        blend_kwargs['max_blend'] = max_blend
 
     blended_transform = nornir_imageregistration.transforms.utils.BlendTransformsIteratively(
         nonlinear_transform,  # type: ignore[arg-type]

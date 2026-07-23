@@ -15,10 +15,13 @@ Usage
   python bench_assemble_tiles.py ... --save-golden
   python bench_assemble_tiles.py ... --verify
 
-Production I/O (local temp encode + copy to dest, mirrors AssembleTilesetNumpy)::
+Production I/O (two-stage save: encode pool + copy_workers=2 default, mirrors AssembleTilesetNumpy)::
 
   export NORNIR_HEADLESS=1
   pip install -e /workspace/nornir-shared
+
+  # Defaults: NORNIR_TILE_IO_WORKERS=16, NORNIR_TILE_COPY_WORKERS=2 (two-stage always on).
+  # Monolithic encode+copy A/B uses _SaveImageAndCopy via io-sweep helpers, not production assemble.
 
   # One production-width strip: assemble once, sweep save workers (section 815, CIFS)
   python bench_assemble_tiles.py \\
@@ -33,6 +36,13 @@ Production I/O (local temp encode + copy to dest, mirrors AssembleTilesetNumpy):
       --production-save --one-strip --io-sweep-only \\
       --cifs-dest \"$TESTOUTPUTPATH/assemble_bench/rpc3_601/production_save/tiles\" \\
       --workers 1,2,4,8,16 --backends gpu
+
+  # Section 815 on CIFS (/storage4/RPC3) — required for production I/O benchmarks
+  python bench_assemble_tiles.py \\
+      --section 815 --volume-root /storage4/RPC3 \\
+      --production-save --one-strip --io-sweep-only \\
+      --cifs-dest /storage4/RPC3/_assemble_io_bench/section_0815/tiles \\
+      --workers 1,2,4,8,16,32 --backends gpu
 
   # Full section e2e with worker sweep
   python bench_assemble_tiles.py \\
@@ -160,6 +170,65 @@ class WorkerSweepRow:
     wall_s: float | None
     error: str | None = None
     output_io_wait_s: float | None = None
+    output_io_wait_backpressure_s: float | None = None
+    output_io_wait_drain_s: float | None = None
+    sum_encode_thread_s: float | None = None
+    sum_copy_thread_s: float | None = None
+    level001_wall_s: float | None = None
+    last_strip_yield_to_drain_s: float | None = None
+    encode_workers: int | None = None
+    copy_workers: int | None = None
+    max_active_encode: int | None = None
+    tasks_at_drain: int | None = None
+    two_stage: bool | None = None
+
+
+@dataclass
+class FullSectionProductionResult:
+    """Pipelined full-section assemble + save metrics (mirrors AssembleTilesetNumpy)."""
+
+    tiles_saved: int
+    wall_s: float
+    output_io_wait_backpressure_s: float
+    output_io_wait_drain_s: float
+    save_encode_thread_s: float
+    save_copy_thread_s: float
+    last_strip_yield_to_drain_s: float | None
+    encode_workers: int
+    copy_workers: int
+    max_active_encode: int
+    tasks_at_drain: int
+    two_stage: bool
+
+    @property
+    def output_io_wait_s(self) -> float:
+        return self.output_io_wait_backpressure_s + self.output_io_wait_drain_s
+
+    def as_timeline_dict(self) -> dict[str, float | int | bool | None]:
+        return {
+            'level001_wall_s': self.wall_s,
+            'output_io_wait_s': self.output_io_wait_s,
+            'output_io_wait_backpressure_s': self.output_io_wait_backpressure_s,
+            'output_io_wait_drain_s': self.output_io_wait_drain_s,
+            'save_encode_thread_s': self.save_encode_thread_s,
+            'save_copy_thread_s': self.save_copy_thread_s,
+            'tiles_saved': self.tiles_saved,
+            'encode_workers': self.encode_workers,
+            'copy_workers': self.copy_workers,
+            'max_active_encode': self.max_active_encode,
+            'last_strip_yield_to_drain_s': self.last_strip_yield_to_drain_s,
+            'tasks_at_drain': self.tasks_at_drain,
+            'two_stage': self.two_stage,
+        }
+
+
+@dataclass
+class ProductionSaveTimings:
+    """Wall and per-thread encode/copy totals from a production-save sweep."""
+
+    wall_s: float
+    sum_encode_thread_s: float = 0.0
+    sum_copy_thread_s: float = 0.0
 
 
 TileRecord = tuple[int, int, Any]
@@ -566,17 +635,63 @@ def _verify_golden(golden_dir: Path, checksums: dict[str, str]) -> tuple[bool, s
     return True, f'OK — {len(checksums)} tiles match golden'
 
 
-def _import_production_save() -> tuple[Any, Any]:
+def _import_production_save() -> tuple[Any, Any, Any, Any, Any]:
     """Import production save helpers from buildmanager / shared."""
     try:
-        from nornir_buildmanager.operations.tile import _SaveImageAndCopy
+        from nornir_buildmanager.operations.tile import (
+            _SaveImageAndCopy,
+            _TwoStageTileSavePipeline,
+            _tile_copy_worker_count,
+            _use_two_stage_tile_save,
+        )
         from nornir_shared.files import ensure_directory
-        return _SaveImageAndCopy, ensure_directory
+        return (
+            _SaveImageAndCopy,
+            ensure_directory,
+            _TwoStageTileSavePipeline,
+            _tile_copy_worker_count,
+            _use_two_stage_tile_save,
+        )
     except ImportError as exc:
         raise SystemExit(
             'Production save requires nornir-buildmanager and nornir-shared. '
             'Install editable nornir-shared and ensure nornir-buildmanager is on PYTHONPATH.'
         ) from exc
+
+
+def _save_image_and_copy_timed(
+    ImageFullPath: str,
+    temp_output_tile_fullpath: str,
+    tile_image: Any,
+    bpp: int | None,
+    optimize: bool = True,
+) -> tuple[float, float]:
+    """Bench helper: time SaveImage (encode+local write) vs copyfile separately."""
+    t_encode = time.perf_counter()
+    nornir_imageregistration.SaveImage(
+        ImageFullPath=temp_output_tile_fullpath,
+        image=tile_image,
+        bpp=bpp,
+        optimize=optimize,
+    )
+    encode_s = time.perf_counter() - t_encode
+    t_copy = time.perf_counter()
+    shutil.copyfile(temp_output_tile_fullpath, ImageFullPath)
+    copy_s = time.perf_counter() - t_copy
+    return encode_s, copy_s
+
+
+def _accumulate_save_future(
+    finished: concurrent.futures.Future,
+    *,
+    sum_encode: list[float],
+    sum_copy: list[float],
+) -> None:
+    """Add encode/copy thread-seconds from a timed save future."""
+    result = finished.result()
+    if isinstance(result, tuple) and len(result) == 2:
+        sum_encode[0] += float(result[0])
+        sum_copy[0] += float(result[1])
 
 
 def _parse_workers_list(workers_arg: str | None, *, one_strip: bool) -> list[int]:
@@ -698,14 +813,77 @@ def _production_save_tiles(
     file_prefix: str,
     file_postfix: str,
     keep_output: bool,
-) -> float:
-    """Save tiles via _SaveImageAndCopy with production backpressure (workers * 2)."""
-    save_image_and_copy, ensure_directory = _import_production_save()
+    split_encode_copy: bool = True,
+) -> ProductionSaveTimings:
+    """Save tiles with production two-stage backpressure (encode pool + bounded copy queue)."""
+    (
+        _save_image_and_copy,
+        ensure_directory,
+        two_stage_pipeline_cls,
+        tile_copy_worker_count,
+        _use_two_stage_tile_save,
+    ) = _import_production_save()
+    assert _use_two_stage_tile_save()
     _prepare_output_dirs(dest_dir, local_temp_dir, ensure_directory, keep_output=keep_output)
-    save_fn = partial(save_image_and_copy, bpp=bpp, optimize=True)
     max_active = workers * 2
-    active: list[concurrent.futures.Future] = []
     t0 = time.perf_counter()
+
+    copy_workers = tile_copy_worker_count()
+    pipeline = two_stage_pipeline_cls(
+        encode_workers=workers,
+        copy_workers=copy_workers,
+        bpp=bpp,
+        optimize=True,
+        collect_thread_timings=split_encode_copy,
+    )
+    for i_row, i_col, tile_image in tiles:
+        tilename = _tile_output_name(i_row, i_col, file_prefix, file_postfix)
+        pipeline.submit(
+            str(dest_dir / tilename),
+            str(local_temp_dir / tilename),
+            tile_image,
+        )
+        while pipeline.active_encode_count >= max_active:
+            pipeline.wait_one_encode()
+    pipeline.finish()
+    return ProductionSaveTimings(
+        wall_s=time.perf_counter() - t0,
+        sum_encode_thread_s=pipeline.sum_encode_thread_s,
+        sum_copy_thread_s=pipeline.sum_copy_thread_s,
+    )
+
+
+def _production_save_tiles_monolithic(
+    tiles: Sequence[TileRecord],
+    workers: int,
+    local_temp_dir: Path,
+    dest_dir: Path,
+    *,
+    bpp: int,
+    file_prefix: str,
+    file_postfix: str,
+    keep_output: bool,
+    split_encode_copy: bool = True,
+) -> ProductionSaveTimings:
+    """Bench-only monolithic save via ``_SaveImageAndCopy`` (not used in production assemble)."""
+    (
+        save_image_and_copy,
+        ensure_directory,
+        _two_stage_pipeline_cls,
+        _tile_copy_worker_count,
+        _use_two_stage_tile_save,
+    ) = _import_production_save()
+    _prepare_output_dirs(dest_dir, local_temp_dir, ensure_directory, keep_output=keep_output)
+    max_active = workers * 2
+    t0 = time.perf_counter()
+
+    if split_encode_copy:
+        save_fn: Any = partial(_save_image_and_copy_timed, bpp=bpp, optimize=True)
+    else:
+        save_fn = partial(save_image_and_copy, bpp=bpp, optimize=True)
+    active: list[concurrent.futures.Future] = []
+    sum_encode = [0.0]
+    sum_copy = [0.0]
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for i_row, i_col, tile_image in tiles:
             tilename = _tile_output_name(i_row, i_col, file_prefix, file_postfix)
@@ -719,11 +897,48 @@ def _production_save_tiles(
             while len(active) >= max_active:
                 done, _ = concurrent.futures.wait(active, return_when=concurrent.futures.FIRST_COMPLETED)
                 for finished in done:
-                    finished.result()
+                    if split_encode_copy:
+                        _accumulate_save_future(
+                            finished, sum_encode=sum_encode, sum_copy=sum_copy)
+                    else:
+                        finished.result()
                     active.remove(finished)
         for finished in concurrent.futures.as_completed(active):
-            finished.result()
-    return time.perf_counter() - t0
+            if split_encode_copy:
+                _accumulate_save_future(
+                    finished, sum_encode=sum_encode, sum_copy=sum_copy)
+            else:
+                finished.result()
+    return ProductionSaveTimings(
+        wall_s=time.perf_counter() - t0,
+        sum_encode_thread_s=sum_encode[0],
+        sum_copy_thread_s=sum_copy[0],
+    )
+
+
+def _worker_sweep_row_from_full_section(
+    workers: int,
+    result: FullSectionProductionResult,
+) -> WorkerSweepRow:
+    """Build a worker sweep row from full-section production metrics."""
+    return WorkerSweepRow(
+        workers=workers,
+        max_active=result.max_active_encode,
+        tiles=result.tiles_saved,
+        wall_s=result.wall_s,
+        output_io_wait_s=result.output_io_wait_s,
+        output_io_wait_backpressure_s=result.output_io_wait_backpressure_s,
+        output_io_wait_drain_s=result.output_io_wait_drain_s,
+        sum_encode_thread_s=result.save_encode_thread_s,
+        sum_copy_thread_s=result.save_copy_thread_s,
+        level001_wall_s=result.wall_s,
+        last_strip_yield_to_drain_s=result.last_strip_yield_to_drain_s,
+        encode_workers=result.encode_workers,
+        copy_workers=result.copy_workers,
+        max_active_encode=result.max_active_encode,
+        tasks_at_drain=result.tasks_at_drain,
+        two_stage=result.two_stage,
+    )
 
 
 def _run_full_section_production(
@@ -738,53 +953,92 @@ def _run_full_section_production(
     file_prefix: str,
     file_postfix: str,
     keep_output: bool,
-) -> tuple[int, float, float]:
-    """Pipelined GenerateOptimizedTiles + production save (mirrors AssembleTilesetNumpy).
-
-    Returns ``(tiles_saved, wall_s, output_io_wait_s)`` where ``output_io_wait_s`` is
-    main-thread wall time blocked on save backpressure and the final drain.
-    """
-    save_image_and_copy, ensure_directory = _import_production_save()
+) -> FullSectionProductionResult:
+    """Pipelined GenerateOptimizedTiles + production save (mirrors AssembleTilesetNumpy)."""
+    (
+        _save_image_and_copy,
+        ensure_directory,
+        two_stage_pipeline_cls,
+        tile_copy_worker_count,
+        _use_two_stage_tile_save,
+    ) = _import_production_save()
+    assert _use_two_stage_tile_save()
     _prepare_output_dirs(dest_dir, local_temp_dir, ensure_directory, keep_output=keep_output)
-    save_fn = partial(save_image_and_copy, bpp=bpp, optimize=True)
-    max_active = workers * 2
-    active: list[concurrent.futures.Future] = []
     tiles_saved = 0
-    output_io_wait_s = 0.0
+    output_io_wait_backpressure_s = 0.0
+    output_io_wait_drain_s = 0.0
+    last_tile_submit_time: float | None = None
+    t_drain: float | None = None
+    encode_workers = workers
+    max_active = workers * 2
     t0 = time.perf_counter()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        for i_row, i_col, tile_image in mosaic_tileset.GenerateOptimizedTiles(
-            target_space_scale=1.0,
-            tile_dims=tile_dims,
-            max_temp_image_area=max_temp_image_area,
-        ):
-            tilename = _tile_output_name(i_row, i_col, file_prefix, file_postfix)
-            task = pool.submit(
-                save_fn,
-                ImageFullPath=str(dest_dir / tilename),
-                temp_output_tile_fullpath=str(local_temp_dir / tilename),
-                tile_image=tile_image,
-            )
-            active.append(task)
-            tiles_saved += 1
-            while len(active) >= max_active:
-                t_wait = time.perf_counter()
-                done, _ = concurrent.futures.wait(active, return_when=concurrent.futures.FIRST_COMPLETED)
-                for finished in done:
-                    finished.result()
-                    active.remove(finished)
-                output_io_wait_s += time.perf_counter() - t_wait
-        t_drain = time.perf_counter()
-        for finished in concurrent.futures.as_completed(active):
-            finished.result()
-        output_io_wait_s += time.perf_counter() - t_drain
-    return tiles_saved, time.perf_counter() - t0, output_io_wait_s
+
+    copy_workers = tile_copy_worker_count()
+    pipeline = two_stage_pipeline_cls(
+        encode_workers=encode_workers,
+        copy_workers=copy_workers,
+        bpp=bpp,
+        optimize=True,
+        collect_thread_timings=True,
+    )
+    for i_row, i_col, tile_image in mosaic_tileset.GenerateOptimizedTiles(
+        target_space_scale=1.0,
+        tile_dims=tile_dims,
+        max_temp_image_area=max_temp_image_area,
+    ):
+        tilename = _tile_output_name(i_row, i_col, file_prefix, file_postfix)
+        pipeline.submit(
+            str(dest_dir / tilename),
+            str(local_temp_dir / tilename),
+            tile_image,
+        )
+        tiles_saved += 1
+        last_tile_submit_time = time.perf_counter()
+        while pipeline.active_encode_count >= max_active:
+            t_wait = time.perf_counter()
+            pipeline.wait_one_encode()
+            output_io_wait_backpressure_s += time.perf_counter() - t_wait
+    t_drain = time.perf_counter()
+    tasks_at_drain = pipeline.finish()
+    output_io_wait_drain_s = time.perf_counter() - t_drain
+
+    last_strip_yield_to_drain_s: float | None = None
+    if last_tile_submit_time is not None and t_drain is not None:
+        last_strip_yield_to_drain_s = max(0.0, t_drain - last_tile_submit_time)
+
+    return FullSectionProductionResult(
+        tiles_saved=tiles_saved,
+        wall_s=time.perf_counter() - t0,
+        output_io_wait_backpressure_s=output_io_wait_backpressure_s,
+        output_io_wait_drain_s=output_io_wait_drain_s,
+        save_encode_thread_s=pipeline.sum_encode_thread_s,
+        save_copy_thread_s=pipeline.sum_copy_thread_s,
+        last_strip_yield_to_drain_s=last_strip_yield_to_drain_s,
+        encode_workers=encode_workers,
+        copy_workers=copy_workers,
+        max_active_encode=max_active,
+        tasks_at_drain=tasks_at_drain,
+        two_stage=True,
+    )
 
 
 def _format_timing_row(label: str, tiles: int, wall_s: float) -> str:
     ms = (wall_s * 1000.0 / tiles) if tiles else 0.0
     tps = (tiles / wall_s) if wall_s > 0 else 0.0
     return f'{label:<28} {tiles:>7} {wall_s:>10.2f} {ms:>9.1f} {tps:>9.1f}'
+
+
+def _log_save_thread_split(log: Any, timings: ProductionSaveTimings, tiles: int) -> None:
+    """Log aggregated encode vs copy thread-seconds for a save sweep."""
+    if tiles <= 0:
+        return
+    enc = timings.sum_encode_thread_s
+    cp = timings.sum_copy_thread_s
+    log(
+        f'  encode thread_s={enc:.2f} ({enc * 1000 / tiles:.1f} ms/tile)  '
+        f'copy thread_s={cp:.2f} ({cp * 1000 / tiles:.1f} ms/tile)  '
+        f'ratio copy/(enc+copy)={(cp / (enc + cp) if enc + cp > 0 else 0):.0%}'
+    )
 
 
 def _print_strip_context(
@@ -880,6 +1134,17 @@ def _production_save_results_to_json(
                 'ms_per_tile': (row.wall_s * 1000 / row.tiles) if row.wall_s and row.tiles else None,
                 'tiles_per_s': (row.tiles / row.wall_s) if row.wall_s and row.wall_s > 0 else None,
                 'output_io_wait_s': row.output_io_wait_s,
+                'output_io_wait_backpressure_s': row.output_io_wait_backpressure_s,
+                'output_io_wait_drain_s': row.output_io_wait_drain_s,
+                'level001_wall_s': row.level001_wall_s,
+                'last_strip_yield_to_drain_s': row.last_strip_yield_to_drain_s,
+                'encode_workers': row.encode_workers,
+                'copy_workers': row.copy_workers,
+                'max_active_encode': row.max_active_encode,
+                'tasks_at_drain': row.tasks_at_drain,
+                'two_stage': row.two_stage,
+                'sum_encode_thread_s': row.sum_encode_thread_s,
+                'sum_copy_thread_s': row.sum_copy_thread_s,
                 'error': row.error,
             }
             for row in worker_sweep
@@ -896,7 +1161,19 @@ def run_production_save(
     log: Any,
 ) -> int:
     """Run production-faithful save benchmarks (_SaveImageAndCopy)."""
-    _import_production_save()
+    (
+        _save_image_and_copy,
+        _ensure_directory,
+        _two_stage_pipeline_cls,
+        tile_copy_worker_count,
+        _use_two_stage_tile_save,
+    ) = _import_production_save()
+    assert _use_two_stage_tile_save()
+    log(
+        f'Tile save mode: two-stage '
+        f'(encode from --workers sweep, copy_workers={tile_copy_worker_count()}, '
+        f'copy_queue_max={tile_copy_worker_count() * 2})'
+    )
 
     if args.backends not in ('gpu', 'both'):
         log('Production save bench uses GPU backend (set --backends gpu).')
@@ -971,7 +1248,7 @@ def run_production_save(
             temp_dir = local_temp_root / f'w{workers}'
             dest_dir = dest_root / f'w{workers}'
             try:
-                wall_s = _production_save_tiles(
+                save_timings = _production_save_tiles(
                     buffered_tiles,
                     workers,
                     temp_dir,
@@ -981,8 +1258,13 @@ def run_production_save(
                     file_postfix=file_postfix,
                     keep_output=args.keep_output,
                 )
-                sweep_rows.append(WorkerSweepRow(workers, workers * 2, tiles_saved, wall_s))
-                log(_format_timing_row('save (local tmp->dest)', tiles_saved, wall_s))
+                sweep_rows.append(WorkerSweepRow(
+                    workers, workers * 2, tiles_saved, save_timings.wall_s,
+                    sum_encode_thread_s=save_timings.sum_encode_thread_s,
+                    sum_copy_thread_s=save_timings.sum_copy_thread_s,
+                ))
+                log(_format_timing_row('save (local tmp->dest)', tiles_saved, save_timings.wall_s))
+                _log_save_thread_split(log, save_timings, tiles_saved)
             except OSError as exc:
                 sweep_rows.append(WorkerSweepRow(workers, workers * 2, tiles_saved, None, str(exc)))
                 log(f'  FAILED: {exc}')
@@ -1001,7 +1283,7 @@ def run_production_save(
                 t0 = time.perf_counter()
                 tiles, _assemble_s = _collect_one_strip_tiles(
                     mosaic_tileset, tile_dims, layout.strip_cols)
-                save_s = _production_save_tiles(
+                save_timings = _production_save_tiles(
                     tiles,
                     workers,
                     temp_dir,
@@ -1013,9 +1295,14 @@ def run_production_save(
                 )
                 wall_s = time.perf_counter() - t0
                 tiles_saved = len(tiles)
-                sweep_rows.append(WorkerSweepRow(workers, workers * 2, tiles_saved, wall_s))
+                sweep_rows.append(WorkerSweepRow(
+                    workers, workers * 2, tiles_saved, wall_s,
+                    sum_encode_thread_s=save_timings.sum_encode_thread_s,
+                    sum_copy_thread_s=save_timings.sum_copy_thread_s,
+                ))
                 log(_format_timing_row('assemble+save', tiles_saved, wall_s))
-                log(f'  (assemble ~{_assemble_s:.2f}s, save ~{save_s:.2f}s)')
+                log(f'  (assemble ~{_assemble_s:.2f}s, save ~{save_timings.wall_s:.2f}s)')
+                _log_save_thread_split(log, save_timings, tiles_saved)
             except OSError as exc:
                 sweep_rows.append(WorkerSweepRow(workers, workers * 2, 0, None, str(exc)))
                 log(f'  FAILED: {exc}')
@@ -1031,7 +1318,7 @@ def run_production_save(
             temp_dir = local_temp_root / f'w{workers}'
             dest_dir = dest_root / f'w{workers}'
             try:
-                count, wall_s, output_io_wait_s = _run_full_section_production(
+                result = _run_full_section_production(
                     mosaic_tileset,
                     tile_dims,
                     max_temp_image_area,
@@ -1043,11 +1330,17 @@ def run_production_save(
                     file_postfix=file_postfix,
                     keep_output=args.keep_output,
                 )
-                tiles_saved = count
-                sweep_rows.append(WorkerSweepRow(
-                    workers, workers * 2, count, wall_s, output_io_wait_s=output_io_wait_s))
-                log(_format_timing_row('full section (asm+save)', count, wall_s))
-                log(f'  output I/O wait (backpressure+drain): {output_io_wait_s:.2f}s')
+                tiles_saved = result.tiles_saved
+                sweep_rows.append(_worker_sweep_row_from_full_section(workers, result))
+                log(_format_timing_row('full section (asm+save)', result.tiles_saved, result.wall_s))
+                log(
+                    f'  save tail: drain={result.output_io_wait_drain_s:.2f}s  '
+                    f'backpressure={result.output_io_wait_backpressure_s:.2f}s  '
+                    f'encode_thread_s={result.save_encode_thread_s:.2f}  '
+                    f'copy_thread_s={result.save_copy_thread_s:.2f}'
+                )
+                if result.last_strip_yield_to_drain_s is not None:
+                    log(f'  last_strip_yield_to_drain_s={result.last_strip_yield_to_drain_s:.2f}s')
             except OSError as exc:
                 sweep_rows.append(WorkerSweepRow(workers, workers * 2, 0, None, str(exc)))
                 log(f'  FAILED: {exc}')

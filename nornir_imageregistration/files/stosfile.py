@@ -592,20 +592,24 @@ class StosFile(object):
         """Deprecated alias for :meth:`ConvertPathsToAbsolute`."""
         self.ConvertPathsToAbsolute(stosDir)
 
-    def BlendWithLinear(self, linear_factor: float | None = None,
+    def BlendWithLinear(self, min_blend: float | None = None,
                         travel_limit: float | None = None,
                         ignore_rotation: bool = False,
                         reblend_iterations: int = 1,
                         reblend_tolerance: float | None = None,
+                        max_blend: float | None = None,
+                        *,
+                        linear_factor: float | None = None,
                         ):
         '''
         Blends a stos file using a control point transform with a rigid linear approximation of
         the same transform (rotation, translation, scaling) with the passed blending factor
-        :param linear_factor:  0 to 1.0, amount of weight to assign points passed through linear transform
+        :param min_blend:  0 to 1.0, floor weight toward the rigid linear approximation
         :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
         :param travel_limit: Per-point distance scale for smooth blend toward rigid prediction.
         :param reblend_iterations: Iterative blend passes; values above 1 re-blend until convergence.
         :param reblend_tolerance: Stop iterating when max point movement falls below this threshold.
+        :param max_blend: Cap per-point rigid blend weight.
         :return:
         '''
 
@@ -614,13 +618,16 @@ class StosFile(object):
 
         if isinstance(transformObj, nornir_imageregistration.IControlPoints):
             blend_kwargs: dict = {
-                'linear_factor': linear_factor,
+                'min_blend': min_blend,
                 'travel_limit': travel_limit,
                 'ignore_rotation': ignore_rotation,
                 'reblend_iterations': reblend_iterations,
+                'linear_factor': linear_factor,
             }
             if reblend_tolerance is not None:
                 blend_kwargs['reblend_tolerance'] = reblend_tolerance
+            if max_blend is not None:
+                blend_kwargs['max_blend'] = max_blend
             blended_transform = nornir_imageregistration.transforms.utils.BlendWithLinear(transformObj, **blend_kwargs)
             updated_transform = blended_transform.ToITKString()
             transform_changed = updated_transform != self.Transform
@@ -828,12 +835,15 @@ def RigidTransformFromStosPath(stos_path: str,
 def AddStosTransforms(A_To_B,
                       B_To_C,
                       EnrichTolerance: float | None,
-                      linear_factor: float | None = None,
+                      min_blend: float | None = None,
                       travel_limit: float | None = None,
                       ignore_rotation: bool = False,
                       reblend_iterations: int = 1,
                       reblend_tolerance: float | None = None,
-                      B_To_C_Linear: nornir_imageregistration.transforms.ITransform | None = None) -> StosFile:
+                      max_blend: float | None = None,
+                      B_To_C_Linear: nornir_imageregistration.transforms.ITransform | None = None,
+                      *,
+                      linear_factor: float | None = None) -> StosFile:
     '''
     :param EnrichTolerance:
     :param A_To_B: Commonly a single section transform, "4->3"
@@ -848,7 +858,7 @@ def AddStosTransforms(A_To_B,
 
     # OK, I should use a rotation/translation only transform to regularize the added transforms to knock down accumulated warps/errors
 
-    if linear_factor is None and travel_limit is None:
+    if min_blend is None and travel_limit is None and linear_factor is None:
         A_To_C_Transform = nornir_imageregistration.transforms.addition.AddTransforms(B_To_C_Transform,
                                                                                       A_To_B_Transform, EnrichTolerance,  # type: ignore[arg-type]
                                                                                       create_copy=False)
@@ -858,12 +868,14 @@ def AddStosTransforms(A_To_B,
             A_To_B_Transform,  # type: ignore[arg-type]
             EnrichTolerance,
             create_copy=False,
-            linear_factor=linear_factor,
+            min_blend=min_blend,
             travel_limit=travel_limit,
             ignore_rotation=ignore_rotation,
             reblend_iterations=reblend_iterations,
             reblend_tolerance=reblend_tolerance,
-            B_To_C_Linear=B_To_C_Linear)
+            max_blend=max_blend,
+            B_To_C_Linear=B_To_C_Linear,
+            linear_factor=linear_factor)
 
     A_To_C_Stos = copy.deepcopy(A_To_B_Stos)
     A_To_C_Stos.TargetSectionNumber = B_To_C_Stos.TargetSectionNumber

@@ -390,7 +390,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                 expected_cells_in_strip = task.expected_cells_in_strip  # type: ignore[attr-defined]
 
                 task_timer.Start(
-                    f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                    f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
 
                 strip_yielded = 0
                 for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
@@ -405,7 +405,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
                 skipped_empty_cells += expected_cells_in_strip - strip_yielded
                 task_timer.End(
-                    f'Save generated tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                    f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
                 del working_image
                 del working_mask
 

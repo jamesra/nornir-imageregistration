@@ -8,8 +8,10 @@ of small files.  This also helps the image I/O, which at this time is implemente
 by pillow as lots of small I/O requests against the image file.
 """
 from collections.abc import Iterable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
+import logging
+import re
 
 from PIL import Image
 import numpy
@@ -20,11 +22,14 @@ import os
 import enum
 import errno
 import shutil
-from functools import partial
 import nornir_pools
 import nornir_shared.files
 import nornir_imageregistration.temporaryfiles as temporaryfiles
 from nornir_imageregistration.exceptions import MissingTilesetInputError, as_missing_tileset_error
+
+logger = logging.getLogger(__name__)
+
+_GRID_TILE_COORD_PATTERNS: dict[tuple[str, str], re.Pattern[str]] = {}
 
 
 
@@ -37,6 +42,75 @@ class Quadrant(enum.IntEnum):
 
 
 # import nornir_shared.prettyoutput as prettyoutput
+
+
+def _grid_tile_coord_pattern(file_prefix: str, file_postfix: str) -> re.Pattern[str]:
+    """Return a compiled regex that extracts X/Y from a grid tile filename."""
+    key = (file_prefix, file_postfix)
+    pattern = _GRID_TILE_COORD_PATTERNS.get(key)
+    if pattern is None:
+        pattern = re.compile(
+            rf"{re.escape(file_prefix)}X(\d+)_Y(\d+){re.escape(file_postfix)}$"
+        )
+        _GRID_TILE_COORD_PATTERNS[key] = pattern
+    return pattern
+
+
+def parse_grid_tile_xy(filename: str, file_prefix: str, file_postfix: str) -> tuple[int, int] | None:
+    """Return (X, Y) grid coordinates parsed from a tile filename."""
+    match = _grid_tile_coord_pattern(file_prefix, file_postfix).match(os.path.basename(filename))
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def list_grid_tile_coords(directory: str, file_prefix: str, file_postfix: str) -> set[tuple[int, int]]:
+    """Return the set of (X, Y) coordinates for tile files in a directory."""
+    coords: set[tuple[int, int]] = set()
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                parsed = parse_grid_tile_xy(entry.name, file_prefix, file_postfix)
+                if parsed is not None:
+                    coords.add(parsed)
+    except FileNotFoundError:
+        pass
+    return coords
+
+
+def expected_parent_coords_from_source(
+    source_directory: str, file_prefix: str, file_postfix: str,
+) -> set[tuple[int, int]]:
+    """Return parent (X, Y) coordinates required at the next pyramid level."""
+    child_coords = list_grid_tile_coords(source_directory, file_prefix, file_postfix)
+    return {(x // 2, y // 2) for x, y in child_coords}
+
+
+def find_missing_lineage_parent_tiles(
+    source_directory: str,
+    dest_directory: str,
+    file_prefix: str,
+    file_postfix: str,
+) -> list[tuple[int, int]]:
+    """Return sorted parent coordinates that should exist in dest but do not."""
+    expected = expected_parent_coords_from_source(source_directory, file_prefix, file_postfix)
+    actual = list_grid_tile_coords(dest_directory, file_prefix, file_postfix)
+    return sorted(expected - actual)
+
+
+def _copy_source_tile_local(src: str, dst: str) -> None:
+    """Copy a present source tile into the local cache, with network retries."""
+    if not os.path.isfile(src):
+        return
+    if os.path.isfile(dst) and not nornir_shared.files.IsOutdated(src, dst):
+        return
+    parent = os.path.dirname(dst)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    nornir_shared.files.copy_file(src, dst)
+
 
 def ClearTempDirectories(level_paths: Sequence[str] | None) -> None:
     """Delete temporary directories used to generate pyramid levels. Returns None."""
@@ -130,24 +204,16 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
             temp_BottomLeft = BottomLeft
             temp_BottomRight = BottomRight
 
-        def try_copy_local(src: str, dst: str):
-            """Try to copy a file locally, ignoring errors if the file does not exist."""
-            try:
-                # If the file does not exist, or is older than the source, copy it
-                if nornir_shared.files.IsOutdated(src, dst):
-                    shutil.copyfile(src, dst)
-                    return True
-
-                return False
-            except IOError as e:
-                # prettyoutput.Log(f"Missing input file {src}: {e}")
-                return False
+        source_paths = (TopLeft, TopRight, BottomLeft, BottomRight)
+        any_source_exists = any(os.path.isfile(path) for path in source_paths)
 
         # Verify the contents of the temporary directory if they exist
         if use_temp_dir:
-            copy_task_iter = executor.map(try_copy_local,
-                                          [TopLeft, TopRight, BottomLeft, BottomRight],
-                                          [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
+            copy_task_iter = executor.map(
+                _copy_source_tile_local,
+                source_paths,
+                [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight],
+            )
 
             for _ in copy_task_iter:
                 pass
@@ -158,16 +224,27 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
                                        temp_output, executor=executor)
 
+        if not os.path.exists(temp_output):
+            if any_source_exists:
+                existing_sources = [path for path in source_paths if os.path.isfile(path)]
+                logger.warning(
+                    "Pyramid tile not written although source tiles exist: output=%s sources=%s",
+                    OutputFileFullPath,
+                    existing_sources,
+                )
+            return
+
         # Copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
         try:
-            shutil.copyfile(temp_output, OutputFileFullPath)
+            nornir_shared.files.copy_file(temp_output, OutputFileFullPath)
         except MissingTilesetInputError:
             raise
         except (FileNotFoundError, OSError) as e:
             if isinstance(e, FileNotFoundError) or e.errno == errno.ENOENT:
                 dest_dir = os.path.dirname(OutputFileFullPath)
                 missing_paths = [dest_dir] if dest_dir else []
-                raise as_missing_tileset_error(OutputFileFullPath, missing_paths, e) from e
+                raise as_missing_tileset_error(
+                    OutputFileFullPath, missing_paths, e, for_output=True) from e
             raise
 
         # Remove the input because this function is used to generate levels, and once we generate the next level we don't need the source level
@@ -238,9 +315,6 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             except IOError:
                 return None
 
-        # Create a composite image to hold all tiles
-        imComposite = None
-
         # Dictionary mapping tile positions to their coordinates in the composite
         tile_positions = {
             Quadrant.TopLeft: ((0, 0), TopLeft),
@@ -249,38 +323,37 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             Quadrant.BottomRight: ((TileSize[0], TileSize[1]), BottomRight)
         }  # type: dict[Quadrant, tuple[tuple[int, int], str]]
 
+        source_paths = (TopLeft, TopRight, BottomLeft, BottomRight)
+        existing_sources = [path for path in source_paths if os.path.isfile(path)]
+
+        load_futures = {
+            executor.submit(load_and_validate_tile, path, quadrant): quadrant
+            for quadrant, (_coords, path) in tile_positions.items()
+        }
+        loaded_tiles: dict[Quadrant, Image.Image | None] = {}
+        for future in as_completed(load_futures):
+            quadrant = load_futures[future]
+            loaded_tiles[quadrant] = future.result()
+
         imComposite = None
-
-        def load_tile_done_callback(future: Future, quadrant: Quadrant):
-            # Process tiles as they complete
-            nonlocal imComposite
-            nonlocal DoubleTileSize
-            img = future.result()
-            coords = tile_positions[quadrant][0]
-            if img is not None:
-                if imComposite is None:
-                    imComposite = Image.new(img.mode, size=(int(DoubleTileSize[0]), int(DoubleTileSize[1])), color=0)
-                imComposite.paste(img, box=coords)
-                del img  # Explicitly delete the image to free memory
-
-        # Load all tiles in parallel using ThreadPoolExecutor
-        # Create a map of futures to their positions
-        future_to_position = {}
-        for quadrant, (coords, path) in tile_positions.items():
-            future = executor.submit(load_and_validate_tile, path, quadrant)
-            callback_partial = partial(load_tile_done_callback, quadrant=quadrant)
-            future.add_done_callback(callback_partial)
-            future_to_position[future] = quadrant
-
-        # Append the callback to write images to imComposite.
-        for future in as_completed(list(future_to_position.keys())):
-            future.result()  # Trigger any exceptions from futures to be raised
+        for quadrant, (coords, _path) in tile_positions.items():
+            img = loaded_tiles.get(quadrant)
+            if img is None:
+                continue
+            if imComposite is None:
+                imComposite = Image.new(img.mode, size=(int(DoubleTileSize[0]), int(DoubleTileSize[1])), color=0)
+            imComposite.paste(img, box=coords)
+            del img
 
         if imComposite is None:
-            raise MissingTilesetInputError(
-                OutputFileFullPath,
-                [TopLeft, TopRight, BottomLeft, BottomRight],
-            )
+            if existing_sources:
+                logger.warning(
+                    "Pyramid tile not written; %d source file(s) present but none loaded: output=%s paths=%s",
+                    len(existing_sources),
+                    OutputFileFullPath,
+                    existing_sources,
+                )
+            return
 
         resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
         imFinal = imComposite.resize(resize_size, resample=Image.Resampling.LANCZOS)  # type: ignore[union-attr]
@@ -292,7 +365,8 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             if e.errno == errno.ENOENT or isinstance(e, FileNotFoundError):
                 output_dir = os.path.dirname(OutputFileFullPath)
                 missing_paths = [output_dir] if output_dir else []
-                raise as_missing_tileset_error(OutputFileFullPath, missing_paths, e) from e
+                raise as_missing_tileset_error(
+                    OutputFileFullPath, missing_paths, e, for_output=True) from e
             raise
 
         del imComposite

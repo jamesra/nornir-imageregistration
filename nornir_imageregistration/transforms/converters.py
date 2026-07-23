@@ -157,7 +157,8 @@ def EstimateScale(source_points: NDArray[np.floating],
 
 
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
-                                             source_points: NDArray[np.floating]) -> RigidComponents:
+                                             source_points: NDArray[np.floating],
+                                             reflected_override: bool | None = None) -> RigidComponents:
     xp_src = cp.get_array_module(source_points)
     xp_tgt = cp.get_array_module(target_points)
     xp = cp if (xp_src is cp or xp_tgt is cp) else np
@@ -199,12 +200,15 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
 
     ###################################################################################
     # Determine if the transform is reflected
-    relation = nornir_imageregistration.transforms.converters.calculate_control_points_relationship(source_points,
-                                                                                                    target_points)
-    reflected = relation == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
+    if reflected_override is not None:
+        reflected = reflected_override
+    else:
+        relation = nornir_imageregistration.transforms.converters.calculate_control_points_relationship(source_points,
+                                                                                                        target_points)
+        reflected = relation == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
 
-    if relation == nornir_imageregistration.transforms.ControlPointRelation.COLINEAR:
-        raise ValueError("Colinear points detected")
+        if relation == nornir_imageregistration.transforms.ControlPointRelation.COLINEAR:
+            raise ValueError("Colinear points detected")
 
     ###################################################################################
     # The angle and reflection is estimated.  We remove the angle and reflection from the target
@@ -229,6 +233,66 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
 
     return RigidComponents(source_rotation_center=source_center, angle=estimated_angle,
                            translation=tranlsation_estimate, scale=float(scale_estimate), reflected=reflected)
+
+
+def RigidComponentsToCenteredSimilarityTransform(components: RigidComponents
+                                                 ) -> nornir_imageregistration.transforms.CenteredSimilarity2DTransform:
+    """Build a centered similarity transform from estimated rigid components."""
+    return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        target_offset=components.translation,
+        source_rotation_center=components.source_rotation_center,
+        angle=components.angle,
+        scalar=components.scale,
+        flip_ud=components.reflected)
+
+
+def _rigid_fit_residual(target_points: NDArray[np.floating],
+                        source_points: NDArray[np.floating],
+                        rigid: ITransform) -> float:
+    """Mean Euclidean residual between rigid prediction and target control points."""
+    xp = cp.get_array_module(target_points, source_points)
+    predicted = rigid.Transform(source_points)
+    predicted = xp.asarray(predicted)
+    target_points = xp.asarray(target_points)
+    return float(xp.mean(xp.linalg.norm(predicted - target_points, axis=1)))
+
+
+def ConvertControlPointsToRigidTransformForBlend(input_transform: IControlPoints,
+                                                 ignore_rotation: bool = False) -> ITransform:
+    """Estimate a rigid linear target for blend that preserves mesh Y-orientation.
+
+    When the mesh has a strong inverse-map Y correlation, pick the reflected or
+    non-reflected rigid fit that matches the mesh orientation sign (lowest residual
+    among orientation-consistent candidates).
+    """
+    if ignore_rotation:
+        raise ValueError("Ignore rotation is no longer supported for control points")
+
+    from nornir_imageregistration.transforms.utils import estimate_inverse_map_y_correlation
+
+    target_points = input_transform.TargetPoints
+    source_points = input_transform.SourcePoints
+    mesh_corr = estimate_inverse_map_y_correlation(input_transform)
+
+    candidates: list[nornir_imageregistration.transforms.CenteredSimilarity2DTransform] = []
+    for reflected in (False, True):
+        components = EstimateRigidComponentsFromControlPoints(target_points,
+                                                              source_points,
+                                                              reflected_override=reflected)
+        candidates.append(RigidComponentsToCenteredSimilarityTransform(components))
+
+    if abs(mesh_corr) < 0.9:
+        return min(candidates, key=lambda rigid: _rigid_fit_residual(target_points, source_points, rigid))
+
+    mesh_sign = 1.0 if mesh_corr >= 0.0 else -1.0
+    orientation_matched: list[nornir_imageregistration.transforms.CenteredSimilarity2DTransform] = []
+    for rigid in candidates:
+        rigid_corr = estimate_inverse_map_y_correlation(rigid, source_points=source_points)
+        if rigid_corr == 0.0 or np.sign(rigid_corr) == mesh_sign:
+            orientation_matched.append(rigid)
+
+    pool = orientation_matched if orientation_matched else candidates
+    return min(pool, key=lambda rigid: _rigid_fit_residual(target_points, source_points, rigid))
 
 
 def ConvertTransform(input: ITransform, transform_type: TransformType,
@@ -258,24 +322,28 @@ def ConvertTransform(input: ITransform, transform_type: TransformType,
 
 
 def ConvertRigidTransformToCenteredSimilarityTransform(input_transform: ITransform):
+    flip_ud = bool(getattr(input_transform, 'flip_ud', False))
     if isinstance(input_transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_space_center_of_rotation,
             angle=input_transform.angle,
-            scalar=input_transform.scalar)
+            scalar=input_transform.scalar,
+            flip_ud=flip_ud)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_space_center_of_rotation,
             angle=input_transform.angle,
-            scalar=input_transform.scalar)
+            scalar=input_transform.scalar,
+            flip_ud=flip_ud)
     elif isinstance(input_transform, nornir_imageregistration.transforms.RigidTranslation):
         return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_space_center_of_rotation,
             angle=input_transform.angle,
-            scalar=input_transform.scalar)
+            scalar=input_transform.scalar,
+            flip_ud=flip_ud)
 
     raise NotImplementedError()
 
@@ -298,7 +366,8 @@ def ConvertTransformToRigidTransform(input_transform: ITransform, ignore_rotatio
             target_offset=input_transform._target_offset,
             source_rotation_center=input_transform.source_space_center_of_rotation,
             angle=input_transform.angle,
-            scalar=input_transform.scalar)
+            scalar=input_transform.scalar,
+            flip_ud=input_transform.flip_ud)
     elif isinstance(input_transform, nornir_imageregistration.transforms.Rigid):
         return ConvertRigidTransformToCenteredSimilarityTransform(input_transform)
     elif isinstance(input_transform, nornir_imageregistration.transforms.RigidTranslation):

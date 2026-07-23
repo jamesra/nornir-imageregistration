@@ -769,14 +769,24 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return self.WarpedKDTree.query(points)
 
     def TranslateFixed(self, offset: NDArray[np.floating]):
-        '''Translate all fixed points by the specified amount'''
+        '''Translate all fixed points by the specified amount.
 
-        self._points[:, 0:2] = self._points[:, 0:2] + offset
+        Converts offset to the same array module as _points so that a NumPy
+        offset (e.g. from block-level corrective shifts) works correctly when
+        _points is a CuPy array.
+        '''
+        xp = cp.get_array_module(self._points)
+        self._points[:, 0:2] = self._points[:, 0:2] + xp.asarray(offset)
         self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
-        '''Translate all warped points by the specified amount'''
-        self._points[:, 2:4] = self._points[:, 2:4] + offset
+        '''Translate all warped points by the specified amount.
+
+        Converts offset to the same array module as _points so that a NumPy
+        offset works correctly when _points is a CuPy array.
+        '''
+        xp = cp.get_array_module(self._points)
+        self._points[:, 2:4] = self._points[:, 2:4] + xp.asarray(offset)
         self.OnWarpedPointChanged()
 
     def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):

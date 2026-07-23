@@ -5,6 +5,7 @@ Created on Apr 4, 2013
 """
 
 from collections.abc import Iterable
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -151,15 +152,100 @@ DEFAULT_MAX_BLEND_WEIGHT: float = 0.9
 DEFAULT_REBLEND_ITERATIONS: int = 8
 DEFAULT_REBLEND_TOLERANCE: float = 0.5
 DEFAULT_REBLEND_WEIGHT_TOLERANCE: float = 0.01
+INVERSE_MAP_Y_CORRELATION_THRESHOLD: float = 0.9
+
+
+def _coalesce_min_blend(min_blend: float | None,
+                        linear_factor: float | None) -> float | None:
+    """Return min_blend, accepting deprecated linear_factor with a warning."""
+    if linear_factor is not None:
+        if min_blend is not None and min_blend != linear_factor:
+            raise ValueError(
+                f"min_blend ({min_blend}) and linear_factor ({linear_factor}) disagree")
+        if min_blend is None:
+            warnings.warn(
+                "linear_factor is deprecated; use min_blend instead",
+                DeprecationWarning,
+                stacklevel=3)
+            return linear_factor
+    return min_blend
+
+
+def resolve_effective_max_blend(min_blend: float | None,
+                                travel_limit: float | None,
+                                max_blend: float | None) -> float | None:
+    """Choose per-point max rigid blend weight from explicit cap or subtle defaults."""
+    if max_blend is not None:
+        return max_blend
+    if travel_limit is None and min_blend is not None:
+        return min_blend
+    return DEFAULT_MAX_BLEND_WEIGHT
+
+
+def _as_numpy_points(points: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Return control points as a NumPy array."""
+    xp_mod = cp.get_array_module(points)
+    if xp_mod is cp:
+        return cp.asnumpy(points)
+    return np.asarray(points)
+
+
+def estimate_inverse_map_y_correlation(transform: ITransform,
+                                       source_points: NDArray[np.floating] | None = None) -> float:
+    """Pearson correlation of volume-Y vs section-Y along an inverse-map vertical midline."""
+    if source_points is None:
+        if not isinstance(transform, IControlPoints):
+            return 0.0
+        source_points = transform.SourcePoints
+
+    source = _as_numpy_points(source_points)
+    if source.ndim != 2 or source.shape[0] < 2 or source.shape[1] < 2:
+        return 0.0
+
+    y_min, x_min = source.min(axis=0)
+    y_max, x_max = source.max(axis=0)
+    height = float(y_max - y_min)
+    width = float(x_max - x_min)
+    if height <= 1.0 or width <= 1.0:
+        return 0.0
+
+    if not hasattr(transform, 'InverseTransform'):
+        return 0.0
+
+    volume_y = np.linspace(y_min + height * 0.25, y_min + height * 0.75, 20)
+    volume_x = np.full(20, x_min + width * 0.5)
+    section_y: list[float] = []
+    for y, x in zip(volume_y, volume_x):
+        mapped = transform.InverseTransform(np.array([y, x], dtype=float))
+        mapped = _as_numpy_points(mapped).reshape(-1)
+        section_y.append(float(mapped[0]))
+
+    corr_matrix = np.corrcoef(volume_y, section_y)
+    corr = float(corr_matrix[0, 1])
+    if np.isnan(corr):
+        return 0.0
+    return corr
+
+
+def _orientation_sign_preserved(original_corr: float, result_corr: float) -> bool:
+    """Return True when inverse-map Y correlation sign is unchanged."""
+    if abs(original_corr) < INVERSE_MAP_Y_CORRELATION_THRESHOLD:
+        return True
+    if result_corr == 0.0:
+        return False
+    return np.sign(original_corr) == np.sign(result_corr)
 
 
 def _travel_blend_weights(distances: NDArray[np.floating],
                           travel_limit: float,
-                          linear_factor: float | None = None,
-                          max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> NDArray[np.floating]:
+                          min_blend: float | None = None,
+                          max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT,
+                          *,
+                          linear_factor: float | None = None) -> NDArray[np.floating]:
     """Return per-point linear blend weights from deviation distance and travel_limit."""
+    min_blend = _coalesce_min_blend(min_blend, linear_factor)
     xp = cp.get_array_module(distances)
-    base = linear_factor if linear_factor is not None else 0.0
+    base = min_blend if min_blend is not None else 0.0
     normalized = xp.clip(distances / travel_limit, 0.0, 1.0)
     travel_weight = normalized * normalized * (3.0 - 2.0 * normalized)
     weights = base + (1.0 - base) * travel_weight
@@ -201,74 +287,88 @@ def _control_points_from_blended_targets(transform: IControlPoints,
 
 
 def BlendWithLinear(transform: IControlPoints,
-                    linear_factor: float | None = None,
+                    min_blend: float | None = None,
                     travel_limit: float | None = None,
                     ignore_rotation: bool = False,
                     reblend_iterations: int = 1,
                     reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE,
                     reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE,
-                    max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> ITransform:
+                    max_blend: float | None = None,
+                    *,
+                    linear_factor: float | None = None) -> ITransform:
     """
     Blends a transform with the estimate linear transform of its control points.  The goal is to "flatten" a transform to gradually reduce folds and other high distortion areas.
     :param transform:
-    :param linear_factor:  The weight the linearized transform should have in calculating the new points
+    :param min_blend:  Floor weight toward the rigid linear approximation (uniform when travel_limit is omitted).
     :param ignore_rotation: This was added for SEM data which is known to not have rotation between slices.  Defaults to false.
     :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
-    match the input transform.  Linear transforms are only returned if linear_factor is 1.0.
+    match the input transform.  Linear transforms are only returned if min_blend is 1.0.
     """
+    min_blend = _coalesce_min_blend(min_blend, linear_factor)
+    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
 
     # This check is here to help the IDE with autocompletion
     if not isinstance(transform, nornir_imageregistration.ITransform):
         raise ValueError("transform")
 
-    linear_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(transform,
-                                                                                                       ignore_rotation=ignore_rotation)
-    if linear_factor == 1.0:
+    mesh_corr = estimate_inverse_map_y_correlation(transform)
+    linear_transform = nornir_imageregistration.transforms.converters.ConvertControlPointsToRigidTransformForBlend(
+        transform,
+        ignore_rotation=ignore_rotation)
+    if min_blend == 1.0:
         return linear_transform
 
     if reblend_iterations > 1:
-        return BlendTransformsIteratively(transform,
-                                          linear_transform=linear_transform,
-                                          linear_factor=linear_factor,
-                                          travel_limit=travel_limit,
-                                          reblend_iterations=reblend_iterations,
-                                          reblend_tolerance=reblend_tolerance,
-                                          reblend_weight_tolerance=reblend_weight_tolerance,
-                                          max_blend=max_blend)
+        blended = BlendTransformsIteratively(transform,
+                                             linear_transform=linear_transform,
+                                             min_blend=min_blend,
+                                             travel_limit=travel_limit,
+                                             reblend_iterations=reblend_iterations,
+                                             reblend_tolerance=reblend_tolerance,
+                                             reblend_weight_tolerance=reblend_weight_tolerance,
+                                             max_blend=effective_max_blend)
+    else:
+        blended = BlendTransforms(transform, linear_transform=linear_transform, min_blend=min_blend,
+                                  travel_limit=travel_limit, max_blend=effective_max_blend)
 
-    return BlendTransforms(transform, linear_transform=linear_transform, linear_factor=linear_factor,
-                           travel_limit=travel_limit, max_blend=max_blend)  # type: ignore[return-value]
+    if _orientation_sign_preserved(mesh_corr, estimate_inverse_map_y_correlation(blended)):
+        return blended
+    return transform
 
 
 def BlendTransforms(transform: IControlPoints,
                     linear_transform: ITransform,
-                    linear_factor: float | None = None,
+                    min_blend: float | None = None,
                     travel_limit: float | None = None,
-                    max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT):
+                    max_blend: float | None = None,
+                    *,
+                    linear_factor: float | None = None):
     """Blend control-point transform with a linear transform and return a new transform.
 
     Transforms control points through both transform and linear_transform, blends the
-    results by linear_factor, and returns a new transform (mesh/grid/linear) with the
+    results by min_blend, and returns a new transform (mesh/grid/linear) with the
     blended target-space control points.
 
     :param transform: Control-point transform (mesh or grid) to blend.
     :param linear_transform: Linear transform used in the blend.
-    :param linear_factor: Weight of the linear transform (0–1). None uses travel_limit.
+    :param min_blend: Floor weight toward rigid (0–1); uniform when travel_limit is omitted.
     :param travel_limit: Distance scale for smooth per-point blend toward linear_transform.
-    :param max_blend: Cap per-point linear weight below 1.0 to avoid full rigid snap.
+    :param max_blend: Cap per-point linear weight; defaults to min_blend or 0.9 by mode.
     :return: Mesh triangulation, grid triangulation, or linear transform matching input type.
     """
+    min_blend = _coalesce_min_blend(min_blend, linear_factor)
+    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
 
-    if linear_factor is not None and (linear_factor < 0 or linear_factor > 1.0):
-        raise ValueError(f"linear_factor must be between 0 and 1.0, got {linear_factor}")
+    if min_blend is not None and (min_blend < 0 or min_blend > 1.0):
+        raise ValueError(f"min_blend must be between 0 and 1.0, got {min_blend}")
 
-    if linear_factor is None and travel_limit is None:
-        raise ValueError(f"Either travel_limit or linear_factor must have a value")
+    if min_blend is None and travel_limit is None:
+        raise ValueError("Either travel_limit or min_blend must have a value")
 
     if travel_limit is not None and travel_limit < 0:
         raise ValueError(f"travel_limit must be positive {travel_limit}")
 
-    if linear_factor == 0 and travel_limit is None:
+    if min_blend == 0 and travel_limit is None:
         return transform
 
     source_points = transform.SourcePoints
@@ -280,29 +380,33 @@ def BlendTransforms(transform: IControlPoints,
 
     if travel_limit is not None:
         distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
-        linear_factors = _travel_blend_weights(distances, travel_limit, linear_factor, max_blend)
+        blend_weights = _travel_blend_weights(distances, travel_limit, min_blend, effective_max_blend)
     else:
-        linear_factors = xp.full(target_points.shape[0], linear_factor, dtype=float)
+        blend_weights = xp.full(target_points.shape[0], min_blend, dtype=float)
 
-    output_target_points = _blend_target_points(target_points, linear_points, linear_factors)
+    output_target_points = _blend_target_points(target_points, linear_points, blend_weights)
     return _control_points_from_blended_targets(transform, output_target_points)
 
 
 def BlendTransformsIteratively(transform: IControlPoints,
                                linear_transform: ITransform,
-                               linear_factor: float | None = None,
+                               min_blend: float | None = None,
                                travel_limit: float | None = None,
                                reblend_iterations: int = DEFAULT_REBLEND_ITERATIONS,
                                reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE,
                                reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE,
-                               max_blend: float | None = DEFAULT_MAX_BLEND_WEIGHT) -> ITransform:
+                               max_blend: float | None = None,
+                               *,
+                               linear_factor: float | None = None) -> ITransform:
     """Iteratively blend toward linear_transform until points stabilize or iteration cap is reached."""
+    min_blend = _coalesce_min_blend(min_blend, linear_factor)
+    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
     if reblend_iterations <= 1:
         return BlendTransforms(transform,
                                linear_transform=linear_transform,
-                               linear_factor=linear_factor,
+                               min_blend=min_blend,
                                travel_limit=travel_limit,
-                               max_blend=max_blend)
+                               max_blend=effective_max_blend)
 
     xp = cp.get_array_module(transform.TargetPoints)
     current_target_points = xp.asarray(transform.TargetPoints, dtype=float)
@@ -313,9 +417,9 @@ def BlendTransformsIteratively(transform: IControlPoints,
 
         if travel_limit is not None:
             distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
-            weights = _travel_blend_weights(distances, travel_limit, linear_factor, max_blend)
+            weights = _travel_blend_weights(distances, travel_limit, min_blend, effective_max_blend)
         else:
-            weights = xp.full(target_points.shape[0], linear_factor, dtype=float)
+            weights = xp.full(target_points.shape[0], min_blend, dtype=float)
 
         new_target_points = _blend_target_points(target_points, linear_points, weights)
         movement = float(xp.max(xp.sqrt(xp.sum((new_target_points - target_points) ** 2, axis=1))))

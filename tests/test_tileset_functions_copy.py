@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 from nornir_imageregistration import tileset_functions
+import nornir_shared.files
 
 
 class TestCreateOneTilesetTileWithPillowOverNetworkCopy(unittest.TestCase):
@@ -38,7 +39,7 @@ class TestCreateOneTilesetTileWithPillowOverNetworkCopy(unittest.TestCase):
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             with mock.patch.object(tileset_functions, 'CreateOneTilesetTileWithPillow', side_effect=fake_pillow), \
-                    mock.patch.object(tileset_functions.shutil, 'copyfile', side_effect=fake_copyfile):
+                    mock.patch.object(nornir_shared.files, 'copy_file', side_effect=fake_copyfile):
                 tileset_functions.CreateOneTilesetTileWithPillowOverNetwork(
                     (64, 64),
                     TopLeft=os.path.join(temp_dir, 'tl.png'),
