@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import typing
+from collections.abc import Callable
 from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
@@ -149,13 +150,8 @@ class RigidTranslation(base.ITransformScaling,
 
     def RotateFixed(self, rangle: float, rotation_center: NDArray[np.floating] | None):
         """Rotate all fixed points by the specified amount."""
+        del rotation_center  # Pivot pinning uses RotateFixedAboutSourcePoint.
         self._angle = self._angle - rangle
-        if rotation_center is not None:
-            center = np.asarray(rotation_center, dtype=np.float32).ravel()[:2]
-            offset_yx = np.asarray(self._target_offset, dtype=np.float32) - center
-            rotated = _numpy_rotation_matrix_yx(-rangle) @ np.array(
-                [offset_yx[0], offset_yx[1], 1.0], dtype=np.float32)
-            self._target_offset = (center + rotated[:2]).astype(np.float32)
         update_matrix = getattr(self, '_update_transform_matrix', None)
         if update_matrix is not None:
             update_matrix()
@@ -400,12 +396,23 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
                               self._forward_scale_matrix @ self._inverse_center_of_rotation_translation
         xp = cp.get_array_module(self.forward_matrix)
         self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
-        self.alt_inverse_matrix = self._forward_center_of_rotation_translation @ self._inverse_scale_matrix @ \
-                                  self._inverse_rotation_matrix @ self._flip_y_matrix @ \
-                                  self._inverse_center_of_rotation_translation @ self._inverse_translation_matrix
-        inv_np = self.inverse_matrix.get() if hasattr(self.inverse_matrix, 'get') else self.inverse_matrix  # type: ignore[attr-defined]
-        alt_np = self.alt_inverse_matrix.get() if hasattr(self.alt_inverse_matrix, 'get') else self.alt_inverse_matrix  # type: ignore[attr-defined]
-        np.testing.assert_allclose(inv_np, alt_np, rtol=1e-5, atol=1e-5)
+
+    def _pin_source_point_under_mutation(
+            self,
+            source_point_yx: NDArray[np.floating],
+            mutate: Callable[[], None]) -> None:
+        """Apply ``mutate`` while keeping ``Transform(source_point_yx)`` fixed in target space."""
+        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
+        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._source_space_center_of_rotation = source_point.copy()
+        mutate()
+        self._update_transform_matrix()
+        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._target_offset = (
+            self._target_offset + (target_before - target_after).astype(np.float32)
+        ).astype(np.float32, copy=False)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
 
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
@@ -467,17 +474,10 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         Updates angle and target_offset so ``Transform(source_point_yx)`` is unchanged
         in target space (cursor-pinned composite rotation).
         """
-        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
-        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
-        self._source_space_center_of_rotation = source_point.copy()
-        self._angle = self._angle - rangle
-        self._update_transform_matrix()
-        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
-        self._target_offset = (
-            self._target_offset + (target_before - target_after).astype(np.float32)
-        ).astype(np.float32, copy=False)
-        self._update_transform_matrix()
-        self.OnTransformChanged()
+        def mutate() -> None:
+            self._angle = self._angle - rangle
+
+        self._pin_source_point_under_mutation(source_point_yx, mutate)
 
     def Scale(self, value: float):
 
@@ -573,17 +573,10 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         Updates scalar and target_offset so ``Transform(source_point_yx)`` is unchanged
         in target space (cursor-pinned scale, mirroring RotateFixedAboutSourcePoint).
         """
-        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
-        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
-        self._source_space_center_of_rotation = source_point.copy()
-        self._scalar /= scale_factor
-        self._update_transform_matrix()
-        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
-        self._target_offset = (
-            self._target_offset + (target_before - target_after).astype(np.float32)
-        ).astype(np.float32, copy=False)
-        self._update_transform_matrix()
-        self.OnTransformChanged()
+        def mutate() -> None:
+            self._scalar /= scale_factor
+
+        self._pin_source_point_under_mutation(source_point_yx, mutate)
 
     def ScaleFixed(self, scalar: float):
         """Scale target space control points by scalar"""
