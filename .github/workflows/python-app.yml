@@ -35,10 +35,15 @@ jobs:
         python-version: "3.13"
 
     - name: Install dependencies
+      shell: bash
       run: |
+        set -euo pipefail
         python -m pip install --upgrade pip
-        pip install .
-        pip install pytest
+        python -m pip install pytest "numpy>=2.2.0" "scipy>=1.11" "matplotlib>=3.10" "Pillow>=10.2" "pydantic>=2.9.2" "six>=1.16" "scikit-image>=0.25.1" "hypothesis>=6.96"
+        python -m pip install "nornir_shared @ git+https://github.com/jamesra/nornir-shared.git@dev"
+        python -m pip install "nornir_pools @ git+https://github.com/jamesra/nornir-pools.git@master" --no-deps
+        python -m pip install . --no-deps
+        python -c "import numpy; import nornir_imageregistration; print('install ok', numpy.__version__)"
 
     - name: Create test data folders (Unix)
       if: runner.os != 'Windows'
