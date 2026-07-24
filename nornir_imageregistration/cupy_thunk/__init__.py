@@ -14,11 +14,12 @@ from numpy import *  # noqa: F401, F403  # type: ignore[reportWildcardImportFrom
 from numpy.typing import NDArray
 
 
-def get_array_module(array: NDArray) -> types.ModuleType:
-    """Return the array module for *array*.
+def get_array_module(*arrays: NDArray) -> types.ModuleType:
+    """Return the array module for the given array(s).
 
-    For the numpy thunk, any array was created by numpy, so we always return
-    the numpy module itself.
+    Mirrors the CuPy ``cp.get_array_module(*arrays)`` signature that accepts
+    one or more arrays and returns the module for the most powerful one.
+    For the numpy thunk all arrays are numpy arrays, so we always return numpy.
     """
     return np
 

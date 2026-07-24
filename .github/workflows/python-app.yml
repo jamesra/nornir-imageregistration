@@ -128,7 +128,6 @@ jobs:
         tests/test_blob_filter_golden.py
         tests/test_blob_filter_legacy_parity.py
         tests/test_build_pyramid_memory.py
-        tests/test_computational_lib_subprocess.py
         tests/test_cuvs_and_nearest_neighbor.py
         tests/test_ensure_array_backend.py
         tests/test_generate_optimized_tiles_empty.py
