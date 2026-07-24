@@ -27,11 +27,12 @@ class TestScaledTransformCache(unittest.TestCase):
             self.assertIs(first, second)
 
     def test_prefetch_default_on_for_cupy(self):
+        if not nornir_imageregistration.HasCupy():
+            self.skipTest("CuPy not available")
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         env = os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
         try:
-            if nornir_imageregistration.HasCupy():
-                self.assertTrue(at._assemble_prefetch_enabled())
+            self.assertTrue(at._assemble_prefetch_enabled())
         finally:
             if env is not None:
                 os.environ['NORNIR_ASSEMBLE_PREFETCH'] = env

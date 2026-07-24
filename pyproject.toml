@@ -59,3 +59,7 @@ typing = ["scipy-stubs"]
 [project.urls]
 Homepage = "https://github.com/jamesra/nornir-imageregistration"
 Issues = "https://github.com/jamesra/nornir-imageregistration/issues"
+
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
+testpaths = ["tests"]
