@@ -70,6 +70,8 @@ jobs:
 
     - name: Download CI fixture zip (cache miss)
       if: steps.fixture-cache.outputs.cache-hit != 'true'
+      id: fixture-download
+      continue-on-error: true
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
@@ -82,7 +84,7 @@ jobs:
           -d "${{ github.workspace }}/ci-testdata"
 
     - name: Stage CI fixtures into TESTINPUTPATH (Unix)
-      if: runner.os != 'Windows'
+      if: runner.os != 'Windows' && (steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success')
       shell: bash
       run: |
         mkdir -p "$TESTINPUTPATH/Images" "$TESTINPUTPATH/Transforms"
@@ -90,7 +92,7 @@ jobs:
         cp -r "${{ github.workspace }}/ci-testdata/Transforms/." "$TESTINPUTPATH/Transforms/"
 
     - name: Stage CI fixtures into TESTINPUTPATH (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && (steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success')
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force "$env:TESTINPUTPATH\Images" | Out-Null
@@ -102,7 +104,7 @@ jobs:
           Copy-Item -Recurse -Force "${{ github.workspace }}\ci-testdata\Transforms\*" "$env:TESTINPUTPATH\Transforms\"
         }
 
-    - name: Run unit tests
+    - name: Run A-class unit tests
       run: >
         python -m pytest -q
         tests/test_grid_division.py
@@ -145,6 +147,11 @@ jobs:
         tests/transforms/test_linear_nd_cupy_fallback.py
         tests/transforms/test_transforms.py
         tests/views/test_showgrayscale.py
+
+    - name: Run B-class unit tests (requires ci-testdata-v1 fixture pack)
+      if: steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success'
+      run: >
+        python -m pytest -q
         tests/test_refine_grid_input_section_functional.py
         tests/test_batched_refine_parity.py
         tests/test_tiles.py
