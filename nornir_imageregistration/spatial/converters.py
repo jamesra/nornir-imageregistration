@@ -3,6 +3,7 @@ Created on Apr 26, 2019
 
 @author: u0490822
 '''
+from __future__ import annotations
 
 import numpy
 from numpy.typing import NDArray
