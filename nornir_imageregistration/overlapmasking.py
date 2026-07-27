@@ -4,16 +4,86 @@ Created on Sep 14, 2018
 @author: u0490822
 """
 
+from __future__ import annotations
+
+from collections import OrderedDict
+import os
+from typing import Any
+
 import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration import Rectangle, ShapeLike
 
-# Collection of masks we have already calculated
-__known_overlap_masks = {}
+# Collection of masks we have already calculated (host + device), byte-capped LRU.
+__known_overlap_masks: OrderedDict[tuple, NDArray] = OrderedDict()
 # Host masks uploaded once per shape key when using CuPy (avoids cp.asarray per find_peak call).
-__known_overlap_masks_device: dict[tuple, NDArray] = {}
+__known_overlap_masks_device: OrderedDict[tuple, NDArray] = OrderedDict()
+
+_DEFAULT_DEVICE_CACHE_MB = 256
+_DEFAULT_HOST_CACHE_MB = 512
+
+
+def _cache_budget_bytes(env_name: str, default_mb: int) -> int:
+    """Return the byte budget from *env_name* (megabytes), or *default_mb*."""
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default_mb * 1024 * 1024
+    try:
+        return max(0, int(float(raw) * 1024 * 1024))
+    except ValueError:
+        return default_mb * 1024 * 1024
+
+
+def _array_nbytes(arr: NDArray) -> int:
+    nbytes = getattr(arr, "nbytes", None)
+    if nbytes is not None:
+        return int(nbytes)
+    return int(np.prod(arr.shape)) * int(getattr(arr.dtype, "itemsize", 1))
+
+
+def _lru_get(cache: OrderedDict[tuple, NDArray], key: tuple) -> NDArray | None:
+    cached = cache.get(key)
+    if cached is None:
+        return None
+    cache.move_to_end(key)
+    return cached
+
+
+def _lru_put(cache: OrderedDict[tuple, NDArray], key: tuple, value: NDArray,
+             budget_bytes: int) -> None:
+    """Insert *value* and evict least-recently-used entries until under *budget_bytes*."""
+    if key in cache:
+        cache.move_to_end(key)
+        cache[key] = value
+    else:
+        cache[key] = value
+
+    if budget_bytes <= 0:
+        cache.clear()
+        return
+
+    total = sum(_array_nbytes(arr) for arr in cache.values())
+    while total > budget_bytes and cache:
+        _evicted_key, evicted = cache.popitem(last=False)
+        total -= _array_nbytes(evicted)
+
+
+def overlap_mask_cache_stats() -> dict[str, Any]:
+    """Return host/device cache sizes for diagnostics and tests."""
+    host_bytes = sum(_array_nbytes(arr) for arr in __known_overlap_masks.values())
+    device_bytes = sum(_array_nbytes(arr) for arr in __known_overlap_masks_device.values())
+    return {
+        "host_entries": len(__known_overlap_masks),
+        "host_bytes": host_bytes,
+        "host_budget_bytes": _cache_budget_bytes("NORNIR_OVERLAP_MASK_HOST_CACHE_MB",
+                                                 _DEFAULT_HOST_CACHE_MB),
+        "device_entries": len(__known_overlap_masks_device),
+        "device_bytes": device_bytes,
+        "device_budget_bytes": _cache_budget_bytes("NORNIR_OVERLAP_MASK_CACHE_MB",
+                                                   _DEFAULT_DEVICE_CACHE_MB),
+    }
 
 
 def __CreateMaskLookupIndex(target_image_shape: NDArray[np.integer],
@@ -55,12 +125,14 @@ def GetOverlapMask(target_image_shape: ShapeLike,
     MaskIndex = __CreateMaskLookupIndex(target_image_shape, source_image_shape, correlation_image_size, MinOverlap,
                                         MaxOverlap)
 
-    if MaskIndex in __known_overlap_masks:
-        return __known_overlap_masks[MaskIndex]
+    cached = _lru_get(__known_overlap_masks, MaskIndex)
+    if cached is not None:
+        return cached
 
     mask = __CreateOverlapMaskBruteForce(target_image_shape, source_image_shape, correlation_image_size, MinOverlap,
                                          MaxOverlap)
-    __known_overlap_masks[MaskIndex] = mask
+    budget = _cache_budget_bytes("NORNIR_OVERLAP_MASK_HOST_CACHE_MB", _DEFAULT_HOST_CACHE_MB)
+    _lru_put(__known_overlap_masks, MaskIndex, mask, budget)
 
     return mask
 
@@ -76,6 +148,8 @@ def GetOverlapMaskOnDevice(target_image_shape: ShapeLike,
     The host mask is built once and cached in ``GetOverlapMask``. When *xp* is CuPy,
     the mask is uploaded to the device once per shape key and reused across calls
     (for example thousands of ``find_peak`` invocations sharing the same geometry).
+    Device entries are evicted LRU-style when the byte budget
+    (``NORNIR_OVERLAP_MASK_CACHE_MB``, default 256) is exceeded.
     """
     mask = GetOverlapMask(target_image_shape, source_image_shape, correlation_image_size,
                           MinOverlap, MaxOverlap)
@@ -91,20 +165,21 @@ def GetOverlapMaskOnDevice(target_image_shape: ShapeLike,
     mask_index = __CreateMaskLookupIndex(target_image_shape, source_image_shape, correlation_image_size,
                                          MinOverlap, MaxOverlap)
 
-    cached = __known_overlap_masks_device.get(mask_index)
+    cached = _lru_get(__known_overlap_masks_device, mask_index)
     if cached is not None:
         return cached
 
     device_mask = xp.asarray(mask)
-    __known_overlap_masks_device[mask_index] = device_mask
+    budget = _cache_budget_bytes("NORNIR_OVERLAP_MASK_CACHE_MB", _DEFAULT_DEVICE_CACHE_MB)
+    _lru_put(__known_overlap_masks_device, mask_index, device_mask, budget)
     return device_mask
 
 
 def clear_overlap_mask_caches() -> None:
     """Clear cached overlap masks (host and device). Intended for tests."""
     global __known_overlap_masks, __known_overlap_masks_device
-    __known_overlap_masks = {}
-    __known_overlap_masks_device = {}
+    __known_overlap_masks = OrderedDict()
+    __known_overlap_masks_device = OrderedDict()
 
 
 def __CreateFullMaskFromQuadrant(Mask: NDArray[np.bool_],

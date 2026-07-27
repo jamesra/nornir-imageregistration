@@ -26,9 +26,10 @@ Created on Oct 4, 2012
 import multiprocessing
 import multiprocessing.sharedctypes
 from time import sleep
+import math
 import numpy as np
 from numpy.typing import NDArray
-from typing import Sequence, AbstractSet
+from typing import Sequence, AbstractSet, Optional
 import logging
 import skimage
 import skimage.registration
@@ -65,6 +66,50 @@ def _normalize_angle_degrees(angle: float) -> float:
     while a < -180.0:
         a += 360.0
     return a
+
+
+def _rotated_aabb_shape(height: int, width: int, angle_deg: float) -> tuple[int, int]:
+    """Axis-aligned bounding box after a reshape=True rotation (SciPy/CuPyX ndimage).
+
+    For a rectangle of size ``(height, width)`` rotated by *angle_deg* degrees,
+    returns ``(new_height, new_width)`` of the minimal axis-aligned box that
+    contains the rotated rectangle. Matches the geometric model used by
+    ``scipy.ndimage.rotate(..., reshape=True)``.
+    """
+    rad = math.radians(float(angle_deg))
+    c = abs(math.cos(rad))
+    s = abs(math.sin(rad))
+    new_h = height * c + width * s
+    new_w = height * s + width * c
+    # SciPy ceils the projected extents; add a 1-pixel safety margin so
+    # pad_and_rotate_image(desired_shape=...) never has to grow past the plan.
+    return (int(math.ceil(new_h)) + 1, int(math.ceil(new_w)) + 1)
+
+
+def _fixed_correlation_shape(
+        target_shape: tuple[int, int] | NDArray | Sequence[int],
+        source_shape: tuple[int, int] | NDArray | Sequence[int],
+        angles: Sequence[float] | AbstractSet[float] | NDArray,
+        min_overlap: float) -> tuple[int, int]:
+    """Power-of-two correlation frame covering target, source, and all rotated AABBs.
+
+    Takes the element-wise max of the unrotated target/source shapes and the
+    rotated source AABB for every angle in *angles*, then rounds each dimension
+    up with ``NearestPowerOfTwoWithOverlap``.
+    """
+    th, tw = int(target_shape[0]), int(target_shape[1])
+    sh, sw = int(source_shape[0]), int(source_shape[1])
+    max_h = max(th, sh)
+    max_w = max(tw, sw)
+    for angle in angles:
+        rh, rw = _rotated_aabb_shape(sh, sw, float(angle))
+        if rh > max_h:
+            max_h = rh
+        if rw > max_w:
+            max_w = rw
+    out_h = int(nornir_imageregistration.NearestPowerOfTwoWithOverlap(max_h, min_overlap))
+    out_w = int(nornir_imageregistration.NearestPowerOfTwoWithOverlap(max_w, min_overlap))
+    return (out_h, out_w)
 
 
 # Hybrid ambiguous-fallback tuning (calibrated against fixed ±20° at median ambiguous pairs).
@@ -1092,22 +1137,31 @@ def _peak_from_correlation_image(
         source_image_shape: tuple[int, int],
         angle: float,
         min_overlap: float,
-        xp) -> nornir_imageregistration.AlignmentRecord:
-    """fftshift, overlap mask, find_peak → AlignmentRecord."""
-    xp_scipy = cupyx.scipy.get_array_module(correlation_image)
-    correlation_image = xp_scipy.fft.fftshift(correlation_image)
-    try:
-        correlation_image -= correlation_image.min()
-    except FloatingPointError as e:
-        print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
-        return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
+        xp,
+        *,
+        already_shifted: bool = False) -> nornir_imageregistration.AlignmentRecord:
+    """Overlap mask + find_peak → AlignmentRecord.
+
+    When *already_shifted* is False (default), applies fftshift and subtracts the
+    minimum so callers that still hold a pre-shift buffer (assessment scripts)
+    need not change. Prefer shifting in the caller and passing
+    ``already_shifted=True`` so the pre-shift array can be deleted first.
+    """
+    if not already_shifted:
+        xp_scipy = cupyx.scipy.get_array_module(correlation_image)
+        correlation_image = xp_scipy.fft.fftshift(correlation_image)
+        try:
+            correlation_image -= correlation_image.min()
+        except FloatingPointError as e:
+            print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
+            return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
 
     overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
         target_image_shape, source_image_shape, correlation_image.shape, min_overlap,
         MaxOverlap=1.0, xp=xp)
 
     peak, weight, _cutoff_value, _cutoff_percent = nornir_imageregistration.phasecorrelation.find_peak(
-        correlation_image, overlap_mask)
+        correlation_image, overlap_mask, allow_in_place=True)
     del overlap_mask
     del correlation_image
     return nornir_imageregistration.AlignmentRecord(peak, weight, angle)
@@ -1123,8 +1177,15 @@ def _score_one_angle_core(
         source_stats: nornir_imageregistration.ImageStats,
         target_image_prepadded: bool,
         min_overlap: float,
-        source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
-    """Score one angle using arrays already on the active computation backend."""
+        source_scale: float = 1.0,
+        fixed_shape: tuple[int, int] | None = None,
+        fft_target: NDArray | None = None) -> nornir_imageregistration.AlignmentRecord:
+    """Score one angle using arrays already on the active computation backend.
+
+    When *fixed_shape* is set (multi-angle sweeps), the rotated source is padded to
+    that frame and the target is assumed already prepadded to the same size.
+    Optional *fft_target* reuses a precomputed FFT of the padded target.
+    """
 
     xp = cp.get_array_module(im_target)
 
@@ -1136,63 +1197,132 @@ def _score_one_angle_core(
         working_source_shape = _scaled_shape(source_image_shape, source_scale, source_scale)
         working_source_stats = nornir_imageregistration.ImageStats.CalcStats(working_source)
 
-    rotated_source = pad_and_rotate_image(image=working_source,
-                                          angle=angle,
-                                          image_stats=working_source_stats,
-                                          min_overlap=min_overlap)
-
-    assert rotated_source.shape[0] > 0
-    assert rotated_source.shape[1] > 0
-
-    if not target_image_prepadded:
-        padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-            im_target,
-            image_median=target_stats.median,
-            image_stddev=target_stats.std,
-            min_overlap=min_overlap,
-            original_shape=target_image_shape)
+    if fixed_shape is not None:
+        rotated_padded_source = pad_and_rotate_image(
+            image=working_source,
+            angle=angle,
+            image_stats=working_source_stats,
+            desired_shape=fixed_shape,
+            min_overlap=min_overlap)
+        if not target_image_prepadded:
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                im_target,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std,
+                min_overlap=1.0,
+                new_height=fixed_shape[0],
+                new_width=fixed_shape[1],
+                original_shape=target_image_shape)
+        else:
+            padded_target = im_target
+        if tuple(int(s) for s in padded_target.shape) != tuple(fixed_shape):
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                padded_target,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std,
+                min_overlap=1.0,
+                new_height=fixed_shape[0],
+                new_width=fixed_shape[1])
+        # If rotate under-estimated, pad_image may have kept a larger frame — grow to match.
+        if rotated_padded_source.shape != padded_target.shape:
+            target_height = max(padded_target.shape[0], rotated_padded_source.shape[0])
+            target_width = max(padded_target.shape[1], rotated_padded_source.shape[1])
+            if padded_target.shape != (target_height, target_width):
+                padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                    padded_target,
+                    new_width=target_width,
+                    new_height=target_height,
+                    image_median=target_stats.median,
+                    image_stddev=target_stats.std,
+                    min_overlap=1.0)
+                fft_target = None  # cached FFT no longer matches
+            if rotated_padded_source.shape != padded_target.shape:
+                rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                    rotated_padded_source,
+                    new_width=padded_target.shape[1],
+                    new_height=padded_target.shape[0],
+                    image_median=working_source_stats.median,
+                    image_stddev=working_source_stats.std,
+                    min_overlap=1.0)
+        rotated_source = rotated_padded_source
     else:
-        padded_target = im_target
+        rotated_source = pad_and_rotate_image(image=working_source,
+                                              angle=angle,
+                                              image_stats=working_source_stats,
+                                              min_overlap=min_overlap)
 
-    target_height = max(padded_target.shape[0], rotated_source.shape[0])
-    target_width = max(padded_target.shape[1], rotated_source.shape[1])
+        assert rotated_source.shape[0] > 0
+        assert rotated_source.shape[1] > 0
 
-    if not np.array_equal(im_target.shape, np.array((target_height, target_width))):
-        padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-            im_target,
-            new_width=target_width,
-            new_height=target_height,
-            image_median=target_stats.median,
-            image_stddev=target_stats.std,
-            min_overlap=1.0)
+        if not target_image_prepadded:
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                im_target,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std,
+                min_overlap=min_overlap,
+                original_shape=target_image_shape)
+        else:
+            padded_target = im_target
 
-    if np.array_equal(rotated_source.shape, np.array((target_height, target_width))):
-        rotated_padded_source = rotated_source
-    else:
-        rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-            rotated_source,
-            new_width=target_width,
-            new_height=target_height,
-            image_median=working_source_stats.median,
-            image_stddev=working_source_stats.std,
-            min_overlap=1.0)
+        target_height = max(padded_target.shape[0], rotated_source.shape[0])
+        target_width = max(padded_target.shape[1], rotated_source.shape[1])
+
+        if not np.array_equal(im_target.shape, np.array((target_height, target_width))):
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                im_target,
+                new_width=target_width,
+                new_height=target_height,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std,
+                min_overlap=1.0)
+            fft_target = None
+
+        if np.array_equal(rotated_source.shape, np.array((target_height, target_width))):
+            rotated_padded_source = rotated_source
+        else:
+            rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                rotated_source,
+                new_width=target_width,
+                new_height=target_height,
+                image_median=working_source_stats.median,
+                image_stddev=working_source_stats.std,
+                min_overlap=1.0)
 
     assert np.array_equal(padded_target.shape, rotated_padded_source.shape)
 
+    use_cached_fft = (
+        fft_target is not None
+        and tuple(int(s) for s in fft_target.shape) == tuple(int(s) for s in padded_target.shape)
+    )
     correlation_image = nornir_imageregistration.phasecorrelation.image_phase_correlation(
         target_image=padded_target,
         source_image=rotated_padded_source,
         target_mean=target_stats.mean,
         source_mean=source_stats.mean,
-        correlation_coefficient=.66)
+        correlation_coefficient=.66,
+        fft_target=fft_target if use_cached_fft else None)
 
     del rotated_source
     if padded_target is not im_target:
         del padded_target
     del rotated_padded_source
+    if working_source is not im_source:
+        del working_source
+
+    # fftshift in this frame so the pre-shift correlation buffer can be dropped
+    # before find_peak allocates threshold/label images.
+    xp_scipy = cupyx.scipy.get_array_module(correlation_image)
+    shifted = xp_scipy.fft.fftshift(correlation_image)
+    del correlation_image
+    try:
+        shifted -= shifted.min()
+    except FloatingPointError as e:
+        print(f"Floating point error: {e} for {shifted.min()} or {shifted.max()}")
+        return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
 
     return _peak_from_correlation_image(
-        correlation_image, target_image_shape, working_source_shape, angle, min_overlap, xp)
+        shifted, target_image_shape, working_source_shape, angle, min_overlap, xp,
+        already_shifted=True)
 
 
 def _find_best_angle_at_scale(source_image: NDArray[np.floating],
@@ -1261,8 +1391,13 @@ def ScoreManyAnglesGpu(target_original: NDArray,
                        angles: Sequence[float],
                        target_stats: nornir_imageregistration.ImageStats | None = None,
                        source_stats: nornir_imageregistration.ImageStats | None = None,
-                       min_overlap: float = 0.75) -> list[nornir_imageregistration.AlignmentRecord]:
-    """Score multiple rotation angles with one source/target upload on GPU."""
+                       min_overlap: float = 0.75,
+                       fixed_shape: tuple[int, int] | None = None) -> list[nornir_imageregistration.AlignmentRecord]:
+    """Score multiple rotation angles with one source/target upload on GPU.
+
+    When *fixed_shape* is provided, every angle pads to that frame and a single
+    target FFT is reused across the sweep.
+    """
 
     im_target = nornir_imageregistration.ImageParamToImageArray(
         target_original, dtype=nornir_imageregistration.default_image_dtype())
@@ -1275,20 +1410,31 @@ def ScoreManyAnglesGpu(target_original: NDArray,
     if target_stats is None:
         target_stats = nornir_imageregistration.ImageStats.CalcStats(im_target)
 
-    return [
-        _score_one_angle_core(
-            im_target,
-            im_source,
-            target_image_shape,
-            source_image_shape,
-            float(angle),
-            target_stats,
-            source_stats,
-            target_image_prepadded=True,
-            min_overlap=min_overlap,
-        )
-        for angle in angles
-    ]
+    xp = cp.get_array_module(im_target)
+    fft_target = None
+    if fixed_shape is not None and tuple(int(s) for s in im_target.shape) == tuple(fixed_shape):
+        fft_target = xp.fft.fft2(im_target - target_stats.mean)
+
+    try:
+        return [
+            _score_one_angle_core(
+                im_target,
+                im_source,
+                target_image_shape,
+                source_image_shape,
+                float(angle),
+                target_stats,
+                source_stats,
+                target_image_prepadded=True,
+                min_overlap=min_overlap,
+                fixed_shape=fixed_shape,
+                fft_target=fft_target,
+            )
+            for angle in angles
+        ]
+    finally:
+        if fft_target is not None:
+            del fft_target
 
 
 def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
@@ -1298,7 +1444,9 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
                   source_stats: nornir_imageregistration.ImageStats | None = None,
                   target_image_prepadded: bool = True,
                   min_overlap: float = 0.75,
-                  source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
+                  source_scale: float = 1.0,
+                  fixed_shape: tuple[int, int] | None = None,
+                  fft_target: NDArray | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Returns an alignment score for a fixed image and an image rotated at a specified angle"""
 
     # print(f'Scoring {angle} degrees')
@@ -1324,7 +1472,9 @@ def ScoreOneAngle(target_original: NDArray, source_original: NDArray,
             source_stats,
             target_image_prepadded,
             min_overlap,
-            source_scale=source_scale)
+            source_scale=source_scale,
+            fixed_shape=fixed_shape,
+            fft_target=fft_target)
     finally:
         nornir_imageregistration.close_shared_memory(target_original)  # type: ignore[arg-type]
         nornir_imageregistration.close_shared_memory(source_original)  # type: ignore[arg-type]
@@ -1605,10 +1755,29 @@ def _find_best_angle(source_image: NDArray[np.floating],
         #    SmallPaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
         #    LargePaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
 
-        padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(target_image,
-                                                                                                  min_overlap=min_overlap,
-                                                                                                  image_median=target_stats.median,
-                                                                                                  image_stddev=target_stats.std)
+        source_shape = source_image.shape
+        target_shape = target_image.shape
+
+        # Multi-angle sweeps use one fixed Po2 frame covering the max rotated AABB so
+        # the target FFT can be reused and per-angle target re-pads are avoided.
+        fixed_shape: tuple[int, int] | None = None
+        if len(angle_range) > 1:
+            fixed_shape = _fixed_correlation_shape(
+                target_shape, source_shape, angle_range, min_overlap)
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                target_image,
+                min_overlap=1.0,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std,
+                new_height=fixed_shape[0],
+                new_width=fixed_shape[1],
+                original_shape=target_shape)
+        else:
+            padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
+                target_image,
+                min_overlap=min_overlap,
+                image_median=target_stats.median,
+                image_stddev=target_stats.std)
 
         # Create a shared read-only memory map for the Padded fixed image
 
@@ -1635,8 +1804,6 @@ def _find_best_angle(source_image: NDArray[np.floating],
 
         CheckTaskInterval = 16
 
-        source_shape = source_image.shape
-        target_shape = target_image.shape
         max_task_count = multiprocessing.cpu_count() * 1.5
 
         if use_cp and len(angle_range) > 1:
@@ -1649,15 +1816,24 @@ def _find_best_angle(source_image: NDArray[np.floating],
                 target_stats=target_stats,
                 source_stats=source_stats,
                 min_overlap=min_overlap,
+                fixed_shape=fixed_shape,
             )
         else:
+            # Single-thread multi-angle: FFT the padded target once and reuse.
+            shared_fft_target = None
+            if SingleThread and fixed_shape is not None:
+                xp_fft = cp.get_array_module(shared_padded_target)
+                shared_fft_target = xp_fft.fft.fft2(shared_padded_target - target_stats.mean)
+
             for i, theta in enumerate(angle_range):
                 if SingleThread:
                     record = ScoreOneAngle(target_original=shared_padded_target, source_original=shared_source,
                                            target_image_shape=target_shape, source_image_shape=source_shape,
                                            angle=theta,
                                            target_stats=target_stats, source_stats=source_stats,
-                                           min_overlap=min_overlap)
+                                           min_overlap=min_overlap,
+                                           fixed_shape=fixed_shape,
+                                           fft_target=shared_fft_target)
                     AngleMatchValues.append(record)
                 elif use_cluster:
                     task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
@@ -1665,7 +1841,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                                          target_image_shape=target_shape, source_image_shape=source_shape,
                                          angle=theta,
                                          target_stats=target_stats, source_stats=source_stats,
-                                         min_overlap=min_overlap)
+                                         min_overlap=min_overlap,
+                                         fixed_shape=fixed_shape)
                     taskList.append(task)
                 else:
                     task = pool.add_task(str(theta), ScoreOneAngle,  # type: ignore[union-attr]
@@ -1673,7 +1850,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                                          target_image_shape=target_shape, source_image_shape=source_shape,
                                          angle=theta,
                                          target_stats=target_stats, source_stats=source_stats,
-                                         min_overlap=min_overlap)
+                                         min_overlap=min_overlap,
+                                         fixed_shape=fixed_shape)
                     taskList.append(task)
 
                 if not i % CheckTaskInterval == 0:

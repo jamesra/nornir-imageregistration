@@ -98,6 +98,9 @@ class ImagePermutationHelper:
         if mask is not None and len(mask.shape) > 2:
             mask = np.any(mask, axis=2)
 
+        if mask is not None and img.shape != mask.shape:
+            img, mask = nornir_imageregistration.EnsureMatchingImageMaskShape(img, mask)
+
         extrema_pixels: int
         if extrema_mask_size_cuttoff is None:
             extrema_mask_size_cuttoff = 0.01

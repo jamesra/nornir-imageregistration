@@ -180,6 +180,10 @@ class TestOverlapMaskOnDevice(unittest.TestCase):
     def setUp(self) -> None:
         nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
 
+    def tearDown(self) -> None:
+        # Restore default budgets after tests that override the env var.
+        nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
+
     def test_device_mask_reuses_upload(self) -> None:
         """GetOverlapMaskOnDevice should upload each geometry to CuPy at most once."""
         if not nornir_imageregistration.HasCupy():
@@ -201,6 +205,64 @@ class TestOverlapMaskOnDevice(unittest.TestCase):
             nornir_imageregistration.GetOverlapMask(fixed, moving, corr, 0.25, 0.75),
             cp.asnumpy(mask_a),
         )
+        stats = nornir_imageregistration.overlapmasking.overlap_mask_cache_stats()
+        self.assertEqual(stats["device_entries"], 1)
+
+    def test_device_lru_evicts_oldest(self) -> None:
+        """Byte-capped LRU should drop the oldest device entry while live refs stay valid."""
+        if not nornir_imageregistration.HasCupy():
+            self.skipTest("CuPy not available")
+
+        import os
+        import cupy as cp
+
+        # Each 128x128 bool mask is 16 KiB; budget of ~20 KiB keeps at most one entry.
+        os.environ["NORNIR_OVERLAP_MASK_CACHE_MB"] = str(20 / 1024)
+        try:
+            nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
+            shapes = [
+                (np.asarray((64, 64), dtype=np.int32), 0.20),
+                (np.asarray((64, 64), dtype=np.int32), 0.30),
+                (np.asarray((64, 64), dtype=np.int32), 0.40),
+            ]
+            held = []
+            for fixed, min_overlap in shapes:
+                corr = fixed + fixed
+                mask = nornir_imageregistration.GetOverlapMaskOnDevice(
+                    fixed, fixed, corr, MinOverlap=min_overlap, MaxOverlap=0.9, xp=cp)
+                held.append(mask)
+                self.assertEqual(mask.shape, (128, 128))
+
+            stats = nornir_imageregistration.overlapmasking.overlap_mask_cache_stats()
+            self.assertLessEqual(stats["device_entries"], 1)
+            # Live references remain usable after eviction.
+            for mask in held:
+                self.assertEqual(int(cp.asnumpy(mask).sum()) > 0, True)
+        finally:
+            os.environ.pop("NORNIR_OVERLAP_MASK_CACHE_MB", None)
+            nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
+
+    def test_host_lru_evicts_oldest(self) -> None:
+        """Host cache also respects its byte budget."""
+        import os
+
+        os.environ["NORNIR_OVERLAP_MASK_HOST_CACHE_MB"] = str(20 / 1024)
+        try:
+            nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
+            held = []
+            for min_overlap in (0.20, 0.30, 0.40):
+                fixed = np.asarray((64, 64), dtype=np.int32)
+                corr = fixed + fixed
+                mask = nornir_imageregistration.GetOverlapMask(
+                    fixed, fixed, corr, MinOverlap=min_overlap, MaxOverlap=0.9)
+                held.append(mask)
+            stats = nornir_imageregistration.overlapmasking.overlap_mask_cache_stats()
+            self.assertLessEqual(stats["host_entries"], 1)
+            for mask in held:
+                self.assertTrue(mask.sum() > 0)
+        finally:
+            os.environ.pop("NORNIR_OVERLAP_MASK_HOST_CACHE_MB", None)
+            nornir_imageregistration.overlapmasking.clear_overlap_mask_caches()
 
     def test_find_peak_scalar_export(self) -> None:
         """find_peak should return host floats without requiring EnsureNumpyArray on the offset."""

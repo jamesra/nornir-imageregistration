@@ -219,7 +219,8 @@ def image_phase_correlation(target_image: NDArray[np.floating],
                             source_image: NDArray[np.floating],
                             target_mean: Optional[float] = None,
                             source_mean: Optional[float] = None,
-                            correlation_coefficient: Optional[float] = None) -> NDArray[np.floating]:
+                            correlation_coefficient: Optional[float] = None,
+                            fft_target: Optional[NDArray[Any]] = None) -> NDArray[np.floating]:
     """
     Calculate the phase shift correlation of the FFT's of two images.
 
@@ -231,14 +232,18 @@ def image_phase_correlation(target_image: NDArray[np.floating],
     :param target_mean: Mean value of the target image. If None, it will be calculated, defaults to None
     :param source_mean: Mean value of the source image. If None, it will be calculated, defaults to None
     :param correlation_coefficient: Controls the type of correlation. Setting this value to 1 is equivalent to using phase correlation. Setting it to 0 is equivalent to using Pearson Correlation. The default is 0.65. If you have a difficult to register section, changing this value to 1 may help, defaults to None
+    :param fft_target: Optional precomputed FFT of ``(target_image - target_mean)``. When
+        provided, the target FFT is reused and not freed (for multi-angle sweeps).
     :return: Correlation image of the FFT's. Light pixels indicate the phase is well aligned at that offset.
     :raises ValueError: If the dimensions of target_image and source_image do not match.
     """
-    xp = cp.get_array_module(target_image)
+    xp = cp.get_array_module(target_image if fft_target is None else fft_target)
 
-    if not (target_image.shape == source_image.shape):
+    if fft_target is None and not (target_image.shape == source_image.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
         raise ValueError("ImagePhaseCorrelation: Fixed and Moving image do not have same dimension")
+    if fft_target is not None and fft_target.shape != source_image.shape:
+        raise ValueError("ImagePhaseCorrelation: fft_target shape must match source_image shape")
 
     # --------------------------------
     # This is here in case this function ever needs to be revisited.  Scipy is a lot faster working with in-place operations so this
@@ -251,13 +256,21 @@ def image_phase_correlation(target_image: NDArray[np.floating],
     # T = Numerator / Divisor
     # CorrelationImage = real(fftpack.irfft2(T))
     # --------------------------------
-    if target_mean is None:
-        target_mean = float(xp.mean(target_image))
     if source_mean is None:
         source_mean = float(xp.mean(source_image))
 
-    target_fft = xp.fft.fft2(target_image - target_mean)
     source_fft = xp.fft.fft2(source_image - source_mean)
+
+    if fft_target is not None:
+        # Shared target FFT across angles: do not delete it; free only the source FFT after use.
+        correlation = fft_phase_correlation(
+            fft_target, source_fft, False, correlation_coefficient=correlation_coefficient)
+        del source_fft
+        return correlation
+
+    if target_mean is None:
+        target_mean = float(xp.mean(target_image))
+    target_fft = xp.fft.fft2(target_image - target_mean)
 
     return fft_phase_correlation(target_fft, source_fft, True, correlation_coefficient=correlation_coefficient)
 
@@ -357,7 +370,8 @@ class FindPeakResult(NamedTuple):
 
 def find_peak(image: NDArray[np.floating],
               overlap_mask: Optional[NDArray[np.bool_]] = None,
-              cutoff: Optional[float] = None) -> FindPeakResult:
+              cutoff: Optional[float] = None,
+              allow_in_place: bool = False) -> FindPeakResult:
     """
     Find the offset of the strongest response in a phase correlation image.
 
@@ -367,6 +381,9 @@ def find_peak(image: NDArray[np.floating],
     :param image: Phase correlation image to find the peak in
     :param overlap_mask: Mask describing which pixels are eligible for consideration, defaults to None
     :param cutoff: Percentile used to threshold image. Values below the percentile are ignored. If None, an automatic cutoff is determined, defaults to None
+    :param allow_in_place: If True, *image* may be overwritten (mask multiply and cutoff).
+        Callers that discard the correlation image immediately after may pass True to
+        avoid a full-size copy. Defaults to False.
     :return: A named tuple containing the offset of the peak, the strength of the peak, the cutoff value, and the cutoff percentile
     :rtype: FindPeakResult
     """
@@ -379,45 +396,69 @@ def find_peak(image: NDArray[np.floating],
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
 
-    # Create a copy of the image for thresholding
-    threshold_image = xp.copy(image)
-
-    # Apply the overlap mask if provided
+    # Fuse copy + mask: one allocation (or in-place) instead of copy + logical_not temp.
     if overlap_mask is not None:
-        threshold_image[xp.logical_not(overlap_mask)] = 0
+        if allow_in_place:
+            threshold_image = image
+            threshold_image *= overlap_mask
+        else:
+            threshold_image = image * overlap_mask
+    elif allow_in_place:
+        threshold_image = image
+    else:
+        threshold_image = xp.copy(image)
+
+    # Mean over valid pixels BEFORE cutoff thresholding. Uses mask-entry count so
+    # in-mask zeros are retained (matches xp.mean(image[overlap_mask])).
+    if overlap_mask is not None:
+        n_valid = int(xp.count_nonzero(overlap_mask))
+        mean_pixel = float(threshold_image.sum(dtype=xp.float64) / n_valid) if n_valid > 0 else 0.0
+    else:
+        mean_pixel = float(threshold_image.mean())
 
     # Determine the cutoff value for thresholding
     if cutoff is None:
         percentiles = np.linspace(0.95, 1, 101) * 100
         try:
             if overlap_mask is not None:
-                masked_values = image[overlap_mask].ravel()
+                masked_values = threshold_image[overlap_mask].ravel()
             else:
-                masked_values = image.ravel()
+                masked_values = threshold_image.ravel()
             if xp is not np:
                 # Single bounded sync: transfer masked correlation samples only for host estimate_cutoff.
                 masked_host = masked_values.get()  # type: ignore[union-attr]
             else:
                 masked_host = masked_values
+            del masked_values
             result = estimate_cutoff(
                 masked_host,
                 percentiles,
                 polyfit_degree=2,
                 method=CutoffMethod.Raw,
             )
+            del masked_host
             cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
             cutoff_value = result.cutoff_value
         except ValueError:
             cutoff_percent = 99.6
-            masked = threshold_image[overlap_mask] if overlap_mask is not None else threshold_image.ravel()
+            if overlap_mask is not None:
+                masked = threshold_image[overlap_mask]
+            else:
+                masked = threshold_image.ravel()
             cutoff_value = float(xp.percentile(masked, q=cutoff_percent))
+            del masked
     else:
-        # Use the provided cutoff value
+        # Use the provided cutoff value (fraction 0-1 -> percentile 0-100)
         cutoff_percent = cutoff * 100
-        cutoff_value = xp.percentile(threshold_image[overlap_mask], q=cutoff_percent)
+        if overlap_mask is not None:
+            masked = threshold_image[overlap_mask]
+        else:
+            masked = threshold_image.ravel()
+        cutoff_value = float(xp.percentile(masked, q=cutoff_percent))
+        del masked
 
-    # Apply thresholding - set all values below the cutoff to zero
-    threshold_image[threshold_image < cutoff_value] = 0
+    # Apply thresholding without fancy-index assignment (avoids a bool temp buffer).
+    xp.multiply(threshold_image, threshold_image >= cutoff_value, out=threshold_image)
 
     # Label connected components in the thresholded image
     [label_image, num_labels] = sp.ndimage.label(threshold_image)
@@ -425,48 +466,47 @@ def find_peak(image: NDArray[np.floating],
     # If no labels were found, there are no peaks
     if num_labels == 0:
         scaled_offset = _image_center_offset_tuple(image, xp)
-        peak_strength = 0
-        return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
+        return FindPeakResult(scaled_offset, 0, 0.0, 0.0)
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
     label_sums = sp.ndimage.sum_labels(threshold_image, label_image, xp.array(range(1, num_labels + 1)))
 
     if label_sums.sum() == 0:  # There are no peaks identified
-        scaled_offset = _image_center_offset_tuple(image, xp)
-        peak_strength = 0
-        return FindPeakResult(scaled_offset, peak_strength, 0.0, 0.0)
-    else:
-        # Find the label with the highest sum (strongest peak)
-        peak_value_index = label_sums.argmax()
-        peak_strength = label_sums[peak_value_index]
-
-        # Calculate the center of mass for the strongest peak
-        # Because we offset the sum_labels call by 1, we must do the same for the peak_value_index
-        peak_center_of_mass = sp.ndimage.center_of_mass(threshold_image, label_image, int(peak_value_index + 1))
-
-        # Calculate signal-to-noise ratio
-        mean_pixel = xp.mean(image[overlap_mask])
-        peak_pixel = sp.ndimage.maximum(threshold_image, label_image, int(peak_value_index + 1))
-        signal_to_noise = peak_pixel / mean_pixel
-        # Calculate the offset from the center of the image using the same array module as the input.
-        # This avoids implicit CuPy->NumPy conversions for 0-d cupy.ndarray center-of-mass components.
-        scaled_offset_arr = (
-            xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
-        ) - xp.asarray(peak_center_of_mass, dtype=xp.float32)
-
-        # Clean up memory
+        del label_sums
         del label_image
         del threshold_image
-        del label_sums
 
-        scaled_offset = _xp_1d_to_float_pair(scaled_offset_arr, xp)
-        return FindPeakResult(
-            scaled_offset,
-            float(signal_to_noise),
-            float(cutoff_value),
-            float(cutoff_percent),
-        )
+        scaled_offset = _image_center_offset_tuple(image, xp)
+        return FindPeakResult(scaled_offset, 0, 0.0, 0.0)
+
+    # Find the label with the highest sum (strongest peak)
+    peak_value_index = label_sums.argmax()
+    del label_sums
+
+    # Calculate the center of mass for the strongest peak
+    # Because we offset the sum_labels call by 1, we must do the same for the peak_value_index
+    peak_center_of_mass = sp.ndimage.center_of_mass(threshold_image, label_image, int(peak_value_index + 1))
+
+    # Signal-to-noise: peak max / pre-threshold mean of valid pixels
+    peak_pixel = sp.ndimage.maximum(threshold_image, label_image, int(peak_value_index + 1))
+    del label_image
+    del threshold_image
+
+    signal_to_noise = float(peak_pixel) / mean_pixel if mean_pixel != 0.0 else 0.0
+    # Calculate the offset from the center of the image using the same array module as the input.
+    # This avoids implicit CuPy->NumPy conversions for 0-d cupy.ndarray center-of-mass components.
+    scaled_offset_arr = (
+        xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
+    ) - xp.asarray(peak_center_of_mass, dtype=xp.float32)
+
+    scaled_offset = _xp_1d_to_float_pair(scaled_offset_arr, xp)
+    return FindPeakResult(
+        scaled_offset,
+        float(signal_to_noise),
+        float(cutoff_value),
+        float(cutoff_percent),
+    )
 
 
 def find_offset(target_image: NDArray[np.floating],
@@ -546,7 +586,7 @@ def find_offset(target_image: NDArray[np.floating],
         min_overlap,
         max_overlap,
         xp=xp)
-    peak_result = find_peak(correlation_image, overlap_mask)
+    peak_result = find_peak(correlation_image, overlap_mask, allow_in_place=True)
     peak = peak_result.scaled_offset
     weight = peak_result.peak_strength
 

@@ -2581,14 +2581,34 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
         return MaskedImage
 
 
+def EnsureMatchingImageMaskShape(image: NDArray, mask: NDArray) -> tuple[NDArray, NDArray]:
+    """Crop *image* and *mask* to their overlapping top-left region when shapes differ.
+
+    Pyramid / downsample rounding can leave image and mask off by one pixel; boolean
+    indexing then fails. Prefer keeping the shared content over aborting registration.
+    """
+    if image.shape == mask.shape:
+        return image, mask
+
+    common_h = int(min(image.shape[0], mask.shape[0]))
+    common_w = int(min(image.shape[1], mask.shape[1]))
+    warnings.warn(
+        f"Image shape {tuple(image.shape)} and mask shape {tuple(mask.shape)} differ; "
+        f"cropping both to ({common_h}, {common_w}).",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return image[:common_h, :common_w], mask[:common_h, :common_w]
+
+
 def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cutoff=0.001, minima=None, maxima=None):
     """
     Returns a mask for features above a set size that are at max or min pixel value
     :param image:
-    :param mask: Masked regions are excluded from the analysis, the min/max values are calculated from unmasked pixels only
+    :param mask: Valid-pixel mask (True = include in analysis). Invalid regions are
+        excluded from min/max and treated as extrema candidates for size filtering.
     :param minima:
     :param maxima:
-    :param numpy.ndarray mask: Pixels we wish to not include in the analysis
     :param size_cutoff: Determines how large a continuous region must be before it is masked. If 0 to 1 this is a fraction of total area.  If > 1 it is an absolute count of pixels. If None all min/max are masked regardless of size
     :returns: Mask of extrema pixels, pixels that are FALSE are extrema to be excluded
     """
@@ -2598,15 +2618,19 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cu
     sp = cupyx.scipy.get_array_module(image)
 
     if mask is not None:
-        image = xp.copy(image)
-        image[mask] = xp.asarray(xp.nan, dtype=xp.float64)
-        # image = xp.ma.masked_array(image, xp.logical_not(mask))
+        if cp.get_array_module(mask) is not xp:
+            mask = xp.asarray(mask)
+        mask = xp.asarray(mask, dtype=xp.bool_)
+        image, mask = EnsureMatchingImageMaskShape(image, mask)
+        # Exclude invalid pixels from min/max via NaN (True in mask = valid).
+        image = xp.asarray(image, dtype=xp.float64).copy()
+        image[~mask] = xp.nan
 
     if minima is None:
-        minima = image.min()
+        minima = xp.nanmin(image) if mask is not None else image.min()
 
     if maxima is None:
-        maxima = image.max()
+        maxima = xp.nanmax(image) if mask is not None else image.max()
 
     # Pixels that are TRUE will be excluded, exclude pixels equal to the min or max.
     # However, the ndimage.label function finds features that are TRUE.  So we start with an
