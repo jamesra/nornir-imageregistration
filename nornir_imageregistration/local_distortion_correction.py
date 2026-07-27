@@ -879,6 +879,279 @@ def _maybe_regularize_stos_alignment_peaks(
     return updated
 
 
+def _batched_roi_sample_budget() -> int:
+    """Max (cells * H * W) samples per ``map_coordinates`` launch for batched ROI extract."""
+    raw = os.environ.get('NORNIR_REFINE_BATCHED_ROI_SAMPLES', '').strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return 16_000_000
+
+
+def _alignment_roi_botlefts(target_points: NDArray,
+                            alignment_area: NDArray | tuple[float, float]) -> NDArray[np.float64]:
+    """Return integer-origin botlefts ``(N, 2)`` matching ``BuildAlignmentROIs`` geometry."""
+    area = np.asarray(alignment_area, dtype=np.float64).ravel()[:2]
+    points = np.asarray(target_points, dtype=np.float64).reshape(-1, 2).copy()
+    adjust_mask = np.mod(area, 2) > 0
+    points[:, adjust_mask] += 0.5
+    # Same as Rectangle.CreateFromPointAndArea → SnapRound → change_area(..., integer_origin=True)
+    botleft = points - (area / 2.0)
+    botleft = np.floor(botleft)
+    return botleft
+
+
+def _rigid_inverse_matrices(rigid_transforms: Sequence[nornir_imageregistration.ITransform],
+                            xp) -> tuple[NDArray, NDArray[np.bool_]] | None:
+    """Stack 3x3 inverse affine matrices and a pure-translation mask, or ``None`` if unsupported."""
+    matrices: list[NDArray[np.float64]] = []
+    pure_flags: list[bool] = []
+    for transform in rigid_transforms:
+        if not isinstance(transform, nornir_imageregistration.transforms.IRigidTransform):
+            return None
+        angle = float(getattr(transform, 'angle', 0.0) or 0.0)
+        scalar = float(getattr(transform, 'scalar', 1.0) or 1.0)
+        flip_ud = bool(getattr(transform, 'flip_ud', False))
+        offset = np.asarray(getattr(transform, 'target_offset'), dtype=np.float64).ravel()[:2]
+        if angle == 0.0 and scalar == 1.0 and not flip_ud:
+            # Match Rigid.InverseTransform's pure-translation branch (no rounding).
+            matrix = np.eye(3, dtype=np.float64)
+            matrix[0, 2] = -offset[0]
+            matrix[1, 2] = -offset[1]
+            matrices.append(matrix)
+            pure_flags.append(True)
+            continue
+        inverse = getattr(transform, 'inverse_matrix', None)
+        if inverse is None:
+            return None
+        matrices.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(inverse), dtype=np.float64))
+        pure_flags.append(False)
+    return (xp.asarray(np.stack(matrices, axis=0), dtype=np.float64),
+            np.asarray(pure_flags, dtype=bool))
+
+
+def _sample_source_rois_batched(source_image: NDArray,
+                                inverse_matrices: NDArray,
+                                pure_translation_mask: NDArray[np.bool_],
+                                botlefts: NDArray,
+                                cell_h: int,
+                                cell_w: int,
+                                xp,
+                                sp,
+                                oob_cval: float = np.nan) -> NDArray:
+    """Inverse-map each cell's target grid through its rigid matrix and sample once (chunked)."""
+    num_cells = int(botlefts.shape[0])
+    relative = nornir_imageregistration.assemble.GetROICoords((0.0, 0.0), (cell_h, cell_w), xp=xp)
+    relative = xp.asarray(relative, dtype=np.float32)
+    botlefts_dev = xp.asarray(botlefts, dtype=np.float32)
+    matrices_dev = xp.asarray(inverse_matrices, dtype=np.float64)
+    pure_mask = np.asarray(pure_translation_mask, dtype=bool).reshape(-1)
+
+    source_image = xp.asarray(source_image)
+    original_dtype = source_image.dtype
+    if source_image.dtype == np.float16:
+        source_image = source_image.astype(np.float32, copy=False)
+
+    any_nan_values = bool(xp.any(xp.isnan(source_image)))
+    # Match _TransformImageUsingCoords: order 1 when source contains NaN (or bool).
+    order = 1 if any_nan_values or source_image.dtype == bool else 3
+    prefilter = order > 1
+    def _scalar_to_float(value) -> float:
+        return float(nornir_imageregistration.EnsureNumpyArray(xp.asarray(value).reshape((1,)))[0])
+
+    if any_nan_values:
+        finite_src = source_image[~xp.isnan(source_image)]
+        min_val = _scalar_to_float(finite_src.min())
+        max_val = _scalar_to_float(finite_src.max())
+    else:
+        min_val = _scalar_to_float(source_image.min())
+        max_val = _scalar_to_float(source_image.max())
+
+    oob_cval_float = float(oob_cval)
+    preserve_oob_sentinel = bool(np.isnan(oob_cval_float) or oob_cval_float < min_val or oob_cval_float > max_val)
+
+    samples_per_cell = cell_h * cell_w
+    chunk_cells = max(1, _batched_roi_sample_budget() // max(1, samples_per_cell))
+    outputs: list[NDArray] = []
+    use_gpu = xp is not np
+    lock = nornir_imageregistration.assemble._gpu_warp_lock if use_gpu else contextlib.nullcontext()
+    src_h = int(source_image.shape[0])
+    src_w = int(source_image.shape[1])
+
+    ones = xp.ones((samples_per_cell, 1), dtype=np.float64)
+    for start in range(0, num_cells, chunk_cells):
+        stop = min(num_cells, start + chunk_cells)
+        chunk_n = stop - start
+        write = relative[None, :, :] + botlefts_dev[start:stop, None, :]  # (n, HW, 2)
+        homog = xp.concatenate(
+            (write.astype(np.float64, copy=False),
+             xp.broadcast_to(ones, (chunk_n, samples_per_cell, 1))),
+            axis=2)
+        # (n, HW, 3) @ (n, 3, 3)^T -> (n, HW, 3)
+        source_yx = xp.matmul(
+            homog, xp.swapaxes(matrices_dev[start:stop], -1, -2))[:, :, :2]
+        chunk_pure = pure_mask[start:stop]
+        if np.all(chunk_pure):
+            pass
+        elif np.any(chunk_pure):
+            rounded = xp.around(
+                source_yx,
+                nornir_imageregistration.RoundingPrecision(source_yx.dtype))
+            pure_dev = xp.asarray(chunk_pure)[:, None, None]
+            source_yx = xp.where(pure_dev, source_yx, rounded)
+        else:
+            source_yx = xp.around(
+                source_yx,
+                nornir_imageregistration.RoundingPrecision(source_yx.dtype))
+        sample_coords = source_yx.reshape(chunk_n * samples_per_cell, 2).astype(np.float32, copy=False)
+
+        # Crop once to the sample AABB (same idea as _CropImageToFitCoords) so cubic
+        # prefilter domain matches the per-cell SourceImageToTargetSpace path closely
+        # enough for registration parity, while still using one map_coordinates launch.
+        # Bounds are reduced on-device; only four scalars sync to host.
+        coords_for_bounds = xp.where(xp.isfinite(sample_coords), sample_coords, xp.nan)
+        mins_maxs = nornir_imageregistration.EnsureNumpyArray(xp.stack((
+            xp.nanmin(coords_for_bounds, axis=0),
+            xp.nanmax(coords_for_bounds, axis=0),
+        )))
+        if np.any(np.isnan(mins_maxs)):
+            yo = xo = y1 = x1 = 0
+        else:
+            mins = np.floor(mins_maxs[0]).astype(np.int64)
+            maxs = np.ceil(mins_maxs[1]).astype(np.int64)
+            yo = int(max(0, mins[0]))
+            xo = int(max(0, mins[1]))
+            y1 = int(min(src_h, maxs[0] + 1))
+            x1 = int(min(src_w, maxs[1] + 1))
+        if y1 <= yo or x1 <= xo:
+            sampled = xp.full((chunk_n, cell_h, cell_w), oob_cval_float, dtype=original_dtype)
+        else:
+            sub = source_image[yo:y1, xo:x1]
+            local_coords = sample_coords - xp.asarray((yo, xo), dtype=sample_coords.dtype)
+            with lock:
+                sampled_flat = sp.ndimage.map_coordinates(
+                    sub,
+                    local_coords.transpose(),
+                    mode='constant',
+                    order=order,
+                    cval=oob_cval_float,
+                    prefilter=prefilter).astype(original_dtype, copy=False)
+            sampled = sampled_flat.reshape(chunk_n, cell_h, cell_w)
+        # Match _TransformImageUsingCoords clipping; preserve OOB sentinels when they
+        # lie outside the source intensity range (NaN or explicit fill).
+        if preserve_oob_sentinel:
+            if np.isnan(oob_cval_float):
+                finite = xp.logical_not(xp.isnan(sampled))
+            else:
+                finite = sampled != sampled.dtype.type(oob_cval_float)
+            clipped = xp.clip(sampled, a_min=min_val, a_max=max_val)
+            sampled = xp.where(finite, clipped, sampled)
+        else:
+            xp.clip(sampled, a_min=min_val, a_max=max_val, out=sampled)
+        outputs.append(sampled)
+        del write, homog, source_yx, sample_coords, sampled
+
+    if len(outputs) == 1:
+        return outputs[0]
+    return xp.concatenate(outputs, axis=0)
+
+
+def _crop_target_rois_batched(target_image: NDArray,
+                              botlefts: NDArray,
+                              cell_h: int,
+                              cell_w: int,
+                              target_image_stats: nornir_imageregistration.ImageStats | None,
+                              xp) -> NDArray:
+    """Crop target-space cells into a ``(N, H, W)`` stack (still one CropImage per cell)."""
+    crops: list[NDArray] = []
+    cval: float | int | str | None = False if target_image_stats is None else 'random'
+    for i in range(botlefts.shape[0]):
+        yo = int(botlefts[i, 0])
+        xo = int(botlefts[i, 1])
+        crop = nornir_imageregistration.CropImage(
+            target_image, xo, yo, cell_w, cell_h,
+            cval=cval, image_stats=target_image_stats)
+        crops.append(xp.asarray(crop))
+    return xp.stack(crops, axis=0)
+
+
+def _apply_noise_mask_batched(source_stack: NDArray,
+                              nan_mask: NDArray,
+                              source_image_stats: nornir_imageregistration.ImageStats,
+                              xp) -> NDArray:
+    """Replace NaN (OOB) pixels with stats-matched noise, matching ``RandomNoiseMask``."""
+    invalid = nan_mask.ravel()
+    num_invalid = int(nornir_imageregistration.EnsureNumpyArray(
+        xp.asarray(xp.sum(invalid)).reshape((1,)))[0])
+    if num_invalid == 0:
+        return source_stack
+    noise = source_image_stats.GenerateNoise(num_invalid, dtype=source_stack.dtype, xp=xp)
+    if cp.get_array_module(noise) is not xp:
+        noise = xp.asarray(noise) if xp is not np else nornir_imageregistration.EnsureNumpyArray(
+            noise, dtype=source_stack.dtype)
+    flat = source_stack.ravel().copy()
+    flat[invalid] = noise
+    return flat.reshape(source_stack.shape)
+
+
+def BuildAlignmentROIsBatched(
+        rigid_transforms: Sequence[nornir_imageregistration.ITransform],
+        target_image: NDArray,
+        source_image: NDArray,
+        target_image_stats: nornir_imageregistration.ImageStats | None,
+        source_image_stats: nornir_imageregistration.ImageStats | None,
+        target_points: NDArray,
+        alignment_area: NDArray | tuple[float, float],
+) -> tuple[NDArray, NDArray, NDArray | None] | None:
+    """Batched rigid ROI extract for translation-only STOS grid refine.
+
+    Replaces the per-cell ``BuildAlignmentROIs`` → ``SourceImageToTargetSpace`` loop with
+    stacked inverse-affine maps and one (chunked) ``map_coordinates`` over the source image.
+    Returns ``(fixed_stack, moving_stack, nan_mask_stack)`` on the image array module, or
+    ``None`` when transforms are not rigid-compatible (caller should fall back).
+    """
+    if len(rigid_transforms) == 0:
+        return None
+
+    area = np.asarray(alignment_area, dtype=np.int64).ravel()[:2]
+    cell_h = int(area[0])
+    cell_w = int(area[1])
+    if cell_h <= 0 or cell_w <= 0:
+        return None
+
+    # Follow the process-wide backend (same as BuildAlignmentROIs / SourceImageToTargetSpace)
+    # so CuPy sessions keep ROI extract + FFT on device.
+    xp = nornir_imageregistration.GetComputationModule()
+    target_image = xp.asarray(target_image)
+    source_image = xp.asarray(source_image)
+    sp = cupyx.scipy if xp is not np else scipy
+
+    botlefts = _alignment_roi_botlefts(target_points, alignment_area)
+    matrix_info = _rigid_inverse_matrices(rigid_transforms, xp)
+    if matrix_info is None:
+        return None
+    inverse_matrices, pure_translation_mask = matrix_info
+
+    fixed_stack = _crop_target_rois_batched(
+        target_image, botlefts, cell_h, cell_w, target_image_stats, xp)
+    # Match BuildAlignmentROIs: NaN OOB sentinel only when noise-fill stats are available;
+    # otherwise fill OOB with 0 (cval=False → 0).
+    oob_cval: float = np.nan if source_image_stats is not None else 0.0
+    moving_stack = _sample_source_rois_batched(
+        source_image, inverse_matrices, pure_translation_mask, botlefts, cell_h, cell_w, xp, sp,
+        oob_cval=oob_cval)
+
+    nan_mask_stack: NDArray | None = None
+    if source_image_stats is not None:
+        nan_mask_stack = xp.isnan(moving_stack)
+        moving_stack = _apply_noise_mask_batched(
+            moving_stack, nan_mask_stack, source_image_stats, xp)
+
+    return fixed_stack, moving_stack, nan_mask_stack
+
+
 def _attempt_align_points_translation_batched(
         keys: list[tuple[int, int]],
         source_points: np.ndarray,
@@ -892,68 +1165,91 @@ def _attempt_align_points_translation_batched(
     Under CuPy, ROIs stay on-device through ``xp.stack`` and the batched FFT; peaks
     sync to host once (same pattern as mosaic ``_measure_grid_vertex_displacements_batched``).
     """
-    fixed_cells: list[NDArray] = []
-    moving_cells: list[NDArray] = []
-    nan_masks: list[NDArray | None] = []
-    kept_indices: list[int] = []
-
     with _PHASE_TIMER.section('cell_extract'):
-        for i, _key in enumerate(keys):
-            try:
-                # defer_oob_check=True skips BuildAlignmentROIs' per-cell bool(...) sync, and
-                # the IRigidTransform fast path in write_to_target_roi_coords skips the
-                # per-cell flatnonzero sync inside SourceImageToTargetSpace. Accept/reject
-                # (out-of-bounds + is_alignable_cell) is decided once, below, for the whole
-                # batch instead of ~4 syncs per cell here.
-                target_roi, source_roi, nan_mask = BuildAlignmentROIs(
-                    transform=rigid_transforms[i],
-                    targetImage_param=settings.target_image,
-                    sourceImage_param=settings.source_image,
-                    target_image_stats=settings.target_image_stats,
-                    source_image_stats=settings.source_image_stats,
-                    target_controlpoint=target_points[i, :],
-                    alignmentArea=settings.cell_size,
-                    description='',
-                    defer_oob_check=True)
-            except ValueError:
-                continue
-            if target_roi is None or target_roi.size == 0 or source_roi is None or source_roi.size == 0:
-                continue
-            # Keep cells on the ROI array module (CuPy when images were uploaded once).
-            xp_roi = cp.get_array_module(target_roi)
-            fixed_cells.append(xp_roi.asarray(target_roi, dtype=np.float64))
-            moving_cells.append(xp_roi.asarray(source_roi, dtype=np.float64))
-            nan_masks.append(nan_mask)
-            kept_indices.append(i)
+        target_image = nornir_imageregistration.ImageParamToImageArray(
+            settings.target_image, dtype=nornir_imageregistration.default_image_dtype())
+        source_image = nornir_imageregistration.ImageParamToImageArray(
+            settings.source_image, dtype=nornir_imageregistration.default_image_dtype())
+
+        batched = BuildAlignmentROIsBatched(
+            rigid_transforms=rigid_transforms,
+            target_image=target_image,
+            source_image=source_image,
+            target_image_stats=settings.target_image_stats,
+            source_image_stats=settings.source_image_stats,
+            target_points=target_points,
+            alignment_area=settings.cell_size)
+
+        kept_indices: list[int]
+        if batched is not None:
+            fixed_stack, moving_stack, nan_mask_stack = batched
+            kept_indices = list(range(len(keys)))
+            xp = cp.get_array_module(fixed_stack)
+            fixed_stack = xp.asarray(fixed_stack, dtype=np.float64)
+            moving_stack = xp.asarray(moving_stack, dtype=np.float64)
+        else:
+            # Non-rigid / unsupported transforms: legacy per-cell extract with deferred OOB.
+            fixed_cells: list[NDArray] = []
+            moving_cells: list[NDArray] = []
+            nan_masks: list[NDArray | None] = []
+            kept_indices = []
+            for i, _key in enumerate(keys):
+                try:
+                    target_roi, source_roi, nan_mask = BuildAlignmentROIs(
+                        transform=rigid_transforms[i],
+                        targetImage_param=settings.target_image,
+                        sourceImage_param=settings.source_image,
+                        target_image_stats=settings.target_image_stats,
+                        source_image_stats=settings.source_image_stats,
+                        target_controlpoint=target_points[i, :],
+                        alignmentArea=settings.cell_size,
+                        description='',
+                        defer_oob_check=True)
+                except ValueError:
+                    continue
+                if target_roi is None or target_roi.size == 0 or source_roi is None or source_roi.size == 0:
+                    continue
+                xp_roi = cp.get_array_module(target_roi)
+                fixed_cells.append(xp_roi.asarray(target_roi, dtype=np.float64))
+                moving_cells.append(xp_roi.asarray(source_roi, dtype=np.float64))
+                nan_masks.append(nan_mask)
+                kept_indices.append(i)
+
+            if len(kept_indices) < 3:
+                return None
+
+            shapes = {tuple(int(s) for s in cell.shape) for cell in fixed_cells + moving_cells}
+            if len(shapes) != 1:
+                return None
+
+            xp = cp.get_array_module(fixed_cells[0])
+            fixed_stack = xp.stack(fixed_cells, axis=0)
+            moving_stack = xp.stack(moving_cells, axis=0)
+            if any(mask is not None for mask in nan_masks):
+                cell_shape_tmp = next(iter(shapes))
+                nan_mask_stack = xp.stack([
+                    mask if mask is not None else xp.zeros(cell_shape_tmp, dtype=bool)
+                    for mask in nan_masks], axis=0)
+            else:
+                nan_mask_stack = None
 
         if len(kept_indices) < 3:
             return None
 
-        shapes = {tuple(int(s) for s in cell.shape) for cell in fixed_cells + moving_cells}
-        if len(shapes) != 1:
-            return None
+        xp = cp.get_array_module(fixed_stack)
+        cell_shape = np.asarray(fixed_stack.shape[1:], dtype=np.int64)
 
-        xp = cp.get_array_module(fixed_cells[0])
-        cell_shape = np.asarray(next(iter(shapes)), dtype=np.int64)
-        fixed_stack = xp.stack(fixed_cells, axis=0)
-        moving_stack = xp.stack(moving_cells, axis=0)
-
-        # Batched replacement for the per-cell is_alignable_cell() + "entirely out of
-        # bounds" checks: a handful of whole-batch reductions and a single sync, instead
-        # of ~4 syncs per cell.
+        # Batched accept/reject: alignability + entirely-OOB, one host sync.
         flat_fixed = fixed_stack.reshape(fixed_stack.shape[0], -1)
         flat_moving = moving_stack.reshape(moving_stack.shape[0], -1)
         alignable = ((flat_fixed.min(axis=1) != flat_fixed.max(axis=1)) & (flat_fixed.max(axis=1) != 0)
                      & (flat_moving.min(axis=1) != flat_moving.max(axis=1)) & (flat_moving.max(axis=1) != 0))
 
-        if any(mask is not None for mask in nan_masks):
-            oob_stack = xp.stack([
-                mask if mask is not None else xp.zeros(tuple(cell_shape.tolist()), dtype=bool)
-                for mask in nan_masks], axis=0)
-            fully_oob = oob_stack.reshape(oob_stack.shape[0], -1).all(axis=1)
+        if nan_mask_stack is not None:
+            fully_oob = nan_mask_stack.reshape(nan_mask_stack.shape[0], -1).all(axis=1)
             alignable = alignable & ~fully_oob
 
-        keep_mask = nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)  # single sync
+        keep_mask = nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)
 
         if not np.any(keep_mask):
             return None
