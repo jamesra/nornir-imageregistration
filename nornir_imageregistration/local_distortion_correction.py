@@ -894,12 +894,18 @@ def _attempt_align_points_translation_batched(
     """
     fixed_cells: list[NDArray] = []
     moving_cells: list[NDArray] = []
+    nan_masks: list[NDArray | None] = []
     kept_indices: list[int] = []
 
     with _PHASE_TIMER.section('cell_extract'):
         for i, _key in enumerate(keys):
             try:
-                target_roi, source_roi = BuildAlignmentROIs(
+                # defer_oob_check=True skips BuildAlignmentROIs' per-cell bool(...) sync, and
+                # the IRigidTransform fast path in write_to_target_roi_coords skips the
+                # per-cell flatnonzero sync inside SourceImageToTargetSpace. Accept/reject
+                # (out-of-bounds + is_alignable_cell) is decided once, below, for the whole
+                # batch instead of ~4 syncs per cell here.
+                target_roi, source_roi, nan_mask = BuildAlignmentROIs(
                     transform=rigid_transforms[i],
                     targetImage_param=settings.target_image,
                     sourceImage_param=settings.source_image,
@@ -907,15 +913,17 @@ def _attempt_align_points_translation_batched(
                     source_image_stats=settings.source_image_stats,
                     target_controlpoint=target_points[i, :],
                     alignmentArea=settings.cell_size,
-                    description='')
+                    description='',
+                    defer_oob_check=True)
             except ValueError:
                 continue
-            if not is_alignable_cell(target_roi) or not is_alignable_cell(source_roi):
+            if target_roi is None or target_roi.size == 0 or source_roi is None or source_roi.size == 0:
                 continue
             # Keep cells on the ROI array module (CuPy when images were uploaded once).
             xp_roi = cp.get_array_module(target_roi)
             fixed_cells.append(xp_roi.asarray(target_roi, dtype=np.float64))
             moving_cells.append(xp_roi.asarray(source_roi, dtype=np.float64))
+            nan_masks.append(nan_mask)
             kept_indices.append(i)
 
         if len(kept_indices) < 3:
@@ -929,6 +937,35 @@ def _attempt_align_points_translation_batched(
         cell_shape = np.asarray(next(iter(shapes)), dtype=np.int64)
         fixed_stack = xp.stack(fixed_cells, axis=0)
         moving_stack = xp.stack(moving_cells, axis=0)
+
+        # Batched replacement for the per-cell is_alignable_cell() + "entirely out of
+        # bounds" checks: a handful of whole-batch reductions and a single sync, instead
+        # of ~4 syncs per cell.
+        flat_fixed = fixed_stack.reshape(fixed_stack.shape[0], -1)
+        flat_moving = moving_stack.reshape(moving_stack.shape[0], -1)
+        alignable = ((flat_fixed.min(axis=1) != flat_fixed.max(axis=1)) & (flat_fixed.max(axis=1) != 0)
+                     & (flat_moving.min(axis=1) != flat_moving.max(axis=1)) & (flat_moving.max(axis=1) != 0))
+
+        if any(mask is not None for mask in nan_masks):
+            oob_stack = xp.stack([
+                mask if mask is not None else xp.zeros(tuple(cell_shape.tolist()), dtype=bool)
+                for mask in nan_masks], axis=0)
+            fully_oob = oob_stack.reshape(oob_stack.shape[0], -1).all(axis=1)
+            alignable = alignable & ~fully_oob
+
+        keep_mask = nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)  # single sync
+
+        if not np.any(keep_mask):
+            return None
+
+        if not np.all(keep_mask):
+            keep_mask_dev = xp.asarray(keep_mask)
+            fixed_stack = fixed_stack[keep_mask_dev]
+            moving_stack = moving_stack[keep_mask_dev]
+            kept_indices = [idx for idx, keep in zip(kept_indices, keep_mask) if keep]
+
+        if len(kept_indices) < 3:
+            return None
 
     with _PHASE_TIMER.section('fft'):
         peaks_dev, weights_dev = measure_translation_cells_batched(
@@ -2159,6 +2196,20 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
     CutoffPercentilePerIteration = 10.0
 
+    # Distance-to-prediction is the primary finalize gate (see commit 7fd3dbb58: the
+    # percentile-based weight cutoff previously used to gate finalization rejected too
+    # many otherwise-good points and was zeroed out, relying on the movement check plus
+    # TryToImproveAlignments' later re-checks as the safety net instead). That safety net
+    # only *replaces* a finalized point when a strictly better-weighted match turns up
+    # nearby -- it never un-finalizes a point outright, so a spuriously low-weight match
+    # that happens to land within the travel tolerance and for which no better nearby
+    # match ever appears can stay locked with a bad measurement indefinitely. Reject just
+    # the extreme low tail of each pass's own weight distribution (a percentile of that
+    # pass's weights, not a fixed magic number) to filter obviously noise-level
+    # correlations before they can ever be finalized, while leaving distance as the main
+    # criterion.
+    FinalizeWeightFloorPercentile = 2.0
+
     FirstPassWeightScoreCutoff = None
     FirstPassCompositeScoreCutoff = None
     # FirstPassFinalizeValue = None  # The score required to finalize a control point on the first pass.
@@ -2178,13 +2229,19 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     cutoff_ema = EMA(settings.num_iterations // 2, 2)
     first_cutoff = None  # The first cutoff value, we use this to decide which points make it into the final transform
 
+    _PHASE_TIMER.reset()
+
     while i <= settings.num_iterations:
+        pass_phase_baseline = _PHASE_TIMER.snapshot()
+
         if i == settings.num_iterations:
             final_pass = True
 
         alignment_points = _RefineGridPointsForTwoImages(stosTransform,
                                                          settings=settings,
                                                          finalized=finalized_points)
+
+        _log_phase_breakdown(f'RefineTransform pass {i}', pass_phase_baseline)
 
         if len(alignment_points) == 0:
             if len(finalized_points) > 0:
@@ -2292,7 +2349,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
         # finalize_percentile_this_pass = cutoff_percentile
         # finalize_cutoff = finalize_cutoff_this_pass
-        finalize_cutoff_this_pass = 0  # Just use the distance measure to determine finalization
+
+        # Distance is still the primary finalize gate (see FinalizeWeightFloorPercentile
+        # comment above) -- this is a low floor, not the earlier strict percentile cutoff.
+        finalize_percentile_this_pass = FinalizeWeightFloorPercentile
+        finalize_cutoff_this_pass = float(np.percentile(polyfit_weights, FinalizeWeightFloorPercentile))
         finalize_cutoff = finalize_cutoff_this_pass
 
         if i != 0:
@@ -2452,6 +2513,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     if len(nudged_final_points) >= 3:
         final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
             AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
+
+    _log_phase_breakdown('RefineTransform total', {})
 
     return final_transform
 
@@ -3100,9 +3163,17 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                        source_image_stats: nornir_imageregistration.ImageStats | None,
                        target_controlpoint: NDArray | tuple[float, float],
                        alignmentArea: NDArray | tuple[float, float],
-                       description: str | None = None) -> tuple[NDArray, NDArray]:
+                       description: str | None = None,
+                       defer_oob_check: bool = False) -> tuple[NDArray, NDArray] | tuple[NDArray, NDArray, NDArray | None]:
     """
     Extract target/source ROIs in a common target-space frame for local registration.
+
+    When ``defer_oob_check`` is False (default), an entirely-out-of-bounds source ROI
+    raises ``ValueError`` immediately, which requires a ``bool(...)`` device sync on CuPy.
+    When ``defer_oob_check`` is True, that sync is skipped: a 3-tuple is returned instead,
+    with the (still un-synced) NaN mask as the third element (or ``None`` when
+    ``source_image_stats`` is ``None``, i.e. no check was performed either way) so a caller
+    processing many cells can batch the accept/reject decision into a single sync.
     """
     xp = nornir_imageregistration.GetComputationModule()
 
@@ -3144,11 +3215,16 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
                                                                                   extrapolate=True,
                                                                                   cval=False if source_image_stats is None else np.nan)
 
+    deferred_nan_mask: NDArray | None = None
     if source_image_stats is not None:
         roi_array = cast(Any, source_image_roi)
         roi_xp = cp.get_array_module(roi_array)
         nan_mask = roi_xp.isnan(roi_array)
-        if bool(nan_mask.all()):
+        if defer_oob_check:
+            # Leave the "entirely out of bounds" decision to the caller so it can batch
+            # the sync across many cells instead of paying one bool(...) sync per cell here.
+            deferred_nan_mask = nan_mask
+        elif bool(nan_mask.all()):
             # The source ROI is entirely out of bounds — no usable image data for this cell.
             if isinstance(targetImage_param, nornir_imageregistration.Shared_Mem_Metadata):
                 nornir_imageregistration.close_shared_memory(targetImage_param)
@@ -3168,6 +3244,9 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
         nornir_imageregistration.close_shared_memory(targetImage_param)
     if isinstance(sourceImage_param, nornir_imageregistration.Shared_Mem_Metadata):
         nornir_imageregistration.close_shared_memory(sourceImage_param)
+
+    if defer_oob_check:
+        return target_image_roi, source_image_roi, deferred_nan_mask  # type: ignore[return-value]
 
     return target_image_roi, source_image_roi  # type: ignore[return-value]
 

@@ -31,7 +31,7 @@ import scipy
 
 import nornir_pools
 import nornir_imageregistration
-from nornir_imageregistration.transforms import ITransform, factory, triangulation
+from nornir_imageregistration.transforms import ITransform, IRigidTransform, factory, triangulation
 from nornir_imageregistration.transforms.utils import InvalidIndices
 
 # Serializes GPU warp dispatches across threads. CuPy CUDA kernels on the
@@ -161,6 +161,32 @@ e coordinates.
     read_space_coords = transform.InverseTransform(
         write_space_coords, extrapolate=extrapolate,
     ).astype(np.float32, copy=False)
+
+    # IRigidTransform.InverseTransform (translation/rigid/similarity) is a closed-form
+    # affine op on finite input and can never produce NaN rows. Skip InvalidIndices'
+    # xp.flatnonzero calls entirely for this transform class: on CuPy those calls force a
+    # device sync whose result is always "nothing to remove" here, so the sync is pure
+    # overhead in hot per-cell loops (e.g. STOS grid-refine ROI extraction).
+    #
+    # NOTE: IRigidTransform is not the only NaN-safe (globally-defined/"continuous")
+    # transform -- RBF-based transforms (OneWayRBFWithLinearCorrection,
+    # TwoWayRBFWithLinearCorrection) are also defined everywhere and should never emit
+    # NaN from finite input, but there is no shared "continuous transform" marker
+    # interface in transforms/base.py to check against (IDiscreteTransform captures the
+    # opposite idea -- bounding boxes for control-point/triangulation transforms that can
+    # be undefined outside their hull). This fast path is scoped to IRigidTransform
+    # because that is what the STOS grid-refine per-cell path actually constructs
+    # (ApproximateRigidTransformBySourcePoints). If RBF transforms are ever routed
+    # through this function's hot path, they will correctly but more slowly fall through
+    # to the InvalidIndices path below -- revisit then.
+    if isinstance(transform, IRigidTransform):
+        valid_read_space_coords = read_space_coords
+        valid_write_space_coords = write_space_coords
+        if use_host_roi_inverse and use_gpu_assemble:
+            valid_read_space_coords = cp.asarray(valid_read_space_coords)
+            valid_write_space_coords = cp.asarray(valid_write_space_coords)
+        return valid_read_space_coords, valid_write_space_coords
+
     (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndices(read_space_coords)
 
     del read_space_coords
@@ -296,7 +322,11 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
     filtered_coordinates, coord_mask = get_valid_coords(coordinates, input_image.shape, origin=(0, 0),
                                                         area=(top_right - bottom_left) + 1)
 
-    if xp.all(coord_mask == False):
+    # get_valid_coords already compacted filtered_coordinates via boolean-mask fancy
+    # indexing, which forces CuPy to resolve the output size (a device sync) to know
+    # .shape[0]. Reuse that already-resolved host-side shape instead of re-syncing with
+    # xp.all(coord_mask == False) -- same result, zero extra syncs.
+    if filtered_coordinates.shape[0] == 0:
         # No mappable coords, just return an empty image
         return xp.empty((0, 0)), xp.empty((0, 2)), coord_mask  # type: ignore[return-value]
 
@@ -304,14 +334,21 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
     filtered_bottom_left = xp.floor(xp.min(filtered_coordinates, 0))
     filtered_top_right = xp.ceil(xp.max(filtered_coordinates, 0))
 
-    padded_bottom_left = filtered_bottom_left - padding
+    # Read both bounds back to host together instead of the four separate int(...)
+    # conversions below (each of which is its own CuPy device sync): one sync here
+    # instead of four.
+    bounds_host = nornir_imageregistration.EnsureNumpyArray(
+        xp.stack((filtered_bottom_left, filtered_top_right))).astype(np.int64, copy=False)
+    filtered_bottom_left_host, filtered_top_right_host = bounds_host[0], bounds_host[1]
+
+    padded_bottom_left_host = filtered_bottom_left_host - padding
     # padded_top_right = filtered_top_right + padding
 
-    Width = int(filtered_top_right[1] - filtered_bottom_left[1]) + 1 + (padding * 2)
-    Height = int(filtered_top_right[0] - filtered_bottom_left[0]) + 1 + (padding * 2)
+    Width = int(filtered_top_right_host[1] - filtered_bottom_left_host[1]) + 1 + (padding * 2)
+    Height = int(filtered_top_right_host[0] - filtered_bottom_left_host[0]) + 1 + (padding * 2)
 
-    cropped_image = nornir_imageregistration.CropImage(input_image, Xo=int(padded_bottom_left[1]),
-                                                       Yo=int(padded_bottom_left[0]),
+    cropped_image = nornir_imageregistration.CropImage(input_image, Xo=int(padded_bottom_left_host[1]),
+                                                       Yo=int(padded_bottom_left_host[0]),
                                                        Width=Width, Height=Height, cval=cval)
 
     translated_coordinates = (filtered_coordinates - filtered_bottom_left) + padding

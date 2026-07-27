@@ -217,10 +217,14 @@ def _run_mosaic(args: argparse.Namespace) -> int:
 
 def _run_stos(args: argparse.Namespace) -> int:
     """Execute STOS microbench mode."""
+    if not _set_backend(args.backend):
+        print(f'Skipping {args.backend}: CuPy unavailable')
+        return 0
+
     volume_dir = Path(args.volume_dir)
     input_stos, output_stos = _find_heavy_stos(volume_dir)
     print(f'Input stos: {input_stos}')
-    print(f'UsingCupy: {nornir_imageregistration.UsingCupy()}')
+    print(f'backend={args.backend} UsingCupy: {nornir_imageregistration.UsingCupy()}')
     times: list[float] = []
     for repeat in range(args.repeats):
         _release_refinement_worker_memory()
@@ -292,6 +296,30 @@ def main(argv: list[str] | None = None) -> int:
                 rc = rc or result.returncode
             return rc
         return _run_mosaic(args)
+
+    if args.backend == 'both':
+        # Isolate each backend in a subprocess so CUDA context does not leak.
+        rc = 0
+        for backend in ('numpy', 'cupy'):
+            cmd = [sys.executable, __file__, '--mode', 'stos', '--backend', backend,
+                   '--iterations', str(args.iterations), '--repeats', str(args.repeats),
+                   '--volume-dir', str(args.volume_dir)]
+            if args.profile:
+                cmd.append('--profile')
+            if args.phase_timing:
+                cmd.append('--phase-timing')
+            if args.batched:
+                cmd.append('--batched')
+            if args.no_batched:
+                cmd.append('--no-batched')
+            if args.stos_regularize:
+                cmd.append('--stos-regularize')
+            env = os.environ.copy()
+            if backend == 'numpy':
+                env['CUDA_VISIBLE_DEVICES'] = ''
+            result = subprocess.run(cmd, env=env, check=False)
+            rc = rc or result.returncode
+        return rc
     return _run_stos(args)
 
 
