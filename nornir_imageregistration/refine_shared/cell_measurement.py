@@ -11,6 +11,7 @@ import nornir_imageregistration
 import nornir_imageregistration.batched_phase_correlation
 import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.refine_shared.cell_validity import is_alignable_cell
+from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
 
 try:
     import cupy as cp
@@ -79,13 +80,34 @@ def measure_translation_cells_batched(
     """Batched translation measurement over ``(N, h, w)`` cell stacks.
 
     Thin wrapper around ``batched_phase_correlation.batched_find_offset`` so mosaic
-    and STOS callers share one entry point.
+    and STOS callers share one entry point. Large batches are chunked to cap GPU
+    FFT workspace (see ``NORNIR_REFINE_BATCHED_FFT_CELLS``).
     """
-    return nornir_imageregistration.batched_phase_correlation.batched_find_offset(
-        fixed_cells,
-        moving_cells,
-        cell_shape,
-        min_overlap=min_overlap,
-        max_overlap=max_overlap,
-        correlation_coefficient=correlation_coefficient,
-        centroid_radius=centroid_radius)
+    num_cells = int(fixed_cells.shape[0])
+    chunk_size = batched_fft_cell_chunk_size(fixed_cells.shape[1:])
+    if num_cells <= chunk_size:
+        return nornir_imageregistration.batched_phase_correlation.batched_find_offset(
+            fixed_cells,
+            moving_cells,
+            cell_shape,
+            min_overlap=min_overlap,
+            max_overlap=max_overlap,
+            correlation_coefficient=correlation_coefficient,
+            centroid_radius=centroid_radius)
+
+    xp = cp.get_array_module(fixed_cells)
+    peak_chunks: list[NDArray[np.floating]] = []
+    weight_chunks: list[NDArray[np.floating]] = []
+    for start in range(0, num_cells, chunk_size):
+        stop = min(num_cells, start + chunk_size)
+        peaks, weights = nornir_imageregistration.batched_phase_correlation.batched_find_offset(
+            fixed_cells[start:stop],
+            moving_cells[start:stop],
+            cell_shape,
+            min_overlap=min_overlap,
+            max_overlap=max_overlap,
+            correlation_coefficient=correlation_coefficient,
+            centroid_radius=centroid_radius)
+        peak_chunks.append(peaks)
+        weight_chunks.append(weights)
+    return xp.concatenate(peak_chunks, axis=0), xp.concatenate(weight_chunks, axis=0)

@@ -37,6 +37,7 @@ class RefineRuntimeConfig:
     disable_prewarp_cache: bool
     mosaic_cutoff: bool
     stos_regularize: bool
+    finalize_legacy: bool
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -68,6 +69,7 @@ class RefineRuntimeConfig:
             disable_prewarp_cache=_is_truthy(_env_flag('NORNIR_DISABLE_PREWARP_CACHE', '')),
             mosaic_cutoff=_is_truthy(_env_flag('NORNIR_REFINE_MOSAIC_CUTOFF', '')),
             stos_regularize=_is_truthy(_env_flag('NORNIR_REFINE_STOS_REGULARIZE', '')),
+            finalize_legacy=_is_truthy(_env_flag('NORNIR_REFINE_FINALIZE_LEGACY', '')),
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:

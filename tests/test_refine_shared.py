@@ -134,7 +134,44 @@ class TestRefineShared(unittest.TestCase):
         finally:
             nornir_imageregistration.SetActiveComputationLib(previous)
 
-    def test_grid_refinement_keeps_numpy_images_on_numpy(self) -> None:
+    def test_batched_fft_chunk_size_scales_with_free_vram(self) -> None:
+        """FFT batch size grows with reported free VRAM on CuPy."""
+        from unittest import mock
+
+        from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+
+        os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
+        with mock.patch(
+                'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
+                return_value=(2 * 1024 ** 3, 24 * 1024 ** 3)):
+            small_card = batched_fft_cell_chunk_size((128, 128))
+        with mock.patch(
+                'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
+                return_value=(20 * 1024 ** 3, 24 * 1024 ** 3)):
+            large_card = batched_fft_cell_chunk_size((128, 128))
+        self.assertGreater(large_card, small_card)
+        self.assertGreaterEqual(large_card, 6000)
+
+    def test_batched_fft_chunk_size_env_override(self) -> None:
+        """Explicit env still overrides VRAM auto-tuning."""
+        from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+
+        os.environ['NORNIR_REFINE_BATCHED_FFT_CELLS'] = '123'
+        try:
+            self.assertEqual(batched_fft_cell_chunk_size((128, 128)), 123)
+        finally:
+            os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
+
+    def test_batched_roi_sample_budget_env_override(self) -> None:
+        """ROI sample budget honors explicit env override."""
+        from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_roi_sample_budget
+
+        os.environ['NORNIR_REFINE_BATCHED_ROI_SAMPLES'] = '999'
+        try:
+            self.assertEqual(batched_roi_sample_budget(128, 128), 999)
+        finally:
+            os.environ.pop('NORNIR_REFINE_BATCHED_ROI_SAMPLES', None)
+
         """NumPy backend must not promote GridRefinement images to CuPy."""
         previous = nornir_imageregistration.GetActiveComputationLib()
         try:

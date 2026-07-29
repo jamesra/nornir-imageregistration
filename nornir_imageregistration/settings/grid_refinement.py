@@ -33,6 +33,13 @@ class GridRefinement:
     num_iterations: int
     max_travel_for_finalization: float
     max_travel_for_finalization_improvement: float
+    min_finalize_pass: int
+    finalize_stability_passes: int
+    finalize_stability_epsilon_px: float
+    finalize_unlock_travel_multiplier: float
+    inclusion_travel_multiplier: float
+    anchor_smooth_min_locks: int
+    anchor_smooth_median_radius: int
     min_alignment_overlap: float
     min_unmasked_area: float
     _single_thread_processing: bool
@@ -95,6 +102,13 @@ class GridRefinement:
                  final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
                  max_travel_for_finalization: float | None = None,
                  max_travel_for_finalization_improvement: float | None = None,
+                 min_finalize_pass: int | None = None,
+                 finalize_stability_passes: int | None = None,
+                 finalize_stability_epsilon_px: float | None = None,
+                 finalize_unlock_travel_multiplier: float | None = None,
+                 inclusion_travel_multiplier: float | None = None,
+                 anchor_smooth_min_locks: int | None = None,
+                 anchor_smooth_median_radius: int | None = None,
                  min_alignment_overlap: float | None = None,
                  min_unmasked_area: float | None = None,
                  single_thread_processing: bool = False):
@@ -114,6 +128,13 @@ class GridRefinement:
         :param array final_pass_angles: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is usually a reduced range to fine tune a registration. Can have a performance impact.
         :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
         :param max_travel_for_finalization_improvement: When finalized points are checked to see if they need to be nudged, they must move less than this distance to be considered.  If None, no limit is applied
+        :param int min_finalize_pass: First pass index (1-based) allowed to lock points; default 2
+        :param int finalize_stability_passes: Consecutive stable measurements required before lock; default 2
+        :param float finalize_stability_epsilon_px: Max peak change (px) to count as stable; default 0.5
+        :param float finalize_unlock_travel_multiplier: Unlock when transform disagreement exceeds max_travel * this; 0 disables
+        :param float inclusion_travel_multiplier: Free points with ‖peak‖ > max_travel * this are excluded from mesh inclusion; default 1.0
+        :param int anchor_smooth_min_locks: Minimum locked cells before mesh uses locked-anchor gap-fill; default 3
+        :param int anchor_smooth_median_radius: Median-filter radius for anchor-smooth displacement regularization; default 1
         :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must still overlap by this minimum amount after being registered.
         :param float min_unmasked_area: Area of cell that must be unmasked in both images to utilize that cell
         :param bool single_thread_processing: True if the refinement should not use threads.  When set, arrays are not placed in shared memory
@@ -183,9 +204,22 @@ class GridRefinement:
         self.final_pass_angles = [0] if final_pass_angles is None else final_pass_angles
         self.num_iterations = 10 if num_iterations is None else num_iterations
         self.max_travel_for_finalization = np.sqrt(
-            np.max(cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization  # type: ignore[arg-type]
+            np.max(self.cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization  # type: ignore[arg-type]
         self.max_travel_for_finalization_improvement = float(
             "inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
+        self.min_finalize_pass = 2 if min_finalize_pass is None else int(min_finalize_pass)
+        self.finalize_stability_passes = (
+            2 if finalize_stability_passes is None else int(finalize_stability_passes))
+        self.finalize_stability_epsilon_px = (
+            0.5 if finalize_stability_epsilon_px is None else float(finalize_stability_epsilon_px))
+        self.finalize_unlock_travel_multiplier = (
+            1.5 if finalize_unlock_travel_multiplier is None
+            else float(finalize_unlock_travel_multiplier))
+        self.inclusion_travel_multiplier = (
+            1.0 if inclusion_travel_multiplier is None else float(inclusion_travel_multiplier))
+        self.anchor_smooth_min_locks = 3 if anchor_smooth_min_locks is None else int(anchor_smooth_min_locks)
+        self.anchor_smooth_median_radius = (
+            1 if anchor_smooth_median_radius is None else int(anchor_smooth_median_radius))
         self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
         self.min_unmasked_area = 0.49 if min_unmasked_area is None else min_unmasked_area
 
@@ -199,6 +233,13 @@ class GridRefinement:
                              final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
                                      max_travel_for_finalization: float | None = None,
                                      max_travel_for_finalization_improvement: float | None = None,
+                                     min_finalize_pass: int | None = None,
+                                     finalize_stability_passes: int | None = None,
+                                     finalize_stability_epsilon_px: float | None = None,
+                                     finalize_unlock_travel_multiplier: float | None = None,
+                                     inclusion_travel_multiplier: float | None = None,
+                                     anchor_smooth_min_locks: int | None = None,
+                                     anchor_smooth_median_radius: int | None = None,
                                      min_alignment_overlap: float | None = None,
                                      min_unmasked_area: float | None = None,
                                      single_thread_processing: bool = False) -> GridRefinement:
@@ -218,6 +259,13 @@ class GridRefinement:
                               final_pass_angles=final_pass_angles,
                               max_travel_for_finalization=max_travel_for_finalization,
                               max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                              min_finalize_pass=min_finalize_pass,
+                              finalize_stability_passes=finalize_stability_passes,
+                              finalize_stability_epsilon_px=finalize_stability_epsilon_px,
+                              finalize_unlock_travel_multiplier=finalize_unlock_travel_multiplier,
+                              inclusion_travel_multiplier=inclusion_travel_multiplier,
+                              anchor_smooth_min_locks=anchor_smooth_min_locks,
+                              anchor_smooth_median_radius=anchor_smooth_median_radius,
                               min_alignment_overlap=min_alignment_overlap,
                               min_unmasked_area=min_unmasked_area,
                               single_thread_processing=single_thread_processing)
@@ -236,6 +284,13 @@ class GridRefinement:
             final_pass_angles=None,
             max_travel_for_finalization: float | None = None,
             max_travel_for_finalization_improvement: float | None = None,
+            min_finalize_pass: int | None = None,
+            finalize_stability_passes: int | None = None,
+            finalize_stability_epsilon_px: float | None = None,
+            finalize_unlock_travel_multiplier: float | None = None,
+            inclusion_travel_multiplier: float | None = None,
+            anchor_smooth_min_locks: int | None = None,
+            anchor_smooth_median_radius: int | None = None,
             min_alignment_overlap: float | None = None,
             min_unmasked_area: float | None = None,
             single_thread_processing: bool = False) -> GridRefinement:
@@ -253,6 +308,13 @@ class GridRefinement:
                                                            final_pass_angles=final_pass_angles,
                                                            max_travel_for_finalization=max_travel_for_finalization,
                                                            max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                                                           min_finalize_pass=min_finalize_pass,
+                                                           finalize_stability_passes=finalize_stability_passes,
+                                                           finalize_stability_epsilon_px=finalize_stability_epsilon_px,
+                                                           finalize_unlock_travel_multiplier=finalize_unlock_travel_multiplier,
+                                                           inclusion_travel_multiplier=inclusion_travel_multiplier,
+                                                           anchor_smooth_min_locks=anchor_smooth_min_locks,
+                                                           anchor_smooth_median_radius=anchor_smooth_median_radius,
                                                            min_alignment_overlap=min_alignment_overlap,
                                                            min_unmasked_area=min_unmasked_area,
                                                            single_thread_processing=single_thread_processing)

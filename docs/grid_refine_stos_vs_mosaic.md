@@ -45,8 +45,8 @@ value.
 
 | Safeguard | Mosaic | STOS note |
 |-----------|--------|-----------|
-| Spatial displacement regularization | Always | Opt-in via `NORNIR_REFINE_STOS_REGULARIZE=1` |
-| Gap-fill for unmeasured vertices | Always | Omits failed cells |
+| Spatial displacement regularization | Always | Locked-anchor gap-fill once ``anchor_smooth_min_locks`` met (default 3); optional all-measured via ``NORNIR_REFINE_STOS_REGULARIZE=1`` |
+| Gap-fill for unmeasured vertices | Always | Locked-anchor mesh gap-fill when enough locks; early passes omit failed cells |
 | Dual stop (threshold + no improvement) | Always | Iteration / finalization based |
 | Atomic pass apply | Always | Rebuild is intentional |
 | Batched FFT measurement | Default on (`NORNIR_REFINE_BATCHED`) | Translation-only cells can use shared batched helper |
@@ -71,11 +71,52 @@ number; callers may still override per pipeline.
 | Mosaic `GridTransform` | Clean partial output and re-raise |
 | STOS `__RunPythonGridRefinementCmd` | Write sibling `*.unrefined.stos` (scaled input, else identity) for Pyre, leave official output absent, and re-raise |
 
+## STOS finalize / lock policy
+
+`RefineTransform` locks cells via `refine_shared.finalize` when **all** of these hold:
+
+- pass index ≥ `min_finalize_pass` (default **2**)
+- ‖peak‖ ≤ `max_travel_for_finalization`
+- weight ≥ transform-inclusion cutoff (same inflection bar as mesh inclusion)
+- peak stable for `finalize_stability_passes` consecutive passes (default **2**, ε ≈ 0.5 px)
+
+After each mesh update, locks that disagree with the transform prediction by more
+than `max_travel * finalize_unlock_travel_multiplier` (default **1.5**) are unlocked.
+Set the multiplier to **0** to disable unlock.
+
+Rollback: `NORNIR_REFINE_FINALIZE_LEGACY=1` restores distance-primary locking with
+a 2% weight floor (pre-fix behavior).
+
+### Anchor-smooth mesh (committed)
+
+Once `len(finalized_points) >= anchor_smooth_min_locks` (default **3**), mesh
+rebuild and final output use `regularize_displacements` seeded **only** from locked
+cells. Raw phase-correlation peaks still drive measurement and finalize; un-lockable
+cells receive gap-filled smoothed peaks for triangulation. Early passes with fewer
+locks keep the travel-filter + weight-cutoff mesh path.
+
+Settings on `GridRefinement`: `anchor_smooth_min_locks`, `anchor_smooth_median_radius`
+(default **1**, same as mosaic).
+
+### Manual regression checklist
+
+When validating against real data (optional CI when `INPUT_NORNIR_DATA` is set):
+
+1. **Composite seam pair** — re-run refine-grid with `SavePlots=True`; locks should
+   not appear along a vertical seam until weights are strong and peaks stable;
+   Composite view should not show a left/right color discontinuity.
+2. **RC2 TEM pair** — e.g. Brute64→Grid for `1453-1452` or a known `1024` section;
+   compare overlay / displacement RMS along the former seam; pass logs should show
+   fewer early locks and any unlock events in the problem region.
+
+Unit coverage: `tests/test_refine_finalize_gate.py`.
+
 ## Runtime configuration
 
 See `nornir_imageregistration.refine_shared.RefineRuntimeConfig` for
 `NORNIR_REFINE_*` env gates (batched measurement, prewarp mode, mosaic cutoff,
-STOS regularize, phase timing, GPU transform, tile parallelism).
+STOS regularize, phase timing, GPU transform, tile parallelism,
+`NORNIR_REFINE_FINALIZE_LEGACY`).
 
 ## Related docs
 

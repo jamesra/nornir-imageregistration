@@ -45,6 +45,18 @@ from nornir_imageregistration.refine_shared import (
     measure_translation_cell,
     measure_translation_cells_batched,
     regularize_displacements as shared_regularize_displacements,
+    FinalizeCandidateState,
+    FinalizeSettings,
+    evaluate_finalize_candidates,
+    filter_records_for_mesh_inclusion,
+    legacy_finalize_mask,
+    unlock_stale_finalized,
+    use_legacy_finalize_gate,
+    AnchorSmoothSettings,
+    should_use_anchor_smooth_mesh,
+    smooth_peaks_from_locked_anchors,
+    RefineGridProgressReporter,
+    count_initial_grid_points,
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 import nornir_pools
@@ -879,15 +891,10 @@ def _maybe_regularize_stos_alignment_peaks(
     return updated
 
 
-def _batched_roi_sample_budget() -> int:
+def _batched_roi_sample_budget(cell_h: int, cell_w: int) -> int:
     """Max (cells * H * W) samples per ``map_coordinates`` launch for batched ROI extract."""
-    raw = os.environ.get('NORNIR_REFINE_BATCHED_ROI_SAMPLES', '').strip()
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            pass
-    return 16_000_000
+    from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_roi_sample_budget
+    return batched_roi_sample_budget(cell_h, cell_w)
 
 
 def _alignment_roi_botlefts(target_points: NDArray,
@@ -973,7 +980,7 @@ def _sample_source_rois_batched(source_image: NDArray,
     preserve_oob_sentinel = bool(np.isnan(oob_cval_float) or oob_cval_float < min_val or oob_cval_float > max_val)
 
     samples_per_cell = cell_h * cell_w
-    chunk_cells = max(1, _batched_roi_sample_budget() // max(1, samples_per_cell))
+    chunk_cells = max(1, _batched_roi_sample_budget(cell_h, cell_w) // max(1, samples_per_cell))
     outputs: list[NDArray] = []
     use_gpu = xp is not np
     lock = nornir_imageregistration.assemble._gpu_warp_lock if use_gpu else contextlib.nullcontext()
@@ -2404,6 +2411,13 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                    final_pass_angles: NDArray[np.floating] | Sequence[float] | None = None,
                    max_travel_for_finalization: float | None = None,
                    max_travel_for_finalization_improvement: float | None = None,
+                   min_finalize_pass: int | None = None,
+                   finalize_stability_passes: int | None = None,
+                   finalize_stability_epsilon_px: float | None = None,
+                   finalize_unlock_travel_multiplier: float | None = None,
+                   inclusion_travel_multiplier: float | None = None,
+                   anchor_smooth_min_locks: int | None = None,
+                   anchor_smooth_median_radius: int | None = None,
                    min_alignment_overlap: float | None = None,
                    min_unmasked_area: float | None = None,
                    SaveImages: bool = False,
@@ -2416,6 +2430,8 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
     using the configured settings, converts the result to a grid transform, and
     writes the updated STOS file to ``OutputStosPath``.
     """
+
+    progress_depth_base = int(kwargs.pop("progress_depth_base", 0))
 
     for k, v in kwargs.items():
         prettyoutput.Log(f"\tUnused parameter to RefineStosFile: {k}:{v}\n")
@@ -2451,15 +2467,26 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
             final_pass_angles=final_pass_angles,  # type: ignore[arg-type]
             max_travel_for_finalization=max_travel_for_finalization,  # type: ignore[arg-type]
             max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,  # type: ignore[arg-type]
+            min_finalize_pass=min_finalize_pass,
+            finalize_stability_passes=finalize_stability_passes,
+            finalize_stability_epsilon_px=finalize_stability_epsilon_px,
+            finalize_unlock_travel_multiplier=finalize_unlock_travel_multiplier,
+            inclusion_travel_multiplier=inclusion_travel_multiplier,
+            anchor_smooth_min_locks=anchor_smooth_min_locks,
+            anchor_smooth_median_radius=anchor_smooth_median_radius,
             min_alignment_overlap=min_alignment_overlap,  # type: ignore[arg-type]
             min_unmasked_area=min_unmasked_area,  # type: ignore[arg-type]
             single_thread_processing=False) as settings:
 
-        output_transform = RefineTransform(stosTransform,
-                                           settings,
-                                           SaveImages=SaveImages,
-                                           SavePlots=SavePlots,
-                                           outputDir=outputDir)
+        try:
+            output_transform = RefineTransform(stosTransform,
+                                               settings,
+                                               SaveImages=SaveImages,
+                                               SavePlots=SavePlots,
+                                               outputDir=outputDir,
+                                               progress_depth_base=progress_depth_base)
+        finally:
+            _release_refinement_worker_memory()
 
         InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(output_transform,
                                                                                                   source_image_shape=settings.source_image.shape,  # type: ignore[arg-type]
@@ -2472,7 +2499,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     settings: nornir_imageregistration.settings.GridRefinement,
                     SaveImages: bool = False,
                     SavePlots: bool = False,
-                    outputDir: str | None = None) -> nornir_imageregistration.ITransform:
+                    outputDir: str | None = None,
+                    progress_depth_base: int = 0) -> nornir_imageregistration.ITransform:
     """
     Iteratively refine a source-to-target transform from local alignment points.
 
@@ -2489,22 +2517,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     final_pass = False  # True if this is the last iteration the loop will perform
 
     finalized_points = {}  # type: AlignmentRecordDict
+    finalize_candidates: dict[tuple[int, int], FinalizeCandidateState] = {}
+    finalize_settings = FinalizeSettings.from_grid_refinement(settings)
+    legacy_finalize = use_legacy_finalize_gate()
+    if legacy_finalize:
+        prettyoutput.Log(
+            'NORNIR_REFINE_FINALIZE_LEGACY=1: using distance-primary finalize with 2% weight floor')
 
     CutoffPercentilePerIteration = 10.0
-
-    # Distance-to-prediction is the primary finalize gate (see commit 7fd3dbb58: the
-    # percentile-based weight cutoff previously used to gate finalization rejected too
-    # many otherwise-good points and was zeroed out, relying on the movement check plus
-    # TryToImproveAlignments' later re-checks as the safety net instead). That safety net
-    # only *replaces* a finalized point when a strictly better-weighted match turns up
-    # nearby -- it never un-finalizes a point outright, so a spuriously low-weight match
-    # that happens to land within the travel tolerance and for which no better nearby
-    # match ever appears can stay locked with a bad measurement indefinitely. Reject just
-    # the extreme low tail of each pass's own weight distribution (a percentile of that
-    # pass's weights, not a fixed magic number) to filter obviously noise-level
-    # correlations before they can ever be finalized, while leaving distance as the main
-    # criterion.
-    FinalizeWeightFloorPercentile = 2.0
 
     FirstPassWeightScoreCutoff = None
     FirstPassCompositeScoreCutoff = None
@@ -2526,6 +2546,13 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     first_cutoff = None  # The first cutoff value, we use this to decide which points make it into the final transform
 
     _PHASE_TIMER.reset()
+
+    initial_grid_count = count_initial_grid_points(stosTransform, settings)
+    progress_reporter = RefineGridProgressReporter(
+        settings.num_iterations,
+        initial_grid_count,
+        depth_base=progress_depth_base,
+    )
 
     while i <= settings.num_iterations:
         pass_phase_baseline = _PHASE_TIMER.snapshot()
@@ -2550,6 +2577,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
 
         prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
+
+        progress_reporter.on_pass_start(i)
 
         updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
         updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
@@ -2612,64 +2641,97 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             f'Transform inclusion cutoff this pass: {transform_cutoff_percentile}% -> {transform_cutoff_value}\n' +
             f'Exponential Moving Average transform inclusion cutoff: {cutoff_ema.ema_value}\n')
 
-        # finalize_percentile_this_pass = ((100 - cutoff_percentile) / 2.0) + cutoff_percentile
+        anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+        n_travel_dropped = 0
+        inclusion_travel = float(settings.max_travel_for_finalization) * float(
+            getattr(settings, 'inclusion_travel_multiplier', 1.0))
+        if anchor_smooth_active:
+            mesh_alignment_points = smooth_peaks_from_locked_anchors(
+                finalized_points,
+                alignment_points,
+                stosTransform,
+                settings,
+            )
+            prettyoutput.Log(
+                f'Anchor-smooth mesh: {len(finalized_points)} locked seeds, '
+                f'{len(mesh_alignment_points)} cells in smoothed field')
+            (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
+                mesh_alignment_points,
+                WeightMethod.Registration,  # type: ignore[arg-type]
+                None,
+                percentile=None,
+                cutoff=float('-inf'))
+        else:
+            # Exclude free points whose residual travel exceeds the inclusion travel bar.
+            # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
+            # outliers reshaped the triangulation while locks stayed near 2% (228-229 Grid16).
+            mesh_alignment_points, n_travel_dropped = filter_records_for_mesh_inclusion(
+                alignment_points,
+                max_travel=inclusion_travel,
+                min_keep=max(3, 3 - len(finalized_points)),
+            )
+            if n_travel_dropped > 0:
+                prettyoutput.Log(
+                    f'Dropped {n_travel_dropped} free points from mesh inclusion '
+                    f'(peak travel > {inclusion_travel:.3g}); '
+                    f'{len(mesh_alignment_points)} remain for weight cutoff')
 
-        (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
-            alignment_points,
-            WeightMethod.Registration,  # type: ignore[arg-type]
-            AlignRecordsToControlPoints(finalized_points.values()),  # type: ignore[arg-type]
-            percentile=transform_cutoff_percentile,
-            cutoff=transform_cutoff_value)
+            (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
+                mesh_alignment_points,
+                WeightMethod.Registration,  # type: ignore[arg-type]
+                AlignRecordsToControlPoints(finalized_points.values()),  # type: ignore[arg-type]
+                percentile=transform_cutoff_percentile,
+                cutoff=transform_cutoff_value)
 
         prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
-        # if FirstPassCompositeScoreCutoff is None:
-        #    FirstPassCompositeScoreCutoff = np.percentile(weight_distance_composite_scores[:, 2], 100.0 - percentile)
-        #    FirstPassWeightScoreCutoff = np.percentile(weight_distance_composite_scores[:, 0], percentile)
-
-        # if FirstPassFinalizeValue is not None:
-        # cutoff_range = np.abs(FirstPassFinalizeValue - FirstPassWeightScoreCutoff)
-        # fraction = i / (settings.num_iterations - 1)
-        # FirstPassFinalizeValue - (cutoff_range * fraction)
-
-        finalize_percentile_this_pass = cutoff_percentile_this_pass  # ((inflection_percentile + transform_cutoff_percentile) / 2.0) + transform_cutoff_value
-        finalize_cutoff_this_pass = np.percentile(polyfit_weights,  # type: ignore[arg-type]
-                                                  finalize_percentile_this_pass)
-        finalize_ema.add(finalize_cutoff_this_pass)  # type: ignore[arg-type]
+        finalize_percentile_this_pass = cutoff_percentile_this_pass
+        finalize_cutoff_this_pass = float(np.percentile(polyfit_weights,  # type: ignore[arg-type]
+                                                        finalize_percentile_this_pass))
+        finalize_ema.add(finalize_cutoff_this_pass)
 
         if final_pass:
-            finalize_cutoff_this_pass = first_cutoff
+            finalize_cutoff_this_pass = first_cutoff  # type: ignore[assignment]
 
-        # finalize_percentile_this_pass = cutoff_percentile
-        # finalize_cutoff = cutoff_value_this_pass
+        # Unlock stale locks that disagree with the updated mesh before adding new locks.
+        unlocked_keys: list[tuple[int, int]] = []
+        if updatedTransform is not None and len(finalized_points) > 0 and not legacy_finalize:
+            finalized_points, unlocked_keys = unlock_stale_finalized(
+                finalized_points, updatedTransform, finalize_settings)
 
-        # finalize_percentile_this_pass = cutoff_percentile
-        # finalize_cutoff = finalize_cutoff_this_pass
-
-        # Distance is still the primary finalize gate (see FinalizeWeightFloorPercentile
-        # comment above) -- this is a low floor, not the earlier strict percentile cutoff.
-        finalize_percentile_this_pass = FinalizeWeightFloorPercentile
-        finalize_cutoff_this_pass = float(np.percentile(polyfit_weights, FinalizeWeightFloorPercentile))
-        finalize_cutoff = finalize_cutoff_this_pass
-
-        if i != 0:
+        if legacy_finalize:
+            finalize_cutoff = float(np.percentile(polyfit_weights, 2.0))
+            new_finalized_points = legacy_finalize_mask(
+                alignment_points,
+                max_travel_distance=settings.max_travel_for_finalization,
+                polyfit_weights=polyfit_weights,
+                floor_percentile=2.0)
+            deferred_stability = 0
             prettyoutput.Log(
-                f'Finalize cutoff this pass: {finalize_percentile_this_pass}% -> {finalize_cutoff_this_pass}\n' +
-                f'Finalize Exponential Moving Average Cutoff calculated: {finalize_ema.ema_value}\n#####\n')
-
-            new_finalized_points = CalculateFinalizedAlignmentPointsMask(alignment_points,
-                                                                         percentile=finalize_percentile_this_pass,
-                                                                         max_travel_distance=settings.max_travel_for_finalization,
-                                                                         weight_cutoff=finalize_cutoff)
-            new_finalized_alignments_list = list(
-                filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+                f'Finalize cutoff this pass (legacy): 2% -> {finalize_cutoff}\n#####\n')
         else:
-            new_finalized_points = np.empty(())
-            new_finalized_alignments_list = []
+            # Transform-inclusion cutoff is the lock weight bar: a point that is not
+            # good enough to shape the mesh must not become a permanent anchor.
+            finalize_cutoff = float(transform_cutoff_value)
+            eval_result = evaluate_finalize_candidates(
+                alignment_points,
+                transform_cutoff=finalize_cutoff,
+                settings=finalize_settings,
+                pass_index=i,
+                prior_candidates=finalize_candidates,
+            )
+            new_finalized_points = eval_result.lock_mask
+            finalize_candidates = eval_result.candidates
+            deferred_stability = eval_result.deferred_stability_count
+            prettyoutput.Log(
+                f'Finalize cutoff this pass: transform inclusion -> {finalize_cutoff}\n' +
+                f'  rejected weight={eval_result.rejected_weight_count} '
+                f'travel={eval_result.rejected_travel_count} '
+                f'pass={eval_result.rejected_pass_count} '
+                f'deferred_stability={deferred_stability}\n#####\n')
 
-        # if FirstPassFinalizeValue is None:
-        #     FirstPassFinalizeValue = np.percentile(weight_distance_composite_scores[:, 0],
-        #                                            finalize_percentile_this_pass)
+        new_finalized_alignments_list = list(
+            filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
 
         if first_pass_weight_distance_composite_scores is None:
             first_pass_weight_distance_composite_scores = weight_distance_composite_scores
@@ -2685,20 +2747,88 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                                                          finalized_points,
                                                                          settings)
 
-        finalized_points = {**finalized_points, **new_finalized_alignments_dict}
+        # Bake new locks immediately (peak -> TargetPoint) so unlock/mesh see Adjusted==Target.
+        baked_new_locks: AlignmentRecordDict = {}
+        for key, rec in new_finalized_alignments_dict.items():
+            baked_new_locks[key] = nornir_imageregistration.EnhancedAlignmentRecord(
+                rec.ID,
+                TargetPoint=rec.AdjustedTargetPoint,
+                SourcePoint=rec.SourcePoint,
+                peak=np.asarray((0, 0), dtype=np.float32),
+                weight=rec.weight,
+                angle=0,
+                flipped_ud=rec.flippedud,
+            )
+        finalized_points = {**finalized_points, **baked_new_locks}
+        # Drop candidate tracking for cells that just locked.
+        for key in baked_new_locks:
+            finalize_candidates.pop(key, None)
 
         prettyoutput.Log(
-            f"Pass {i} has locked {new_finalization_count} new points, {len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
-
-        # (improved_finalized_dict, improved_alignments) = TryToImproveAlignments(updatedTransform,
-        #                                                                         finalized_points,
-        #                                                                         settings)
-
-        # new_finalization_count = len(improved_finalized_dict)
-        # finalized_points = {**finalized_points, **improved_finalized_dict}
+            f"Pass {i} has locked {new_finalization_count} new points, "
+            f"unlocked {len(unlocked_keys)}, deferred_stability {deferred_stability}; "
+            f"{len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
 
         prettyoutput.Log(
             f"  Improved {len(improved_alignments)} finalized points using latest transform")
+
+        progress_reporter.on_pass_locked(
+            i,
+            len(finalized_points),
+            len(updated_and_finalized_alignment_points),
+        )
+
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            _peaks = np.asarray(
+                [np.linalg.norm(np.asarray(a.peak, dtype=np.float64)) for a in included_alignment_records],
+                dtype=np.float64) if included_alignment_records else np.zeros(0)
+            _raw_free_peaks = np.asarray(
+                [np.linalg.norm(np.asarray(a.peak, dtype=np.float64))
+                 for a in alignment_points if a.ID not in finalized_points],
+                dtype=np.float64) if alignment_points else np.zeros(0)
+            _payload = {
+                'sessionId': '6f4e34',
+                'runId': 'anchor-smooth',
+                'hypothesisId': 'F,G,H',
+                'location': 'local_distortion_correction.py:RefineTransform',
+                'message': 'pass finalize stats',
+                'data': {
+                    'pass': i,
+                    'legacy': legacy_finalize,
+                    'anchor_smooth_active': anchor_smooth_active,
+                    'n_locked_seeds': len(finalized_points),
+                    'n_mesh_cells': len(mesh_alignment_points),
+                    'n_measured': len(alignment_points),
+                    'n_mesh_candidates': len(mesh_alignment_points),
+                    'n_travel_dropped': n_travel_dropped,
+                    'inclusion_travel': inclusion_travel,
+                    'n_included': len(included_alignment_records),
+                    'transform_cutoff': float(transform_cutoff_value),
+                    'finalize_cutoff': float(finalize_cutoff),
+                    'n_locked_new': new_finalization_count,
+                    'n_unlocked': len(unlocked_keys),
+                    'n_locked_total': len(finalized_points),
+                    'n_candidates': len(finalize_candidates),
+                    'deferred_stability': deferred_stability,
+                    'lock_frac': (len(finalized_points) /
+                                  max(1, len(updated_and_finalized_alignment_points))),
+                    'included_peak_max': float(np.max(_peaks)) if _peaks.size else 0.0,
+                    'included_peak_p95': float(np.percentile(_peaks, 95)) if _peaks.size else 0.0,
+                    'included_peak_mean': float(np.mean(_peaks)) if _peaks.size else 0.0,
+                    'smoothed_peak_p95': float(np.percentile(_peaks, 95)) if anchor_smooth_active and _peaks.size else 0.0,
+                    'raw_free_peak_p95': float(np.percentile(_raw_free_peaks, 95)) if _raw_free_peaks.size else 0.0,
+                    'max_travel': float(settings.max_travel_for_finalization),
+                },
+                'timestamp': int(_time.time() * 1000),
+            }
+            with open('/workspace/.cursor/debug-6f4e34.log', 'a', encoding='utf-8') as _f:
+                _f.write(_json.dumps(_payload) + '\n')
+        except Exception:
+            pass
+        # #endregion
 
         if SavePlots:
             np.savez(os.path.join(outputDir,  # type: ignore[arg-type]
@@ -2738,17 +2868,26 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             #                                             xlim=(0, settings.target_image.shape[0]),
             #                                             attrib='PSDDelta')
 
-        # Update the transform with the adjusted points
-        combined_records_this_pass = {a.ID: a for a in included_alignment_records}
-        if len(improved_alignments) > 0:
-            for item in finalized_points.items():
-                combined_records_this_pass[item[0]] = item[1]
+        # Always merge locks into the pass control set (previously only when TryToImprove
+        # reported improvements, which dropped fixed anchors on many passes).
+        if anchor_smooth_active:
+            smoothed_pass_records = smooth_peaks_from_locked_anchors(
+                finalized_points,
+                list({a.ID: a for a in included_alignment_records}.values()),
+                updatedTransform,
+                settings,
+            )
+            combined_records_this_pass = {rec.ID: rec for rec in smoothed_pass_records}
+        else:
+            combined_records_this_pass = {a.ID: a for a in included_alignment_records}
+            combined_records_this_pass.update(finalized_points)
 
-            if len(combined_records_this_pass) > 2:
-                print(
-                    f'Building transform for next round with {len(included_alignment_records)} points and {len(finalized_points)} finalized points')
-                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                    AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
+        if len(combined_records_this_pass) > 2:
+            prettyoutput.Log(
+                f'Building transform for next round with {len(included_alignment_records)} free '
+                f'and {len(finalized_points)} finalized points')
+            updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
 
         if SaveImages:
             # InputStos.Save(os.path.join(outputDir, "UpdatedTransform_pass{0}.stos".format(i)))
@@ -2778,11 +2917,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         if i == settings.num_iterations - 1:  # Check if the next pass is the final pass
             final_pass = True
 
-            # If we've locked 10% of the points and have not locked any new ones we are done
+        # If we've locked 10% of the points and have not locked any new ones we are done
         if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
             final_pass = True
 
-            # If we've locked 90% of the points we are done
+        # If we've locked 90% of the points we are done
         if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
             final_pass = True
 
@@ -2800,15 +2939,64 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     #     final_transform = updatedTransform
     final_transform = stosTransform
 
-    (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(stosTransform, combined_records_this_pass,
-                                                                      settings)
+    final_anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+    if final_anchor_smooth_active:
+        final_mesh_records = smooth_peaks_from_locked_anchors(
+            finalized_points,
+            list(combined_records_this_pass.values()),
+            stosTransform,
+            settings,
+        )
+        final_control_records = {rec.ID: rec for rec in final_mesh_records}
+        prettyoutput.Log(
+            f'Final anchor-smooth mesh: {len(finalized_points)} locked seeds, '
+            f'{len(final_mesh_records)} cells')
+    else:
+        final_control_records = combined_records_this_pass
+
+    (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(
+        stosTransform, final_control_records, settings)
     prettyoutput.Log(
-        f'Final tuning of points adjusted {len(improved_alignments)} of {len(combined_records_this_pass)} points')
+        f'Final tuning of points adjusted {len(nudged_point_keys)} of '
+        f'{len(final_control_records)} points')
 
     # Return a transform built from the finalized points
     if len(nudged_final_points) >= 3:
         final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
             AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
+
+    # #region agent log
+    try:
+        import json as _json
+        import time as _time
+        _pairs = AlignRecordsToControlPoints(nudged_final_points.values()) if nudged_final_points else np.zeros((0, 4))
+        _disp = (np.asarray(_pairs[:, 0:2], dtype=np.float64) - np.asarray(_pairs[:, 2:4], dtype=np.float64)
+                 ) if getattr(_pairs, 'shape', (0,))[0] else np.zeros((0, 2))
+        _dmag = np.linalg.norm(_disp, axis=1) if len(_disp) else np.zeros(0)
+        _payload = {
+            'sessionId': '6f4e34',
+            'runId': 'anchor-smooth',
+            'hypothesisId': 'G,I',
+            'location': 'local_distortion_correction.py:RefineTransform:return',
+            'message': 'final transform control-point stats',
+            'data': {
+                'anchor_smooth_active': final_anchor_smooth_active,
+                'n_finalized': len(finalized_points),
+                'n_combined_input': len(final_control_records),
+                'n_nudged_final': len(nudged_final_points),
+                'disp_max': float(np.max(_dmag)) if _dmag.size else 0.0,
+                'disp_p95': float(np.percentile(_dmag, 95)) if _dmag.size else 0.0,
+                'disp_mean': float(np.mean(_dmag)) if _dmag.size else 0.0,
+            },
+            'timestamp': int(_time.time() * 1000),
+        }
+        with open('/workspace/.cursor/debug-6f4e34.log', 'a', encoding='utf-8') as _f:
+            _f.write(_json.dumps(_payload) + '\n')
+    except Exception:
+        pass
+    # #endregion
+
+    progress_reporter.on_complete()
 
     _log_phase_breakdown('RefineTransform total', {})
 
@@ -3270,7 +3458,10 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList
                                           percentile: float = 0.5, max_travel_distance: float = 1.0,
                                           weight_cutoff: float | None = None) -> NDArray[np.bool_]:
     """
-    Select points eligible for finalization by weight and travel-distance cutoffs.
+    Select points by weight and travel-distance cutoffs (legacy / tests).
+
+    STOS ``RefineTransform`` uses ``refine_shared.finalize.evaluate_finalize_candidates``
+    instead; keep this helper for travel+weight-only checks and legacy callers.
     """
     weights_distance = _alignment_records_to_composite_scores(alignment_records)
     # invert the weights to multiply by distance to promote low distance alignments 
