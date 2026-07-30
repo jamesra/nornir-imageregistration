@@ -515,7 +515,11 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
         np.integer]:
-        self._points[index, 0:2] = point
+        xp = cp.get_array_module(self._points)
+        point_xp = xp.asarray(point)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 0:2] = point_xp
         self.OnFixedPointChanged()
         return index
 
@@ -860,7 +864,11 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
         np.integer]:
-        self._points[index, 0:2] = point
+        xp = cp.get_array_module(self._points)
+        point_xp = xp.asarray(point)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 0:2] = point_xp
         self.OnFixedPointChanged()
         return index
 
@@ -1141,7 +1149,11 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
     def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
         np.integer]:
-        self._points[index, 0:2] = point
+        xp = cp.get_array_module(self._points)
+        point_xp = xp.asarray(point)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 0:2] = point_xp
         self.OnFixedPointChanged()
         return index
 

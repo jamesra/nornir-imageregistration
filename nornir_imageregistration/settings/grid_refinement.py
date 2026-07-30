@@ -117,9 +117,9 @@ class GridRefinement:
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
         contains a class to aid in masking input images.
 
-        :param target_image: ndarray or path to file, fixed space image
-        :param source_image: ndarray or path to file, source space image
-        :param target_mask: ndarray or path to file, fixed space image mask
+        :param target_image: ndarray or path to file, target space (control/reference) image
+        :param source_image: ndarray or path to file, source space (mapped) image
+        :param target_mask: ndarray or path to file, target space image mask
         :param source_mask: ndarray or path to file, source space image mask
         :param int num_iterations: The maximum number of iterations to perform
         :param tuple cell_size: (width, height) area of image around control points to use for registration
@@ -135,7 +135,7 @@ class GridRefinement:
         :param float inclusion_travel_multiplier: Free points with ‖peak‖ > max_travel * this are excluded from mesh inclusion; default 1.0
         :param int anchor_smooth_min_locks: Minimum locked cells before mesh uses locked-anchor gap-fill; default 3
         :param int anchor_smooth_median_radius: Median-filter radius for anchor-smooth displacement regularization; default 1
-        :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from fixed and target space must still overlap by this minimum amount after being registered.
+        :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from source and target space must still overlap by this minimum amount after being registered.
         :param float min_unmasked_area: Area of cell that must be unmasked in both images to utilize that cell
         :param bool single_thread_processing: True if the refinement should not use threads.  When set, arrays are not placed in shared memory
         :param bool cupy_processing: True if the refinement will be done on the GPU.  When set, arrays are created as cupy arrays instead of NDArrays

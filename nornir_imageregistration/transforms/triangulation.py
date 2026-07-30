@@ -621,7 +621,8 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return cast(int, index)
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
-        self._points[index, :] = pointpair
+        xp = cp.get_array_module(self._points)
+        self._points[index, :] = xp.asarray(pointpair)
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
@@ -629,7 +630,12 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         return cast(int, nearest_index)
 
     def UpdateFixedPoints(self, index: Any, points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        self._points[index, 0:2] = points
+        # Callers (e.g. Pyre MovePoint) often pass NumPy points; _points is CuPy.
+        xp = cp.get_array_module(self._points)
+        points_xp = xp.asarray(points)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 0:2] = points_xp
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
@@ -650,7 +656,11 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def UpdateWarpedPoints(self, index: Any,
                            points: NDArray[np.floating]) -> int | NDArray[
         np.integer]:
-        self._points[index, 2:4] = points
+        xp = cp.get_array_module(self._points)
+        points_xp = xp.asarray(points)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 2:4] = points_xp
         self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 

@@ -710,8 +710,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
     """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
 
-       :param target_image: Source
-       :param source_image: Target
+       :param target_image: Control/reference image (target space)
+       :param source_image: Mapped/moving image (source space)
        :param target_mask:
        :param source_mask:
        :param SingleThread:
@@ -721,8 +721,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
        :param int LargestDimension: The input images should be scaled so the largest image dimension is equal to this value, default is None
        :param float MinOverlap: The minimum amount of overlap we require in the images.  Higher values reduce false positives but may not register offset images
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
-       :param float WarpedImageScaleFactors: Scale the warped image input by this amount before attempting registration
-       :param float initial_scale_hint: Total scale on warped image (e.g. current transform) to seed scale search
+       :param float WarpedImageScaleFactors: Scale the source image input by this amount before attempting registration
+       :param float initial_scale_hint: Total scale on source image (e.g. current transform) to seed scale search
        """
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 

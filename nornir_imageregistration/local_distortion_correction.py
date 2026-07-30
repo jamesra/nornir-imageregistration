@@ -3011,7 +3011,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
     Build a refinement grid, remove masked/finalized cells, and align remaining cells.
     """
 
-    # Mark a grid along the fixed image, then find the points on the warped image
+    # Regular grid on the source image (SourcePoints), then target positions via Transform(SourcePoints).
 
     grid_data = nornir_imageregistration.grid_subdivision.CenteredGridDivision(settings.source_image.shape,  # type: ignore[attr-defined]
                                                                                cell_size=settings.cell_size,
@@ -3035,15 +3035,6 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                 f"All grid points already finalized ({len(finalized)}); nothing left to measure")
             return []
 
-    # grid_dims = nornir_imageregistration.TileGridShape(target_image.shape, grid_spacing)
-
-    # Create target points from grid coordinates
-    #    TargetPoints = coords * grid_spacing  # [np.asarray((iCol * grid_spacing[0], iRow * grid_spacing[1]), dtype=np.int32) for (iRow, iCol) in coords]
-
-    # Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
-    #    overage = ((grid_dims * grid_spacing) - target_image.shape) / 2.0
-    #    TargetPoints = np.round(TargetPoints - overage).astype(np.int64)
-    # TODO, ensure fixedPoints are within the bounds of target_image
     grid_data.FilterOutofBoundsSourcePoints(settings.source_image.shape, allow_empty=allow_empty)
     grid_data.RemoveCellsUsingSourceImageMask(settings.source_mask, settings.min_unmasked_area,
                                               allow_empty=allow_empty)

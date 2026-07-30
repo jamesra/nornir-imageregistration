@@ -108,7 +108,8 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         return index
 
     def UpdatePointPair(self, index: int, pointpair: NDArray[np.floating]):
-        self._points[index, :] = pointpair
+        xp = cp.get_array_module(self._points)
+        self._points[index, :] = xp.asarray(pointpair)
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self.points)
         self.OnTransformChanged()
 
@@ -116,7 +117,11 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         return index
 
     def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
-        self._points[index, 0:2] = points
+        xp = cp.get_array_module(self._points)
+        points_xp = xp.asarray(points)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 0:2] = points_xp
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
         self.OnFixedPointChanged()
 
@@ -132,7 +137,11 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
 
     def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
         np.integer]:
-        self._points[index, 2:4] = points  # type: ignore[index]
+        xp = cp.get_array_module(self._points)
+        points_xp = xp.asarray(points)
+        if not isinstance(index, (int, np.integer)):
+            index = xp.asarray(index)
+        self._points[index, 2:4] = points_xp  # type: ignore[index]
         self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
         self.OnWarpedPointChanged()
 
