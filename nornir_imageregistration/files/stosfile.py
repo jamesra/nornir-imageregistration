@@ -16,6 +16,24 @@ import nornir_shared.prettyoutput as PrettyOutput
 _logger = logging.getLogger(__name__)
 
 
+def paths_refer_to_same_file(left: str | None, right: str | None) -> bool:
+    """Return True when both paths are None or resolve to the same absolute location.
+
+    Used by buildmanager stale checks so relative-on-disk vs absolute-in-memory
+    paths (after :meth:`StosFile.Load`) compare correctly.
+    """
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        left_norm = os.path.normcase(os.path.normpath(os.path.abspath(left)))
+        right_norm = os.path.normcase(os.path.normpath(os.path.abspath(right)))
+    except (OSError, TypeError, ValueError):
+        return False
+    return left_norm == right_norm
+
+
 def _normalize_stos_path(path: str) -> str:
     """Normalize a path for on-disk STOS files using forward slashes."""
     return os.path.normpath(path).replace(os.sep, '/')
@@ -36,7 +54,13 @@ def _can_express_relative(full_path: str, stos_dir: str) -> bool:
 
 
 def _path_for_stos_file(full_path: str, stos_dir: str) -> str:
-    """Return a relative path when possible, otherwise a normalized absolute path."""
+    """Return a relative path when possible, otherwise a normalized absolute path.
+
+    Relative paths are preferred so ``.stos`` files remain portable within a
+    volume tree. When *full_path* and *stos_dir* do not share a common root
+    (cross-drive on Windows, mismatched UNC shares), an absolute path is
+    written and a warning is logged — there is no portable relative form.
+    """
     if _can_express_relative(full_path, stos_dir):
         relative = os.path.relpath(os.path.normpath(full_path), os.path.normpath(stos_dir))
         return _normalize_stos_path(relative)
@@ -431,7 +455,13 @@ class StosFile(object):
         self._Downsample *= scalar  # type: ignore[operator]
 
     def Save(self, filename: str, AddMasks: bool = True, relative_paths: bool = True):
-        """Write this STOS file to disk, preferring relative image paths when expressible."""
+        """Write this STOS file to disk, preferring relative image paths when expressible.
+
+        Image and mask lines are stored relative to ``dirname(filename)`` when
+        possible. Cross-drive or incompatible UNC paths fall back to absolute
+        (see :func:`_path_for_stos_file`). After :meth:`Load`, in-memory
+        ``*FullPath`` fields are absolute again.
+        """
         OutLines = list()
         stos_dir = os.path.dirname(os.path.abspath(filename))
 

@@ -217,6 +217,38 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
                     nornir_imageregistration.ComputationLib.cupy,
                 )
 
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_logpolar_host_boundary_accepts_mixed_cupy_numpy(self) -> None:
+        """skimage host pull must not call .get() on a NumPy target when source is CuPy.
+
+        Pyre single-point align can hand SliceToSliceRigidRegistration mixed ROIs.
+        """
+        import cupy as cp
+
+        rng = np.random.default_rng(0)
+        source_np = rng.random((64, 64), dtype=np.float32)
+        target_np = scipy.ndimage.rotate(source_np, 15.0, reshape=False)
+        source_stats = nornir_imageregistration.ImageStats.CalcStats(source_np)
+        target_stats = nornir_imageregistration.ImageStats.CalcStats(target_np)
+
+        result = stos_brute._find_angle_and_scale_with_logpolar(
+            source_image=cp.asarray(source_np),
+            target_image=target_np,
+            source_stats=source_stats,
+            target_stats=target_stats,
+            min_overlap=0.5,
+        )
+        self.assertIsInstance(result.angle, float)
+
+        result_swapped = stos_brute._find_angle_and_scale_with_logpolar(
+            source_image=source_np,
+            target_image=cp.asarray(target_np),
+            source_stats=source_stats,
+            target_stats=target_stats,
+            min_overlap=0.5,
+        )
+        self.assertIsInstance(result_swapped.angle, float)
+
     def test_idoc_690_691_matches_stos_brute_reference(self) -> None:
         """690 registers into 691; angle should match the StosBrute16 .stos transform."""
         paths = _idoc_section016_paths(os.environ.get("TESTOUTPUTPATH"))

@@ -76,12 +76,14 @@ def measure_translation_cells_batched(
         max_overlap: float = 1.0,
         correlation_coefficient: Optional[float] = None,
         centroid_radius: int = 1
-) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Batched translation measurement over ``(N, h, w)`` cell stacks.
 
     Thin wrapper around ``batched_phase_correlation.batched_find_offset`` so mosaic
     and STOS callers share one entry point. Large batches are chunked to cap GPU
     FFT workspace (see ``NORNIR_REFINE_BATCHED_FFT_CELLS``).
+
+    :return: ``(peaks, weights, peak_ratios)`` on the input array module.
     """
     num_cells = int(fixed_cells.shape[0])
     chunk_size = batched_fft_cell_chunk_size(fixed_cells.shape[1:])
@@ -98,9 +100,10 @@ def measure_translation_cells_batched(
     xp = cp.get_array_module(fixed_cells)
     peak_chunks: list[NDArray[np.floating]] = []
     weight_chunks: list[NDArray[np.floating]] = []
+    ratio_chunks: list[NDArray[np.floating]] = []
     for start in range(0, num_cells, chunk_size):
         stop = min(num_cells, start + chunk_size)
-        peaks, weights = nornir_imageregistration.batched_phase_correlation.batched_find_offset(
+        peaks, weights, peak_ratios = nornir_imageregistration.batched_phase_correlation.batched_find_offset(
             fixed_cells[start:stop],
             moving_cells[start:stop],
             cell_shape,
@@ -110,4 +113,9 @@ def measure_translation_cells_batched(
             centroid_radius=centroid_radius)
         peak_chunks.append(peaks)
         weight_chunks.append(weights)
-    return xp.concatenate(peak_chunks, axis=0), xp.concatenate(weight_chunks, axis=0)
+        ratio_chunks.append(peak_ratios)
+    return (
+        xp.concatenate(peak_chunks, axis=0),
+        xp.concatenate(weight_chunks, axis=0),
+        xp.concatenate(ratio_chunks, axis=0),
+    )

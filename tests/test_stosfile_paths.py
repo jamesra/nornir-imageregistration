@@ -16,6 +16,7 @@ from nornir_imageregistration.files.stosfile import (
     _normalize_stos_path,
     _path_for_stos_file,
     _path_from_stos_file,
+    paths_refer_to_same_file,
 )
 
 # Minimal valid rigid transform for a 4x4 image pair.
@@ -208,6 +209,14 @@ class TestStosFileRelativePaths(unittest.TestCase):
         self.assertIn("..", stored)
         resolved = _path_from_stos_file(stored, self.layout["stos_dir"])
         self.assertEqual(os.path.normpath(resolved), os.path.normpath(self.layout["control_image"]))
+
+    def test_paths_refer_to_same_file(self) -> None:
+        self.assertTrue(paths_refer_to_same_file(None, None))
+        self.assertFalse(paths_refer_to_same_file(self.layout["control_image"], None))
+        absolute = os.path.abspath(self.layout["control_image"])
+        self.assertTrue(paths_refer_to_same_file(absolute, self.layout["control_image"]))
+        self.assertFalse(
+            paths_refer_to_same_file(self.layout["control_image"], self.layout["mapped_image"]))
 
 
 if __name__ == "__main__":

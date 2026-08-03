@@ -64,6 +64,69 @@ class TestCreateExtremaMaskShapes(unittest.TestCase):
         self.assertEqual(helper.Image.shape, helper.BlendedMask.shape)
         self.assertGreater(int(np.count_nonzero(helper.BlendedMask)), 0)
 
+    def test_image_permutation_helper_defers_extrema_until_needed(self) -> None:
+        """Constructor must not build blended mask/stats until registration properties are used."""
+        image = np.full((16, 16), 0.4, dtype=np.float32)
+        helper = nornir_imageregistration.ImagePermutationHelper(image, mask=None)
+        self.assertIsNone(helper._blended_mask)
+        self.assertIsNone(helper._stats)
+        _ = helper.BlendedMask
+        self.assertIsNotNone(helper._blended_mask)
+        self.assertIsNotNone(helper._stats)
+
+    def test_image_permutation_helper_prefetch_completes(self) -> None:
+        """prefetch_extrema_async fills blended mask/stats without a direct property access first."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        image = np.full((16, 16), 0.4, dtype=np.float32)
+        helper = nornir_imageregistration.ImagePermutationHelper(image, mask=None)
+        self.assertIsNone(helper._blended_mask)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            helper.prefetch_extrema_async(executor=pool)
+            future = helper._extrema_future
+            self.assertIsNotNone(future)
+            assert future is not None
+            future.result(timeout=5.0)
+        self.assertIsNotNone(helper._blended_mask)
+        self.assertIsNotNone(helper._stats)
+        self.assertGreater(int(np.count_nonzero(helper.BlendedMask)), 0)
+
+    def test_image_permutation_helper_prefetch_join_from_accessor(self) -> None:
+        """Reading BlendedMask while prefetch is in flight must join without double-failure."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        image = np.full((32, 32), 0.35, dtype=np.float32)
+        image[0, 0] = 0.0
+        image[-1, -1] = 1.0
+        helper = nornir_imageregistration.ImagePermutationHelper(image, mask=None)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            helper.prefetch_extrema_async(executor=pool)
+            blended = helper.BlendedMask
+        self.assertEqual(blended.shape, image.shape)
+        self.assertIsNotNone(helper.Stats)
+        # Second prefetch is a no-op once results exist.
+        helper.prefetch_extrema_async()
+        self.assertIs(helper.BlendedMask, blended)
+
+    def test_image_permutation_helper_constant_roi_does_not_raise(self) -> None:
+        """Entire-ROI extrema (constant pad) must not raise Image has no data."""
+        image = np.full((32, 32), 0.25, dtype=np.float32)
+        helper = nornir_imageregistration.ImagePermutationHelper(image, mask=None)
+        self.assertGreater(int(np.count_nonzero(helper.BlendedMask)), 0)
+        self.assertIsNotNone(helper.Stats)
+
+    def test_image_permutation_helper_extrema_wipe_falls_back_to_mask(self) -> None:
+        """When large extrema exclude all tissue, fall back to the tissue mask."""
+        image = np.full((32, 32), 0.0, dtype=np.float32)
+        image[8:24, 8:24] = 0.5
+        mask = np.zeros((32, 32), dtype=bool)
+        mask[8:24, 8:24] = True
+        # Force every min/max island into the excluded set (cutoff above ROI area).
+        helper = nornir_imageregistration.ImagePermutationHelper(
+            image, mask=mask, extrema_mask_size_cuttoff=1)
+        self.assertGreater(int(np.count_nonzero(helper.BlendedMask)), 0)
+        self.assertIsNotNone(helper.Stats)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -237,6 +237,153 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
                            translation=tranlsation_estimate, scale=float(scale_estimate), reflected=reflected)
 
 
+def _batched_ring_reflected(source_rings: NDArray[np.floating],
+                            target_rings: NDArray[np.floating]) -> NDArray[np.bool_]:
+    """Vectorized reflection flags for ``(N, R, 2)`` control-point rings."""
+    if source_rings.shape[1] < 3:
+        raise ValueError("Need at least 3 control points to determine if flipped")
+
+    src_vectors = np.diff(source_rings, axis=1)
+    tgt_vectors = np.diff(target_rings, axis=1)
+    # signed_cross_product_2d(v0, v1:) per ring: v0_y * v_x - v0_x * v_y
+    source_crosses = (src_vectors[:, 0:1, 1] * src_vectors[:, 1:, 0]
+                      - src_vectors[:, 0:1, 0] * src_vectors[:, 1:, 1])
+    target_crosses = (tgt_vectors[:, 0:1, 1] * tgt_vectors[:, 1:, 0]
+                      - tgt_vectors[:, 0:1, 0] * tgt_vectors[:, 1:, 1])
+    source_crosses = source_crosses.copy()
+    target_crosses = target_crosses.copy()
+    source_crosses[np.isclose(source_crosses, 0)] = 0
+    target_crosses[np.isclose(target_crosses, 0)] = 0
+
+    src_all_zero = np.all(np.isclose(source_crosses, 0, atol=1e-10), axis=1)
+    tgt_all_zero = np.all(np.isclose(target_crosses, 0, atol=1e-10), axis=1)
+    if bool(np.any(src_all_zero | tgt_all_zero)):
+        raise ValueError("Colinear points detected")
+
+    non_zero = (source_crosses != 0) & (target_crosses != 0)
+    # Match scalar: among paired non-zero crosses, flipped if fewer than half share sign.
+    sign_match = np.sign(source_crosses) == np.sign(target_crosses)
+    match_count = np.sum(sign_match & non_zero, axis=1)
+    pair_count = np.sum(non_zero, axis=1)
+    # Avoid divide-by-zero; empty pair_count should not occur after colinear check.
+    return match_count < (pair_count / 2.0)
+
+
+def _batched_similarity_angles(centered_source: NDArray[np.floating],
+                               unscaled_centered_target: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Batched SO(3) Kabsch on planar ``(0, y, x)`` embeddings; return euler-Z angles.
+
+    Matches ``scipy.spatial.transform.Rotation.align_vectors`` used by the scalar
+    ``EstimateRigidComponentsFromControlPoints`` path (including reflected rings).
+    """
+    num_sets, num_pts, _ = centered_source.shape
+    vecs_a = np.zeros((num_sets, num_pts, 3), dtype=np.float64)
+    vecs_b = np.zeros((num_sets, num_pts, 3), dtype=np.float64)
+    vecs_a[:, :, 1:] = centered_source
+    vecs_b[:, :, 1:] = unscaled_centered_target
+    # Covariance for R @ b ≈ a (same convention as scipy align_vectors).
+    covariance = np.einsum('nri,nrj->nij', vecs_b, vecs_a)
+    u_mat, _singular, vt_mat = np.linalg.svd(covariance)
+    det_signs = np.sign(np.linalg.det(u_mat) * np.linalg.det(vt_mat))
+    det_signs = np.where(det_signs == 0.0, 1.0, det_signs)
+    correction = np.zeros((num_sets, 3, 3), dtype=np.float64)
+    correction[:, 0, 0] = 1.0
+    correction[:, 1, 1] = 1.0
+    correction[:, 2, 2] = det_signs
+    rotation_mats = np.einsum(
+        'nij,njk,nkl->nil',
+        vt_mat.transpose(0, 2, 1),
+        correction,
+        u_mat.transpose(0, 2, 1))
+    angles = scipy.spatial.transform.Rotation.from_matrix(rotation_mats).as_euler('zyx')[:, 2]
+    wrap_mask = (angles <= -math.pi) | np.isclose(angles, -math.pi, atol=1e-10)
+    angles = np.where(wrap_mask, angles + (math.pi * 2), angles)
+    return angles.astype(np.float64, copy=False)
+
+
+def _batched_zero_translation_targets(source_rings: NDArray[np.floating],
+                                      source_centers: NDArray[np.floating],
+                                      angles: NDArray[np.floating],
+                                      scales: NDArray[np.floating],
+                                      reflected: NDArray[np.bool_]) -> NDArray[np.floating]:
+    """Apply CenteredSimilarity2D (t=0) to rings: ``Flip @ R @ s @ (p - c) + c``, with Rigid rounding."""
+    # Match Rigid/CenteredSimilarity2DTransform float32 center storage.
+    centers = np.asarray(source_centers, dtype=np.float32)
+    points = np.asarray(source_rings, dtype=np.float64)
+    delta = points - centers[:, None, :]
+    scaled = delta * scales.astype(np.float64, copy=False)[:, None, None]
+    cos_a = np.cos(angles)
+    sin_a = np.sin(angles)
+    # RotationMatrix convention: [[c, s], [-s, c]] on (Y, X).
+    rot_y = cos_a[:, None] * scaled[:, :, 0] + sin_a[:, None] * scaled[:, :, 1]
+    rot_x = -sin_a[:, None] * scaled[:, :, 0] + cos_a[:, None] * scaled[:, :, 1]
+    rotated = np.stack((rot_y, rot_x), axis=-1)
+    flipped = rotated.copy()
+    flipped[:, :, 0] = np.where(reflected[:, None], -rotated[:, :, 0], rotated[:, :, 0])
+    targets = flipped + centers[:, None, :]
+    precision = nornir_imageregistration.RoundingPrecision(targets.dtype)
+    return np.around(targets, decimals=precision)
+
+
+def EstimateRigidComponentsFromControlPointsBatched(
+        source_rings: NDArray[np.floating],
+        target_rings: NDArray[np.floating],
+        reflected_override: bool | NDArray[np.bool_] | None = None) -> list[RigidComponents]:
+    """Estimate rigid/similarity components for many ``(R, 2)`` rings at once.
+
+    Host NumPy after a single transfer. Uses batched SO(3) Kabsch (planar embedding)
+    to match scalar ``EstimateRigidComponentsFromControlPoints`` / scipy
+    ``Rotation.align_vectors``, avoiding a Python loop of align_vectors calls.
+
+    :param source_rings: Shape ``(N, R, 2)`` source control points.
+    :param target_rings: Shape ``(N, R, 2)`` corresponding target points.
+    :param reflected_override: Optional per-ring or scalar reflection flag.
+    :returns: Length-``N`` list of ``RigidComponents``.
+    """
+    source = array_to_numpy_host(source_rings).astype(np.float64, copy=False)
+    target = array_to_numpy_host(target_rings).astype(np.float64, copy=False)
+    if source.ndim != 3 or target.ndim != 3 or source.shape != target.shape or source.shape[-1] != 2:
+        raise ValueError(
+            f"source_rings/target_rings must share shape (N, R, 2); got {source.shape} and {target.shape}")
+
+    num_sets = int(source.shape[0])
+    if num_sets == 0:
+        return []
+
+    source_centers = source.mean(axis=1)
+    target_centers = target.mean(axis=1)
+    centered_source = source - source_centers[:, None, :]
+    centered_target = target - target_centers[:, None, :]
+
+    source_rms = np.sqrt(np.sum(centered_source ** 2, axis=2)).sum(axis=1)
+    target_rms = np.sqrt(np.sum(centered_target ** 2, axis=2)).sum(axis=1)
+    scales = target_rms / source_rms
+
+    unscaled_target = target / scales[:, None, None]
+    unscaled_centered_target = unscaled_target - unscaled_target.mean(axis=1)[:, None, :]
+    angles = _batched_similarity_angles(centered_source, unscaled_centered_target)
+
+    if reflected_override is None:
+        reflected = _batched_ring_reflected(source, target)
+    else:
+        reflected = np.broadcast_to(np.asarray(reflected_override, dtype=bool), (num_sets,)).copy()
+
+    test_targets = _batched_zero_translation_targets(
+        source, source_centers, angles, scales, reflected)
+    translations = target_centers - test_targets.mean(axis=1)
+
+    return [
+        RigidComponents(
+            source_rotation_center=source_centers[i],
+            angle=float(angles[i]),
+            scale=float(scales[i]),
+            translation=translations[i],
+            reflected=bool(reflected[i]),
+        )
+        for i in range(num_sets)
+    ]
+
+
 def RigidComponentsToCenteredSimilarityTransform(components: RigidComponents
                                                  ) -> nornir_imageregistration.transforms.CenteredSimilarity2DTransform:
     """Build a centered similarity transform from estimated rigid components."""

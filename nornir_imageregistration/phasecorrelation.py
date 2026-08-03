@@ -24,6 +24,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.peak_uniqueness import (
+    DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+    masked_peak_ratio,
+)
 from nornir_imageregistration.core import (
     DimensionWithOverlap,
     GenRandomData,
@@ -361,17 +365,21 @@ class FindPeakResult(NamedTuple):
     :attr peak_strength: The strength of the peak (signal-to-noise ratio)
     :attr cutoff_value: The cutoff value used to threshold the image
     :attr cutoff_percent: The percentile used to determine the cutoff value
+    :attr peak_ratio: Primary / masked-2nd-peak uniqueness ratio
     """
     scaled_offset: tuple[float, float]
     peak_strength: float
     cutoff_value: float
     cutoff_percent: float
+    peak_ratio: float = 0.0
 
 
 def find_peak(image: NDArray[np.floating],
               overlap_mask: Optional[NDArray[np.bool_]] = None,
               cutoff: Optional[float] = None,
-              allow_in_place: bool = False) -> FindPeakResult:
+              allow_in_place: bool = False,
+              peak_ratio_exclusion_radius: int = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+              ) -> FindPeakResult:
     """
     Find the offset of the strongest response in a phase correlation image.
 
@@ -384,7 +392,10 @@ def find_peak(image: NDArray[np.floating],
     :param allow_in_place: If True, *image* may be overwritten (mask multiply and cutoff).
         Callers that discard the correlation image immediately after may pass True to
         avoid a full-size copy. Defaults to False.
-    :return: A named tuple containing the offset of the peak, the strength of the peak, the cutoff value, and the cutoff percentile
+    :param peak_ratio_exclusion_radius: Half-width cleared around the primary peak
+        before measuring uniqueness (primary / 2nd peak).
+    :return: A named tuple containing the offset of the peak, the strength of the peak,
+        the cutoff value, the cutoff percentile, and the peak uniqueness ratio
     :rtype: FindPeakResult
     """
     # Get the appropriate array module (numpy or cupy) based on the input image
@@ -466,7 +477,7 @@ def find_peak(image: NDArray[np.floating],
     # If no labels were found, there are no peaks
     if num_labels == 0:
         scaled_offset = _image_center_offset_tuple(image, xp)
-        return FindPeakResult(scaled_offset, 0, 0.0, 0.0)
+        return FindPeakResult(scaled_offset, 0, 0.0, 0.0, 0.0)
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
@@ -478,7 +489,7 @@ def find_peak(image: NDArray[np.floating],
         del threshold_image
 
         scaled_offset = _image_center_offset_tuple(image, xp)
-        return FindPeakResult(scaled_offset, 0, 0.0, 0.0)
+        return FindPeakResult(scaled_offset, 0, 0.0, 0.0, 0.0)
 
     # Find the label with the highest sum (strongest peak)
     peak_value_index = label_sums.argmax()
@@ -501,11 +512,35 @@ def find_peak(image: NDArray[np.floating],
     ) - xp.asarray(peak_center_of_mass, dtype=xp.float32)
 
     scaled_offset = _xp_1d_to_float_pair(scaled_offset_arr, xp)
+
+    # Uniqueness on the original (pre-threshold) correlation surface.
+    com = xp.asarray(peak_center_of_mass, dtype=xp.float64)
+    if hasattr(com, 'get'):
+        com = com.get()
+    com_np = np.asarray(com, dtype=np.float64).reshape(-1)
+    peak_row = int(np.clip(np.rint(com_np[0]), 0, image.shape[0] - 1))
+    peak_col = int(np.clip(np.rint(com_np[1]), 0, image.shape[1] - 1))
+    # Prefer the raw correlation sample at the COM; fall back to labeled max.
+    raw_primary = float(image[peak_row, peak_col])
+    if not np.isfinite(raw_primary) or raw_primary <= 0.0:
+        raw_primary = float(peak_pixel)
+    ratio = masked_peak_ratio(
+        image,
+        peak_row,
+        peak_col,
+        exclusion_radius=peak_ratio_exclusion_radius,
+        overlap_mask=overlap_mask,
+        primary_value=raw_primary,
+    )
+    if signal_to_noise <= 0.0:
+        ratio = 0.0
+
     return FindPeakResult(
         scaled_offset,
         float(signal_to_noise),
         float(cutoff_value),
         float(cutoff_percent),
+        float(ratio),
     )
 
 
@@ -592,7 +627,8 @@ def find_offset(target_image: NDArray[np.floating],
 
     del correlation_image
 
-    record = nornir_imageregistration.AlignmentRecord(peak=peak, weight=weight)
+    record = nornir_imageregistration.AlignmentRecord(
+        peak=peak, weight=weight, peak_ratio=float(peak_result.peak_ratio))
 
     return record
 

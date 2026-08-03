@@ -137,7 +137,7 @@ class ImageStats:
         obj = ImageStats()
         image = nornir_imageregistration.ImageParamToImageArray(image, dtype=numpy.float64)
 
-        if image.shape[0] == 0:
+        if image.size == 0 or image.shape[0] == 0:
             raise ValueError("Image has no data")
 
         # if image.dtype is not numpy.float64:  # Use float 64 to ensure accurate statistical results

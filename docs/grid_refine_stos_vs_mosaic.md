@@ -98,6 +98,47 @@ locks keep the travel-filter + weight-cutoff mesh path.
 Settings on `GridRefinement`: `anchor_smooth_min_locks`, `anchor_smooth_median_radius`
 (default **1**, same as mosaic).
 
+### Sharp warps (folds / tears)
+
+Default **ON** (`NORNIR_REFINE_SHARP_WARPS` unset or truthy). Set
+`NORNIR_REFINE_SHARP_WARPS=0` to restore the older strict travel + full Gaussian
+anchor-smooth behavior.
+
+When enabled:
+
+1. Cells whose raw peak disagrees with the neighbor-median by more than
+   ``k * max_travel`` are tagged as discontinuities
+   (``NORNIR_REFINE_DISCONTINUITY_K``, default **1.5**).
+2. Those cells get a relaxed travel bar for mesh inclusion and finalize
+   (``NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT``, default **2.5**) and a soft
+   2nd-percentile weight floor instead of the inflection bar.
+3. Anchor-smooth **keeps raw peaks** on discontinuity cells so median/Gaussian
+   blur does not erase fold shear.
+
+### Pass diagnostics
+
+`NORNIR_REFINE_PASS_DIAGNOSTICS=1` writes per-pass
+`refine_passNN_diagnostics.npz` / `.csv` under `outputDir`. Columns include
+`peak_ratio`, **`role`**, **`reject_reason`**, **`zncc`**, **`lock_candidate`**,
+and optional **`source_content`**. Heatmaps (weight, travel, residual, lock mask,
+raw−smoothed delta, discontinuity, peak_ratio, role, zncc) are written only when
+`SavePlots=True`.
+
+See [`grid16_stos_cell_role_theory.md`](grid16_stos_cell_role_theory.md) for Role /
+FieldMode semantics. Cross-link: `NORNIR_REFINE_PHASE_TIMING=1` adds
+`classify` / `zncc_secondary` / `low_content_gate` phase buckets.
+
+### Cell Role tuning envs
+
+| Env | Default | Meaning / effect |
+|-----|---------|------------------|
+| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | `0.25` | Min masked ZNCC for PC-pass lock candidates. Below → `IDENTITY_SUSPECT` (never lock). Above → may be `LOCKABLE`. |
+| `NORNIR_REFINE_LOW_CONTENT_STD_MIN` | `1e-3` | Min source ROI intensity std. Below → sticky measure-skip + `REJECT(LOW_CONTENT)` for that grid ID for the rest of the refine. |
+
+Unset means use the code default. Read sites:
+`refine_shared/runtime_config.py`, `cell_roles.identity_zncc_min_threshold`,
+`cell_validity.low_content_std_min_threshold`.
+
 ### Manual regression checklist
 
 When validating against real data (optional CI when `INPUT_NORNIR_DATA` is set):
@@ -108,16 +149,25 @@ When validating against real data (optional CI when `INPUT_NORNIR_DATA` is set):
 2. **RC2 TEM pair** — e.g. Brute64→Grid for `1453-1452` or a known `1024` section;
    compare overlay / displacement RMS along the former seam; pass logs should show
    fewer early locks and any unlock events in the problem region.
+3. **Role theory pairs** — force re-refine **240-241**, **241-242**, and one healthy
+   pair with `NORNIR_REFINE_PASS_DIAGNOSTICS=1`; check role/zncc columns and that
+   healthy locks stay ~33–37%.
 
-Unit coverage: `tests/test_refine_finalize_gate.py`.
+Unit coverage: `tests/test_refine_finalize_gate.py`, `tests/test_cell_roles.py`.
 
 ## Runtime configuration
 
 See `nornir_imageregistration.refine_shared.RefineRuntimeConfig` for
 `NORNIR_REFINE_*` env gates (batched measurement, prewarp mode, mosaic cutoff,
 STOS regularize, phase timing, GPU transform, tile parallelism,
-`NORNIR_REFINE_FINALIZE_LEGACY`).
+`NORNIR_REFINE_FINALIZE_LEGACY`, `NORNIR_REFINE_PASS_DIAGNOSTICS`,
+`NORNIR_REFINE_SHARP_WARPS`, `NORNIR_REFINE_DISCONTINUITY_K`,
+`NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT`,
+`NORNIR_REFINE_IDENTITY_ZNCC_MIN`, `NORNIR_REFINE_LOW_CONTENT_STD_MIN`).
 
 ## Related docs
 
 - [Mosaic refine grid GPU assessment](mosaic_refine_grid_gpu_assessment.md)
+- [RC2 Grid16 refine baseline](grid16_rc2_refine_baseline.md)
+- [Grid16 failure modes (240-241 / 241-242)](grid16_rc2_refine_failure_modes.md)
+- [STOS cell Role / FieldMode theory](grid16_stos_cell_role_theory.md)

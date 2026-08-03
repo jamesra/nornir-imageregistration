@@ -27,6 +27,16 @@ class RefineRuntimeConfig:
     Env vars are read when the config is constructed (call ``from_env()`` or
     ``get_runtime_config(refresh=True)`` to pick up mid-process changes used by
     benchmarks and tests).
+
+    Role / content tuning (see docs/grid16_stos_cell_role_theory.md):
+
+    - ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` — min masked ZNCC for lock-candidate
+      PC-pass cells. Below → ``IDENTITY_SUSPECT`` (never lock). Unset → 0.25.
+    - ``NORNIR_REFINE_LOW_CONTENT_STD_MIN`` — min ROI intensity std for alignable
+      source content. Below → sticky measure-skip + ``REJECT(LOW_CONTENT)``.
+      Unset → 1e-3.
+    - ``NORNIR_REFINE_PASS_DIAGNOSTICS`` — write per-pass NPZ/CSV including role/zncc.
+    - ``NORNIR_REFINE_PHASE_TIMING`` — detailed phase buckets (incl. classify/zncc).
     """
 
     phase_timing: bool
@@ -38,6 +48,12 @@ class RefineRuntimeConfig:
     mosaic_cutoff: bool
     stos_regularize: bool
     finalize_legacy: bool
+    pass_diagnostics: bool
+    sharp_warps: bool
+    discontinuity_k: float
+    discontinuity_travel_mult: float
+    identity_zncc_min: float
+    low_content_std_min: float
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -60,6 +76,44 @@ class RefineRuntimeConfig:
         gpu_flag = _env_flag('NORNIR_REFINE_GPU_TRANSFORM', '')
         gpu_transform = not (_is_falsey(gpu_flag) or gpu_flag == '')
 
+        sharp_flag = _env_flag('NORNIR_REFINE_SHARP_WARPS', '')
+        # Default ON when unset; only an explicit falsey disables.
+        sharp_warps = True if sharp_flag == '' else not _is_falsey(sharp_flag)
+
+        disc_k = 1.5
+        raw_k = os.environ.get('NORNIR_REFINE_DISCONTINUITY_K', '').strip()
+        if raw_k:
+            try:
+                disc_k = max(0.1, float(raw_k))
+            except ValueError:
+                pass
+
+        disc_travel = 2.5
+        raw_travel = os.environ.get('NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT', '').strip()
+        if raw_travel:
+            try:
+                disc_travel = max(1.0, float(raw_travel))
+            except ValueError:
+                pass
+
+        # Defaults match cell_roles.DEFAULT_IDENTITY_ZNCC_MIN /
+        # cell_validity.DEFAULT_LOW_CONTENT_STD_MIN (avoid circular imports).
+        identity_zncc = 0.25
+        raw_zncc = os.environ.get('NORNIR_REFINE_IDENTITY_ZNCC_MIN', '').strip()
+        if raw_zncc:
+            try:
+                identity_zncc = float(raw_zncc)
+            except ValueError:
+                pass
+
+        low_content_std = 1e-3
+        raw_std = os.environ.get('NORNIR_REFINE_LOW_CONTENT_STD_MIN', '').strip()
+        if raw_std:
+            try:
+                low_content_std = max(0.0, float(raw_std))
+            except ValueError:
+                pass
+
         return cls(
             phase_timing=not (_is_falsey(phase_flag) or phase_flag == ''),
             batched_vertex_measurement=batched_on,
@@ -70,6 +124,12 @@ class RefineRuntimeConfig:
             mosaic_cutoff=_is_truthy(_env_flag('NORNIR_REFINE_MOSAIC_CUTOFF', '')),
             stos_regularize=_is_truthy(_env_flag('NORNIR_REFINE_STOS_REGULARIZE', '')),
             finalize_legacy=_is_truthy(_env_flag('NORNIR_REFINE_FINALIZE_LEGACY', '')),
+            pass_diagnostics=_is_truthy(_env_flag('NORNIR_REFINE_PASS_DIAGNOSTICS', '')),
+            sharp_warps=sharp_warps,
+            discontinuity_k=disc_k,
+            discontinuity_travel_mult=disc_travel,
+            identity_zncc_min=identity_zncc,
+            low_content_std_min=low_content_std,
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:

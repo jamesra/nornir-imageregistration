@@ -27,6 +27,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.peak_uniqueness import (
+    DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+    batched_masked_peak_ratios,
+)
 
 try:
     import cupy as cp
@@ -93,8 +97,9 @@ def batched_image_phase_correlation(targets: NDArray[np.floating],
 
 def batched_find_peak(images: NDArray[np.floating],
                       overlap_mask: Optional[NDArray[np.bool_]] = None,
-                      centroid_radius: int = 1
-                      ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+                      centroid_radius: int = 1,
+                      peak_ratio_exclusion_radius: int = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+                      ) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Vectorized peak finder over a ``(N, h, w)`` correlation-image stack.
 
     For each image: take the masked argmax, then refine to sub-pixel accuracy
@@ -111,8 +116,11 @@ def batched_find_peak(images: NDArray[np.floating],
     :param overlap_mask: Optional ``(h, w)`` boolean mask of eligible peak
         locations, shared across the batch.
     :param centroid_radius: Half-width of the centroid refinement window.
-    :return: ``(peaks, weights)`` where ``peaks`` is ``(N, 2)`` ``(dy, dx)`` and
-        ``weights`` is ``(N,)`` signal-to-noise analog. Both on the input module.
+    :param peak_ratio_exclusion_radius: Half-width cleared around the primary
+        peak before measuring uniqueness (primary / 2nd peak).
+    :return: ``(peaks, weights, peak_ratios)`` where ``peaks`` is ``(N, 2)``
+        ``(dy, dx)``, ``weights`` is ``(N,)`` signal-to-noise analog, and
+        ``peak_ratios`` is ``(N,)`` uniqueness. All on the input module.
     """
     xp = cp.get_array_module(images)
     if images.ndim != 3:
@@ -132,6 +140,7 @@ def batched_find_peak(images: NDArray[np.floating],
     else:
         search = images
         mean_pixel = images.mean(axis=(-2, -1))
+        mask2d = None
 
     flat = search.reshape(n, -1)
     idx = xp.argmax(flat, axis=1)
@@ -174,7 +183,16 @@ def batched_find_peak(images: NDArray[np.floating],
     safe_mean = xp.where(mean_pixel != 0, mean_pixel, xp.asarray(1.0, dtype=images.dtype))
     weights = xp.where((mean_pixel > 0) & (peak_val > 0), peak_val / safe_mean,
                        xp.asarray(0.0, dtype=images.dtype))
-    return peaks, weights
+    peak_ratios = batched_masked_peak_ratios(
+        images,
+        peak_r,
+        peak_c,
+        exclusion_radius=peak_ratio_exclusion_radius,
+        overlap_mask=mask2d,
+        primary_values=peak_val,
+    )
+    peak_ratios = xp.where(weights > 0, peak_ratios, xp.asarray(0.0, dtype=peak_ratios.dtype))
+    return peaks, weights, peak_ratios
 
 
 def batched_find_offset(fixed_cells: NDArray[np.floating],
@@ -183,8 +201,9 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
                         min_overlap: float = 0.25,
                         max_overlap: float = 1.0,
                         correlation_coefficient: Optional[float] = None,
-                        centroid_radius: int = 1
-                        ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+                        centroid_radius: int = 1,
+                        peak_ratio_exclusion_radius: int = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+                        ) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Batched analog of ``phasecorrelation.find_offset`` for equal-sized cells.
 
     Normalizes each cell to ``[0, 1]`` (matching ``_phase_correlate_refinement_cell``),
@@ -199,7 +218,8 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
     :param max_overlap: Maximum overlap fraction for the mask.
     :param correlation_coefficient: See ``batched_image_phase_correlation``.
     :param centroid_radius: Centroid refinement window half-width.
-    :return: ``(peaks (N,2), weights (N,))`` on the input array module.
+    :param peak_ratio_exclusion_radius: See ``batched_find_peak``.
+    :return: ``(peaks (N,2), weights (N,), peak_ratios (N,))`` on the input module.
     """
     xp = cp.get_array_module(fixed_cells)
     if fixed_cells.shape != moving_cells.shape:
@@ -243,7 +263,13 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
         max_overlap,
         xp=xp)
 
-    peaks, weights = batched_find_peak(correlation, overlap_mask, centroid_radius=centroid_radius)
+    peaks, weights, peak_ratios = batched_find_peak(
+        correlation,
+        overlap_mask,
+        centroid_radius=centroid_radius,
+        peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
 
-    weights = xp.where(valid, weights, xp.asarray(0.0, dtype=weights.dtype))
-    return peaks, weights
+    zero = xp.asarray(0.0, dtype=weights.dtype)
+    weights = xp.where(valid, weights, zero)
+    peak_ratios = xp.where(valid, peak_ratios, zero)
+    return peaks, weights, peak_ratios

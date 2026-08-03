@@ -30,6 +30,7 @@ class AlignmentRecord(object):
     _weight: float
     _flippedud: bool
     _scale: float
+    _peak_ratio: float | None
 
     @property
     def angle(self) -> float:
@@ -49,6 +50,15 @@ class AlignmentRecord(object):
     @weight.setter
     def weight(self, value: float):
         self._weight = float(value)
+
+    @property
+    def peak_ratio(self) -> float | None:
+        """Primary / masked-2nd-peak uniqueness, or None if not measured."""
+        return self._peak_ratio
+
+    @peak_ratio.setter
+    def peak_ratio(self, value: float | None):
+        self._peak_ratio = None if value is None else float(value)
 
     @property
     def flippedud(self) -> bool:
@@ -85,13 +95,20 @@ class AlignmentRecord(object):
         Returns a new alignment record with the coordinates of the peak reversed
         Used to change the frame of reference of the alignment from one tile to another
         """
-        return AlignmentRecord((-self.peak[0], -self.peak[1]), self.weight, self.angle)
+        return AlignmentRecord(
+            (-self.peak[0], -self.peak[1]),
+            self.weight,
+            self.angle,
+            peak_ratio=self._peak_ratio)
 
     def __repr__(self):
         s = '{x:.2f}x, {y:.2f}y Weight: {w:.2f}'.format(x=self._peak[1], y=self._peak[0], w=self._weight)
 
         if self._angle != 0:
             s += f' Angle: {self._angle:.2f}'
+
+        if self._peak_ratio is not None:
+            s += f' PeakRatio: {self._peak_ratio:.2f}'
 
         # s = 'angle: ' + str(self._angle) + ' offset: ' + str(self._peak) + ' weight: ' + str(self._weight)
         if self.flippedud:
@@ -106,9 +123,11 @@ class AlignmentRecord(object):
                  weight: float,
                  angle: float = 0.0,
                  flipped_ud: bool = False,
-                 scale: float = 1.0, ):
+                 scale: float = 1.0,
+                 peak_ratio: float | None = None):
         """
         :param float scale: Scales source space by this factor to map into target space
+        :param peak_ratio: Optional primary/2nd-peak uniqueness from phase correlation
         """
         if not isinstance(angle, float):
             angle = float(angle)
@@ -122,6 +141,7 @@ class AlignmentRecord(object):
         self._peak = peak
         self._weight = float(weight)
         self._flippedud = flipped_ud
+        self._peak_ratio = None if peak_ratio is None else float(peak_ratio)
 
     def CorrectPeakForOriginalImageSize(self, TargetImageShape: NDArray[np.integer],
                                         SourceImageShape: NDArray[np.integer]):
@@ -365,8 +385,10 @@ class EnhancedAlignmentRecord(AlignmentRecord):
                  angle: float = 0.0,
                  flipped_ud: bool = False,
                  cutoff_percent: float | None = None,
-                 cutoff_value: float | None = None):
-        super(EnhancedAlignmentRecord, self).__init__(peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud)
+                 cutoff_value: float | None = None,
+                 peak_ratio: float | None = None):
+        super(EnhancedAlignmentRecord, self).__init__(
+            peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud, peak_ratio=peak_ratio)
         self._ID = ID
         self._TargetPoint = TargetPoint
         self._SourcePoint = SourcePoint

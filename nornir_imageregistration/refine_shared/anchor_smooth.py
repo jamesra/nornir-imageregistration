@@ -117,12 +117,21 @@ def smooth_peaks_from_locked_anchors(
         alignment_points: Sequence[_AlignmentRecordLike],
         transform: _TransformLike,
         settings: AnchorSmoothSettings | object,
+        discontinuity_ids: set[tuple[int, int]] | None = None,
 ) -> list:
     """Gap-fill a peak field from locked anchors and emit mesh alignment records.
 
     Raw measurements in ``alignment_points`` supply grid topology and metadata
     (weight, angle, source/target anchors). Peaks come from
     ``regularize_displacements`` seeded by locked cells only.
+
+    When ``discontinuity_ids`` is set, those cells keep their **raw** peaks
+    instead of the median/Gaussian-smoothed field so unique fold/tear
+    discontinuities are not blurred into neighbors. Callers should pass
+    ``soft_discontinuity_ids`` ∪ unique large-travel ids ∪ coherent disc-front
+    ids; ambiguous dirt/false peaks that are not a coherent front must be
+    smoothed from locked anchors (raw-preserving all disc tags caused a
+    disc-count feedback loop).
     """
     if isinstance(settings, AnchorSmoothSettings):
         smooth_settings = settings
@@ -134,13 +143,31 @@ def smooth_peaks_from_locked_anchors(
     if mesh_rows <= 0 or mesh_cols <= 0:
         return list(alignment_points)
 
+    discontinuity_ids = discontinuity_ids or set()
     shifts, measured = compute_locked_displacement_field(finalized, transform, mesh_dims)
+    # Seed discontinuity cells with their raw peaks before regularization so
+    # gap-fill neighbors see the fold, then restore raw peaks after blur.
+    raw_peaks_by_id: dict[tuple[int, int], NDArray[np.float64]] = {}
+    for rec in alignment_points:
+        key = (int(rec.ID[0]), int(rec.ID[1]))
+        raw_peaks_by_id[key] = np.asarray(rec.peak, dtype=np.float64).reshape(2)
+        if key in discontinuity_ids:
+            idx = key[0] * mesh_cols + key[1]
+            if 0 <= idx < shifts.shape[0]:
+                shifts[idx, :] = raw_peaks_by_id[key]
+                measured[idx] = True
+
     smoothed_shifts, _ = regularize_displacements(
         shifts,
         measured,
         mesh_dims,
         median_radius=int(smooth_settings.median_radius),
     )
+    for key in discontinuity_ids:
+        if key in raw_peaks_by_id:
+            idx = key[0] * mesh_cols + key[1]
+            if 0 <= idx < smoothed_shifts.shape[0]:
+                smoothed_shifts[idx, :] = raw_peaks_by_id[key]
 
     from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 
@@ -166,6 +193,7 @@ def smooth_peaks_from_locked_anchors(
             weight=float(rec.weight),
             angle=float(getattr(rec, 'angle', 0.0) or 0.0),
             flipped_ud=bool(getattr(rec, 'flippedud', False)),
+            peak_ratio=getattr(rec, 'peak_ratio', None),
         ))
     return smoothed_records
 

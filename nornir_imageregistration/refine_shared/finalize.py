@@ -2,7 +2,8 @@
 
 Locks require weight at the transform-inclusion bar, small travel, pass delay,
 and optional peak stability. Stale locks that disagree with the evolving mesh
-can be unlocked.
+can be unlocked. Known low ``peak_ratio`` hard-rejects locks; high ratio can
+early-lock. Discontinuity soft weight applies only to ratio-eligible cells.
 """
 
 from __future__ import annotations
@@ -13,6 +14,11 @@ from typing import Mapping, Protocol, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from nornir_imageregistration.refine_shared.peak_ratio_gates import (
+    PEAK_RATIO_EARLY,
+    PEAK_RATIO_MIN,
+    finite_peak_ratio,
+)
 from nornir_imageregistration.refine_shared.runtime_config import get_runtime_config
 
 
@@ -50,6 +56,10 @@ class FinalizeEvaluationResult:
     rejected_weight_count: int
     rejected_travel_count: int
     rejected_pass_count: int
+    rejected_ambiguous_count: int = 0
+    rejected_identity_neighbor_count: int = 0
+    rejected_identity_suspect_count: int = 0
+    rejected_not_lockable_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -88,17 +98,25 @@ def evaluate_finalize_candidates(
         settings: FinalizeSettings,
         pass_index: int,
         prior_candidates: Mapping[tuple[int, int], FinalizeCandidateState] | None = None,
+        per_record_max_travel: NDArray[np.floating] | None = None,
+        soft_weight_cutoff: float | None = None,
+        discontinuity_ids: set[tuple[int, int]] | None = None,
+        lockable_ids: set[tuple[int, int]] | None = None,
 ) -> FinalizeEvaluationResult:
     """Evaluate which alignment records may lock this pass.
 
     All of the following must hold for a lock (unless legacy mode is active
     elsewhere):
 
-    - ``pass_index >= min_finalize_pass``
-    - ``‖peak‖ <= max_travel_for_finalization``
-    - ``weight >= transform_cutoff`` (caller should pass the inflection-derived
-      mesh-inclusion cutoff from ``estimate_registration_weight_cutoff``)
+    - ``pass_index >= min_finalize_pass`` (or early-lock relaxed pass bar)
+    - ``‖peak‖ <= max_travel_for_finalization`` (or per-record limit)
+    - ``weight >= transform_cutoff`` (or ``soft_weight_cutoff`` for
+      ratio-eligible discontinuity cells)
     - peak is stable for ``finalize_stability_passes`` consecutive passes
+      (or 1 when early-lock ratio is met)
+    - known ``peak_ratio`` is not below ``PEAK_RATIO_MIN``
+    - when ``lockable_ids`` is provided (Role theory), the cell ID must be in
+      that set (``Role.LOCKABLE`` only — ``IDENTITY_SUSPECT`` never locks)
     """
     n = len(records)
     lock_mask = np.zeros(n, dtype=bool)
@@ -110,38 +128,100 @@ def evaluate_finalize_candidates(
             rejected_weight_count=0,
             rejected_travel_count=0,
             rejected_pass_count=0,
+            rejected_ambiguous_count=0,
+            rejected_identity_neighbor_count=0,
+            rejected_identity_suspect_count=0,
+            rejected_not_lockable_count=0,
         )
 
     prior = dict(prior_candidates or {})
+    discontinuity_ids = discontinuity_ids or set()
     weights = np.asarray([float(r.weight) for r in records], dtype=np.float64)
     peaks = np.asarray([np.asarray(r.peak, dtype=np.float64).reshape(2) for r in records])
     travels = np.linalg.norm(peaks, axis=1)
+    keys = [tuple(record.ID) for record in records]  # type: ignore[arg-type]
+
+    ratios = np.empty(n, dtype=np.float64)
+    for i, record in enumerate(records):
+        value = finite_peak_ratio(record)
+        ratios[i] = np.nan if value is None else float(value)
+
+    known = np.isfinite(ratios)
+    ambiguous = known & (ratios < float(PEAK_RATIO_MIN))
+    early_ratio_ok = known & (ratios >= float(PEAK_RATIO_EARLY))
 
     # transform_cutoff is the STOS inflection / mesh-inclusion bar computed on the
     # full pass weight set in RefineTransform; do not recompute estimate_cutoff on
     # the unfinalized subset alone (that subset can be flat and rejects good locks).
-    weight_ok = weights >= float(transform_cutoff)
-    travel_ok = travels <= float(settings.max_travel_for_finalization)
-    pass_ok = np.full(n, pass_index >= int(settings.min_finalize_pass), dtype=bool)
+    weight_cutoffs = np.full(n, float(transform_cutoff), dtype=np.float64)
+    if soft_weight_cutoff is not None and discontinuity_ids:
+        soft = float(soft_weight_cutoff)
+        for i, record in enumerate(records):
+            key = keys[i]
+            if key not in discontinuity_ids:
+                continue
+            # Soft weight only for ratio-eligible discontinuity cells.
+            if known[i] and float(ratios[i]) >= float(PEAK_RATIO_MIN):
+                weight_cutoffs[i] = soft
+    weight_ok = weights >= weight_cutoffs
 
-    rejected_weight = int(np.count_nonzero(~weight_ok))
-    rejected_travel = int(np.count_nonzero(weight_ok & ~travel_ok))
-    rejected_pass = int(np.count_nonzero(weight_ok & travel_ok & ~pass_ok))
+    if per_record_max_travel is not None:
+        travel_limits = np.asarray(per_record_max_travel, dtype=np.float64).reshape(-1)
+        if travel_limits.shape[0] != n:
+            raise ValueError('per_record_max_travel must match records length')
+    else:
+        travel_limits = np.full(n, float(settings.max_travel_for_finalization), dtype=np.float64)
+    travel_ok = travels <= travel_limits
+
+    min_pass = int(settings.min_finalize_pass)
+    early_min_pass = max(1, min_pass - 1)
+    pass_ok = np.full(n, pass_index >= min_pass, dtype=bool)
+    # Early-lock cells may clear the pass bar one iteration sooner.
+    pass_ok = pass_ok | (early_ratio_ok & (pass_index >= early_min_pass))
+
+    # Role theory: only LOCKABLE cells may lock. When lockable_ids is None,
+    # preserve legacy weight/travel/ambiguous gates (tests without Roles).
+    role_ok = np.ones(n, dtype=bool)
+    not_lockable_reject = np.zeros(n, dtype=bool)
+    if lockable_ids is not None:
+        lockable_set = lockable_ids
+        for i, key in enumerate(keys):
+            if key in lockable_set:
+                continue
+            role_ok[i] = False
+            # Count non-LOCKABLE separately when weight/travel/pass would pass.
+            not_lockable_reject[i] = True
+
+    # Hard-reject ambiguous peaks and non-LOCKABLE roles before stability / lock.
+    # Track B identity_neighbor is obsolete when Roles are supplied.
+    gate_ok = weight_ok & travel_ok & pass_ok & ~ambiguous & role_ok
+
+    rejected_ambiguous = int(np.count_nonzero(ambiguous))
+    rejected_identity_neighbor = 0
+    rejected_not_lockable = int(np.count_nonzero(
+        not_lockable_reject & ~ambiguous & weight_ok & travel_ok & pass_ok))
+    rejected_identity_suspect = rejected_not_lockable  # caller may refine via Roles
+    rejected_weight = int(np.count_nonzero(~weight_ok & ~ambiguous & role_ok))
+    rejected_travel = int(np.count_nonzero(
+        weight_ok & ~travel_ok & ~ambiguous & role_ok))
+    rejected_pass = int(np.count_nonzero(
+        weight_ok & travel_ok & ~pass_ok & ~ambiguous & role_ok))
 
     updated: dict[tuple[int, int], FinalizeCandidateState] = {}
     deferred_stability = 0
     epsilon = float(settings.finalize_stability_epsilon_px)
-    need_stable = max(1, int(settings.finalize_stability_passes))
+    need_stable_default = max(1, int(settings.finalize_stability_passes))
     drop_frac = float(settings.weight_drop_fraction)
 
     for i, record in enumerate(records):
-        key = tuple(record.ID)  # type: ignore[arg-type]
-        if not (bool(weight_ok[i]) and bool(travel_ok[i]) and bool(pass_ok[i])):
+        key = keys[i]
+        if not bool(gate_ok[i]):
             # Drop prior candidate state when the cell fails hard gates this pass.
             continue
 
         peak = peaks[i]
         weight = float(weights[i])
+        need_stable = 1 if bool(early_ratio_ok[i]) else need_stable_default
         prev = prior.get(key)
         if prev is None:
             updated[key] = FinalizeCandidateState(
@@ -177,6 +257,10 @@ def evaluate_finalize_candidates(
         rejected_weight_count=rejected_weight,
         rejected_travel_count=rejected_travel,
         rejected_pass_count=rejected_pass,
+        rejected_ambiguous_count=rejected_ambiguous,
+        rejected_identity_neighbor_count=rejected_identity_neighbor,
+        rejected_identity_suspect_count=rejected_identity_suspect,
+        rejected_not_lockable_count=rejected_not_lockable,
     )
 
 
@@ -209,9 +293,11 @@ def unlock_stale_finalized(
     adjusted_targets = np.asarray(
         [np.asarray(rec.AdjustedTargetPoint, dtype=np.float64).reshape(2) for rec in finalized.values()],
         dtype=np.float64)
-    predicted = np.asarray(transform.Transform(source_points), dtype=np.float64).reshape(-1, 2)
+    predicted = transform.Transform(source_points)
     if hasattr(predicted, 'get'):
         predicted = np.asarray(predicted.get(), dtype=np.float64).reshape(-1, 2)
+    else:
+        predicted = np.asarray(predicted, dtype=np.float64).reshape(-1, 2)
 
     deltas = np.linalg.norm(adjusted_targets - predicted, axis=1)
     keys = list(finalized.keys())
@@ -222,31 +308,6 @@ def unlock_stale_finalized(
             unlocked.append(key)
         else:
             kept[key] = finalized[key]
-    # #region agent log
-    try:
-        import json as _json
-        import time as _time
-        _payload = {
-            'sessionId': '6f4e34',
-            'runId': 'lean-fix',
-            'hypothesisId': 'A,C',
-            'location': 'finalize.py:unlock_stale_finalized',
-            'message': 'unlock deltas',
-            'data': {
-                'n_finalized': len(keys),
-                'n_unlocked': len(unlocked),
-                'unlock_travel': unlock_travel,
-                'delta_max': float(np.max(deltas)) if len(deltas) else 0.0,
-                'delta_mean': float(np.mean(deltas)) if len(deltas) else 0.0,
-                'delta_p90': float(np.percentile(deltas, 90)) if len(deltas) else 0.0,
-            },
-            'timestamp': int(_time.time() * 1000),
-        }
-        with open('/workspace/.cursor/debug-6f4e34.log', 'a', encoding='utf-8') as _f:
-            _f.write(_json.dumps(_payload) + '\n')
-    except Exception:
-        pass
-    # #endregion
     return kept, unlocked
 
 
@@ -254,8 +315,12 @@ def filter_records_for_mesh_inclusion(
         records: Sequence[_AlignmentRecordLike],
         max_travel: float,
         min_keep: int = 3,
+        per_record_max_travel: NDArray[np.floating] | None = None,
 ) -> tuple[list, int]:
-    """Drop free alignment records whose peak travel exceeds ``max_travel``.
+    """Drop free alignment records whose peak travel exceeds the travel bar.
+
+    When ``per_record_max_travel`` is provided it overrides the scalar
+    ``max_travel`` per cell (used for discontinuity-aware inclusion).
 
     Large residual peaks that are not yet lockable must not reshape the mesh —
     they fold edges when weight alone includes them. If filtering would leave
@@ -270,7 +335,13 @@ def filter_records_for_mesh_inclusion(
         [float(np.linalg.norm(np.asarray(r.peak, dtype=np.float64).reshape(2)))
          for r in records_list],
         dtype=np.float64)
-    keep_mask = travels <= float(max_travel)
+    if per_record_max_travel is not None:
+        limits = np.asarray(per_record_max_travel, dtype=np.float64).reshape(-1)
+        if limits.shape[0] != n:
+            raise ValueError('per_record_max_travel must match records length')
+        keep_mask = travels <= limits
+    else:
+        keep_mask = travels <= float(max_travel)
     kept = [r for r, ok in zip(records_list, keep_mask) if bool(ok)]
     if len(kept) >= int(min_keep):
         return kept, int(n - len(kept))

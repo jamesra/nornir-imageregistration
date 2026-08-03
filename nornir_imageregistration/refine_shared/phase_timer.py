@@ -17,14 +17,18 @@ except (ModuleNotFoundError, ImportError):
 
 
 class RefinePhaseTimer:
-    """Accumulate wall time per named phase of grid refinement (opt-in).
+    """Accumulate wall time per named phase of grid refinement.
 
-    Enabled by setting ``NORNIR_REFINE_PHASE_TIMING`` to a truthy value. When
-    disabled, ``section`` is a no-op context manager so default runs are
-    unaffected.
+    Detailed FFT/prewarp buckets stay opt-in via ``NORNIR_REFINE_PHASE_TIMING``.
+    ``section_wall`` always records (no GPU sync) for coarse STOS pass summaries.
     """
 
-    PHASES = ('prewarp', 'cell_extract', 'fft', 'host_sync', 'regularize', 'apply')
+    PHASES = (
+        'prewarp', 'grid_build', 'approx_rigid', 'cell_extract', 'fft', 'host_sync',
+        'record_assemble', 'regularize', 'apply',
+        'low_content_gate', 'classify', 'zncc_secondary',
+        'finalize', 'diagnostics_tables', 'diagnostics_heatmaps',
+    )
 
     def __init__(self, enabled: bool | None = None) -> None:
         if enabled is None:
@@ -45,6 +49,14 @@ class RefinePhaseTimer:
         """Return a copy of the current cumulative per-phase totals."""
         return dict(self.totals)
 
+    def add(self, name: str, elapsed: float) -> None:
+        """Add an externally measured elapsed time into *name*."""
+        if elapsed < 0:
+            return
+        with self._lock:
+            self.totals[name] += float(elapsed)
+            self.counts[name] += 1
+
     @contextlib.contextmanager
     def section(self, name: str):
         """Time the wrapped block into the *name* bucket (no-op when disabled)."""
@@ -60,6 +72,18 @@ class RefinePhaseTimer:
                     cp.cuda.Device().synchronize()
                 except Exception:  # pragma: no cover
                     pass
+            elapsed = time.perf_counter() - start
+            with self._lock:
+                self.totals[name] += elapsed
+                self.counts[name] += 1
+
+    @contextlib.contextmanager
+    def section_wall(self, name: str):
+        """Always time the wrapped block (no GPU sync) for coarse STOS profiling."""
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
             elapsed = time.perf_counter() - start
             with self._lock:
                 self.totals[name] += elapsed
