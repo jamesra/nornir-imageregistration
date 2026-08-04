@@ -390,6 +390,7 @@ import nornir_imageregistration.local_distortion_correction as local_distortion_
 import nornir_imageregistration.mosaic_refine as mosaic_refine
 import nornir_imageregistration.stos_refine as stos_refine
 from nornir_imageregistration.stos_refine import WeightMethod
+import nornir_imageregistration.stos_quality as stos_quality
 import nornir_imageregistration.tileset_functions as tileset_functions
 import nornir_imageregistration.views as views
 import nornir_imageregistration.volume as volume
