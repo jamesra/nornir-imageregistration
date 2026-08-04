@@ -417,9 +417,18 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     """
     Converts a single image according to the passed parameters (NumPy or CuPy, matching input backend).
     Image returned will match the dtype of the loaded image
+
+    File loads always stay on NumPy so process-pool convert workers never upload
+    per-tile arrays to the GPU under a global CuPy setting.
     """
 
-    image = ImageParamToImageArray(input_image_param)
+    # Explicit host boundary for path loads: process-pool ConvertImagesInDict must
+    # not H→D each tile when UsingCupy() (VRAM thrash across workers).
+    if isinstance(input_image_param, str):
+        image = LoadImage(input_image_param, backend="numpy")
+    else:
+        image = ImageParamToImageArray(input_image_param)
+        image = nornir_imageregistration.EnsureNumpyArray(image)
     xp = cp.get_array_module(image)
     original_dtype = image.dtype
     max_possible_int_val = None
@@ -554,13 +563,16 @@ class _TaskProgressReporter:
             return
         self._completed = True
         self._publish(self._total)
-        prettyoutput.publish_task_complete(self._task_key, self._total)
+        complete_fn = getattr(prettyoutput, 'publish_task_complete', None)
+        if complete_fn is not None:
+            complete_fn(self._task_key, self._total)
 
     def _publish(self, current: int) -> None:
         self._last_published = current
         self._last_time = time.time()
-        prettyoutput.publish_task_progress(
-            self._task_key, current, self._total, name=self._name)
+        progress_fn = getattr(prettyoutput, 'publish_task_progress', None)
+        if progress_fn is not None:
+            progress_fn(self._task_key, current, self._total, name=self._name)
 
 
 def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
@@ -822,6 +834,8 @@ CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES: int = _DEFAULT_GPU_PYRAMID_BATCH_MB * 10
 
 
 def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
+                            Flip: bool = False,
+                            Flop: bool = False,
                             InputBpp: int | None = None,
                             OutputBpp: int | None = None,
                             MinMax: tuple[float, float] | None = None,
@@ -841,7 +855,8 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
        this combines dtype conversion and normalisation with no intermediate
        allocations.
     3. H→D transfers the entire pinned slab in one DMA operation.
-    4. Applies level / gamma / clip vectorised over the batch axis on the GPU.
+    4. Optionally flips/flops on device, then applies level / gamma / clip
+       vectorised over the batch axis on the GPU.
     5. D→H downloads the result, then dispatches per-tile saves to a second
        thread pool so saving chunk *N* overlaps with GPU work on chunk *N+1*.
 
@@ -858,6 +873,9 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
     - Mixed tile shapes are detected after the first chunk.
 
     :param ImagesToConvertDict: Mapping of input path → output path.
+    :param Flip: If True, flip each tile vertically (axis 0), matching
+        :func:`_ConvertSingleImage`.
+    :param Flop: If True, flip each tile horizontally (axis 1).
     :param InputBpp: Bits-per-pixel of input tiles (auto-detected when None).
     :param OutputBpp: Bits-per-pixel for output tiles (matches InputBpp when None).
     :param MinMax: ``(min, max)`` intensity cutoff tuple for contrast stretch.
@@ -872,6 +890,8 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
         batch_bytes = CONVERT_IMAGES_GPU_BATCH_BYTES
     if not nornir_imageregistration.HasCupy() or not nornir_imageregistration.UsingCupy():
         return ConvertImagesInDict(ImagesToConvertDict,
+                                   Flip=Flip,
+                                   Flop=Flop,
                                    InputBpp=InputBpp,
                                    OutputBpp=OutputBpp,
                                    MinMax=MinMax,
@@ -895,6 +915,8 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
         OutputBpp = InputBpp
 
     gamma_val = float(Gamma) if Gamma is not None else 1.0
+    do_flip = bool(Flip)
+    do_flop = bool(Flop)
 
     prettyoutput.CurseString('Stage', "ConvertImagesInDictGpu")
 
@@ -1030,7 +1052,8 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                 for out_path, arr in zip(chunk_out, arrays_chunk):
                     if arr is None:
                         continue
-                    result = _ConvertSingleImage(arr, MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
+                    result = _ConvertSingleImage(arr, Flip=do_flip, Flop=do_flop,
+                                                 MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
                     (_, ext) = os.path.splitext(out_path)
                     kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
                     save_pool.add_task(f"save {out_path}", SaveImage,
@@ -1048,6 +1071,12 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                     np.multiply(arr, scale, out=pinned_buf[i], casting='unsafe')
 
             batch = cp.asarray(pinned_buf[:n])
+            # Match _ConvertSingleImage order: Flip/Flop before level/gamma.
+            # Batch axes are (N, H, W) → Flip = axis 1, Flop = axis 2.
+            if do_flip:
+                batch = cp.flip(batch, axis=1)
+            if do_flop:
+                batch = cp.flip(batch, axis=2)
             batch = _apply_contrast_gpu(batch, min_val, max_val, gamma_val,
                                          max_int_val if is_int else None)
             batch = batch.astype(original_dtype)
