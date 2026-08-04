@@ -383,8 +383,10 @@ from nornir_imageregistration.tileset import ShadeCorrectionTypes
 import nornir_imageregistration.assemble as assemble
 import nornir_imageregistration.assemble_tiles as assemble_tiles
 import nornir_imageregistration.layout as layout
-import nornir_imageregistration.local_distortion_correction as local_distortion_correction
+# refine_shared before local_distortion_correction: the latter imports many symbols
+# from refine_shared at module load; loading LDC first can fail with a partial package.
 import nornir_imageregistration.refine_shared as refine_shared
+import nornir_imageregistration.local_distortion_correction as local_distortion_correction
 import nornir_imageregistration.mosaic_refine as mosaic_refine
 import nornir_imageregistration.stos_refine as stos_refine
 from nornir_imageregistration.stos_refine import WeightMethod
