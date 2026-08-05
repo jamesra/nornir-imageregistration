@@ -3,8 +3,6 @@
 """
 from __future__ import annotations
 
-import threading
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -12,22 +10,6 @@ import numpy.typing
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-
-# Shared pool for optional background extrema/stats; callers must opt in via prefetch.
-_EXTREMA_PREFETCH_POOL: ThreadPoolExecutor | None = None
-_EXTREMA_PREFETCH_POOL_LOCK = threading.Lock()
-
-
-def _get_extrema_prefetch_pool() -> ThreadPoolExecutor:
-    """Return the shared extrema prefetch pool, creating it on first use."""
-    global _EXTREMA_PREFETCH_POOL
-    with _EXTREMA_PREFETCH_POOL_LOCK:
-        if _EXTREMA_PREFETCH_POOL is None:
-            _EXTREMA_PREFETCH_POOL = ThreadPoolExecutor(
-                max_workers=2,
-                thread_name_prefix="img-extrema-prefetch",
-            )
-        return _EXTREMA_PREFETCH_POOL
 
 
 class ImagePermutationHelper:
@@ -40,12 +22,10 @@ class ImagePermutationHelper:
     """
     _image: NDArray
     _mask: NDArray | None
-    _blended_mask: NDArray | None
-    _stats: nornir_imageregistration.ImageStats | None
+    _blended_mask: NDArray
+    _stats: nornir_imageregistration.ImageStats
     _image_with_mask_as_noise: NDArray | None
     _extrema_size_cutoff_in_pixels: int
-    _extrema_future: Future[None] | None
-    _extrema_lock: threading.Lock
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -77,8 +57,6 @@ class ImagePermutationHelper:
         """
         :return: The mask combined with the extrema mask.  Is only the extrema mask if there was no Mask passed
         """
-        self._ensure_blended_mask_and_stats()
-        assert self._blended_mask is not None
         return self._blended_mask
 
     @property
@@ -86,8 +64,6 @@ class ImagePermutationHelper:
         """
         :return: Statistics for unmasked portion of the image
         """
-        self._ensure_blended_mask_and_stats()
-        assert self._stats is not None
         return self._stats
 
     @property
@@ -96,77 +72,9 @@ class ImagePermutationHelper:
         :return:  The image with random noise over the masked regions
         """
         if self._image_with_mask_as_noise is None:
-            self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(
-                self._image,
-                self.BlendedMask,
-                imagestats=self.Stats,
-                Copy=True,
-            )
+            self._image_with_mask_as_noise = nornir_imageregistration.RandomNoiseMask(self._image, self._blended_mask,
+                                                                                      imagestats=self._stats, Copy=True)
         return self._image_with_mask_as_noise
-
-    def prefetch_extrema_async(self, executor: Executor | None = None) -> None:
-        """Start background extrema/stats if not already computed or in flight.
-
-        Safe to call multiple times. Accessors join any in-flight future.
-        Does nothing if results already exist.
-        """
-        with self._extrema_lock:
-            if self._blended_mask is not None and self._stats is not None:
-                return
-            if self._extrema_future is not None and not self._extrema_future.done():
-                return
-            pool = executor if executor is not None else _get_extrema_prefetch_pool()
-            self._extrema_future = pool.submit(self._compute_blended_mask_and_stats)
-
-    def _compute_blended_mask_and_stats(self) -> None:
-        """Compute extrema blend and unmasked stats (may run on a worker thread)."""
-        if self._blended_mask is not None and self._stats is not None:
-            return
-
-        extrema_mask = nornir_imageregistration.CreateExtremaMask(
-            self._image,
-            self._mask,
-            size_cutoff=self._extrema_size_cutoff_in_pixels,
-        )
-        blended_mask = (
-            np.logical_and(self._mask, extrema_mask)
-            if self._mask is not None
-            else extrema_mask
-        )
-        # CreateExtremaMask can mark an entire small ROI as excluded extrema (all False).
-        # Keep tissue (or the raw image) rather than computing stats on an empty selection
-        # and then noise-filling the whole ROI for registration.
-        if not np.any(blended_mask):
-            if self._mask is not None and np.any(self._mask):
-                blended_mask = self._mask
-            elif self._image.size > 0:
-                blended_mask = np.ones(self._image.shape, dtype=bool)
-            else:
-                raise ValueError("Image has no data")
-
-        stats = nornir_imageregistration.ImageStats.Create(self._image[blended_mask])
-        with self._extrema_lock:
-            if self._blended_mask is None:
-                self._blended_mask = blended_mask
-            if self._stats is None:
-                self._stats = stats
-
-    def _ensure_blended_mask_and_stats(self) -> None:
-        """Build extrema blend and unmasked stats on first use, joining any prefetch."""
-        if self._blended_mask is not None and self._stats is not None:
-            return
-
-        future: Future[None] | None
-        with self._extrema_lock:
-            if self._blended_mask is not None and self._stats is not None:
-                return
-            future = self._extrema_future
-
-        if future is not None:
-            future.result()
-            return
-
-        self._compute_blended_mask_and_stats()
 
     def __init__(self,
                  img: nornir_imageregistration.ImageLike,  # type: ignore[reportInvalidTypeForm]
@@ -182,10 +90,6 @@ class ImagePermutationHelper:
                 dtype = nornir_imageregistration.default_image_dtype()
 
         self._image_with_mask_as_noise = None
-        self._blended_mask = None
-        self._stats = None
-        self._extrema_future = None
-        self._extrema_lock = threading.Lock()
 
         img = nornir_imageregistration.ImageParamToImageArray(img, dtype=dtype)
         mask = nornir_imageregistration.ImageParamToImageArray(mask, dtype=bool) if mask is not None else None
@@ -213,3 +117,22 @@ class ImagePermutationHelper:
 
         self._image = img.astype(dtype, copy=False)
         self._mask = mask
+        self._extrema_mask = nornir_imageregistration.CreateExtremaMask(self._image, self._mask,
+                                                                        size_cutoff=extrema_pixels)
+        self._blended_mask = np.logical_and(self._mask,
+                                            self._extrema_mask) if self._mask is not None else self._extrema_mask
+        # CreateExtremaMask can mark an entire small ROI as excluded extrema (all False).
+        # Keep tissue (or the raw image) rather than computing stats on an empty selection
+        # and then noise-filling the whole ROI for registration.
+        if not np.any(self._blended_mask):
+            if self._mask is not None and np.any(self._mask):
+                self._blended_mask = self._mask
+            elif self._image.size > 0:
+                self._blended_mask = np.ones(self._image.shape, dtype=bool)
+            else:
+                raise ValueError("Image has no data")
+
+        try:
+            self._stats = nornir_imageregistration.ImageStats.Create(self._image[self._blended_mask])
+        except (FloatingPointError, ValueError):
+            raise

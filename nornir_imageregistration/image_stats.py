@@ -470,9 +470,14 @@ def __PruneFileSciPy__(filename: str, MaxOverlap: float = 0.15, **kwargs):
 
 
 def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: float | None = None,
+              progress_task_key: str | None = None, progress_name: str | None = None,
               **kwargs) -> nornir_shared.histogram.Histogram:
-    """Returns a single histogram built by combining histograms of all images
-       If scale is not none the images are scaled before the histogram is collected"""
+    """Return a combined histogram of all images.
+
+    If *Scale* is not None the images are scaled before the histogram is
+    collected. Optional *progress_task_key* / *progress_name* publish a nested
+    dashboard bar while tiles are processed.
+    """
 
     if isinstance(filenames, str):
         listfilenames = [filenames]
@@ -490,42 +495,52 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: flo
 
     assert isinstance(listfilenames, list)
 
+    reporter: prettyoutput.TaskProgressReporter | None = None
+    if progress_task_key:
+        reporter = prettyoutput.TaskProgressReporter(
+            progress_task_key, numTiles, name=progress_name)
+        reporter.start()
+
     FilenameToTask = {}
+    # Pillow decode releases the GIL — prefer threads over process spawn/join.
     if len(listfilenames) > 2:
-        pool = nornir_pools.GetGlobalLocalMachinePool()
+        pool = nornir_pools.GetGlobalThreadPool()
     else:
         pool = nornir_pools.GetGlobalSerialPool()
 
     for f in listfilenames:
-        # (root, ext) = os.path.splitext(f)
-        # __HistogramFilePillow__(f, Bpp=Bpp, Scale=Scale)
-        task = pool.add_task(f, __HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale, **kwargs)
-        #         if ext == '.npy':
-        #             task = __HistogramFileSciPy__(f, Bpp=Bpp, Scale=Scale)
-        #         else:
-        #             #task = __HistogramFilePillow__(f, ProcPool=pool, Bpp=Bpp, Scale=Scale)
-        #             task = pool.add_task(f, __HistogramFilePillow__,f, Bpp=Bpp, Scale=Scale)
-        #             #task = __HistogramFileImageMagick__(f, ProcPool=pool, Bpp=Bpp, Scale=Scale)
-        FilenameToTask[f] = task
+        try:
+            task = pool.add_task(f, __HistogramFileSciPy__, f, Bpp=Bpp, Scale=Scale, **kwargs)
+            FilenameToTask[f] = task
+        except Exception as e:
+            # SerialPool runs inline and may raise at submit time.
+            prettyoutput.Log(f"Skipping histogram for {f}: {type(e).__name__}: {e}")
+            continue
 
     minVal = None
     maxVal = None
     histlist = []
     numBins = None
+    completed = 0
     for f in list(FilenameToTask.keys()):
         task = FilenameToTask[f]
         try:
             h = task.wait_return()
-        except IOError as e:
-            prettyoutput.Log("File not found " + f)
+        except (OSError, IOError, ValueError) as e:
+            prettyoutput.Log(f"Skipping histogram for {f}: {e}")
+            completed += 1
+            if reporter is not None:
+                reporter.update(completed)
+            continue
+        except Exception as e:
+            # Pillow and codec errors vary by version; do not abort the mosaic hist.
+            prettyoutput.Log(f"Skipping histogram for {f}: {type(e).__name__}: {e}")
+            completed += 1
+            if reporter is not None:
+                reporter.update(completed)
             continue
 
         histlist.append(h)
-        #         lines = taskOutput.splitlines()
-        #
-        #         OutputMap[f] = lines
-        #
-        #         (fminVal, fmaxVal) = nornir_imageregistration.im_histogram_parser.MinMaxValues(lines)
         if minVal is None:
             minVal = h.MinValue
         else:
@@ -537,45 +552,23 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: flo
             maxVal = max(maxVal, h.MaxValue)
 
         numBins = len(h.Bins)
-    #
-    #     threadTasks = []
-    #
-    #     thread_pool = nornir_pools.GetGlobalThreadPool()
-    #     for f in list(OutputMap.keys()):
-    #         threadTask = thread_pool.add_task(f, nornir_imageregistration.im_histogram_parser.Parse, OutputMap[f], minVal=minVal, maxVal=maxVal, numBins=numBins)
-    #         threadTasks.append(threadTask)
-    #
+        completed += 1
+        if reporter is not None:
+            reporter.update(completed)
+
+    if reporter is not None:
+        reporter.complete()
+
+    if len(histlist) == 0:
+        raise ValueError(
+            f"Cannot build histogram: no readable tiles among {numTiles} input file(s)")
+
     HistogramComposite = nornir_shared.histogram.Histogram.Init(minVal=minVal, maxVal=maxVal, numBins=numBins)
     for h in histlist:
-        # hist = t.wait_return()
         HistogramComposite.AddHistogram(h)
-        # histogram = IMHistogramOutput.Parse(taskOutput, minVal=minVal, maxVal=maxVal, numBins=numBins)
-
-        # FilenameToResult[f] = [histogram, None, None]
 
     if Bpp > 8:  # type: ignore[operator]
         HistogramComposite = nornir_shared.histogram.Histogram.Trim(HistogramComposite)
-    # del threadTasks
-
-    # FilenameToResult = __InvokeFunctionOnImageList__(listfilenames, Function=__HistogramFileImageMagick__, Pool=nornir_pools.GetGlobalThreadPool(), ProcPool = nornir_pools.GetGlobalClusterPool(), Bpp=Bpp, Scale=Scale)#, NumSamples=SamplesPerImage)
-
-    #    maxVal = 1 << Bpp
-    #    numBins = 256
-    #    if Bpp > 8:
-    #        numBins = 1024
-
-    # Sum all of the result arrays together
-    #    for filename in listfilenames:
-    #        if filename in FilenameToResult:
-    #            Result = FilenameToResult[filename]
-    #            histogram = Result[0]
-    # #
-    # #            if HistogramComposite is None:
-    # #                HistogramComposite = numpy.zeros(histogram.shape, dtype=numpy.int0)
-    # #
-    # #            HistogramComposite = numpy.add(HistogramComposite, histogram)
-    #
-    #            HistogramComposite.AddHistogram(histogram.Bins)
 
     return HistogramComposite
 
@@ -591,16 +584,16 @@ def __HistogramFileSciPy__(filename: str,
                            numBins: int | None = None,
                            Scale: float | None = None,
                            MinVal: float | None = None,
-                           MaxVal: float | None = None) -> nornir_shared.histogram.Histogram:
+                           MaxVal: float | None = None,
+                           stride: int | None = None) -> nornir_shared.histogram.Histogram:
     """Return the histogram of an image"""
 
     with Image.open(filename, mode='r') as img:
         img_I = img.convert("I")
         Im = np.asarray(img_I)
-        # dims = numpy.asarray(img.size).astype(dtype=numpy.float32)
 
-    return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale, min_val=MinVal,
-                            max_val=MaxVal)
+    return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale,
+                            min_val=MinVal, max_val=MaxVal, stride=stride)
 
 
 def HistogramOfArray(input: NDArray,
@@ -609,7 +602,8 @@ def HistogramOfArray(input: NDArray,
                      num_bins: int | None = None,
                      scale: float | None = None,
                      min_val: float | None = None,
-                     max_val: float | None = None) -> nornir_shared.histogram.Histogram:
+                     max_val: float | None = None,
+                     stride: int | None = None) -> nornir_shared.histogram.Histogram:
     """Generate a histogram of the passed image
     :param bpp: The number of bits per pixel in the image
     :param num_samples: The number of samples to use to generate the histogram, chosen randomly from the image.  If None, all pixels are used
@@ -617,8 +611,12 @@ def HistogramOfArray(input: NDArray,
     :param scale: The percentage to scale the image before generating the histogram (Not currerntly supported, by the time the histogram is in memory it is faster to read it all, it has to be read to downsample it anyway.)
     :param min_val: The minimum value to use in the histogram
     :param max_val: The maximum value to use in the histogram
+    :param stride: If > 1, histogram ``input[::stride, ::stride]`` (deterministic spatial subsample).
 
     """
+    if stride is not None and stride > 1:
+        input = input[::stride, ::stride]
+
     (Height, Width) = input.shape
     num_pixels = Width * Height
     min_val = 0 if min_val is None else min_val
@@ -637,12 +635,6 @@ def HistogramOfArray(input: NDArray,
         if num_bins > (max_val - min_val) + 1:
             num_bins = (max_val - min_val) + 1  # type: ignore[assignment]
 
-    # if(not Scale is None):
-    #    if(Scale != 1.0):
-    #        Im = scipy.misc.imresize(Im, size=Scale, interp='nearest') 
-
-    # ImOneD = reshape(Im, Width * Height, 1)
-
     ImOneD = input.flat
 
     if num_samples is None:
@@ -656,10 +648,9 @@ def HistogramOfArray(input: NDArray,
         Samples = random.random_integers(0, num_pixels - 1, num_samples)
         ImOneD = ImOneD[Samples]
 
-    # [histogram_array, low_range, binsize] = numpy.histogram(ImOneD, bins=numBins, range =[0, 1])
     # In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
     [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=num_bins, range=(min_val, max_val + 1))  # type: ignore[arg-type]
-    binWidth = bin_edges[1] - bin_edges[0]  # (MaxVal - MinVal) / len(histogram_array)
+    binWidth = bin_edges[1] - bin_edges[0]
     assert (binWidth > 0)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)  # type: ignore[arg-type]
 

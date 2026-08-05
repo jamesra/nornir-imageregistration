@@ -524,55 +524,8 @@ def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: boo
     return
 
 
-class _TaskProgressReporter:
-    """Throttled secondary dashboard bar via ``publish_task_progress``."""
-
-    def __init__(self, task_key: str, total: int, *, name: str | None = None,
-                 min_interval_s: float = 0.25) -> None:
-        self._task_key = task_key
-        self._total = max(0, int(total))
-        self._name = name
-        self._min_interval_s = min_interval_s
-        self._step = max(1, self._total // 100) if self._total else 1
-        self._last_published = -1
-        self._last_time = 0.0
-        self._started = False
-        self._completed = False
-
-    def start(self) -> None:
-        if self._total <= 0 or self._started:
-            return
-        self._started = True
-        self._publish(0)
-
-    def update(self, current: int) -> None:
-        if self._total <= 0 or self._completed:
-            return
-        if not self._started:
-            self.start()
-        current = min(max(0, int(current)), self._total)
-        now = time.time()
-        if (current >= self._total
-                or self._last_published < 0
-                or current - self._last_published >= self._step
-                or now - self._last_time >= self._min_interval_s):
-            self._publish(current)
-
-    def complete(self) -> None:
-        if self._completed or self._total <= 0 or not self._started:
-            return
-        self._completed = True
-        self._publish(self._total)
-        complete_fn = getattr(prettyoutput, 'publish_task_complete', None)
-        if complete_fn is not None:
-            complete_fn(self._task_key, self._total)
-
-    def _publish(self, current: int) -> None:
-        self._last_published = current
-        self._last_time = time.time()
-        progress_fn = getattr(prettyoutput, 'publish_task_progress', None)
-        if progress_fn is not None:
-            progress_fn(self._task_key, current, self._total, name=self._name)
+# Shared throttled reporter; alias keeps call sites stable.
+_TaskProgressReporter = prettyoutput.TaskProgressReporter
 
 
 def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = False, InputBpp: int | None = None,
@@ -626,7 +579,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                              Invert=Invert,
                              MinMax=MinMax,
                              Gamma=Gamma)
-        tasks.append(task)
+        tasks.append((task, input_image))
 
     task_key = progress_task_key or 'ConvertImagesInDict'
     reporter = _TaskProgressReporter(task_key, len(tasks), name=progress_name)
@@ -634,7 +587,7 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
     try:
         reporter.start()
         while len(tasks) > 0:
-            t = tasks.pop(0)
+            t, input_image = tasks.pop(0)
             try:
                 t.wait()
             except Exception as e:
@@ -643,7 +596,10 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
 
                 prettyoutput.LogErr(f"Failed to convert {t.name}\n{e}")
             completed += 1
-            reporter.update(completed)
+            reporter.update(
+                completed,
+                element=os.path.basename(input_image),
+                path=input_image)
     finally:
         reporter.complete()
 
@@ -833,6 +789,24 @@ _DEFAULT_GPU_PYRAMID_BATCH_MB: int = int(
 CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES: int = _DEFAULT_GPU_PYRAMID_BATCH_MB * 1024 * 1024
 
 
+def _clear_gpu_convert_load_chunk(load_tasks: Sequence, start: int, end: int) -> None:
+    """Drop decoded tile arrays retained on completed load tasks for ``[start, end)``."""
+    for i in range(start, end):
+        task = load_tasks[i]
+        if hasattr(task, 'returned_value'):
+            task.returned_value = None
+
+
+def _free_cupy_convert_pools() -> None:
+    """Return CuPy device and pinned blocks to the driver after a convert call."""
+    if not nornir_imageregistration.HasCupy():
+        return
+    cp.get_default_memory_pool().free_all_blocks()
+    pinned_pool = getattr(cp, 'get_default_pinned_memory_pool', None)
+    if pinned_pool is not None:
+        pinned_pool().free_all_blocks()
+
+
 def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                             Flip: bool = False,
                             Flop: bool = False,
@@ -993,10 +967,8 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
     # Pinned host buffer sized for one chunk.
     # np.frombuffer requires explicit count= when wrapping a PinnedMemoryPointer;
     # without it the buffer protocol may expose only the pointer's metadata size.
-    pinned = cp.cuda.alloc_pinned_memory(chunk_size * tile_float32_bytes)
-    pinned_buf = np.frombuffer(pinned, dtype=np.float32,
-                               count=chunk_size * tile_float32_elems).reshape(chunk_size, *tile_shape)
-
+    pinned = None
+    pinned_buf: np.ndarray | None = None
     fell_back = False
 
     task_key = progress_task_key or 'ConvertImagesInDictGpu'
@@ -1016,91 +988,131 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
     #   d) GPU: level / gamma / clip vectorised over the batch axis.
     #   e) D→H the results.
     #   f) Dispatch each tile's save to the save pool (async).
+    #   g) Drop load-task returned arrays so host tiles are not retained
+    #      for the rest of the section.
     #
     # Step (f) overlaps save-N with GPU processing of chunk N+1.
     # ------------------------------------------------------------------
     try:
-        reporter.start()
-        for chunk_idx in range(n_chunks):
-            start = chunk_idx * chunk_size
-            end = min(start + chunk_size, n_tiles)
-            chunk_out = output_paths[start:end]
+        pinned = cp.cuda.alloc_pinned_memory(chunk_size * tile_float32_bytes)
+        pinned_buf = np.frombuffer(pinned, dtype=np.float32,
+                                   count=chunk_size * tile_float32_elems).reshape(
+                                       chunk_size, *tile_shape)
+        try:
+            reporter.start()
+            for chunk_idx in range(n_chunks):
+                start = chunk_idx * chunk_size
+                end = min(start + chunk_size, n_tiles)
+                chunk_out = output_paths[start:end]
 
-            arrays_chunk: list[np.ndarray | None] = []
-            for i in range(start, end):
-                if chunk_idx == 0 and i == 0:
-                    arrays_chunk.append(first_array)
+                arrays_chunk: list[np.ndarray | None] = []
+                for i in range(start, end):
+                    if chunk_idx == 0 and i == 0:
+                        arrays_chunk.append(first_array)
+                        continue
+                    arr_i: np.ndarray | None = None
+                    try:
+                        arr_i = all_load_tasks[i].wait_return()
+                    except Exception as exc:
+                        prettyoutput.LogErr(
+                            f"ConvertImagesInDictGpu: load failed {input_paths[i]}\n{exc}")
+                    arrays_chunk.append(arr_i)
+
+                valid = [a for a in arrays_chunk if a is not None]
+                if not valid:
+                    _clear_gpu_convert_load_chunk(all_load_tasks, start, end)
+                    if chunk_idx == 0:
+                        first_array = None
                     continue
-                arr_i: np.ndarray | None = None
-                try:
-                    arr_i = all_load_tasks[i].wait_return()
-                except Exception as exc:
-                    prettyoutput.LogErr(
-                        f"ConvertImagesInDictGpu: load failed {input_paths[i]}\n{exc}")
-                arrays_chunk.append(arr_i)
 
-            valid = [a for a in arrays_chunk if a is not None]
-            if not valid:
-                continue
+                if not fell_back and any(a.shape != tile_shape for a in valid):
+                    prettyoutput.Log(
+                        "ConvertImagesInDictGpu: mixed tile shapes — falling back remaining chunks to CPU")
+                    fell_back = True
 
-            if not fell_back and any(a.shape != tile_shape for a in valid):
-                prettyoutput.Log(
-                    "ConvertImagesInDictGpu: mixed tile shapes — falling back remaining chunks to CPU")
-                fell_back = True
+                if fell_back:
+                    for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
+                        if arr is None:
+                            continue
+                        result = _ConvertSingleImage(arr, Flip=do_flip, Flop=do_flop,
+                                                     MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
+                        (_, ext) = os.path.splitext(out_path)
+                        kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
+                        save_pool.add_task(f"save {out_path}", SaveImage,
+                                           out_path, result, bpp=OutputBpp, **kw)
+                        tiles_completed += 1
+                        in_path = input_paths[start + i]
+                        reporter.update(
+                            tiles_completed,
+                            element=os.path.basename(in_path),
+                            path=in_path)
+                    _clear_gpu_convert_load_chunk(all_load_tasks, start, end)
+                    if chunk_idx == 0:
+                        first_array = None
+                    continue
 
-            if fell_back:
-                for out_path, arr in zip(chunk_out, arrays_chunk):
+                n = len(arrays_chunk)
+
+                for i, arr in enumerate(arrays_chunk):
+                    if arr is None:
+                        pinned_buf[i] = 0.0
+                    else:
+                        np.multiply(arr, scale, out=pinned_buf[i], casting='unsafe')
+
+                batch = cp.asarray(pinned_buf[:n])
+                # Match _ConvertSingleImage order: Flip/Flop before level/gamma.
+                # Batch axes are (N, H, W) → Flip = axis 1, Flop = axis 2.
+                if do_flip:
+                    batch = cp.flip(batch, axis=1)
+                if do_flop:
+                    batch = cp.flip(batch, axis=2)
+                batch = _apply_contrast_gpu(batch, min_val, max_val, gamma_val,
+                                             max_int_val if is_int else None)
+                batch = batch.astype(original_dtype)
+                result_np: np.ndarray = cp.asnumpy(batch)
+                del batch
+
+                last_input_path: str | None = None
+                for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
                     if arr is None:
                         continue
-                    result = _ConvertSingleImage(arr, Flip=do_flip, Flop=do_flop,
-                                                 MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
                     (_, ext) = os.path.splitext(out_path)
-                    kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
+                    kw = {'optimize': True} if ext.lower() == '.png' else {}
                     save_pool.add_task(f"save {out_path}", SaveImage,
-                                       out_path, result, bpp=OutputBpp, **kw)
-                    tiles_completed += 1
-                    reporter.update(tiles_completed)
-                continue
+                                       out_path, result_np[i], bpp=OutputBpp, **kw)
+                    last_input_path = input_paths[start + i]
 
-            n = len(arrays_chunk)
-
-            for i, arr in enumerate(arrays_chunk):
-                if arr is None:
-                    pinned_buf[i] = 0.0
+                tiles_completed += sum(1 for a in arrays_chunk if a is not None)
+                if last_input_path is not None:
+                    reporter.update(
+                        tiles_completed,
+                        element=os.path.basename(last_input_path),
+                        path=last_input_path)
                 else:
-                    np.multiply(arr, scale, out=pinned_buf[i], casting='unsafe')
-
-            batch = cp.asarray(pinned_buf[:n])
-            # Match _ConvertSingleImage order: Flip/Flop before level/gamma.
-            # Batch axes are (N, H, W) → Flip = axis 1, Flop = axis 2.
-            if do_flip:
-                batch = cp.flip(batch, axis=1)
-            if do_flop:
-                batch = cp.flip(batch, axis=2)
-            batch = _apply_contrast_gpu(batch, min_val, max_val, gamma_val,
-                                         max_int_val if is_int else None)
-            batch = batch.astype(original_dtype)
-            result_np: np.ndarray = cp.asnumpy(batch)
-            del batch
-
-            for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
-                if arr is None:
-                    continue
-                (_, ext) = os.path.splitext(out_path)
-                kw = {'optimize': True} if ext.lower() == '.png' else {}
-                save_pool.add_task(f"save {out_path}", SaveImage,
-                                   out_path, result_np[i], bpp=OutputBpp, **kw)
-
-            tiles_completed += sum(1 for a in arrays_chunk if a is not None)
-            reporter.update(tiles_completed)
+                    reporter.update(tiles_completed)
+                # Host tiles are copied into pinned / result_np; drop load retention.
+                _clear_gpu_convert_load_chunk(all_load_tasks, start, end)
+                if chunk_idx == 0:
+                    first_array = None
+                del arrays_chunk
+                del result_np
+        finally:
+            # Drain async I/O before removing the dashboard track so the bar
+            # stays visible while saves are still in flight.
+            try:
+                load_pool.wait_completion()
+                save_pool.wait_completion()
+            finally:
+                reporter.complete()
+        # Intentionally not calling shutdown(): pools are cached by name in
+        # nornir_pools._known_pools and reused on the next call.  Workers
+        # idle-expire after their WorkerCheckInterval (default 5 s).
     finally:
-        reporter.complete()
-
-    load_pool.wait_completion()
-    save_pool.wait_completion()
-    # Intentionally not calling shutdown(): pools are cached by name in
-    # nornir_pools._known_pools and reused on the next call.  Workers
-    # idle-expire after their WorkerCheckInterval (default 5 s).
+        # Drop pinned views before freeing pools so Task Manager dedicated VRAM
+        # does not ratchet across section converts via CuPy's retained blocks.
+        pinned_buf = None
+        pinned = None
+        _free_cupy_convert_pools()
 
     return n_tiles > 0
 
@@ -1338,14 +1350,14 @@ def ConvertImagesInDictPyramid(ImagesToConvertDict: dict[str, str],
             _convert_and_build_pyramid_tile,
             input_path, all_output_paths, MinMax, gamma_val, InputBpp, OutputBpp,
         )
-        tasks.append(t)
+        tasks.append((t, input_path))
 
     task_key = progress_task_key or 'ConvertImagesInDictPyramid'
     reporter = _TaskProgressReporter(task_key, len(tasks), name=progress_name)
     completed = 0
     try:
         reporter.start()
-        for t in tasks:
+        for t, input_path in tasks:
             try:
                 t.wait()
             except Exception as exc:
@@ -1353,7 +1365,10 @@ def ConvertImagesInDictPyramid(ImagesToConvertDict: dict[str, str],
                     raise
                 prettyoutput.LogErr(f"ConvertImagesInDictPyramid: {t.name}\n{exc}")
             completed += 1
-            reporter.update(completed)
+            reporter.update(
+                completed,
+                element=os.path.basename(input_path),
+                path=input_path)
     finally:
         reporter.complete()
 
@@ -1568,10 +1583,16 @@ def ConvertImagesInDictGpuPyramid(ImagesToConvertDict: dict[str, str],
 
         del gpu_tile, prev
 
-    def _after_tile_processed() -> None:
+    def _after_tile_processed(in_path: str | None = None) -> None:
         nonlocal tiles_completed
         tiles_completed += 1
-        reporter.update(tiles_completed)
+        if in_path is not None:
+            reporter.update(
+                tiles_completed,
+                element=os.path.basename(in_path),
+                path=in_path)
+        else:
+            reporter.update(tiles_completed)
 
     try:
         reporter.start()
@@ -1595,7 +1616,7 @@ def ConvertImagesInDictGpuPyramid(ImagesToConvertDict: dict[str, str],
                             f"ConvertImagesInDictGpuPyramid: load failed {in_path}\n{exc}")
                 _process_tile(in_path, out_path, arr)
                 arr = None
-                _after_tile_processed()
+                _after_tile_processed(in_path)
 
             load_pool.wait_completion()
         else:
@@ -1632,20 +1653,21 @@ def ConvertImagesInDictGpuPyramid(ImagesToConvertDict: dict[str, str],
 
             _process_tile(input_paths[0], output_paths[0], first_array)
             first_array = None
-            _after_tile_processed()
+            _after_tile_processed(input_paths[0])
 
             for _ in range(n_tiles - 1):
                 idx, arr = load_queue.get()
                 _process_tile(input_paths[idx], output_paths[idx], arr)
                 arr = None
-                _after_tile_processed()
+                _after_tile_processed(input_paths[idx])
 
             for t in loader_threads:
                 t.join()
     finally:
-        reporter.complete()
-
-    save_pool.wait_completion()
+        try:
+            save_pool.wait_completion()
+        finally:
+            reporter.complete()
     # Intentionally not calling shutdown() — pools are reused across calls.
 
     return n_tiles > 0

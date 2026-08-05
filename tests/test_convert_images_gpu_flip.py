@@ -81,40 +81,49 @@ class TestConvertImagesInDictGpuFlip(setup_imagetest.ImageTestBase):
         self._assert_gpu_matches_cpu(Flip=True, Flop=True)
 
     def test_vram_stays_near_batch_budget(self) -> None:
-        """Peak allocated VRAM during convert should stay near batch_bytes, not fill the card."""
+        """Production convert must free CuPy pools so multi-call VRAM stays near batch budget."""
         import cupy as cp
 
         batch_bytes = 8 * 1024 * 1024  # 8 MB
         # Larger tiles so a naive per-worker upload of many tiles would blow past budget.
         shape = (512, 512)
         tile_count = 16
+        tile_bytes = shape[0] * shape[1] * 4  # float32
 
+        # Clean slate for a stable baseline only — assert below must not free again.
         cp.get_default_memory_pool().free_all_blocks()
-        before = cp.get_default_memory_pool().used_bytes()
+        pinned_pool = cp.get_default_pinned_memory_pool()
+        pinned_pool.free_all_blocks()
 
         with tempfile.TemporaryDirectory() as tmp:
-            mapping = self._write_gradient_tiles(tmp, count=tile_count, shape=shape)
+            mapping_a = self._write_gradient_tiles(tmp, count=tile_count, shape=shape)
             nornir_imageregistration.ConvertImagesInDictGpu(
-                mapping, Flip=True, InputBpp=8, OutputBpp=8,
+                mapping_a, Flip=True, InputBpp=8, OutputBpp=8,
                 MinMax=(10.0, 245.0), Gamma=1.0, batch_bytes=batch_bytes)
+            after_first = cp.get_default_memory_pool().used_bytes()
 
-        after = cp.get_default_memory_pool().used_bytes()
-        # Allow headroom for CuPy overhead / fragmentation, but fail if we retained
-        # anything like one full tile per worker (would be hundreds of MB).
-        peak_delta = max(0, after - before)
-        # Free leftover from the call; used_bytes after free should be small.
-        cp.get_default_memory_pool().free_all_blocks()
-        residual = cp.get_default_memory_pool().used_bytes()
+            # Second call (new outputs) — pool must not ratchet upward across converts.
+            mapping_b = {
+                src: os.path.join(tmp, f"dst2_{i:03d}.png")
+                for i, src in enumerate(mapping_a.keys())
+            }
+            nornir_imageregistration.ConvertImagesInDictGpu(
+                mapping_b, Flip=False, InputBpp=8, OutputBpp=8,
+                MinMax=(10.0, 245.0), Gamma=1.0, batch_bytes=batch_bytes)
+            after_second = cp.get_default_memory_pool().used_bytes()
 
+        # No free_all_blocks() here: production ConvertImagesInDictGpu must have freed.
         self.assertLess(
-            residual, batch_bytes * 4,
-            f"VRAM residual {residual} bytes after free; expected near batch budget "
-            f"({batch_bytes} bytes), not multi-tile thrash")
-        # Soft check: any retained allocation before free should not look like N tiles on device.
-        tile_bytes = shape[0] * shape[1] * 4  # float32
+            after_first, batch_bytes * 4,
+            f"VRAM used {after_first} bytes after first convert; expected near batch "
+            f"budget ({batch_bytes} bytes) from production free path")
         self.assertLess(
-            peak_delta, tile_bytes * tile_count,
-            f"VRAM used delta {peak_delta} looks like all {tile_count} tiles resident")
+            after_second, batch_bytes * 4,
+            f"VRAM used {after_second} bytes after second convert; pool should not "
+            f"ratchet across calls")
+        self.assertLess(
+            after_second, tile_bytes * tile_count,
+            f"VRAM used {after_second} looks like all {tile_count} tiles still resident")
 
 
 if __name__ == '__main__':
