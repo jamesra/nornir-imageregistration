@@ -1502,12 +1502,10 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                         target_stats: nornir_imageregistration.ImageStats,
                                         min_overlap: float = 0.5) -> AngleScaleResult:
     """This function uses the log polar technique to determine the scale and angle of the best alignment between two images"""
-    # Intentional host boundary: skimage log-polar path is CPU-only. Pull images once here;
-    # downstream phase correlation in ScoreOneAngle stays on the active backend (CuPy when enabled).
-    _xp_lp = cp.get_array_module(source_image)
-    if _xp_lp is not np:
-        source_image = source_image.get()  # type: ignore[attr-defined]
-        target_image = target_image.get()  # type: ignore[attr-defined]
+    # Intentional host boundary: skimage log-polar path is CPU-only. Convert each image
+    # independently (source/target may be on different backends, e.g. Pyre spacebar align).
+    source_image = _coerce_to_source_module(source_image, np)
+    target_image = _coerce_to_source_module(target_image, np)
 
     desired_height = int(nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[0], target_image.shape[0]])))
     desired_width = int(nornir_imageregistration.NearestPowerOfTwo(max([source_image.shape[1], target_image.shape[1]])))
