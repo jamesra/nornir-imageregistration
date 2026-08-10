@@ -83,21 +83,21 @@ class MosaicFile(object):
 
         try:
             SectionNumber = int(parts[0])
-        except:
+        except (ValueError, IndexError):
             # We really can't recover from this, so maybe an exception should be thrown instead
             SectionNumber = None
             prettyoutput.Log('Could not determine mosaic section number: ' + str(filename))
 
         try:
             MosaicType = parts[-2]
-        except:
+        except IndexError:
             MosaicType = None
             prettyoutput.Log('Could not determine mosaic source: ' + str(filename))
 
         if len(parts) > 3:
             try:
                 Channel = parts[1]
-            except:
+            except IndexError:
                 Channel = None
                 prettyoutput.Log('Could not determine mosaic channel: ' + str(filename))
         else:
@@ -107,7 +107,7 @@ class MosaicFile(object):
         try:
             DownsampleStrings = parts[-1].split(".")
             Downsample = int(DownsampleStrings[0])
-        except:
+        except (ValueError, IndexError):
             Downsample = None
             prettyoutput.Log('Could not determine mosaic downsample: ' + str(filename))
 
@@ -174,18 +174,18 @@ class MosaicFile(object):
         Dictionary (Entries) at the specified Downsample rate.  Entries should have the key=filename
         and values should be a tuple with pixel coordinates
     
-        Setting Flip to True will invert all X coordinates
-        Setting Flop to True will invert all Y coordinates
+        Setting Flip to True will invert all Y coordinates
+        Setting Flop to True will invert all X coordinates
         '''
 
         if ImageSize is None:
             ImageSize = [(4080, 4080)] * len(Entries)
         elif not isinstance(ImageSize, list):
             assert (len(ImageSize) == 2), "Expect tuple or list indicating image size"
-            ImageSize *= len(Entries)
+            ImageSize = [tuple(ImageSize)] * len(Entries)
         else:
-            # A list of two entries for the size
-            if len(ImageSize) == 2 and not isinstance(ImageSize[0], list):
+            # A list: either a single (w, h) as two scalars, or one size per entry.
+            if len(ImageSize) == 2 and isinstance(ImageSize[0], (int, float)):
                 ImageSize = [(ImageSize[0], ImageSize[1])] * len(Entries)
             elif len(ImageSize) == len(Entries):
                 ImageSize = ImageSize

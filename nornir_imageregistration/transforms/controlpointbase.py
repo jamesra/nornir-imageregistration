@@ -1,5 +1,4 @@
 from abc import ABCMeta, abstractmethod
-import operator
 
 import numpy as np
 from typing import Any
@@ -16,9 +15,79 @@ except ImportError:
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration.spatial_distance import array_to_numpy_host
 from nornir_imageregistration.transforms import utils
 from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTransform, ITransformFlip
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
+
+
+def _as_bool_scalar(value: Any) -> bool:
+    """Convert a 0-d NumPy/CuPy boolean result to a Python bool."""
+    item = getattr(value, "item", None)
+    if callable(item):
+        return bool(item())
+    return bool(value)
+
+
+def GroupControlPointIndicesByPosition(
+        points: NDArray[np.floating],
+        *,
+        decimals: int = 3,
+) -> list[list[int]]:
+    """Group row indices that share the same rounded fixed-space (y, x).
+
+    Returns a list of lists. Each child list is the indices of points at one
+    position (first-seen order of positions; indices within a group in ascending
+    input order). Singleton positions are included as length-1 lists.
+
+    Rounding and uniqueness run on the input array backend (``xp``). Only the
+    compact inverse/index vectors are brought to the host to assemble Python lists.
+    """
+    xp = cp.get_array_module(points)
+    pts = xp.asarray(points)
+    if pts.ndim == 1:
+        pts = xp.atleast_2d(pts)
+    if pts.shape[0] == 0:
+        return []
+
+    rounded = xp.around(pts[:, 0:2], decimals)
+    _unique, first_idx, inverse = xp.unique(
+        rounded, axis=0, return_index=True, return_inverse=True
+    )
+
+    # Host assembly of list[list[int]]; transfer only int index vectors.
+    first_idx_h = array_to_numpy_host(first_idx)
+    inverse_h = array_to_numpy_host(inverse)
+    appearance_order = np.argsort(first_idx_h)
+    label_to_group = np.empty(appearance_order.shape[0], dtype=np.intp)
+    label_to_group[appearance_order] = np.arange(appearance_order.shape[0], dtype=np.intp)
+
+    groups: list[list[int]] = [[] for _ in range(appearance_order.shape[0])]
+    for i, label in enumerate(inverse_h.tolist()):
+        groups[int(label_to_group[int(label)])].append(i)
+    return groups
+
+
+def ControlPointsHaveDuplicatePositions(
+        points: NDArray[np.floating],
+        *,
+        decimals: int = 3,
+) -> bool:
+    """Return True if any rounded fixed-space (y, x) position appears more than once.
+
+    Stays on the input backend; faster than building index groups when only a
+    yes/no answer is needed (e.g. RBF ``CreateBetaMatrix``).
+    """
+    xp = cp.get_array_module(points)
+    pts = xp.asarray(points)
+    if pts.ndim == 1:
+        pts = xp.atleast_2d(pts)
+    if pts.shape[0] <= 1:
+        return False
+
+    rounded = xp.around(pts[:, 0:2], decimals)
+    _unique, counts = xp.unique(rounded, axis=0, return_counts=True)
+    return _as_bool_scalar(xp.any(counts > 1))
 
 
 class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, DefaultTransformChangeEvents,
@@ -42,77 +111,29 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         self.OnTransformChanged()
 
     @staticmethod
-    def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
-        """Returns a bool array indicating which new_points already exist in points"""
+    def FindDuplicates(points: NDArray[np.floating]) -> list[list[int]]:
+        """Return index groups of duplicate fixed-space (y, x) positions.
 
-        # (new_points, invalid_indices) = utils.InvalidIndices(new_points)
-
-        round_points = np.around(points, 3)
-        round_new_points = np.around(new_points, 3)
-
-        sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
-        sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1))
-
-        numPoints = sortedpoints.shape[0]  # type: ignore[attr-defined]
-        numNew = new_points.shape[0]
-
-        iPnt = 0
-        iNew = 0
-
-        invalid_indices = np.zeros((1, numNew), dtype=bool)
-
-        while iNew < numNew:
-            testNew = sorted_new_points[iNew]
-
-            while iPnt < numPoints:
-                testPoint = sortedpoints[iPnt]
-
-                if testPoint[0] == testNew[0]:
-                    if testPoint[1] == testNew[1]:
-                        invalid_indices[iNew] = True
-                        break
-                    elif testPoint[1] > testNew[1]:
-                        break
-
-                if testPoint[0] > testNew[0]:
-                    break
-
-                iPnt += 1
-
-            iNew += 1
-
-        return invalid_indices
+        Each child list contains the indices of points that share one rounded
+        position (3 decimals). Only groups with two or more indices are returned.
+        """
+        return [group for group in GroupControlPointIndicesByPosition(points) if len(group) > 1]
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
-        """Returns a copy of the array sorted in fixed space x,y without duplicates"""
+        """Return a copy of *points* without duplicate fixed-space (y, x) coordinates.
 
-        (points, invalid_indices, valid_indices) = utils.InvalidIndices(points)
+        First occurrence order is preserved. Coordinates are rounded to 3 decimals
+        before comparison.
+        """
+        (points, _invalid_indices, _valid_indices) = utils.InvalidIndices(points)
+        if points.shape[0] == 0:
+            return points.copy()
 
-        # The original implementation returned a sorted array.  I had to remove
-        # that behavior because the change in index was breaking the existing
-        # triangulations the transform was caching.
-
-        # raise DeprecationWarning("RemoveDuplicateControlPoints needs more testing.")
-
-        points = np.around(points, 3)
-        indices = sorted(range(len(points)), key=lambda k: points[k, 1])
-        sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
-        duplicate_indices = []
-        for i in range(len(sortedpoints) - 1, 0, -1):
-            lastP = sortedpoints[i - 1]
-            testP = sortedpoints[i]
-
-            if lastP[0] == testP[0] and lastP[1] == testP[1]:
-                sortedpoints = np.delete(sortedpoints, i, 0)
-                duplicate_indices.append(indices[i])
-
+        groups = GroupControlPointIndicesByPosition(points)
+        keep_idx = [group[0] for group in groups]
         xp = cp.get_array_module(points)
-        keep = xp.ones(points.shape[0], dtype=bool)
-        if duplicate_indices:
-            keep[xp.asarray(duplicate_indices)] = False
-        unduplicatedPoints = points[keep, :].copy()
-        return unduplicatedPoints
+        return xp.asarray(points)[xp.asarray(keep_idx, dtype=xp.intp)]
 
     @classmethod
     def EnsurePointsAre2DNumpyArray(cls, points):
@@ -125,11 +146,12 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         return nornir_imageregistration.EnsurePointsAre4xN_NumpyArray(points)
 
     def FindDuplicateFixedPoints(self, new_points, epsilon: float = 0):
-        """Using our control point KDTree, ensure the new points are not duplicates
-        :return: An index array of duplicates
+        """Return a boolean mask of *new_points* already present as fixed points.
+
+        Points whose FixedKDTree distance is ``<= epsilon`` are duplicates.
         """
         distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
-        same = distance <= 0
+        same = distance <= epsilon
         getter = getattr(same, "get", None)
         same_np = np.atleast_1d(np.asarray(getter()) if callable(getter) else np.asarray(same))
         return same_np.astype(bool, copy=False)
@@ -320,11 +342,18 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         # return rotatedtemp
 
     def Flip(self):
-        """Flip the target and source space independently of each other"""
-        flipped_target = self.TargetPoints
-        flippped_target_mirror_axis = ((flipped_target.max() - flipped_target.min()) / 2) + flipped_target.min()
-        flipped_target = -flipped_target + (2 * flippped_target_mirror_axis)
-        self.points[:, :2] = flipped_target
+        """Flip target and source X about each space's vertical midline."""
+        target = np.asarray(self.TargetPoints, dtype=np.float32).copy()
+        source = np.asarray(self.SourcePoints, dtype=np.float32).copy()
+
+        target_center = (target.min(axis=0) + target.max(axis=0)) / 2.0
+        source_center = (source.min(axis=0) + source.max(axis=0)) / 2.0
+
+        target[:, 1] = -target[:, 1] + (2.0 * target_center[1])
+        source[:, 1] = -source[:, 1] + (2.0 * source_center[1])
+
+        self.points[:, 0:2] = target
+        self.points[:, 2:4] = source
         self.OnTransformChanged()
 
 
@@ -346,75 +375,29 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         self.OnTransformChanged()
 
     @staticmethod
-    def FindDuplicates(points: NDArray[np.floating], new_points: NDArray[np.floating]) -> NDArray[np.bool_]:
-        """Returns a bool array indicating which new_points already exist in points"""
+    def FindDuplicates(points: NDArray[np.floating]) -> list[list[int]]:
+        """Return index groups of duplicate fixed-space (y, x) positions.
 
-        # (new_points, invalid_indices, valid_indices) = utils.InvalidIndices_GPU(new_points)
-
-        round_points = cp.around(points, 3)
-        round_new_points = cp.around(new_points, 3)
-
-        sortedpoints = sorted(round_points, key=operator.itemgetter(0, 1))
-        sorted_new_points = sorted(round_new_points, key=operator.itemgetter(0, 1))
-
-        numPoints = sortedpoints.shape[0]  # type: ignore[attr-defined]
-        numNew = new_points.shape[0]
-
-        iPnt = 0
-        iNew = 0
-
-        invalid_indices = cp.zeros((1, numNew), dtype=bool)
-
-        while iNew < numNew:
-            testNew = sorted_new_points[iNew]
-
-            while iPnt < numPoints:
-                testPoint = sortedpoints[iPnt]
-
-                if testPoint[0] == testNew[0]:
-                    if testPoint[1] == testNew[1]:
-                        invalid_indices[iNew] = True
-                        break
-                    elif testPoint[1] > testNew[1]:
-                        break
-
-                if testPoint[0] > testNew[0]:
-                    break
-
-                iPnt += 1
-
-            iNew += 1
-
-        return invalid_indices
+        Each child list contains the indices of points that share one rounded
+        position (3 decimals). Only groups with two or more indices are returned.
+        """
+        return [group for group in GroupControlPointIndicesByPosition(points) if len(group) > 1]
 
     @staticmethod
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
-        """Returns a copy of the array sorted in fixed space x,y without duplicates"""
+        """Return a copy of *points* without duplicate fixed-space (y, x) coordinates.
 
+        First occurrence order is preserved. Coordinates are rounded to 3 decimals
+        before comparison.
+        """
         (points, _invalid_indices, _valid_indices) = utils.InvalidIndices(points)
+        if points.shape[0] == 0:
+            return points.copy()
 
-        # The original implementation returned a sorted array.  I had to remove
-        # that behavior because the change in index was breaking the existing
-        # triangulations the transform was caching.
-
-        points = np.around(points, 3)
-        indices = sorted(range(len(points)), key=lambda k: points[k, 1])
-        sortedpoints = sorted(enumerate(points), key=operator.itemgetter(0, 1))
-        duplicate_indices = []
-        for i in range(len(sortedpoints) - 1, 0, -1):
-            lastP = sortedpoints[i - 1]
-            testP = sortedpoints[i]
-
-            if lastP[0] == testP[0] and lastP[1] == testP[1]:
-                sortedpoints = np.delete(sortedpoints, i, 0)
-                duplicate_indices.append(indices[i])
-
+        groups = GroupControlPointIndicesByPosition(points)
+        keep_idx = [group[0] for group in groups]
         xp = cp.get_array_module(points)
-        keep = xp.ones(points.shape[0], dtype=bool)
-        if duplicate_indices:
-            keep[xp.asarray(duplicate_indices)] = False
-        unduplicatedPoints = points[keep, :].copy()
-        return unduplicatedPoints
+        return xp.asarray(points)[xp.asarray(keep_idx, dtype=xp.intp)]
 
     @classmethod
     def EnsurePointsAre2DCuPyArray(cls, points):
@@ -427,11 +410,12 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         return nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(points)
 
     def FindDuplicateFixedPoints(self, new_points, epsilon: float = 0):
-        """Using our control point KDTree, ensure the new points are not duplicates
-        :return: An index array of duplicates
+        """Return a boolean mask of *new_points* already present as fixed points.
+
+        Points whose FixedKDTree distance is ``<= epsilon`` are duplicates.
         """
         distance, index = self.FixedKDTree.query(new_points)  # type: ignore[attr-defined]
-        same = distance <= 0
+        same = distance <= epsilon
         getter = getattr(same, "get", None)
         same_np = np.atleast_1d(np.asarray(getter()) if callable(getter) else np.asarray(same))
         return same_np.astype(bool, copy=False)
@@ -537,7 +521,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
 
     @points.setter
     def points(self, val):
-        self._points = cp.asarray(val, dtype=np.float32)
+        self._points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(val, dtype=np.float32)
         self.OnTransformChanged()
 
     @property
@@ -621,3 +605,19 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         # rotatedtemp = (self.forward_rotation_matrix @ centered_points.T).T
         # rotatedtemp = rotatedtemp[:, 0:2] + rotationCenter
         # return rotatedtemp
+
+    def Flip(self):
+        """Flip target and source X about each space's vertical midline."""
+        xp = cp.get_array_module(self._points)
+        target = xp.asarray(self.TargetPoints, dtype=xp.float32).copy()
+        source = xp.asarray(self.SourcePoints, dtype=xp.float32).copy()
+
+        target_center = (target.min(axis=0) + target.max(axis=0)) / 2.0
+        source_center = (source.min(axis=0) + source.max(axis=0)) / 2.0
+
+        target[:, 1] = -target[:, 1] + (2.0 * target_center[1])
+        source[:, 1] = -source[:, 1] + (2.0 * source_center[1])
+
+        self.points[:, 0:2] = target
+        self.points[:, 2:4] = source
+        self.OnTransformChanged()

@@ -50,17 +50,21 @@ class _ScipyNNIndex:
     def __init__(self, points: np.ndarray):
         from scipy.spatial import cKDTree  # type: ignore[attr-defined]
         self._tree = cKDTree(points)
-        self._use_cupy_out = UsingCupy()
 
     def query(self, points: NDArray, k: int = 1):
-        points = _ensure_host_float32(points)
-        distances, indices = self._tree.query(points, k=k)
-        if self._use_cupy_out:
+        # Match output backend to the query array (not the process-wide UsingCupy flag).
+        try:
             import cupy as cp
-            distances = cp.asarray(distances)
-            indices = indices.astype(np.intp)
-            indices = cp.asarray(indices) 
-        if k == 1 and points.shape[0] == 1:
+            xp = cp.get_array_module(points)
+        except Exception:
+            xp = np
+
+        host_points = _ensure_host_float32(points)
+        distances, indices = self._tree.query(host_points, k=k)
+        if xp is not np:
+            distances = xp.asarray(distances)
+            indices = xp.asarray(np.asarray(indices, dtype=np.intp))
+        if k == 1 and host_points.shape[0] == 1:
             dist_scalar = float(cast(Any, distances).item()) if hasattr(distances, "item") else float(distances)
             index_scalar = int(cast(Any, indices).item()) if hasattr(indices, "item") else int(indices)
             return dist_scalar, index_scalar

@@ -21,20 +21,9 @@ import scipy.linalg
 
 import nornir_imageregistration
 from nornir_imageregistration.spatial_distance import array_to_numpy_host, cdist as pairwise_cdist
-import nornir_pools
-from nornir_pools.ipool import IPool
+from nornir_imageregistration.transforms.controlpointbase import ControlPointsHaveDuplicatePositions
 from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation, Triangulation_GPUComponent
-
-def GetRBFWeightsPool() -> IPool:
-    """Dedicated thread pool for RBF linear-system solves.
-
-    Kept separate from :func:`GetGlobalThreadPool` so transform or tile work
-    running on the global pool cannot deadlock when weight solves are queued
-    from pool workers.  The pool is cached by name and reused across calls;
-    idle worker threads may exit but are recreated when new tasks arrive.
-    """
-    return nornir_pools.GetThreadPool("RBF weights pool")
 
 
 class OneWayRBFWithLinearCorrection(Triangulation):
@@ -76,6 +65,10 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 self._rigid_transform = None
 
         return self._weights
+
+    def PrecomputeWeights(self) -> None:
+        """Force RBF weight solve so later Transform calls do not pay init cost."""
+        _ = self.Weights
 
     @property
     def UseRigidTransform(self) -> bool:
@@ -245,6 +238,9 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         # if BasisFunction is None:
         #    BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
 
+        if ControlPointsHaveDuplicatePositions(points):
+            raise ValueError("Cannot have duplicate points in transform")
+
         NumPts = len(points)
         BetaMatrix = np.zeros([NumPts + 3, NumPts + 3], dtype=np.float32)
 
@@ -256,10 +252,6 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 dList = pairwise_cdist(np.atleast_2d(points[iPointA]), p)
 
                 dList = dList.ravel()
-                if dList.shape[0] >= 1:
-                    if np.min(dList) <= 0:
-                        raise ValueError("Cannot have duplicate points in transform")
-
                 valueList = BasisFunction(dList)  # type: ignore[misc]
                 # valueList = np.power(dList, 2)
                 # valueList = np.multiply(valueList, np.log(dList))
@@ -297,7 +289,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         Weights[0:N] = Fit of point deviation from the rigid transformation
         Weights[N:N+1] = Rotation component of transformation
         Weights[N+3] = Translation component of transformation.
-        
+
         If Weights[0:N] ~= 0, then we can use a much faster and simpler rigid transformation with rotation to translate the data
         If additionally Weights[N:N+1] ~= 0, then we can simply translate the points as needed    
         '''
@@ -306,15 +298,12 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         BetaMatrix = OneWayRBFWithLinearCorrection.CreateBetaMatrix(WarpedPoints, BasisFunction)
         (SolutionMatrix_X, SolutionMatrix_Y) = OneWayRBFWithLinearCorrection.CreateSolutionMatricies(ControlPoints)
 
-        rbf_pool = GetRBFWeightsPool()
-
         try:
             with nornir_imageregistration.IgnoreLinAlgWarning() as context:
-                Y_Task = rbf_pool.add_task("WeightsY", scipy.linalg.solve, BetaMatrix, SolutionMatrix_Y,
-                                           overwrite_b=True,
-                                           check_finite=False)
+                # Solve both axes on this thread. Parallelize Forward/Reverse RBF builds at
+                # MeshWithRBFFallback.InitializeDataStructures instead of nesting pool waits.
                 WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
-                WeightsY = Y_Task.wait_return()
+                WeightsY = scipy.linalg.solve(BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
 
             if np.allclose(WeightsX[0:-3], 0) and np.allclose(WeightsY[0:-3], 0):
                 # prettyoutput.Log("RBF transform is approximately Rigid")
@@ -458,6 +447,10 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
                 self._rigid_transform = None
 
         return self._weights
+
+    def PrecomputeWeights(self) -> None:
+        """Force RBF weight solve so later Transform calls do not pay init cost."""
+        _ = self.Weights
 
     @property
     def UseRigidTransform(self) -> bool:
@@ -634,6 +627,9 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
         # points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
 
+        if ControlPointsHaveDuplicatePositions(points):
+            raise ValueError("Cannot have duplicate points in transform")
+
         NumPts = len(points)
         BetaMatrix = cp.zeros([NumPts + 3, NumPts + 3], dtype=np.float32)
 
@@ -647,10 +643,6 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
                 dList = pairwise_cdist(cp.atleast_2d(points[iPointA]), cp.asarray(p)).ravel()
                 if cp.get_array_module(dList) is np:
                     dList = cp.asarray(dList)
-
-                if dList.shape[0] >= 1:
-                    if float(cp.min(dList)) <= 0:
-                        raise ValueError("Cannot have duplicate points in transform")
 
                 valueList = BasisFunction(dList)  # type: ignore[misc]
                 # valueList = np.power(dList, 2)

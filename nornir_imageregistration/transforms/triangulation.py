@@ -393,7 +393,7 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]
-        temp = temp + flip_center[1]
+        temp = temp + flip_center
         self.points[:, 2:4] = temp
         self.OnTransformChanged()
 
@@ -595,10 +595,12 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         new_points = nornir_imageregistration.EnsurePointsAre4xN_CuPyArray(new_points)
 
         duplicates = self.FindDuplicateFixedPoints(new_points[:, 0:2])
-        duplicates_cp = cp.asarray(np.atleast_1d(np.asarray(duplicates)).ravel())
-        new_points = new_points[~duplicates_cp, :]
+        xp = cp.get_array_module(new_points)
+        # FindDuplicateFixedPoints returns a host bool mask; keep indexing on the points backend.
+        duplicate_mask = xp.asarray(duplicates).ravel()
+        new_points = new_points[~duplicate_mask, :]
         if new_points.ndim == 1:
-            new_points = cp.reshape(new_points, (1, 4))
+            new_points = xp.reshape(new_points, (1, 4))
 
         if new_points.shape[0] == 0:
             return
@@ -818,7 +820,7 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]
-        temp = temp + flip_center[1]
+        temp = temp + flip_center
         self.points[:, 2:4] = temp
         self.OnTransformChanged()
 

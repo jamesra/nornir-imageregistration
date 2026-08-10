@@ -23,11 +23,9 @@ import nornir_pools
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
     OneWayRBFWithLinearCorrection_GPUComponent
 from nornir_imageregistration.transforms.transform_type import TransformType
-from . import utils, NumberOfControlPointsToTriggerMultiprocessing
+from . import utils
 from .triangulation import Triangulation, Triangulation_GPUComponent
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
-
-from . import utils, NumberOfControlPointsToTriggerMultiprocessing
 
 
 def _ensure_float32_64(arr, xp):
@@ -35,6 +33,23 @@ def _ensure_float32_64(arr, xp):
     if arr.dtype == xp.float32 or arr.dtype == xp.float64:
         return arr
     return xp.asarray(arr, dtype=xp.float32)
+
+
+def _build_cpu_rbf_with_weights(source_points, target_points) -> OneWayRBFWithLinearCorrection:
+    """Construct a CPU RBF transform and force the weight solve."""
+    instance = OneWayRBFWithLinearCorrection(source_points, target_points)
+    instance.PrecomputeWeights()
+    return instance
+
+
+def GetTransformPrewarmPool():
+    """Single sticky thread that drives transform RBF/mesh init off the UI.
+
+    CPU meshes fan out Forward/Reverse weight solves to the global thread pool
+    from this driver. GPU/CuPy weight solves run on this same thread for CUDA
+    context safety.
+    """
+    return nornir_pools.GetThreadPool("Transform prewarm", 1)
 
 
 def _coerce_to_reference_backend(arr, reference):
@@ -91,16 +106,26 @@ class MeshWithRBFFallback(Triangulation):
         return self._ForwardRBFInstance
 
     def InitializeDataStructures(self):
+        """Build triangulation and precompute Forward/Reverse RBF weights.
 
-        if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
-            Pool = nornir_pools.GetGlobalThreadPool()
-        else:
-            Pool = nornir_pools.GetGlobalMultithreadingPool()
+        Forward and Reverse weight solves run on the shared global thread pool.
+        Call this from a non-pool driver thread (e.g. UI prewarm) so workers are
+        not nested-waiting on the same pool.
+        """
+        Pool = nornir_pools.GetGlobalThreadPool()
 
-        ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection, self.SourcePoints,
-                                    self.TargetPoints)
-        ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection, self.TargetPoints,
-                                    self.SourcePoints)
+        ForwardTask = Pool.add_task(
+            "Solve forward RBF transform",
+            _build_cpu_rbf_with_weights,
+            self.SourcePoints,
+            self.TargetPoints,
+        )
+        ReverseTask = Pool.add_task(
+            "Solve reverse RBF transform",
+            _build_cpu_rbf_with_weights,
+            self.TargetPoints,
+            self.SourcePoints,
+        )
 
         super(MeshWithRBFFallback, self).InitializeDataStructures()
 
@@ -247,24 +272,17 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         return self._ForwardRBFInstance
 
     def InitializeDataStructures(self):
+        """Build triangulation and precompute Forward/Reverse RBF weights on this thread.
+
+        Intended to run on the sticky CUDA transform-init thread, not a random
+        multi-worker pool (CuPy context).
+        """
+        super(MeshWithRBFFallback_GPUComponent, self).InitializeDataStructures()
 
         self._ForwardRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.SourcePoints, self.TargetPoints)
+        self._ForwardRBFInstance.PrecomputeWeights()
         self._ReverseRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.TargetPoints, self.SourcePoints)
-
-        # if self.NumControlPoints <= NumberOfControlPointsToTriggerMultiprocessing:
-        #     Pool = nornir_pools.GetGlobalThreadPool()
-        # else:
-        #     Pool = nornir_pools.GetGlobalMultithreadingPool()
-        #
-        # ForwardTask = Pool.add_task("Solve forward RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.SourcePoints,
-        #                             self.TargetPoints)
-        # ReverseTask = Pool.add_task("Solve reverse RBF transform", OneWayRBFWithLinearCorrection_GPUComponent, self.TargetPoints,
-        #                             self.SourcePoints)
-        #
-        # super(MeshWithRBFFallback_GPUComponent, self).InitializeDataStructures()
-        #
-        # self._ForwardRBFInstance = ForwardTask.wait_return()
-        # self._ReverseRBFInstance = ReverseTask.wait_return()
+        self._ReverseRBFInstance.PrecomputeWeights()
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.

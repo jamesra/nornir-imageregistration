@@ -58,7 +58,8 @@ import nornir_imageregistration.transforms.defaulttransformchangeevents as defau
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 import nornir_imageregistration.transforms.controlpointbase as controlpointbase
-from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
+from nornir_imageregistration.transforms.controlpointbase import ControlPointBase, ControlPointBase_GPUComponent, \
+    GroupControlPointIndicesByPosition, ControlPointsHaveDuplicatePositions
 
 import nornir_imageregistration.transforms.triangulation as triangulation
 from nornir_imageregistration.transforms.triangulation import Triangulation, Triangulation_GPUComponent
@@ -88,7 +89,7 @@ from nornir_imageregistration.transforms.gridtransform import GridTransform, Gri
 import nornir_imageregistration.transforms.meshwithrbffallback as meshwithrbffallback
 from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback, \
     MeshWithRBFFallback_GPUComponent, \
-    MeshWithRBFInterpolator_GPU, MeshWithRBFInterpolator_CPU
+    MeshWithRBFInterpolator_GPU, MeshWithRBFInterpolator_CPU, GetTransformPrewarmPool
 
 import nornir_imageregistration.transforms.gridwithrbffallback as gridwithrbffallback
 from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback, \

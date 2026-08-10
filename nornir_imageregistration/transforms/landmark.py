@@ -248,7 +248,7 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]
-        temp = temp + flip_center[1]
+        temp = temp + flip_center
         self.points[:, 2:4] = temp
         self.OnTransformChanged()
 
@@ -504,7 +504,7 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
 
         temp = self.points[:, 2:4] - flip_center
         temp[:, 1] = -temp[:, 1]
-        temp = temp + flip_center[1]
+        temp = temp + flip_center
         self.points[:, 2:4] = temp
         self.OnTransformChanged()
 
