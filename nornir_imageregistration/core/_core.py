@@ -2271,8 +2271,8 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
     Uint8_image = image_to_uint8(image)
     del image
 
-    im = Image.fromarray(Uint8_image)
-    im.save(ImageFullPath, tile_size=tile_dim)
+    with Image.fromarray(Uint8_image) as im:
+        im.save(ImageFullPath, tile_size=tile_dim)
 
 
 # Legacy: SaveImage_JPeg2000_Tile (PIL tile save) not used; current save path uses other methods.

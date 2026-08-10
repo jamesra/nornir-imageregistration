@@ -86,7 +86,7 @@ class ImagePermutationHelper:
             try:
                 dtype = img.dtype if np.issubdtype(img.dtype,
                                                    np.floating) else nornir_imageregistration.default_image_dtype()
-            except:
+            except (AttributeError, TypeError):
                 dtype = nornir_imageregistration.default_image_dtype()
 
         self._image_with_mask_as_noise = None

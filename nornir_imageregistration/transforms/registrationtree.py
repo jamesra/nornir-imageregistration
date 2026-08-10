@@ -272,7 +272,7 @@ class RegistrationTree(object):
         assert (len(self.RootNodes) == 1)  # This should be used on trees that have only one root
 
         rtnode = list(self.RootNodes.values())[0]
-        if center:
+        if center is not None:
             center = NearestSection(self.SectionNumbers, center)
             rtnode = self.Nodes[center]  # type: ignore[arg-type]
 
@@ -363,7 +363,7 @@ class RegistrationTree(object):
                 raise ValueError("Unexpected mappedSectionNumber {0}".format(mappedSectionNumber))
                 continue  # Not sure how we could reach this state
 
-            alreadyMapped.union([mappedSectionNumber])
+            alreadyMapped.add(mappedSectionNumber)
 
             for mapped in rtNode.Children:
                 yield MappedToRootWalkTuple(rootNode, rtNode, mapped)
@@ -373,23 +373,22 @@ class RegistrationTree(object):
 
 def NearestSection(sectionNumbers: Sequence[int], reqnumber: int) -> int | None:
     """Returns the section number nearest to the section number, or the same section number if the section exists, or None if the section list is empty"""
+    if not sectionNumbers:
+        return None
     if reqnumber in sectionNumbers:
         return reqnumber
-    else:
-        if len(sectionNumbers) == 1:
-            return sectionNumbers[0]
+    if len(sectionNumbers) == 1:
+        return next(iter(sectionNumbers))
 
-        foundNumber = None
+    foundNumber = None
+    nearest = float('inf')
+    for s in sectionNumbers:
+        dist = abs(reqnumber - s)
+        if dist < nearest:
+            foundNumber = s
+            nearest = dist
 
-        maxSectionNumber = max(sectionNumbers)
-        nearest = maxSectionNumber + reqnumber  # Just setting a value that is well out of range
-        for s in sectionNumbers:
-            dist = abs(reqnumber - s)
-            if dist < nearest:
-                foundNumber = s
-                nearest = dist
-
-        return foundNumber
+    return foundNumber
 
 
 def AdjacentPairs(sectionNumbers, adjacentThreshold, startindex, endindex):

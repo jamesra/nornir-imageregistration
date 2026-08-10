@@ -143,7 +143,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
                 fontsize=1)
 
         if overlap.A.ID not in plotted_tiles:
-            plotted_tiles.union([overlap.A.ID])
+            plotted_tiles.add(overlap.A.ID)
             patches.append(_create_tile_target_space_patch(overlap.A,
                                                            # color='grey',
                                                            facecolor='grey',
@@ -165,7 +165,7 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
                 bbox = nornir_imageregistration.Rectangle.Union(bbox, overlap.A.FixedBoundingBox)
 
         if overlap.B.ID not in plotted_tiles:
-            plotted_tiles.union([overlap.B.ID])
+            plotted_tiles.add(overlap.B.ID)
             patches.append(_create_tile_target_space_patch(overlap.B,
                                                            # color='grey',
                                                            facecolor='grey',

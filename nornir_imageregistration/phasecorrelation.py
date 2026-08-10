@@ -448,7 +448,7 @@ def find_peak(image: NDArray[np.floating],
                 method=CutoffMethod.Raw,
             )
             del masked_host
-            cutoff_percent = percentiles[result.cutoff_percentile_index] * 100
+            cutoff_percent = float(percentiles[result.cutoff_percentile_index])
             cutoff_value = result.cutoff_value
         except ValueError:
             cutoff_percent = 99.6

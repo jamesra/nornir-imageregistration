@@ -140,8 +140,16 @@ class WindowFilterCache:
             self._loaded_images[image_shape] = output
             try:
                 np.save(image_path, output)
-            except:
-                prettyoutput.LogErr("Unable to save invalid image: %s" % image_path)
+            except OSError as e:
+                # Directory may have been removed by another process's cache
+                # cleanup (__del__) or a temp scrubber since __init__.
+                try:
+                    os.makedirs(self.cache_dir, exist_ok=True)
+                    np.save(image_path, output)
+                except OSError as retry_error:
+                    prettyoutput.LogErr(
+                        f"Unable to save {self._name} cache image {image_path}: {retry_error}"
+                    )
 
             output.flags.writeable = False
 

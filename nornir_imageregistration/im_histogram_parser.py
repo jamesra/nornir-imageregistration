@@ -20,7 +20,7 @@ def MinMaxValues(lines: list[str]):
             minVal = intensityVal
             break
 
-    for iLine in range(len(lines) - 1, 0, -1):
+    for iLine in range(len(lines) - 1, -1, -1):
         line = lines[iLine]
         (intensityVal, count) = ParseHistogramLine(line)
         if not intensityVal is None:
@@ -53,7 +53,7 @@ def ParseHistogramLine(line: str):
     if iStartTuple < 0 or iEndTuple < 0:
         return None, None
 
-    tupleStr = str(parts[iStartTuple:iEndTuple])
+    tupleStr = parts[1][iStartTuple:iEndTuple]
     tupleParts = tupleStr.split(',')
 
     intensityVal = int(tupleParts[1])
