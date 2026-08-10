@@ -596,6 +596,53 @@ def __HistogramFileSciPy__(filename: str,
                             min_val=MinVal, max_val=MaxVal, stride=stride)
 
 
+def even_histogram_stride(sample_fraction: float = 0.02) -> int:
+    """Return a 2D stride that retains roughly *sample_fraction* of pixels (1–5%)."""
+    fraction = float(np.clip(sample_fraction, 0.01, 0.05))
+    return max(1, int(round(1.0 / (fraction ** 0.5))))
+
+
+def ApproximateHistogramOfArray(
+        input: NDArray,
+        *,
+        sample_fraction: float = 0.02,
+        bpp: int | None = 8,
+        num_bins: int = 256,
+        min_val: float = 0.0,
+        max_val: float = 255.0,
+) -> nornir_shared.histogram.Histogram | None:
+    """Build a histogram from an even spatial subsample (~1–5% of pixels).
+
+    CuPy inputs are transferred once at a host boundary for
+    :func:`HistogramOfArray`. Returns None when *input* is empty.
+    """
+    if input is None:
+        return None
+
+    xp = cp.get_array_module(input)
+    arr = input
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    if arr.ndim != 2:
+        raise ValueError(f"ApproximateHistogramOfArray expects a 2D image, got shape {arr.shape}")
+    if int(arr.size) == 0:
+        return None
+
+    # Host boundary: histogram construction and UI consume NumPy arrays.
+    if xp is not np:
+        arr = cp.asnumpy(arr)
+
+    stride = even_histogram_stride(sample_fraction)
+    return HistogramOfArray(
+        arr,
+        bpp=bpp,
+        num_bins=num_bins,
+        min_val=min_val,
+        max_val=max_val,
+        stride=stride,
+    )
+
+
 def HistogramOfArray(input: NDArray,
                      bpp: int | None = None,
                      num_samples: int | None = None,
@@ -606,7 +653,8 @@ def HistogramOfArray(input: NDArray,
                      stride: int | None = None) -> nornir_shared.histogram.Histogram:
     """Generate a histogram of the passed image
     :param bpp: The number of bits per pixel in the image
-    :param num_samples: The number of samples to use to generate the histogram, chosen randomly from the image.  If None, all pixels are used
+    :param num_samples: Approximate pixel count via even 1D subsample of the
+        (optionally spatially strided) array. If None, all retained pixels are used.
     :param num_bins: The number of bins to use in the histogram
     :param scale: The percentage to scale the image before generating the histogram (Not currerntly supported, by the time the histogram is in memory it is faster to read it all, it has to be read to downsample it anyway.)
     :param min_val: The minimum value to use in the histogram
@@ -614,8 +662,13 @@ def HistogramOfArray(input: NDArray,
     :param stride: If > 1, histogram ``input[::stride, ::stride]`` (deterministic spatial subsample).
 
     """
+    xp = cp.get_array_module(input)
+
     if stride is not None and stride > 1:
         input = input[::stride, ::stride]
+
+    if input.ndim != 2:
+        raise ValueError(f"HistogramOfArray expects a 2D image, got shape {input.shape}")
 
     (Height, Width) = input.shape
     num_pixels = Width * Height
@@ -635,21 +688,26 @@ def HistogramOfArray(input: NDArray,
         if num_bins > (max_val - min_val) + 1:
             num_bins = (max_val - min_val) + 1  # type: ignore[assignment]
 
-    ImOneD = input.flat
+    # ravel works for NumPy and CuPy; flatiter + device indices does not.
+    samples = input.ravel()
 
     if num_samples is None:
-        num_samples = Height * Width
-    elif num_samples > Height * Width:
-        num_samples = Height * Width
+        num_samples = num_pixels
+    elif num_samples > num_pixels:
+        num_samples = num_pixels
 
     step_size = int(float(num_pixels) / float(num_samples))  # type: ignore[arg-type]
-
     if step_size > 1:
-        Samples = random.random_integers(0, num_pixels - 1, num_samples)
-        ImOneD = ImOneD[Samples]
+        # Even subsample (deterministic, backend-safe). Avoids cupy.random indices
+        # into NumPy buffers that previously emptied Pyre contrast histograms.
+        samples = samples[::step_size]
+
+    # Host boundary: nornir_shared.Histogram is NumPy/list based.
+    if xp is not np:
+        samples = cp.asnumpy(samples)
 
     # In numpy's histogram, the max value must be at the end of the last bin, so for a 256 grayscale image MinVal=0 MaxVal=256
-    [histogram_array, bin_edges] = numpy.histogram(ImOneD, bins=num_bins, range=(min_val, max_val + 1))  # type: ignore[arg-type]
+    [histogram_array, bin_edges] = numpy.histogram(samples, bins=num_bins, range=(min_val, max_val + 1))  # type: ignore[arg-type]
     binWidth = bin_edges[1] - bin_edges[0]
     assert (binWidth > 0)
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, bin_edges[0], binWidth)  # type: ignore[arg-type]
@@ -673,8 +731,8 @@ def __HistogramFilePillow__(filename: str, Bpp: int | None = None, Scale: float 
     if Scale > 1:
         Scale = 1
 
-    im = Image.open(filename).convert('I')
-    histogram_array = im.histogram()
+    with Image.open(filename) as im:
+        histogram_array = im.convert('I').histogram()
     binWidth = (1 << Bpp) // len(histogram_array)  # type: ignore[operator]
 
     histogram_obj = nornir_shared.histogram.Histogram.FromArray(histogram_array, 0, binWidth)
