@@ -13,6 +13,7 @@ from nornir_imageregistration.files import stosfile
 from nornir_imageregistration.files.stosfile import (
     StosFile,
     _can_express_relative,
+    _looks_like_windows_absolute,
     _normalize_stos_path,
     _path_for_stos_file,
     _path_from_stos_file,
@@ -88,6 +89,82 @@ class TestStosPathHelpers(unittest.TestCase):
             _path_from_stos_file(absolute, os.path.join(tempfile.gettempdir(), "any", "stos")),
             os.path.normpath(absolute),
         )
+
+    def test_looks_like_windows_absolute(self) -> None:
+        self.assertTrue(_looks_like_windows_absolute(r"Y:\Volumes\RC2\TEM\a.png"))
+        self.assertTrue(_looks_like_windows_absolute("Y:/Volumes/RC2/TEM/a.png"))
+        self.assertTrue(_looks_like_windows_absolute(r"\\server\share\a.png"))
+        self.assertFalse(_looks_like_windows_absolute("../../TEM/a.png"))
+        self.assertFalse(_looks_like_windows_absolute("/storage4/RC2/TEM/a.png"))
+
+    def test_path_from_stos_file_rebases_windows_absolute(self) -> None:
+        """Legacy Windows abs paths map onto the volume that holds the .stos file."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            image = os.path.join(
+                volume, "TEM", "0999", "TEM", "Leveled", "Images", "032", "0999_TEM_Leveled.png")
+            stos_dir = os.path.join(volume, "TEM", "Grid32")
+            os.makedirs(os.path.dirname(image), exist_ok=True)
+            os.makedirs(stos_dir, exist_ok=True)
+            _write_tiny_png(image)
+
+            stored = r"Y:\Volumes\RC2\TEM\0999\TEM\Leveled\Images\032\0999_TEM_Leveled.png"
+            resolved = _path_from_stos_file(stored, stos_dir)
+            self.assertEqual(os.path.normpath(resolved), os.path.normpath(image))
+            self.assertTrue(os.path.isfile(resolved))
+            self.assertNotIn("Y:", resolved)
+            self.assertNotIn("Volumes", resolved.split(os.sep))
+
+    def test_path_from_stos_file_rebases_windows_absolute_when_missing(self) -> None:
+        """Rebase by shared volume folder name even if the image is not on disk yet."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            stos_dir = os.path.join(volume, "TEM", "Grid32", "Manual")
+            os.makedirs(stos_dir, exist_ok=True)
+            expected = os.path.join(
+                volume, "TEM", "0385", "TEM", "Leveled", "Images", "032", "0385_TEM_Leveled.png")
+            stored = r"Y:\Volumes\RC2\TEM\0385\TEM\Leveled\Images\032\0385_TEM_Leveled.png"
+            resolved = _path_from_stos_file(stored, stos_dir)
+            self.assertEqual(os.path.normpath(resolved), os.path.normpath(expected))
+            self.assertFalse(resolved.startswith(stos_dir))
+
+    def test_stos_load_rebases_legacy_windows_image_lines(self) -> None:
+        """StosFile.Load resolves Windows absolute image/mask lines onto the volume."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            stos_dir = os.path.join(volume, "TEM", "Grid32")
+            os.makedirs(stos_dir, exist_ok=True)
+            control = os.path.join(
+                volume, "TEM", "0999", "TEM", "Leveled", "Images", "032", "0999_TEM_Leveled.png")
+            mapped = os.path.join(
+                volume, "TEM", "1000", "TEM", "Leveled", "Images", "032", "1000_TEM_Leveled.png")
+            control_mask = os.path.join(
+                volume, "TEM", "0999", "TEM", "Mask", "Images", "032", "0999_TEM_Mask.png")
+            mapped_mask = os.path.join(
+                volume, "TEM", "1000", "TEM", "Mask", "Images", "032", "1000_TEM_Mask.png")
+            for path in (control, mapped, control_mask, mapped_mask):
+                _write_tiny_png(path)
+
+            stos_path = os.path.join(stos_dir, "1000-999_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+            with open(stos_path, "w", encoding="utf-8") as handle:
+                handle.write(r"Y:\Volumes\RC2\TEM\0999\TEM\Leveled\Images\032\0999_TEM_Leveled.png" + "\n")
+                handle.write(r"Y:\Volumes\RC2\TEM\1000\TEM\Leveled\Images\032\1000_TEM_Leveled.png" + "\n")
+                handle.write("0\n0\n")
+                handle.write("1 1 4 4\n1 1 4 4\n")
+                handle.write(f"{_MIN_TRANSFORM}\n")
+                handle.write("two_user_supplied_masks:\n")
+                handle.write(r"Y:\Volumes\RC2\TEM\0999\TEM\Mask\Images\032\0999_TEM_Mask.png" + "\n")
+                handle.write(r"Y:\Volumes\RC2\TEM\1000\TEM\Mask\Images\032\1000_TEM_Mask.png" + "\n")
+
+            loaded = StosFile.Load(stos_path)
+            self.assertEqual(os.path.normpath(loaded.ControlImageFullPath), os.path.normpath(control))
+            self.assertEqual(os.path.normpath(loaded.MappedImageFullPath), os.path.normpath(mapped))
+            self.assertEqual(
+                os.path.normpath(loaded.ControlMaskFullPath),  # type: ignore[arg-type]
+                os.path.normpath(control_mask))
+            self.assertEqual(
+                os.path.normpath(loaded.MappedMaskFullPath),  # type: ignore[arg-type]
+                os.path.normpath(mapped_mask))
 
 
 class TestStosFileRelativePaths(unittest.TestCase):

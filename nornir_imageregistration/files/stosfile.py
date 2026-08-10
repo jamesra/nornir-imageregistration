@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import ntpath
 import os
 
 import numpy as np
@@ -73,11 +74,107 @@ def _path_for_stos_file(full_path: str, stos_dir: str) -> str:
     return absolute
 
 
+def _looks_like_windows_absolute(path: str) -> bool:
+    """Return True for Windows drive or UNC paths (even when running on POSIX)."""
+    if not path:
+        return False
+    if len(path) >= 3 and path[0].isalpha() and path[1] == ':' and path[2] in '\\/':
+        return True
+    return path.startswith('\\\\')
+
+
+def _windows_path_components(stored_path: str) -> list[str]:
+    """Split a Windows absolute path into non-empty components after the drive/UNC root."""
+    win_path = stored_path.replace('/', '\\')
+    _drive, tail = ntpath.splitdrive(win_path)
+    return [part for part in tail.replace('\\', '/').split('/') if part]
+
+
+def _iter_path_ancestors(path: str):
+    """Yield ``path`` and each parent directory up to the filesystem root."""
+    current = os.path.abspath(path)
+    while True:
+        yield current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+
+def _rebase_windows_absolute_to_stos_volume(stored_path: str, stos_dir: str) -> str | None:
+    """Map a Windows absolute image path onto the Linux/mac volume that holds *stos_dir*.
+
+    Legacy ``.stos`` files often store ``Y:\\Volumes\\RC2\\TEM\\...``. On POSIX,
+    ``os.path.isabs`` is false for those strings, so a naive join under the STOS
+    directory produces hybrid nonsense paths. Prefer an existing file under an
+    ancestor of *stos_dir*; otherwise align on a shared directory name (e.g.
+    ``RC2``) even when the image is temporarily missing.
+    """
+    parts = _windows_path_components(stored_path)
+    if not parts:
+        return None
+
+    ancestors = list(_iter_path_ancestors(stos_dir))
+
+    for start in range(len(parts)):
+        suffix = parts[start:]
+        for ancestor in ancestors:
+            candidate = os.path.normpath(os.path.join(ancestor, *suffix))
+            if os.path.exists(candidate):
+                _logger.info("Rebased Windows STOS path %s -> %s", stored_path, candidate)
+                return candidate
+
+    # Best-effort: match the leftmost Windows component that is also a basename
+    # of a stos_dir ancestor (volume folder such as RC2). Prefer the earliest
+    # match so repeated names later in the path (e.g. section/.../TEM/...) do
+    # not strip too much of the Windows path.
+    for index, name in enumerate(parts):
+        for ancestor in ancestors:
+            if os.path.basename(ancestor) != name:
+                continue
+            rest = parts[index + 1:]
+            candidate = (
+                os.path.normpath(os.path.join(ancestor, *rest)) if rest else ancestor
+            )
+            _logger.info(
+                "Rebased Windows STOS path by volume name %s -> %s", stored_path, candidate)
+            return candidate
+
+    return None
+
+
 def _path_from_stos_file(stored_path: str, stos_dir: str) -> str:
-    """Resolve a stored STOS path (relative or absolute) to an absolute path."""
+    """Resolve a stored STOS path (relative or absolute) to an absolute path.
+
+    Native absolute paths are returned normalized. Relative paths are joined to
+    *stos_dir*. Windows drive/UNC absolute paths (common in legacy volumes moved
+    across machines or drives) are rebased onto the volume tree that contains
+    *stos_dir* **before** accepting a native ``os.path.isabs`` hit — on Windows,
+    ``Y:\\Volumes\\RC2\\...`` is absolute, but the ``.stos`` may now live under a
+    different root (e.g. a temp or Linux-mounted copy of RC2).
+    """
     stored_path = stored_path.strip()
+    if not stored_path:
+        return os.path.normpath(stos_dir)
+
+    if _looks_like_windows_absolute(stored_path):
+        rebased = _rebase_windows_absolute_to_stos_volume(stored_path, stos_dir)
+        if rebased is not None:
+            return rebased
+        if os.path.isabs(stored_path):
+            # Same-machine Windows path that could not be aligned to stos_dir.
+            return os.path.normpath(stored_path)
+        _logger.warning(
+            "Windows absolute STOS path could not be rebased onto %s; leaving as-is: %s",
+            stos_dir,
+            stored_path,
+        )
+        # Do not join under stos_dir — that yields hybrid Linux+Windows paths.
+        return stored_path.replace('\\', '/')
+
     if os.path.isabs(stored_path):
         return os.path.normpath(stored_path)
+
     return os.path.normpath(os.path.join(stos_dir, stored_path))
 
 
@@ -309,7 +406,7 @@ class StosFile(object):
             mappedSection = int(sections[0])
             controlSection = int(sections[1])
 
-        except:
+        except (ValueError, IndexError):
             mappedSection = None
             controlSection = None
             Logger.info('Could not determine section numbers: ' + str(filename))
@@ -317,28 +414,28 @@ class StosFile(object):
 
         try:
             Channel = parts[-4]
-        except:
+        except IndexError:
             Channel = None
             Logger.info('Could not determine Channels: ' + str(filename))
             # raise
 
         try:
             Filter = parts[-3]
-        except:
+        except IndexError:
             Filter = None
             Logger.info('Could not determine Filter: ' + str(filename))
             # raise
 
         try:
             Source = parts[-2]
-        except:
+        except IndexError:
             Source = None
             Logger.info('Could not determine transform: ' + str(filename))
             # raise
 
         try:
             Downsample = int(parts[-1])
-        except:
+        except (ValueError, IndexError):
             Downsample = None
             Logger.info('Could not determine _Downsample: ' + str(filename))
             # raise
@@ -358,6 +455,7 @@ class StosFile(object):
 
         if target_mask_fullpath is not None:
             stosObj.ControlMaskFullPath = target_mask_fullpath
+        if source_mask_fullpath is not None:
             stosObj.MappedMaskFullPath = source_mask_fullpath
 
         return stosObj
@@ -370,7 +468,8 @@ class StosFile(object):
         try:
             [obj.SourceSectionNumber, obj.TargetSectionNumber, Channels, Filters, obj.StosSource,
              obj._Downsample] = StosFile.GetInfo(filename)
-        except:
+        except (TypeError, ValueError):
+            # GetInfo normally returns Nones on parse failure; keep Load resilient if unpack fails.
             pass
 
         lines = []
@@ -427,7 +526,7 @@ class StosFile(object):
             Transform = nornir_imageregistration.transforms.LoadTransform(stos.Transform, pixelSpacing=1)  # type: ignore[arg-type]
         except FileNotFoundError:
             return False
-        except:
+        except Exception:
             return False
 
         return True
@@ -551,12 +650,10 @@ class StosFile(object):
             try:
                 floatVal = float(part)
                 outputString += "%g " % floatVal
-            except:
-                outputString += part + " "
+            except (TypeError, ValueError):
+                outputString += str(part) + " "
 
-        outputString.strip()
-        outputString += "\n"
-        return outputString
+        return outputString.strip() + "\n"
 
     @staticmethod
     def __GetImageDimsArray(ImageFullPath: str):
