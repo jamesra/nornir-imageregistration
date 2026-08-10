@@ -131,6 +131,18 @@ class TestCoherentResidualTranslation(unittest.TestCase):
         self.assertEqual(diagnosis.n_unique, 30)
         self.assertTrue(should_attempt_global_fov_recovery(diagnosis, 0.01))
 
+    def test_no_global_fov_when_all_cell_peaks_rejected(self) -> None:
+        """n_unique==0: do not invent a TranslateFixed via whole-FOV PC."""
+        # Ambiguous peaks (low peak_ratio) ⇒ diagnose reports n_unique=0.
+        records = [
+            _rec((0, i), peak=(0.0, 40.0), peak_ratio=1.05)
+            for i in range(60)
+        ]
+        diagnosis = diagnose_coherent_residual_translation(records, lock_fraction=0.01)
+        self.assertIsNone(diagnosis.result)
+        self.assertEqual(diagnosis.n_unique, 0)
+        self.assertFalse(should_attempt_global_fov_recovery(diagnosis, 0.01))
+
 
 class TestGlobalFovResidual(unittest.TestCase):
     """Downsampled whole-FOV residual recovery."""

@@ -39,8 +39,14 @@ from dataclasses import dataclass
 
 from nornir_imageregistration import AlignmentRecord, IgnoreUnderflow
 import nornir_imageregistration.phasecorrelation
+from nornir_imageregistration.registration_control import (
+    ProgressCallback,
+    check_cancelled,
+    report_progress,
+)
 from nornir_imageregistration.settings import StosBruteSettings, AngleSearchRange, SliceToSliceMethod
 from nornir_imageregistration.nornir_image_types import ImageLike
+import threading
 
 # Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
 try:
@@ -666,7 +672,7 @@ def pad_and_rotate_image(image: NDArray,
     """
 
     if original_shape is None:
-        orginal_shape = image.shape
+        original_shape = image.shape
 
     if desired_shape is None:
         desired_shape = (None, None)  # type: ignore[assignment]
@@ -706,7 +712,9 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                   TestFlip: bool = True,
                                   estimate_angle: bool = True,
                                   method: SliceToSliceMethod = SliceToSliceMethod.LogPolar,
-                                  initial_scale_hint: float | None = None) -> nornir_imageregistration.AlignmentRecord:
+                                  initial_scale_hint: float | None = None,
+                                  cancel_event: threading.Event | None = None,
+                                  progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
 
@@ -772,7 +780,9 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                                                target_image_data=target_image_data,
                                                                settings=settings,
                                                                SingleThread=SingleThread,
-                                                               Cluster=Cluster)
+                                                               Cluster=Cluster,
+                                                               cancel_event=cancel_event,
+                                                               progress_callback=progress_callback)
 
 
 def NarrowAngleSearchRangeWithResult(angle_range: NDArray[np.floating],
@@ -817,7 +827,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         target_image_data: nornir_imageregistration.ImagePermutationHelper,
         settings: StosBruteSettings,
         SingleThread: bool = False,
-        Cluster: bool = False) -> nornir_imageregistration.AlignmentRecord:
+        Cluster: bool = False,
+        cancel_event: threading.Event | None = None,
+        progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
     use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
 
     target_image = target_image_data.ImageWithMaskAsNoise
@@ -880,7 +892,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                               angle_range=fallback_angles,
                                               min_overlap=settings.min_overlap,
                                               SingleThread=SingleThread,
-                                              use_cluster=Cluster)
+                                              use_cluster=Cluster,
+                                              cancel_event=cancel_event,
+                                              progress_callback=progress_callback)
 
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
             widened_angles = _adaptive_fallback_angle_range(
@@ -897,7 +911,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                               angle_range=widened_angles,
                                               min_overlap=settings.min_overlap,
                                               SingleThread=SingleThread,
-                                              use_cluster=Cluster)
+                                              use_cluster=Cluster,
+                                              cancel_event=cancel_event,
+                                              progress_callback=progress_callback)
             if widened_result.weight > brute_force_result.weight:
                 brute_force_result = widened_result
 
@@ -911,7 +927,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                                  angle_range=settings.angle_range,
                                                  min_overlap=settings.min_overlap,
                                                  SingleThread=SingleThread,
-                                                 use_cluster=Cluster)
+                                                 use_cluster=Cluster,
+                                                 cancel_event=cancel_event,
+                                                 progress_callback=progress_callback)
             if full_sweep_result.weight > brute_force_result.weight:
                 brute_force_result = full_sweep_result
 
@@ -976,6 +994,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             SingleThread=SingleThread,
             use_cluster=Cluster,
             force_search=force_scale_search,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
         )
 
     def _finalize_logpolar_candidate(
@@ -1000,6 +1020,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 min_overlap=settings.min_overlap,
                 SingleThread=SingleThread,
                 source_scale=1.0,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
             )
             if float(angle_refined.weight) > float(seed.weight):
                 final_angle = float(angle_refined.angle)
@@ -1038,7 +1060,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 source_image=candidate_source, target_image=target_image,
                 source_stats=source_stats, target_stats=target_stats,
                 angle_range=[(x * 0.2 + seed.angle) for x in range(-9, 10)],
-                min_overlap=settings.min_overlap, SingleThread=SingleThread)
+                min_overlap=settings.min_overlap, SingleThread=SingleThread,
+                cancel_event=cancel_event, progress_callback=progress_callback)
         else:
             min_step_size = 0.25
             if len(settings.angle_range) > 2:
@@ -1048,7 +1071,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                     source_image=candidate_source, target_image=target_image,
                     source_stats=source_stats, target_stats=target_stats,
                     angle_range=np.array(list(refined_angle_search_range), float),
-                    min_overlap=settings.min_overlap, SingleThread=SingleThread)
+                    min_overlap=settings.min_overlap, SingleThread=SingleThread,
+                    cancel_event=cancel_event, progress_callback=progress_callback)
             else:
                 refined = seed
 
@@ -1111,6 +1135,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 SingleThread=SingleThread,
                 use_cluster=Cluster,
                 force_search=force_scale_search,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
             )
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
@@ -1337,7 +1363,9 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                               min_overlap: float,
                               source_scale: float,
                               SingleThread: bool,
-                              use_cluster: bool) -> nornir_imageregistration.AlignmentRecord:
+                              use_cluster: bool,
+                              cancel_event: threading.Event | None = None,
+                              progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
     if np.isclose(source_scale, 1.0):
         return _find_best_angle(source_image=source_image,
                                 target_image=target_image,
@@ -1347,7 +1375,9 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                                 min_overlap=min_overlap,
                                 SingleThread=SingleThread,
                                 use_cluster=use_cluster,
-                                source_scale=1.0)
+                                source_scale=1.0,
+                                cancel_event=cancel_event,
+                                progress_callback=progress_callback)
 
     scaled_source = _scale_registration_image(source_image, source_scale)
     scaled_stats = nornir_imageregistration.ImageStats.CalcStats(scaled_source)
@@ -1359,7 +1389,9 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                             min_overlap=min_overlap,
                             SingleThread=SingleThread,
                             use_cluster=use_cluster,
-                            source_scale=1.0)
+                            source_scale=1.0,
+                            cancel_event=cancel_event,
+                            progress_callback=progress_callback)
 
 
 def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
@@ -1373,14 +1405,19 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                        SingleThread: bool,
                                        use_cluster: bool,
                                        *,
-                                       force_search: bool = False) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+                                       force_search: bool = False,
+                                       cancel_event: threading.Event | None = None,
+                                       progress_callback: ProgressCallback | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
     for candidate in candidates:
+        check_cancelled(cancel_event)
         match = _find_best_angle_at_scale(source_image, target_image, source_stats, target_stats,
                                           angle_range, min_overlap, candidate,
-                                          SingleThread, use_cluster)
+                                          SingleThread, use_cluster,
+                                          cancel_event=cancel_event,
+                                          progress_callback=progress_callback)
         if best_match is None or match.weight > best_match.weight:
             best_match = match
             best_scale = candidate
@@ -1396,7 +1433,9 @@ def ScoreManyAnglesGpu(target_original: NDArray,
                        target_stats: nornir_imageregistration.ImageStats | None = None,
                        source_stats: nornir_imageregistration.ImageStats | None = None,
                        min_overlap: float = 0.75,
-                       fixed_shape: tuple[int, int] | None = None) -> list[nornir_imageregistration.AlignmentRecord]:
+                       fixed_shape: tuple[int, int] | None = None,
+                       cancel_event: threading.Event | None = None,
+                       progress_callback: ProgressCallback | None = None) -> list[nornir_imageregistration.AlignmentRecord]:
     """Score multiple rotation angles with one source/target upload on GPU.
 
     When *fixed_shape* is provided, every angle pads to that frame and a single
@@ -1420,22 +1459,31 @@ def ScoreManyAnglesGpu(target_original: NDArray,
         fft_target = xp.fft.fft2(im_target - target_stats.mean)
 
     try:
-        return [
-            _score_one_angle_core(
-                im_target,
-                im_source,
-                target_image_shape,
-                source_image_shape,
-                float(angle),
-                target_stats,
-                source_stats,
-                target_image_prepadded=True,
-                min_overlap=min_overlap,
-                fixed_shape=fixed_shape,
-                fft_target=fft_target,
-            )
-            for angle in angles
-        ]
+        results: list[nornir_imageregistration.AlignmentRecord] = []
+        angle_list = list(angles)
+        total = len(angle_list)
+        for index, angle in enumerate(angle_list):
+            check_cancelled(cancel_event)
+            report_progress(
+                progress_callback,
+                index + 1,
+                total,
+                f"Angle {float(angle):.1f}\u00b0")
+            results.append(
+                _score_one_angle_core(
+                    im_target,
+                    im_source,
+                    target_image_shape,
+                    source_image_shape,
+                    float(angle),
+                    target_stats,
+                    source_stats,
+                    target_image_prepadded=True,
+                    min_overlap=min_overlap,
+                    fixed_shape=fixed_shape,
+                    fft_target=fft_target,
+                ))
+        return results
     finally:
         if fft_target is not None:
             del fft_target
@@ -1724,10 +1772,14 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      min_overlap: float = 0.5,
                      SingleThread: bool = False,
                      use_cluster: bool = False,
-                     source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
+                     source_scale: float = 1.0,
+                     cancel_event: threading.Event | None = None,
+                     progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier"""
 
+    shared_target_metadata = None
+    shared_source_metadata = None
     try:
         Debug = False
         pool = None
@@ -1750,12 +1802,6 @@ def _find_best_angle(source_image: NDArray[np.floating],
         # Preallocate lists to store results of each angle
         AngleMatchValues = list()  # type:  list[AlignmentRecord | None]
         taskList = list()  # type:  list[nornir_pools.Task | None]
-
-        #    MaxRotatedDimension = max([max(imFixed), max(imWarped)]) * 1.4143
-        #    MinRotatedDimension = max(min(imFixed), min(imWarped))
-        #
-        #    SmallPaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
-        #    LargePaddedFixed = pad_image_for_phase_correlation(imFixed, MaxOffset=0.1)
 
         source_shape = source_image.shape
         target_shape = target_image.shape
@@ -1781,22 +1827,11 @@ def _find_best_angle(source_image: NDArray[np.floating],
                 image_median=target_stats.median,
                 image_stddev=target_stats.std)
 
-        # Create a shared read-only memory map for the Padded fixed image
-
         if not (use_cluster or SingleThread):
-            # temp_padded_fixed_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(padded_target)
-            # temp_shared_warp_memmap = nornir_imageregistration.CreateTemporaryReadonlyMemmapFile(imWarped)
-
-            # temp_padded_fixed_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
-            # temp_shared_warp_memmap.mode = 'r'  # We do not want functions we pass the memmap modifying the original data
-
             shared_target_metadata, shared_padded_target = nornir_imageregistration.npArrayToSharedArray(padded_target)
             shared_source_metadata, shared_source = nornir_imageregistration.npArrayToSharedArray(source_image
                                                                                                   )
-            # shared_padded_target = np.save(padded_target, )
         else:
-            shared_target_metadata = None
-            shared_source_metadata = None
             shared_padded_target = padded_target.astype(nornir_imageregistration.default_image_dtype(),
                                                         copy=False) if not use_cp else cp.array(padded_target,
                                                                                                 nornir_imageregistration.default_image_dtype())
@@ -1807,18 +1842,22 @@ def _find_best_angle(source_image: NDArray[np.floating],
         CheckTaskInterval = 16
 
         max_task_count = multiprocessing.cpu_count() * 1.5
+        angle_list = list(angle_range)
+        angle_total = len(angle_list)
 
-        if use_cp and len(angle_range) > 1:
+        if use_cp and len(angle_list) > 1:
             AngleMatchValues = ScoreManyAnglesGpu(
                 target_original=shared_padded_target,
                 source_original=shared_source,
                 target_image_shape=target_shape,
                 source_image_shape=source_shape,
-                angles=angle_range,
+                angles=angle_list,
                 target_stats=target_stats,
                 source_stats=source_stats,
                 min_overlap=min_overlap,
                 fixed_shape=fixed_shape,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
             )
         else:
             # Single-thread multi-angle: FFT the padded target once and reuse.
@@ -1827,7 +1866,13 @@ def _find_best_angle(source_image: NDArray[np.floating],
                 xp_fft = cp.get_array_module(shared_padded_target)
                 shared_fft_target = xp_fft.fft.fft2(shared_padded_target - target_stats.mean)
 
-            for i, theta in enumerate(angle_range):
+            for i, theta in enumerate(angle_list):
+                check_cancelled(cancel_event)
+                report_progress(
+                    progress_callback,
+                    i + 1,
+                    angle_total,
+                    f"Angle {float(theta):.1f}\u00b0")
                 if SingleThread:
                     record = ScoreOneAngle(target_original=shared_padded_target, source_original=shared_source,
                                            target_image_shape=target_shape, source_image_shape=source_shape,
@@ -1859,8 +1904,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                 if not i % CheckTaskInterval == 0:
                     continue
 
-                # I don't like this, but it lets me delete tasks before filling the queue which may save some memory.
-                # No sense checking unless we've already filled the queue though
+                check_cancelled(cancel_event)
+
                 if len(taskList) > max_task_count:
                     for iTask in range(len(taskList) - 1, -1, -1):
                         if taskList[iTask].iscompleted:  # type: ignore[union-attr]
@@ -1868,11 +1913,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
                             AngleMatchValues.append(record)
                             del taskList[iTask]
 
-                # TestOneAngle(shared_padded_target, shared_source, angle, None, MinOverlap)
-
-            # taskList.sort(key=tpool.Task.name)
-
             while len(taskList) > 0:
+                check_cancelled(cancel_event)
                 for iTask in range(len(taskList) - 1, -1, -1):
                     if taskList[iTask].iscompleted:  # type: ignore[union-attr]
                         record = taskList[iTask].wait_return()  # type: ignore[union-attr]
@@ -1880,18 +1922,7 @@ def _find_best_angle(source_image: NDArray[np.floating],
                         del taskList[iTask]
 
                 if len(taskList) > 0:
-                    # Wait a bit before checking the task list
                     sleep(0.5)
-
-            # print(str(record.angle) + ' = ' + str(record.peak) + ' weight: ' + str(record.weight) + '\n')
-
-            # ShowGrayscale(NormCorrelationImage)
-
-        # print(str(AngleMatchValues))
-
-        # Delete the pool to ensure extra python threads do not stick around
-        # if pool is not None:
-        #    pool.shutdown()
 
         del padded_target
 
@@ -1904,8 +1935,6 @@ def _find_best_angle(source_image: NDArray[np.floating],
         if shared_source_metadata is not None:
             nornir_imageregistration.unlink_shared_memory(shared_source_metadata)
 
-            # os.remove(temp_shared_warp_memmap.path)
-            # os.remove(temp_padded_fixed_memmap.path)
 
 
 def __ExecuteProfiler():

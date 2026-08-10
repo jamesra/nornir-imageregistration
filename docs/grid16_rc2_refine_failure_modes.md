@@ -62,10 +62,13 @@ undoes TranslateFixed before `ConvertTransformToGridTransform` densifies it
 
 ### Global FOV fallback (pathological low-unique)
 
-When `lock_frac < 0.05` and Track A skips for scarce/incoherent unique peaks,
-run **downsampled whole-FOV** phase correlation under the current transform
+When `lock_frac < 0.05` and Track A skips for scarce/incoherent **unique** cell
+peaks, run **downsampled whole-FOV** phase correlation under the current transform
 (`estimate_global_fov_residual_translation`, `max_dim=512`), then `TranslateFixed`
 once and remasure. Healthy lock fractions never enter.
+
+**Do not translate** when `n_unique == 0` (every local peak rejected / ambiguous).
+Whole-FOV PC must not invent a rigid offset with no unique cell-peak evidence.
 
 ## Identity freeze / center bubble → field branding + mesh raw-preserve
 

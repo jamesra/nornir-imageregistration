@@ -402,6 +402,12 @@ from nornir_imageregistration.volume import Volume
 from nornir_imageregistration.overlapmasking import GetOverlapMask, GetOverlapMaskOnDevice
 from nornir_imageregistration.mosaic_refine import RefineMosaic, RefineGridMosaic, MosaicRefinementDiagnostics
 from nornir_imageregistration.stos_refine import RefineStosFile, RefineTransform
+from nornir_imageregistration.registration_control import (
+    ProgressCallback,
+    RegistrationCancelled,
+    check_cancelled,
+    report_progress,
+)
 
 from nornir_imageregistration.spatial.indices import *
 from nornir_imageregistration.views import ShowWithPassFail

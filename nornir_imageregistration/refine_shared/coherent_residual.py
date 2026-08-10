@@ -228,10 +228,18 @@ def should_attempt_global_fov_recovery(
         min_unique: int = MIN_UNIQUE_PEAKS,
         coherence_min: float = COHERENCE_MIN,
 ) -> bool:
-    """True when locks are scarce and Track A unique evidence is insufficient/incoherent."""
+    """True when locks are scarce and Track A unique evidence is insufficient/incoherent.
+
+    Requires at least one unique cell peak. When every local peak is rejected
+    (``n_unique == 0``), whole-FOV phase correlation must not invent a rigid
+    translation — there is no cell-level evidence for a residual.
+    """
     if float(lock_fraction) >= float(lock_frac_trigger):
         return False
     if diagnosis.result is not None:
+        return False
+    # No unique cell peaks ⇒ do not TranslateFixed via Track B.
+    if int(diagnosis.n_unique) <= 0:
         return False
     # Healthy lock fraction already excluded; attempt when unique soup is too small
     # or directions do not form a coherent inlier cluster (wrap-like opposites).

@@ -35,6 +35,11 @@ from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
+from nornir_imageregistration.registration_control import (
+    ProgressCallback,
+    check_cancelled,
+    report_progress,
+)
 from nornir_imageregistration.refine_shared import (
     get_runtime_config,
     get_phase_timer,
@@ -2767,7 +2772,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     SaveImages: bool = False,
                     SavePlots: bool = False,
                     outputDir: str | None = None,
-                    progress_depth_base: int = 0) -> nornir_imageregistration.ITransform:
+                    progress_depth_base: int = 0,
+                    cancel_event: threading.Event | None = None,
+                    progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.ITransform:
     """
     Iteratively refine a source-to-target transform from local alignment points.
 
@@ -2787,7 +2794,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     finalize_candidates: dict[tuple[int, int], FinalizeCandidateState] = {}
     finalize_settings = FinalizeSettings.from_grid_refinement(settings)
     legacy_finalize = use_legacy_finalize_gate()
-    coherent_residual_applied = False
+    coherent_residual_checked = False  # Track A/B attempted (once per refine)
+    coherent_residual_translated = False  # TranslateFixed actually ran (for preserve gate)
     global_pose_recovery_applied = False
     source_content_cache = SourceContentCache()
     cell_history = CellPassHistoryStore()
@@ -2827,6 +2835,12 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     )
 
     while i <= settings.num_iterations:
+        check_cancelled(cancel_event)
+        report_progress(
+            progress_callback,
+            i,
+            settings.num_iterations,
+            f"Refine pass {i}/{settings.num_iterations}")
         pass_t0 = time.perf_counter()
         pass_phase_baseline = _PHASE_TIMER.snapshot()
         measure_s = 0.0
@@ -2842,7 +2856,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             stosTransform,
             settings=settings,
             finalized=finalized_points,
-            source_content_cache=source_content_cache)
+            source_content_cache=source_content_cache,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback)
         measure_s = time.perf_counter() - measure_t0
 
         if len(alignment_points) == 0:
@@ -2860,7 +2876,10 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # Track A: once per refine, absorb a coherent residual translation when
         # almost nothing has locked. If unique peaks are too scarce/incoherent
         # (wrap-like), try downsampled whole-FOV phase-correlation once.
-        if not coherent_residual_applied:
+        # coherent_residual_checked gates the attempt; coherent_residual_translated
+        # is True only when TranslateFixed ran (preserve must not treat "checked"
+        # as "translated" or sparse meshes discard a non-existent residual).
+        if not coherent_residual_checked:
             grid_n = max(1, len(alignment_points) + len(finalized_points))
             lock_fraction = float(len(finalized_points)) / float(grid_n)
             diagnosis = diagnose_coherent_residual_translation(
@@ -2870,7 +2889,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             if residual is not None and callable(translate_fixed):
                 translate_fixed(residual.translation)
                 finalize_candidates.clear()
-                coherent_residual_applied = True
+                coherent_residual_translated = True
+                coherent_residual_checked = True
                 prettyoutput.Log(
                     f'Coherent residual translation: (dy, dx)=('
                     f'{float(residual.translation[0]):.2f}, '
@@ -2897,7 +2917,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     if global_peak is not None and float(np.linalg.norm(global_peak)) >= 1.0:
                         translate_fixed(global_peak)
                         finalize_candidates.clear()
-                        coherent_residual_applied = True
+                        coherent_residual_translated = True
+                        coherent_residual_checked = True
                         prettyoutput.Log(
                             f'Global FOV residual translation: (dy, dx)=('
                             f'{float(global_peak[0]):.2f}, {float(global_peak[1]):.2f})')
@@ -2907,13 +2928,23 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         continue
                     prettyoutput.Log(
                         'Global FOV residual skipped: no usable peak')
+                elif (not global_pose_recovery_applied
+                      and int(diagnosis.n_unique) <= 0):
+                    prettyoutput.Log(
+                        'Global FOV residual skipped: n_unique=0 '
+                        '(all cell peaks rejected; no TranslateFixed)')
                 # Pathological recovery attempts finished for this refine.
-                coherent_residual_applied = True
+                coherent_residual_checked = True
             else:
                 # Locks already healthy — no residual recovery needed.
-                coherent_residual_applied = True
+                coherent_residual_checked = True
 
         progress_reporter.on_pass_start(i)
+        report_progress(
+            progress_callback,
+            i,
+            settings.num_iterations,
+            f"Refine pass {i}: scoring / finalize")
 
         updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
         updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
@@ -3170,7 +3201,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
             # After Track A / global FOV, a collapsed mesh undoes TranslateFixed.
             preserve_post_residual = should_preserve_post_residual_transform(
-                residual_applied=coherent_residual_applied,
+                residual_applied=coherent_residual_translated,
                 n_mesh=len(included_alignment_records),
                 n_grid=grid_n,
                 n_locks=len(finalized_points),
@@ -3405,7 +3436,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             # Recompute preserve against current locks/mesh in case finalize
             # path already kept stosTransform — still skip sparse rebuild.
             preserve_end = should_preserve_post_residual_transform(
-                residual_applied=coherent_residual_applied,
+                residual_applied=coherent_residual_translated,
                 n_mesh=len(combined_records_this_pass),
                 n_grid=max(1, len(alignment_points) + len(finalized_points)),
                 n_locks=len(finalized_points),
@@ -3524,7 +3555,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     # preserve already kept a sparse combined set and falsely raises lock_frac).
     final_grid_n = max(1, len(alignment_points) + len(finalized_points))
     preserve_final = should_preserve_post_residual_transform(
-        residual_applied=coherent_residual_applied,
+        residual_applied=coherent_residual_translated,
         n_mesh=len(nudged_final_points),
         n_grid=final_grid_n,
         n_locks=len(finalized_points),
@@ -3535,8 +3566,34 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             f'{len(nudged_final_points)} points')
         final_transform = stosTransform
     elif len(nudged_final_points) >= 3:
-        final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-            AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
+        n_nudged = len(nudged_final_points)
+        min_keep = max(
+            int(MIN_MESH_ABS_AFTER_RESIDUAL),
+            int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(final_grid_n)),
+        )
+        n_stos_pts = 0
+        if isinstance(stosTransform, nornir_imageregistration.IControlPoints):
+            n_stos_pts = int(np.asarray(stosTransform.points).shape[0])
+        # Without a real TranslateFixed residual, a tiny nudged set (often 3) replaces
+        # a denser pass mesh / alignment field and blanks Pyre's composite view.
+        if (not coherent_residual_translated
+                and n_nudged < min_keep
+                and n_stos_pts > n_nudged):
+            prettyoutput.Log(
+                f'Keeping pass transform ({n_stos_pts} points); '
+                f'nudged final only has {n_nudged} points (min {min_keep})')
+            final_transform = stosTransform
+        elif (not coherent_residual_translated
+              and n_nudged < min_keep
+              and len(alignment_points) > n_nudged):
+            prettyoutput.Log(
+                f'Building final mesh from {len(alignment_points)} last-pass '
+                f'alignments; nudged final only has {n_nudged} points (min {min_keep})')
+            final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                AlignRecordsToControlPoints(alignment_points))  # type: ignore[arg-type]
+        else:
+            final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
 
     progress_reporter.on_complete()
 
@@ -3565,7 +3622,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms.ITransform,
                                   finalized: AlignmentRecordDict,
                                   settings: nornir_imageregistration.settings.GridRefinement,
-                                  source_content_cache: SourceContentCache | None = None) -> list[
+                                  source_content_cache: SourceContentCache | None = None,
+                                  cancel_event: threading.Event | None = None,
+                                  progress_callback: ProgressCallback | None = None) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
     Build a refinement grid, remove masked/finalized cells, and align remaining cells.
@@ -3669,14 +3728,19 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
         source_points = grid_data.SourcePoints
         target_points = grid_data.TargetPoints
 
-    return _RefinePointsForTwoImages(transform, coords, source_points, target_points, settings)
+    return _RefinePointsForTwoImages(
+        transform, coords, source_points, target_points, settings,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback)
 
 
 def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITransform,
                               keys: list[tuple[int, int]],
                               sourcePoints: np.ndarray,
                               targetPoints: np.ndarray,
-                              settings: nornir_imageregistration.settings.GridRefinement) -> list[
+                              settings: nornir_imageregistration.settings.GridRefinement,
+                              cancel_event: threading.Event | None = None,
+                              progress_callback: ProgressCallback | None = None) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
     Register corresponding source/target neighborhoods for each control-point key.
@@ -3714,6 +3778,12 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         target_image = settings.target_image
         source_image = settings.source_image
         for i in range(nPoints):
+            check_cancelled(cancel_event)
+            report_progress(
+                progress_callback,
+                i + 1,
+                nPoints,
+                f"Align cell {i + 1}/{nPoints}")
             targetPoint = targetPoints[i, :]
             sourcePoint = sourcePoints[i, :]
             key = keys[i]
@@ -3758,6 +3828,12 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         return alignment_records
 
     for i in range(nPoints):
+        check_cancelled(cancel_event)
+        report_progress(
+            progress_callback,
+            i + 1,
+            nPoints,
+            f"Queue cell {i + 1}/{nPoints}")
         targetPoint = targetPoints[i, :]
         sourcePoint = sourcePoints[i, :]
         key = keys[i]
@@ -3788,7 +3864,13 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         AlignTask.key = key  # type: ignore[attr-defined]
         tasks.append(AlignTask)
 
-    for t in tasks:
+    for t_index, t in enumerate(tasks):
+        check_cancelled(cancel_event)
+        report_progress(
+            progress_callback,
+            t_index + 1,
+            max(1, len(tasks)),
+            f"Collect cell {t_index + 1}/{len(tasks)}")
         arecord = t.wait_return()
         if arecord is None:
             continue
@@ -3943,7 +4025,8 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
     if valid_target_points.shape[0] + num_fixed < 3:
         num_needed = 3 - num_fixed
         sorted_composite_indices = np.argsort(composite_score)
-        top_alignment_indices = sorted_composite_indices[0:num_needed]
+        # Registration scores: higher is better — take the strongest alignments.
+        top_alignment_indices = sorted_composite_indices[-num_needed:]
         valid_target_points = AdjustedTargetPoints[top_alignment_indices, :]
         valid_source_points = OriginalSourcePoints[top_alignment_indices, :]
         prettyoutput.Log(
