@@ -1,12 +1,15 @@
 import warnings
 import logging
 
+from collections.abc import Callable
 from typing import Sequence, Type
 
 import nornir_imageregistration.debugging
 
 import numpy as np
 import scipy.linalg
+
+LogMessage = str | Callable[[], str]
 
 
 class IgnoreRuntimeWarnings:
@@ -15,19 +18,29 @@ class IgnoreRuntimeWarnings:
     _record: warnings.catch_warnings | None = None
     _warnings: list[warnings.WarningMessage] | None = None
     _warnings_to_filter: list[str | Type[Warning]]
-    _log_msg: str | None = None
+    _log_msg: LogMessage | None = None
 
     @property
     def warnings(self) -> list[warnings.WarningMessage] | None:
         """Returns the list of warnings that were caught."""
         return self._warnings
 
-    def __init__(self, warnings_to_filter: list[str] | str | Type[Warning], log_msg: str | None = None):
-        self._log_msg = log_msg if log_msg is not None else ""
+    def __init__(self, warnings_to_filter: list[str] | str | Type[Warning],
+                 log_msg: LogMessage | None = None):
+        # Callables are evaluated only when a filtered warning is logged (debug).
+        self._log_msg = log_msg
         if isinstance(warnings_to_filter, list):
             self._warnings_to_filter = warnings_to_filter  # type: ignore[assignment]
         else:
             self._warnings_to_filter = [warnings_to_filter]  # type: ignore[list-item]
+
+    def _resolved_log_msg(self) -> str:
+        """Return the log suffix, evaluating callables only when logging."""
+        if self._log_msg is None:
+            return ""
+        if callable(self._log_msg):
+            return self._log_msg()
+        return self._log_msg
 
     def __enter__(self):
         self._original_filters = warnings.filters[:]  # type: ignore[assignment]
@@ -48,13 +61,13 @@ class IgnoreRuntimeWarnings:
                         if isinstance(warning_to_filter, str):
                             if warning_to_filter in message:
                                 if nornir_imageregistration.debugging.in_debug_mode():
-                                    logging.warning(f'{message}: {self._log_msg}')
+                                    logging.warning(f'{message}: {self._resolved_log_msg()}')
                                 else:
                                     pass
                                 break
                         elif issubclass(warning.category, warning_to_filter):
                             if nornir_imageregistration.debugging.in_debug_mode():
-                                logging.warning(f'{message}: {self._log_msg}')
+                                logging.warning(f'{message}: {self._resolved_log_msg()}')
                             else:
                                 pass
                             break
@@ -65,20 +78,20 @@ class IgnoreRuntimeWarnings:
 
 
 class IgnoreUnderflow(IgnoreRuntimeWarnings):
-    def __init__(self, log_msg: str | None = None):
+    def __init__(self, log_msg: LogMessage | None = None):
         super().__init__('underflow', log_msg)
 
 
 class IgnoreOverflow(IgnoreRuntimeWarnings):
-    def __init__(self, log_msg: str | None = None):
+    def __init__(self, log_msg: LogMessage | None = None):
         super().__init__('overflow', log_msg)
 
 
 class IgnoreUnderAndOverflow(IgnoreRuntimeWarnings):
-    def __init__(self, log_msg: str | None = None):
+    def __init__(self, log_msg: LogMessage | None = None):
         super().__init__(['underflow', 'overflow'], log_msg)
 
 
 class IgnoreLinAlgWarning(IgnoreRuntimeWarnings):
-    def __init__(self, log_msg: str | None = None):
+    def __init__(self, log_msg: LogMessage | None = None):
         super().__init__(scipy.linalg.LinAlgWarning, log_msg)

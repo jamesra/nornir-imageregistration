@@ -514,8 +514,20 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         filtered_source_coords = filtered_source_coords[scatter_in_bounds]
         inbounds_target_coords = inbounds_target_coords[scatter_in_bounds]
         scatter_in_bounds = scatter_in_bounds[scatter_in_bounds]
-    with IgnoreUnderflow(
-            f"Underflow error assembling image.  min_val={subroi_warpedImage.min()} max_val={subroi_warpedImage.max()} mean={subroi_warpedImage.mean()} standardDev={np.std(subroi_warpedImage)}"):
+
+    # Defer image stats until an underflow is actually logged in debug mode.
+    # Eager min/max/mean/std here forced host sync on every CuPy warp.
+    def _underflow_assemble_log_msg() -> str:
+        min_val = float(subroi_warpedImage.min())
+        max_val = float(subroi_warpedImage.max())
+        mean_val = float(subroi_warpedImage.mean())
+        std_val = float(xp.std(subroi_warpedImage))
+        return (
+            f"Underflow error assembling image.  min_val={min_val} max_val={max_val} "
+            f"mean={mean_val} standardDev={std_val}"
+        )
+
+    with IgnoreUnderflow(_underflow_assemble_log_msg):
         outputValues = sp.ndimage.map_coordinates(subroi_warpedImage,  # type: ignore[union-attr]
                                                   filtered_source_coords.transpose(),
                                                   mode='constant',
