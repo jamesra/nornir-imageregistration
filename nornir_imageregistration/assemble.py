@@ -113,14 +113,11 @@ def write_to_source_roi_coords(transform: ITransform,
     write_space_coords = GetROICoords(botleft, area)
 
     read_space_coords = transform.Transform(write_space_coords, extrapolate=extrapolate).astype(np.float32, copy=False)
-    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndices(read_space_coords)
+    (valid_read_space_coords, invalid_coords_mask) = InvalidIndices(read_space_coords)
 
     del read_space_coords
 
-    if cp.get_array_module(write_space_coords) is cp:
-        valid_write_space_coords = write_space_coords[valid_coords_mask, :]
-    else:
-        valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
+    valid_write_space_coords = write_space_coords[~invalid_coords_mask, :]
     # valid_write_space_coords = valid_write_space_coords  # - botleft
 
     return valid_read_space_coords, valid_write_space_coords
@@ -187,19 +184,14 @@ e coordinates.
             valid_write_space_coords = cp.asarray(valid_write_space_coords)
         return valid_read_space_coords, valid_write_space_coords
 
-    (valid_read_space_coords, invalid_coords_mask, valid_coords_mask) = InvalidIndices(read_space_coords)
+    (valid_read_space_coords, invalid_coords_mask) = InvalidIndices(read_space_coords)
 
     del read_space_coords
 
-    if use_host_roi_inverse:
-        valid_write_space_coords = write_space_coords[valid_coords_mask, :]
-        if use_gpu_assemble:
-            valid_read_space_coords = cp.asarray(valid_read_space_coords)
-            valid_write_space_coords = cp.asarray(valid_write_space_coords)
-    elif cp.get_array_module(write_space_coords) is cp:
-        valid_write_space_coords = write_space_coords[valid_coords_mask, :]
-    else:
-        valid_write_space_coords = np.delete(write_space_coords, invalid_coords_mask, axis=0)
+    valid_write_space_coords = write_space_coords[~invalid_coords_mask, :]
+    if use_host_roi_inverse and use_gpu_assemble:
+        valid_read_space_coords = cp.asarray(valid_read_space_coords)
+        valid_write_space_coords = cp.asarray(valid_write_space_coords)
 
     return valid_read_space_coords, valid_write_space_coords
 

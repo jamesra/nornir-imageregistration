@@ -68,13 +68,13 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, _valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -84,7 +84,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
@@ -103,13 +103,13 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, _valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -118,7 +118,7 @@ class DiscreteWithContinuousFallback(IDiscreteTransform, IControlPoints, ITransf
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def __init__(self, continuous_transform: ITransform, discrete_transform: IDiscreteTransform):

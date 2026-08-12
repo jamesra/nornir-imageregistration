@@ -118,14 +118,14 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_indices;
-                BadPoints = points[invalid_indices]
+                # print invalid_mask;
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -135,7 +135,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
         FixedPoints = self._continuous_transform.Transform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
@@ -154,13 +154,13 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -169,7 +169,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def __init__(self,
@@ -437,14 +437,14 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_indices;
-                BadPoints = points[invalid_indices]
+                # print invalid_mask;
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -455,7 +455,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         FixedPoints = self._continuous_transform.Transform(BadPoints)
         FixedPoints = _fixed_points_for_extrapolation_fill(TransformedPoints, FixedPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
 
         # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
@@ -477,13 +477,13 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -492,7 +492,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
         FixedPoints = self._continuous_transform.InverseTransform(BadPoints)
         FixedPoints = _fixed_points_for_extrapolation_fill(TransformedPoints, FixedPoints)
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
 
         # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
         TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
@@ -1085,13 +1085,13 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -1101,7 +1101,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
 
         FixedPoints = super(GridWithRBFInterpolator_GPU, self).Transform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
@@ -1264,14 +1264,14 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_indices;
-                BadPoints = points[invalid_indices]
+                # print invalid_mask;
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -1280,7 +1280,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
 
         FixedPoints = super(GridWithRBFInterpolator_CPU, self).Transform(BadPoints)
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):

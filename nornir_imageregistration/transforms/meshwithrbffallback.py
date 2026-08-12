@@ -167,15 +167,14 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                invalid_indices = nornir_imageregistration.EnsureNumpyArray(invalid_indices)
-                # print invalid_indices;
-                BadPoints = points[invalid_indices]
+                # print invalid_mask;
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -183,9 +182,7 @@ class MeshWithRBFFallback(Triangulation):
 
         FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
-        invalid_indices = _coerce_indices_to_reference_backend(invalid_indices, TransformedPoints)
-
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
@@ -204,14 +201,13 @@ class MeshWithRBFFallback(Triangulation):
         if not extrapolate:
             return TransformedPoints
 
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if points.ndim > 1:
-                invalid_indices = nornir_imageregistration.EnsureNumpyArray(invalid_indices)
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -219,9 +215,7 @@ class MeshWithRBFFallback(Triangulation):
 
         FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
-        invalid_indices = _coerce_indices_to_reference_backend(invalid_indices, TransformedPoints)
-
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def __init__(self, pointpairs):
@@ -322,14 +316,14 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_indices;
-                BadPoints = points[invalid_indices]
+                # print invalid_mask;
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
 
@@ -339,7 +333,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def InverseTransform(self, points, **kwargs):
@@ -360,13 +354,13 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
                                                                             cp.ndarray) else TransformedPoints
-        (GoodPoints, invalid_indices, valid_indices) = utils.InvalidIndices(TransformedPoints)
+        (_GoodPoints, invalid_mask) = utils.InvalidIndices(TransformedPoints)
 
-        if len(invalid_indices) == 0:
+        if not bool(invalid_mask.any()):
             return TransformedPoints
         else:
             if points.ndim > 1:
-                BadPoints = points[invalid_indices]
+                BadPoints = points[invalid_mask]
             else:
                 BadPoints = points  # This is likely no longer needed since this function always returns a 2D array now
 
@@ -376,7 +370,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
-        TransformedPoints[invalid_indices] = FixedPoints
+        TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
 
     def __init__(self, pointpairs):

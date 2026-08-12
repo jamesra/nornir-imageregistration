@@ -39,29 +39,22 @@ def _xp_for_transform_geometry(transforms: Sequence[ITransform]):
     return np
 
 
-def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.integer], NDArray[np.integer]]:
+def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
     """Remove rows containing NaN.
+
     :param points: NxM array of points (e.g. Nx2 or Nx4).
-    :return: Tuple of (points_with_nan_rows_removed, invalid_indices, valid_indices).
+    :return: Tuple of (points_with_nan_rows_removed, invalid_row_mask).
+        Callers that need the valid side can invert with ``~invalid_mask``.
+        Returning a bool mask avoids CuPy ``flatnonzero`` index materialization
+        and the host syncs that come with integer index arrays on the GPU path.
     """
     if points is None:
         raise ValueError("points must not be None")
 
     xp = cp.get_array_module(points)
-
-    numPoints = points.shape[0]
-
-    nan1D = xp.isnan(points).any(axis=1)
-
-    invalid_indices = xp.flatnonzero(nan1D)
-    valid_indices = xp.flatnonzero(~nan1D)
-
-    # Use indexing for both backends: xp.delete is not in older CuPy
-    points = points[valid_indices, :].copy()
-
-    assert (points.shape[0] + invalid_indices.shape[0] == numPoints)
-
-    return points, invalid_indices, valid_indices
+    invalid_mask = xp.isnan(points).any(axis=1)
+    filtered = points[~invalid_mask, :].copy()
+    return filtered, invalid_mask
 
 
 # Deprecated: use InvalidIndices (correct spelling).

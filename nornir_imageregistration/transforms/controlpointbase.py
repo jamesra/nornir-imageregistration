@@ -126,7 +126,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         First occurrence order is preserved. Coordinates are rounded to 3 decimals
         before comparison.
         """
-        (points, _invalid_indices, _valid_indices) = utils.InvalidIndices(points)
+        (points, _invalid_mask) = utils.InvalidIndices(points)
         if points.shape[0] == 0:
             return points.copy()
 
@@ -390,7 +390,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         First occurrence order is preserved. Coordinates are rounded to 3 decimals
         before comparison.
         """
-        (points, _invalid_indices, _valid_indices) = utils.InvalidIndices(points)
+        (points, _invalid_mask) = utils.InvalidIndices(points)
         if points.shape[0] == 0:
             return points.copy()
 
