@@ -1306,6 +1306,8 @@ def MergeDisconnectedLayouts(layout_list: list[Layout]) -> Layout:
 
         matrix_B = np.vstack([row[1] for row in B])
 
+        # Tile-count pairwise (tens–hundreds), already NumPy. Not a CuVS path:
+        # N is layouts, not control points, and data is on the host.
         distances = pairwise_cdist(matrix_A, matrix_B, metric='sqeuclidean')
         A_min = np.min(distances, 1)
         B_min = np.min(distances, 0)

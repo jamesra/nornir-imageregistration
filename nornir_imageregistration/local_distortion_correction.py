@@ -30,7 +30,6 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_imageregistration.assemble_tiles
-from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
@@ -4196,8 +4195,10 @@ def calculate_offset(source_points: NDArray[np.floating],
     if cell_size is None:
         # If we don't pass a cell_size, then make a reasonable guess by measuring how far away nearest points are from first point
         if source_points.shape[0] > 1:
+            # 1-vs-rest nearest distance, not a pairwise matrix. CuVS/cdist
+            # launch cost dominates; a vectorized norm stays on *xp*.
             estimated_cell_distance = float(
-                xp.min(pairwise_cdist(source_points[0:1, :], source_points[1:, :]))
+                xp.min(xp.linalg.norm(source_points[1:, :] - source_points[0:1, :], axis=1))
             ) / 2.0
             offset = xp.array((0, estimated_cell_distance))
         else:

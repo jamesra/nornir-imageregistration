@@ -2,7 +2,13 @@
 import unittest
 import numpy as np
 import nornir_imageregistration
-from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
+from nornir_imageregistration.nearest_neighbor import (
+    CUVS_NN_MIN_POINTS_DEFAULT,
+    _CuVSNNIndex,
+    _ScipyNNIndex,
+    build_nearest_neighbor_index,
+)
+from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 
 
 def _to_numpy(x):
@@ -47,6 +53,46 @@ class TestNearestNeighborIndex(unittest.TestCase):
         d, i = idx.query(np.array([[1.5, 0.0]], dtype=np.float32), k=1)
         self.assertEqual(int(_to_numpy(i)), 1)
         self.assertAlmostEqual(float(_to_numpy(d)), 0.5)
+
+    def test_below_gate_uses_scipy_ckdtree(self):
+        rng = np.random.RandomState(0)
+        pts = rng.randn(256, 2).astype(np.float32)
+        idx = build_nearest_neighbor_index(pts)
+        self.assertIsInstance(idx, _ScipyNNIndex)
+
+    def test_at_gate_uses_cuvs_when_available(self):
+        rng = np.random.RandomState(0)
+        pts = rng.randn(CUVS_NN_MIN_POINTS_DEFAULT, 2).astype(np.float32)
+        idx = build_nearest_neighbor_index(pts)
+        if nornir_imageregistration.UsingCupy() and nornir_imageregistration.HasCuVS():
+            self.assertIsInstance(idx, _CuVSNNIndex)
+            d, i = idx.query(pts[:1], k=1)
+            self.assertEqual(int(_to_numpy(i)), 0)
+            self.assertAlmostEqual(float(_to_numpy(d)), 0.0, places=5)
+        else:
+            self.assertIsInstance(idx, _ScipyNNIndex)
+
+
+class TestGpuCdistUsesCuVS(unittest.TestCase):
+    """GPU pairwise cdist stays on device when CuVS is available (no size gate)."""
+
+    @unittest.skipUnless(
+        nornir_imageregistration.HasCupy() and nornir_imageregistration.HasCuVS(),
+        "CuPy and CuVS required",
+    )
+    def test_cupy_cdist_stays_on_device(self):
+        import cupy as cp
+
+        rng = np.random.RandomState(0)
+        host = rng.randn(32, 2).astype(np.float32)
+        xa = cp.asarray(host)
+        dist = pairwise_cdist(xa, xa)
+        self.assertIs(cp.get_array_module(dist), cp)
+        np.testing.assert_allclose(
+            _to_numpy(dist.diagonal()),
+            np.zeros(host.shape[0]),
+            atol=1e-5,
+        )
 
 
 if __name__ == "__main__":

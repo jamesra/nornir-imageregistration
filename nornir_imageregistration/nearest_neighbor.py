@@ -1,17 +1,36 @@
 """
 Nearest-neighbor index abstraction with optional CuVS (GPU) backend.
 
-When CuPy is active and CuVS is available, builds a GPU index for fast NN search.
-Otherwise uses scipy.spatial.cKDTree. Callers use the same .query(points, k=1) API.
+CuVS brute-force nearest neighbor is O(N²). In 2D, scipy ``cKDTree`` is faster
+for typical transform meshes (hundreds to a few thousand control points).
+Measured crossover on this stack is about 4096 points (build + k=1 query):
+
+* N=256:  cKDTree 0.28 ms vs CuVS 1.33 ms
+* N=1024: cKDTree 0.33 ms vs CuVS 1.29 ms
+* N=4096: cKDTree 1.63 ms vs CuVS 1.38 ms
+* N=10000: cKDTree 4.38 ms vs CuVS 2.69 ms
+
+So this module uses ``cKDTree`` below ``CUVS_NN_MIN_POINTS`` (default 4096) and
+CuVS brute-force at that size or above when CuPy and CuVS are available.
+Override the gate with ``NORNIR_CUVS_NN_MIN_POINTS``.
+
+Pairwise ``cdist`` is a different problem (full N×M matrix, no tree) and stays
+on CuVS whenever inputs are already on the GPU; see ``spatial_distance.cdist``.
+
+Callers use the same ``.query(points, k=1)`` API regardless of backend.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 import numpy as np
 from numpy.typing import NDArray
 
-import nornir_imageregistration
 from nornir_imageregistration.computational_lib import HasCuVS, UsingCupy
+
+# Default gate: 2D cKDTree wins below this; CuVS brute-force at or above.
+CUVS_NN_MIN_POINTS_DEFAULT: int = 4096
+_CUVS_NN_MIN_POINTS_ENV: str = "NORNIR_CUVS_NN_MIN_POINTS"
 
 # Optional CuVS import only when needed
 _cuvs_brute_force = None
@@ -20,6 +39,24 @@ if UsingCupy() and HasCuVS():
         from cuvs.neighbors import brute_force as _cuvs_brute_force  # type: ignore[import-untyped]
     except Exception:
         pass
+
+
+def cuvs_nn_min_points() -> int:
+    """Return the point-count gate for CuVS brute-force nearest neighbor."""
+    raw = os.environ.get(_CUVS_NN_MIN_POINTS_ENV)
+    if raw is None or raw.strip() == "":
+        return CUVS_NN_MIN_POINTS_DEFAULT
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return CUVS_NN_MIN_POINTS_DEFAULT
+
+
+def _n_points(points: NDArray) -> int:
+    """Number of points in an (N, D) array; a 1-D vector counts as one point."""
+    if getattr(points, "ndim", 1) == 1:
+        return 1
+    return int(points.shape[0])
 
 
 def _ensure_host_float32(points: NDArray) -> np.ndarray:
@@ -99,18 +136,37 @@ class _CuVSNNIndex:
         return distances, neighbors
 
 
+def _use_cuvs_nn(points: NDArray) -> bool:
+    """True when CuVS brute-force NN is expected to beat a 2D cKDTree."""
+    if _cuvs_brute_force is None or not HasCuVS():
+        return False
+    if _n_points(points) < cuvs_nn_min_points():
+        return False
+    if UsingCupy():
+        return True
+    try:
+        import cupy as cp
+        return cp.get_array_module(points) is cp
+    except Exception:
+        return False
+
+
 def build_nearest_neighbor_index(points: NDArray):
     """
     Build a nearest-neighbor index from a 2D point set (N x 2).
 
-    When CuPy is active and CuVS is available, uses a GPU index. Otherwise
-    uses scipy.spatial.cKDTree. The returned object supports .query(points, k=1)
-    returning (distances, indices) in the same style as cKDTree.query.
+    Uses scipy ``cKDTree`` below ``cuvs_nn_min_points()`` (default 4096). CuVS
+    brute-force is O(N²) and slower than a 2D tree at typical mesh sizes; see
+    the module docstring. At the gate or above, uses a GPU index when CuPy and
+    CuVS are available.
+
+    The returned object supports ``.query(points, k=1)`` returning
+    ``(distances, indices)`` in the same style as ``cKDTree.query``.
 
     :param points: Nx2 array of points (numpy or cupy, float32/float64).
     :return: Index-like object with .query(points, k=1) method.
     """
-    if UsingCupy() and HasCuVS() and _cuvs_brute_force is not None:
+    if _use_cuvs_nn(points):
         return _CuVSNNIndex(points)
     points_host = _ensure_host_float32(points)
     return _ScipyNNIndex(points_host)

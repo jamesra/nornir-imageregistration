@@ -10,7 +10,6 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
 
 import nornir_imageregistration
-from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import distance, ITransform, IControlPoints, IGridTransform, IRigidTransform
 
@@ -24,13 +23,10 @@ def CentroidToVertexDistance(Centroids, TriangleVerts):
         array module as *Centroids*.
     """
     xp = cp.get_array_module(Centroids)
-    numCentroids = Centroids.shape[0]
-    d_measure = xp.zeros(numCentroids, dtype=Centroids.dtype)
-    for i in range(0, Centroids.shape[0]):
-        distances = pairwise_cdist(Centroids[i:i + 1], TriangleVerts[i])
-        d_measure[i] = xp.min(distances)
-
-    return d_measure
+    # Per-row 1×3 pairwise is a nearest-vertex check, not a cdist matrix.
+    # CuVS launch cost dominates at this size; a vectorized norm stays on *xp*.
+    diffs = Centroids[:, None, :] - TriangleVerts
+    return xp.min(xp.linalg.norm(diffs, axis=-1), axis=1)
 
 
 def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: IControlPoints,

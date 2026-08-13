@@ -1,8 +1,19 @@
 """Pairwise spatial distances with NumPy / CuPy dispatch.
 
-``scipy.spatial.distance.cdist`` expects host arrays. When inputs are CuPy arrays and
-GPU distance primitives are available (see ``HasCuVS``), use ``cupyx.scipy.spatial``.
-Otherwise transfer to the host and back.
+``scipy.spatial.distance.cdist`` expects host arrays. When inputs are CuPy arrays
+and GPU distance primitives are available (see ``HasCuVS``), use
+``cupyx.scipy.spatial.distance.cdist`` (CuVS / pylibraft). Otherwise transfer
+to the host and back.
+
+There is no size gate on GPU ``cdist``. The full N×M matrix has no 2D-tree
+shortcut, and the alternative for on-device arrays is a host round-trip that
+is slower even at N=256 (CuVS ~0.40 ms vs H↔D SciPy ~1.30 ms). Host SciPy
+wins at small N only when the data is already NumPy — that path is taken via
+``get_array_module(XA)``.
+
+Do not use this for k=1 nearest-point checks. Those go through
+``nearest_neighbor.build_nearest_neighbor_index``, which keeps ``cKDTree``
+below 4096 points because CuVS brute-force is O(N²) in 2D.
 """
 
 from __future__ import annotations
@@ -45,8 +56,9 @@ def array_to_numpy_host(a: Any) -> np.ndarray:
 def cdist(XA: Any, XB: Any, metric: str = "euclidean", **kwargs: Any) -> Any:
     """``cdist`` on the same device as ``XA`` (NumPy or CuPy).
 
-    Extra kwargs are forwarded to SciPy's ``cdist`` on the host path and to
-    CuPyX where supported.
+    CuPy inputs use CuVS via CuPyX whenever ``HasCuVS()`` is true. Extra kwargs
+    are forwarded to SciPy's ``cdist`` on the host path and to CuPyX where
+    supported.
     """
     xp = cp.get_array_module(XA)
     if xp is np:

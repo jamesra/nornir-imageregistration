@@ -266,6 +266,10 @@ def HasCuVS() -> bool:
     Matches ``cupyx.scipy.spatial.distance`` soft dependencies: ``cuvs.distance``
     or legacy ``pylibraft.distance``. CuPy must be active.
 
+    GPU ``cdist`` uses this stack whenever inputs are CuPy. Nearest-neighbor
+    search is gated separately in ``nearest_neighbor`` (``cKDTree`` below 4096
+    points) because CuVS brute-force is O(N²) in 2D.
+
     :return: True if pairwise distance primitives are importable, False otherwise.
     """
     return _has_cupy and _has_cuvs
