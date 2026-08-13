@@ -91,8 +91,35 @@ class TestFindPeakMemory(unittest.TestCase):
         self.assertAlmostEqual(result_np.peak_strength, result_cp.peak_strength, places=4)
         self.assertAlmostEqual(result_np.scaled_offset[0], result_cp.scaled_offset[0], places=3)
         self.assertAlmostEqual(result_np.scaled_offset[1], result_cp.scaled_offset[1], places=3)
+        self.assertAlmostEqual(result_np.cutoff_value, result_cp.cutoff_value, places=4)
         self.assertIsInstance(image_cp, cp.ndarray)
         self.assertIsInstance(image_np, np.ndarray)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_cupy_parity_device_sort_threshold(self) -> None:
+        """512² exceeds _DEVICE_SORT_MIN_SAMPLES; cutoff/offset must still match NumPy."""
+        rng = np.random.default_rng(2)
+        image_np = rng.random((512, 512)).astype(np.float32) * 0.15
+        image_np[250:260, 248:258] = 0.9
+        mask_np = np.ones((512, 512), dtype=bool)
+        mask_np[:64, :] = False
+        result_np = find_peak(image_np, mask_np)
+        result_cp = find_peak(cp.asarray(image_np), cp.asarray(mask_np))
+        self.assertAlmostEqual(result_np.scaled_offset[0], result_cp.scaled_offset[0], places=3)
+        self.assertAlmostEqual(result_np.scaled_offset[1], result_cp.scaled_offset[1], places=3)
+        self.assertAlmostEqual(result_np.cutoff_value, result_cp.cutoff_value, places=4)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_linear_percentile_curve_matches_numpy(self) -> None:
+        from nornir_imageregistration.mathfuncs import linear_percentile_curve
+
+        rng = np.random.default_rng(1)
+        host = rng.random(4096).astype(np.float32)
+        q = np.linspace(95.0, 100.0, 101)
+        expected = np.percentile(host, q, method="linear")
+        actual = nornir_imageregistration.EnsureNumpyArray(
+            linear_percentile_curve(cp.asarray(host), q))
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 if __name__ == "__main__":

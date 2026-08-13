@@ -12,19 +12,61 @@ from .cutoff_types import CutoffMethod, EstimateCutoffResult
 from .find_inflection_points import find_inflection_points
 
 
+def linear_percentile_curve(
+    records: NDArray[np.floating],
+    percentiles: NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """Return linear-interpolated percentiles from a single sort (Hyndman-Fan type 7).
+
+    Prefer this over ``xp.percentile(records, q)`` when *q* has many points: CuPy's
+    percentile evaluates each quantile separately, which dominates serial ``find_peak``.
+    """
+    xp = cp.get_array_module(records)
+    flat = xp.ravel(records)
+    n = int(flat.size)
+    if n == 0:
+        raise ValueError("No values to compute percentiles")
+    sorted_vals = xp.sort(flat)
+    q = xp.asarray(percentiles, dtype=xp.float64)
+    pos = (q / 100.0) * xp.float64(max(n - 1, 0))
+    lo = xp.floor(pos).astype(xp.int64)
+    hi = xp.minimum(lo + 1, n - 1)
+    weight = pos - lo.astype(xp.float64)
+    lo_vals = sorted_vals[lo].astype(xp.float64, copy=False)
+    hi_vals = sorted_vals[hi].astype(xp.float64, copy=False)
+    return lo_vals * (1.0 - weight) + hi_vals * weight
+
+
 def estimate_cutoff(
     records: NDArray[np.floating],
     percentiles: NDArray[np.floating] | None = None,
     method: CutoffMethod = CutoffMethod.Average,
     polyfit_degree: int | None = None,
+    precomputed_percentile_values: NDArray[np.floating] | None = None,
 ) -> EstimateCutoffResult:
-    """Estimate a cutoff percentile where values begin to increase rapidly."""
-    xp = cp.get_array_module(records)
-    percentile_points = xp.linspace(0, 100, 101) if percentiles is None else xp.sort(percentiles)
-    try:
-        percentile_values = xp.percentile(records, percentile_points, method="linear")
-    except TypeError:
-        percentile_values = xp.percentile(records, percentile_points)
+    """Estimate a cutoff percentile where values begin to increase rapidly.
+
+    :param precomputed_percentile_values: Optional curve already sampled at
+        *percentiles* (or at ``linspace(0, 100, n)`` when *percentiles* is None).
+        Skips ``percentile`` over *records* so callers can transfer a compact curve.
+    """
+    xp = cp.get_array_module(
+        precomputed_percentile_values if precomputed_percentile_values is not None else records)
+    if percentiles is None:
+        if precomputed_percentile_values is not None:
+            n_curve = int(xp.asarray(precomputed_percentile_values).shape[0])
+            percentile_points = xp.linspace(0, 100, n_curve)
+        else:
+            percentile_points = xp.linspace(0, 100, 101)
+    else:
+        percentile_points = xp.sort(xp.asarray(percentiles, dtype=xp.float64))
+    if precomputed_percentile_values is not None:
+        percentile_values = xp.asarray(precomputed_percentile_values, dtype=xp.float64)
+    else:
+        try:
+            percentile_values = xp.percentile(records, percentile_points, method="linear")
+        except TypeError:
+            percentile_values = xp.percentile(records, percentile_points)
 
     if method != CutoffMethod.Raw:
         degree = 5 if polyfit_degree is None else polyfit_degree

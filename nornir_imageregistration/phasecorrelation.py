@@ -34,7 +34,11 @@ from nornir_imageregistration.core import (
     NearestPowerOfTwoWithOverlap,
     promote_dtype_for_value_range,
 )
-from nornir_imageregistration.mathfuncs import CutoffMethod, estimate_cutoff
+from nornir_imageregistration.mathfuncs import (
+    CutoffMethod,
+    estimate_cutoff,
+    linear_percentile_curve,
+)
 
 try:
     import cupy as cp
@@ -374,6 +378,32 @@ class FindPeakResult(NamedTuple):
     peak_ratio: float = 0.0
 
 
+# Masked-sample crossover from host percentile vs one CuPy sort (2D masked
+# sweep: 384² / ~113k still host; 512² / ~201k device 1.5×). Dispatch on
+# sample count, not image side — overlap masks shrink n.
+_DEVICE_SORT_MIN_SAMPLES = 160_000
+
+
+def _percentile_curve_for_cutoff(
+        masked_values: NDArray[np.floating],
+        percentiles: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Return the 101-point Raw-cutoff curve on host.
+
+    Small CuPy surfaces download and use NumPy percentile. Larger surfaces sort
+    once on-device and transfer only the curve.
+    """
+    xp = cp.get_array_module(masked_values)
+    n = int(masked_values.size)
+    if xp is not np and n >= _DEVICE_SORT_MIN_SAMPLES:
+        curve = linear_percentile_curve(masked_values, percentiles)
+        return nornir_imageregistration.EnsureNumpyArray(curve)
+    host = nornir_imageregistration.EnsureNumpyArray(masked_values)
+    try:
+        return np.percentile(host, percentiles, method="linear")
+    except TypeError:
+        return np.percentile(host, percentiles)
+
+
 def find_peak(image: NDArray[np.floating],
               overlap_mask: Optional[NDArray[np.bool_]] = None,
               cutoff: Optional[float] = None,
@@ -435,19 +465,17 @@ def find_peak(image: NDArray[np.floating],
                 masked_values = threshold_image[overlap_mask].ravel()
             else:
                 masked_values = threshold_image.ravel()
-            if xp is not np:
-                # Single bounded sync: transfer masked correlation samples only for host estimate_cutoff.
-                masked_host = masked_values.get()  # type: ignore[union-attr]
-            else:
-                masked_host = masked_values
+
+            curve_host = _percentile_curve_for_cutoff(masked_values, percentiles)
             del masked_values
             result = estimate_cutoff(
-                masked_host,
+                curve_host,
                 percentiles,
                 polyfit_degree=2,
                 method=CutoffMethod.Raw,
+                precomputed_percentile_values=curve_host,
             )
-            del masked_host
+            del curve_host
             cutoff_percent = float(percentiles[result.cutoff_percentile_index])
             cutoff_value = result.cutoff_value
         except ValueError:
