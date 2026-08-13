@@ -115,7 +115,9 @@ def _build_linear_nd_interpolator(
     except ValueError as exc:
         if not _is_cupy_degenerate_triangulation_error(exc):
             raise
-        _logger.warning(
+        # Regular lattices are coplanar to cupyx Delaunay; SciPy Qhull is the
+        # expected path. DEBUG so nornir-build -debug can still trace it.
+        _logger.debug(
             'CuPy LinearNDInterpolator failed (%s); falling back to SciPy Qhull',
             exc,
         )
