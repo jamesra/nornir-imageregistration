@@ -571,6 +571,7 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
         LinearNDInterpolator available, build the GPU-component grid transform so
         the discrete inverse stays on-device (mirrors ``factory.ParseGridTransform``).
         Defaults to False so every existing caller keeps the CPU transform.
+        Pass ``False`` explicitly at mosaic/STOS save even if other call sites opt in.
     """
 
     grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,

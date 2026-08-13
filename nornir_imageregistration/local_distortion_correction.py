@@ -1644,13 +1644,21 @@ def _resample_transform_to_output_grid(
         transform: nornir_imageregistration.ITransform,
         source_shape: NDArray[np.integer],
         resolved_cell_size: tuple[int, int],
-        resolved_mesh_shape: tuple[int, int]) -> nornir_imageregistration.ITransform:
-    """Resample a transform onto the legacy-compatible output grid lattice."""
+        resolved_mesh_shape: tuple[int, int],
+        *,
+        prefer_gpu: bool = False) -> nornir_imageregistration.ITransform:
+    """Resample a transform onto the legacy-compatible output grid lattice.
+
+    Defaults to a host-backed grid so mosaic/STOS save stays NumPy. Pass
+    ``prefer_gpu=True`` when the resampled transform will be used for further
+    on-device warps in this process.
+    """
     return nornir_imageregistration.transforms.converters.ConvertTransformToGridTransform(
         transform,
         source_image_shape=source_shape,
         cell_size=np.asarray(resolved_cell_size, dtype=np.int64),
-        grid_dims=np.asarray(resolved_mesh_shape, dtype=np.int64))
+        grid_dims=np.asarray(resolved_mesh_shape, dtype=np.int64),
+        prefer_gpu=prefer_gpu)
 
 
 def _update_tile_transform_from_merged_overlap_pairs(
@@ -2563,10 +2571,12 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
         finally:
             _release_refinement_worker_memory()
 
-        InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(output_transform,
-                                                                                                  source_image_shape=settings.source_image.shape,  # type: ignore[arg-type]
-                                                                                                  cell_size=settings.cell_size,
-                                                                                                  grid_spacing=settings.grid_spacing)
+        InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
+            output_transform,
+            source_image_shape=settings.source_image.shape,  # type: ignore[arg-type]
+            cell_size=settings.cell_size,
+            grid_spacing=settings.grid_spacing,
+            prefer_gpu=False)
         InputStos.Save(OutputStosPath)
 
 
@@ -2613,19 +2623,19 @@ def _shift_moving_stack_by_peaks(
     h = int(moving_stack.shape[1])
     w = int(moving_stack.shape[2])
     out = xp.empty_like(moving_stack)
+    meds = xp.median(moving_stack, axis=(1, 2))
     for i in range(n):
         peak = peaks_np[i]
         if float(np.linalg.norm(peak)) < float(travel_eps):
             out[i] = moving_stack[i]
             continue
-        med = float(xp.median(moving_stack[i]))
         out[i] = nornir_imageregistration.CropImage(
             moving_stack[i],
             int(np.floor(-peak[1])),
             int(np.floor(-peak[0])),
             w,
             h,
-            cval=med)
+            cval=float(meds[i]))
     return out
 
 
@@ -2634,11 +2644,21 @@ def _masked_zncc_stack(fixed_stack: NDArray, moving_stack: NDArray) -> NDArray[n
     xp = cp.get_array_module(fixed_stack)
     a = xp.asarray(fixed_stack, dtype=xp.float64)
     b = xp.asarray(moving_stack, dtype=xp.float64)
-    n = int(a.shape[0])
-    scores = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        scores[i] = masked_zncc(a[i], b[i])
-    return scores
+    valid = xp.isfinite(a) & xp.isfinite(b)
+    n_valid = xp.count_nonzero(valid, axis=(1, 2))
+    a_z = xp.where(valid, a, 0)
+    b_z = xp.where(valid, b, 0)
+    n = xp.maximum(n_valid.astype(xp.float64), 1.0)
+    a_mean = a_z.sum(axis=(1, 2)) / n
+    b_mean = b_z.sum(axis=(1, 2)) / n
+    av = xp.where(valid, a - a_mean[:, None, None], 0)
+    bv = xp.where(valid, b - b_mean[:, None, None], 0)
+    num = (av * bv).sum(axis=(1, 2))
+    denom = xp.sqrt((av * av).sum(axis=(1, 2)) * (bv * bv).sum(axis=(1, 2)))
+    ok = (n_valid >= 2) & (denom > 0) & xp.isfinite(denom)
+    scores = xp.where(ok, num / denom, 0.0)
+    scores = xp.where(xp.isfinite(scores), scores, 0.0)
+    return nornir_imageregistration.EnsureNumpyArray(scores).astype(np.float64, copy=False)
 
 
 def _compute_zncc_for_candidates(
@@ -2796,6 +2816,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     coherent_residual_checked = False  # Track A/B attempted (once per refine)
     coherent_residual_translated = False  # TranslateFixed actually ran (for preserve gate)
     global_pose_recovery_applied = False
+    last_residual_translation: NDArray[np.floating] | None = None
+    residual_undo_attempted = False
     source_content_cache = SourceContentCache()
     cell_history = CellPassHistoryStore()
     if legacy_finalize:
@@ -2872,6 +2894,37 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
         prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
 
+        # FOV / coherent residual can leave almost no cells registering. Undo once
+        # so a bad TranslateFixed does not starve mesh construction.
+        if (coherent_residual_translated
+                and not residual_undo_attempted
+                and last_residual_translation is not None
+                and len(finalized_points) == 0
+                and len(alignment_points) < 3):
+            translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
+            if callable(translate_fixed):
+                residual_undo_attempted = True
+                translate_fixed(-np.asarray(last_residual_translation, dtype=np.float64))
+                coherent_residual_translated = False
+                prettyoutput.Log(
+                    f'Reverted residual translation after sparse remasure '
+                    f'({len(alignment_points)} alignments, 0 locks); remeasuring')
+                measure_t0 = time.perf_counter()
+                alignment_points = _RefineGridPointsForTwoImages(
+                    stosTransform,
+                    settings=settings,
+                    finalized=finalized_points,
+                    source_content_cache=source_content_cache,
+                    cancel_event=cancel_event,
+                    progress_callback=progress_callback)
+                measure_s += time.perf_counter() - measure_t0
+                if len(alignment_points) == 0:
+                    raise ValueError(
+                        f"No alignment points generated at pass #{i} after residual revert")
+                alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
+                prettyoutput.Log(
+                    f"Pass {i} aligned {len(alignment_points)} points after residual revert")
+
         # Track A: once per refine, absorb a coherent residual translation when
         # almost nothing has locked. If unique peaks are too scarce/incoherent
         # (wrap-like), try downsampled whole-FOV phase-correlation once.
@@ -2890,6 +2943,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 finalize_candidates.clear()
                 coherent_residual_translated = True
                 coherent_residual_checked = True
+                last_residual_translation = np.asarray(residual.translation, dtype=np.float64).copy()
                 prettyoutput.Log(
                     f'Coherent residual translation: (dy, dx)=('
                     f'{float(residual.translation[0]):.2f}, '
@@ -2918,6 +2972,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         finalize_candidates.clear()
                         coherent_residual_translated = True
                         coherent_residual_checked = True
+                        last_residual_translation = np.asarray(global_peak, dtype=np.float64).copy()
                         prettyoutput.Log(
                             f'Global FOV residual translation: (dy, dx)=('
                             f'{float(global_peak[0]):.2f}, {float(global_peak[1]):.2f})')
@@ -3151,12 +3206,12 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     f'Anchor-smooth mesh: {len(finalized_points)} locked seeds, '
                     f'{len(mesh_alignment_points)} cells in smoothed field '
                     f'(raw-preserve={len(raw_preserve_ids)})')
-                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
-                    mesh_alignment_points,
-                    WeightMethod.Registration,  # type: ignore[arg-type]
-                    None,
-                    percentile=None,
-                    cutoff=float('-inf'))
+                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                    _build_mesh_transform_or_keep(
+                        mesh_alignment_points,
+                        prior_transform=stosTransform,
+                        fixed_points=None,
+                    ))
             else:
                 # Exclude free points whose residual travel exceeds the inclusion travel bar.
                 # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
@@ -3191,12 +3246,12 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
                 # No registration-weight bar: travel + REJECT already filtered;
                 # raw-preserve cells keep residuals via relaxed travel only.
-                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = _PeakListToTransform(
-                    mesh_alignment_points,
-                    WeightMethod.Registration,  # type: ignore[arg-type]
-                    AlignRecordsToControlPoints(finalized_points.values()),  # type: ignore[arg-type]
-                    percentile=None,
-                    cutoff=float('-inf'))
+                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                    _build_mesh_transform_or_keep(
+                        mesh_alignment_points,
+                        prior_transform=stosTransform,
+                        fixed_points=AlignRecordsToControlPoints(finalized_points.values()),
+                    ))
 
             # After Track A / global FOV, a collapsed mesh undoes TranslateFixed.
             preserve_post_residual = should_preserve_post_residual_transform(
@@ -3930,12 +3985,62 @@ def AlignRecordsToControlPoints(
     """
     Convert alignment records into ``[target_y, target_x, source_y, source_x]`` pairs.
     """
+    records = list(alignment_records)
+    if not records:
+        return np.zeros((0, 4), dtype=np.float64)
 
-    SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, alignment_records)))
-    TargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, alignment_records)))
+    SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, records)))
+    TargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, records)))
 
     PointPairs = np.hstack((TargetPoints, SourcePoints))
     return PointPairs
+
+
+def _fixed_point_count(fixed_points: NDArray | None) -> int:
+    """Return the number of fixed control pairs, treating empty arrays as zero."""
+    if fixed_points is None:
+        return 0
+    if not isinstance(fixed_points, np.ndarray):
+        raise ValueError("fixed_points must be an ndarray")
+    if fixed_points.size == 0:
+        return 0
+    if fixed_points.ndim != 2 or fixed_points.shape[1] != 4:
+        raise ValueError("fixed_points must have shape (N,4)")
+    return int(fixed_points.shape[0])
+
+
+def _build_mesh_transform_or_keep(
+        alignment_records: AlignmentRecordList,
+        *,
+        prior_transform: nornir_imageregistration.ITransform,
+        fixed_points: NDArray | None = None,
+) -> tuple[
+    nornir_imageregistration.ITransform,
+    list[nornir_imageregistration.EnhancedAlignmentRecord],
+    NDArray[np.floating]]:
+    """Build a mesh transform, or keep *prior_transform* when too few points exist.
+
+    Prevents hard failures when residual recovery / travel filters leave fewer
+    than three control points for triangulation.
+    """
+    records = list(alignment_records)
+    n_fixed = _fixed_point_count(fixed_points)
+    if len(records) + n_fixed < 3:
+        prettyoutput.Log(
+            f'Insufficient points for mesh update '
+            f'({len(records)} alignments + {n_fixed} fixed); keeping prior transform')
+        if records:
+            scores = _alignment_records_to_composite_scores(records)
+        else:
+            scores = np.zeros((0, 3), dtype=np.float64)
+        return prior_transform, records, scores
+
+    return _PeakListToTransform(
+        records,
+        WeightMethod.Registration,  # type: ignore[arg-type]
+        fixed_points,
+        percentile=None,
+        cutoff=float('-inf'))
 
 
 def _alignment_records_to_composite_scores(
@@ -3977,11 +4082,11 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
         if not isinstance(fixed_points, np.ndarray):
             raise ValueError("fixed_points must be an ndarray")
 
-        num_fixed = fixed_points.shape[0]
+        num_fixed = _fixed_point_count(fixed_points)
 
     num_alignments = len(alignment_records)
     if num_alignments == 0:
-        raise ValueError("Need at one new alignment_record to improve a transform")
+        raise ValueError("Need at least one new alignment_record to improve a transform")
 
     if num_alignments + num_fixed < 3:
         raise ValueError(

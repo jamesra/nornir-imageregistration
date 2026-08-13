@@ -17,6 +17,7 @@ from nornir_imageregistration.refine_shared.coherent_residual import (
     should_attempt_global_fov_recovery,
     should_preserve_post_residual_transform,
 )
+from nornir_imageregistration import local_distortion_correction as ldc
 from nornir_imageregistration.transforms.rigid import RigidTranslation
 
 
@@ -218,6 +219,23 @@ class TestPreservePostResidualTransform(unittest.TestCase):
             n_grid=6262,
             n_locks=2,
         ))
+
+
+class TestBuildMeshTransformOrKeep(unittest.TestCase):
+    def test_keeps_prior_when_fewer_than_three_points(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        records = [_rec((0, 0), peak=(3.0, 4.0))]
+        transform, used, scores = ldc._build_mesh_transform_or_keep(
+            records, prior_transform=prior, fixed_points=None)
+        self.assertIs(transform, prior)
+        self.assertEqual(len(used), 1)
+        self.assertEqual(scores.shape[0], 1)
+
+    def test_empty_fixed_points_are_zero_budget(self) -> None:
+        empty = ldc.AlignRecordsToControlPoints([])
+        self.assertEqual(empty.shape, (0, 4))
+        self.assertEqual(ldc._fixed_point_count(empty), 0)
+        self.assertEqual(ldc._fixed_point_count(None), 0)
 
 
 if __name__ == '__main__':
