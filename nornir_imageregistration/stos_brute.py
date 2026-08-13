@@ -957,7 +957,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         final_angle = float(brute_force_result.angle)
         scale_seed = float(logpolar_result.scale)
         scale_at_angle = _scale_at_final_angle(
-            candidate_source_image, target_image, source_stats, target_stats,
+            _ensure_device_for_scoring(candidate_source_image),
+            _ensure_device_for_scoring(target_image),
+            source_stats, target_stats,
             final_angle, scale_seed, settings.min_overlap, wide_search=True)
 
         if nornir_imageregistration.in_debug_mode():
@@ -1234,6 +1236,7 @@ def _score_one_angle_core(
     """
 
     xp = cp.get_array_module(im_target)
+    im_source = _coerce_to_source_module(im_source, xp)
 
     working_source = im_source
     working_source_shape = source_image_shape

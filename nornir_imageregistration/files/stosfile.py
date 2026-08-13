@@ -450,9 +450,8 @@ class StosFile(object):
         try:
             Downsample = int(parts[-1])
         except (ValueError, IndexError):
+            # Many .stos names omit a trailing downsample token; leave None quietly.
             Downsample = None
-            Logger.info('Could not determine _Downsample: ' + str(filename))
-            # raise
 
         return mappedSection, controlSection, Channel, Filter, Source, Downsample
 

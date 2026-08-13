@@ -56,10 +56,24 @@ def _xp_1d_to_float_pair(values, xp) -> tuple[float, float]:
     return (float(flat[0].item()), float(flat[1].item()))
 
 
-def _image_center_offset_tuple(image, xp) -> tuple[float, float]:
-    """Return the correlation-image center offset used when no peak is found."""
-    center = xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
-    return _xp_1d_to_float_pair(center, xp)
+def _coerce_array_to_module(array: NDArray[Any], xp) -> NDArray[Any]:
+    """Return *array* on *xp* (NumPy or CuPy) without extra copies when already there."""
+    if cp.get_array_module(array) is xp:
+        return array
+    if xp is np:
+        return array.get() if hasattr(array, "get") else np.asarray(array)
+    return xp.asarray(array)
+
+
+def _no_peak_offset() -> tuple[float, float]:
+    """Zero translation for a missing correlation peak.
+
+    A successful peak reports ``(shape / 2) - peak_com``. Returning the image
+    center coordinates instead (as if the peak were at array origin) applies a
+    translation of half the padded FFT size and can place source and target
+    outside each other's bounding boxes.
+    """
+    return (0.0, 0.0)
 
 
 def pad_image_for_phase_correlation(image: NDArray[np.floating],
@@ -252,6 +266,9 @@ def image_phase_correlation(target_image: NDArray[np.floating],
     :raises ValueError: If the dimensions of target_image and source_image do not match.
     """
     xp = cp.get_array_module(target_image if fft_target is None else fft_target)
+    source_image = _coerce_array_to_module(source_image, xp)
+    if fft_target is None:
+        target_image = _coerce_array_to_module(target_image, xp)
 
     if fft_target is None and not (target_image.shape == source_image.shape):
         # TODO, we should pad the smaller image in this case to allow the comparison to continue
@@ -442,6 +459,8 @@ def find_peak(image: NDArray[np.floating],
         xp_mask = cp.get_array_module(overlap_mask)
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
+        if int(xp.count_nonzero(overlap_mask)) == 0:
+            return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
 
     # Fuse copy + mask: one allocation (or in-place) instead of copy + logical_not temp.
     if overlap_mask is not None:
@@ -510,8 +529,7 @@ def find_peak(image: NDArray[np.floating],
 
     # If no labels were found, there are no peaks
     if num_labels == 0:
-        scaled_offset = _image_center_offset_tuple(image, xp)
-        return FindPeakResult(scaled_offset, 0, 0.0, 0.0, 0.0)
+        return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
@@ -522,8 +540,7 @@ def find_peak(image: NDArray[np.floating],
         del label_image
         del threshold_image
 
-        scaled_offset = _image_center_offset_tuple(image, xp)
-        return FindPeakResult(scaled_offset, 0, 0.0, 0.0, 0.0)
+        return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
 
     # Find the label with the highest sum (strongest peak)
     peak_value_index = label_sums.argmax()

@@ -121,6 +121,21 @@ class TestFindPeakMemory(unittest.TestCase):
             linear_percentile_curve(cp.asarray(host), q))
         np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
+    def test_no_peak_returns_zero_translation(self) -> None:
+        """A blank correlation image must not report shape/2 as an offset."""
+        image = np.zeros((64, 64), dtype=np.float32)
+        result = find_peak(image)
+        self.assertEqual(result.scaled_offset, (0.0, 0.0))
+        self.assertEqual(result.peak_strength, 0.0)
+
+    def test_empty_overlap_mask_returns_zero_translation(self) -> None:
+        """If every pixel is ineligible, fall back to no translation, not FFT center."""
+        image = np.ones((48, 80), dtype=np.float32)
+        mask = np.zeros((48, 80), dtype=bool)
+        result = find_peak(image, mask)
+        self.assertEqual(result.scaled_offset, (0.0, 0.0))
+        self.assertEqual(result.peak_strength, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

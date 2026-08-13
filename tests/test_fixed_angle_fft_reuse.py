@@ -307,5 +307,37 @@ class TestFixedSizeCupyParity(unittest.TestCase):
         self.assertLessEqual(abs(peak_np[1] - peak_cp[1]), 1.0)
 
 
+@unittest.skipUnless(_HAS_CUPY, 'CuPy not available')
+class TestMixedBackendPhaseCorrelation(unittest.TestCase):
+    """NumPy source + CuPy target must not call cupy.fft on a host array."""
+
+    def test_numpy_source_cupy_target_fft2(self) -> None:
+        rng = np.random.default_rng(0)
+        target_np = rng.random((32, 32), dtype=np.float32)
+        source_np = np.roll(np.roll(target_np, 3, axis=0), -2, axis=1)
+        corr = image_phase_correlation(cp.asarray(target_np), source_np)
+        self.assertTrue(hasattr(corr, 'shape'))
+        self.assertEqual(tuple(int(s) for s in corr.shape), (32, 32))
+
+    def test_scale_at_final_angle_numpy_source_cupy_target(self) -> None:
+        rng = np.random.default_rng(1)
+        target_np = rng.random((48, 48), dtype=np.float32)
+        source_np = np.roll(target_np, 2, axis=0)
+        target_cp = cp.asarray(target_np)
+        source_stats = nornir_imageregistration.ImageStats.CalcStats(source_np)
+        target_stats = nornir_imageregistration.ImageStats.CalcStats(target_np)
+        previous = nornir_imageregistration.GetActiveComputationLib()
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.cupy)
+        try:
+            scale = stos_brute._scale_at_final_angle(
+                source_np, target_cp, source_stats, target_stats,
+                0.0, 1.0, 0.5, wide_search=False)
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous)
+        self.assertGreater(float(scale), 0.0)
+        self.assertLess(float(scale), 2.0)
+
+
 if __name__ == '__main__':
     unittest.main()
