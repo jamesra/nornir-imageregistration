@@ -94,6 +94,20 @@ class TestGpuCdistUsesCuVS(unittest.TestCase):
             atol=1e-5,
         )
 
+    @unittest.skipUnless(
+        nornir_imageregistration.HasCupy() and nornir_imageregistration.HasCuVS(),
+        "CuPy and CuVS required",
+    )
+    def test_cupy_cdist_mixed_float32_float64(self):
+        import cupy as cp
+
+        xa = cp.asarray([[0.0, 0.0], [1.0, 0.0]], dtype=cp.float32)
+        xb = cp.asarray([[0.0, 0.0], [0.0, 1.0]], dtype=cp.float64)
+        dist = pairwise_cdist(xa, xb)
+        self.assertIs(cp.get_array_module(dist), cp)
+        np.testing.assert_allclose(_to_numpy(dist[0, 0]), 0.0, atol=1e-5)
+        np.testing.assert_allclose(_to_numpy(dist[1, 1]), np.sqrt(2.0), atol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

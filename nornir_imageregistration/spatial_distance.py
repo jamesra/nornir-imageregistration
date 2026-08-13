@@ -53,12 +53,32 @@ def array_to_numpy_host(a: Any) -> np.ndarray:
     return _to_numpy(a)
 
 
+def _cdist_same_dtype(XA: Any, XB: Any, xp: Any) -> tuple[Any, Any]:
+    """Put *XB* on *xp* and match dtypes. CuVS pairwise_distance requires both.
+
+    Mixed float32/float64 is downcast to float32: GPU control points are stored
+    as float32, so promoting queries to float64 would invent precision the
+    landmarks do not have.
+    """
+    XB = xp.asarray(XB)
+    if XA.dtype == XB.dtype:
+        return XA, XB
+    dta = np.dtype(XA.dtype)
+    dtb = np.dtype(XB.dtype)
+    if np.issubdtype(dta, np.floating) and np.issubdtype(dtb, np.floating):
+        dtype = dta if dta.itemsize <= dtb.itemsize else dtb
+    else:
+        dtype = np.promote_types(dta, dtb)
+    return xp.asarray(XA, dtype=dtype), xp.asarray(XB, dtype=dtype)
+
+
 def cdist(XA: Any, XB: Any, metric: str = "euclidean", **kwargs: Any) -> Any:
     """``cdist`` on the same device as ``XA`` (NumPy or CuPy).
 
     CuPy inputs use CuVS via CuPyX whenever ``HasCuVS()`` is true. Extra kwargs
     are forwarded to SciPy's ``cdist`` on the host path and to CuPyX where
-    supported.
+    supported. Mixed float32/float64 inputs are downcast to float32 so CuVS
+    does not raise ``Inputs must have the same dtypes``.
     """
     xp = cp.get_array_module(XA)
     if xp is np:
@@ -66,6 +86,7 @@ def cdist(XA: Any, XB: Any, metric: str = "euclidean", **kwargs: Any) -> Any:
 
     from nornir_imageregistration.computational_lib import HasCuVS
 
+    XA, XB = _cdist_same_dtype(XA, XB, xp)
     if HasCuVS() and _cupyx_spatial is not None:
         return getattr(_cupyx_spatial, "distance").cdist(XA, XB, metric, **kwargs)  # type: ignore[attr-defined, call-overload]
 
