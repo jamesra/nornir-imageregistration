@@ -101,6 +101,21 @@ def _iter_path_ancestors(path: str):
         current = parent
 
 
+def _log_rebased_windows_stos_path(
+        stored_path: str,
+        candidate: str,
+        *,
+        by_volume_name: bool = False) -> None:
+    """Log a Windows STOS path rebase only when the resolved location changed."""
+    if paths_refer_to_same_file(stored_path, candidate):
+        return
+    if by_volume_name:
+        _logger.info(
+            "Rebased Windows STOS path by volume name %s -> %s", stored_path, candidate)
+        return
+    _logger.info("Rebased Windows STOS path %s -> %s", stored_path, candidate)
+
+
 def _rebase_windows_absolute_to_stos_volume(stored_path: str, stos_dir: str) -> str | None:
     """Map a Windows absolute image path onto the Linux/mac volume that holds *stos_dir*.
 
@@ -121,7 +136,7 @@ def _rebase_windows_absolute_to_stos_volume(stored_path: str, stos_dir: str) -> 
         for ancestor in ancestors:
             candidate = os.path.normpath(os.path.join(ancestor, *suffix))
             if os.path.exists(candidate):
-                _logger.info("Rebased Windows STOS path %s -> %s", stored_path, candidate)
+                _log_rebased_windows_stos_path(stored_path, candidate)
                 return candidate
 
     # Best-effort: match the leftmost Windows component that is also a basename
@@ -136,8 +151,7 @@ def _rebase_windows_absolute_to_stos_volume(stored_path: str, stos_dir: str) -> 
             candidate = (
                 os.path.normpath(os.path.join(ancestor, *rest)) if rest else ancestor
             )
-            _logger.info(
-                "Rebased Windows STOS path by volume name %s -> %s", stored_path, candidate)
+            _log_rebased_windows_stos_path(stored_path, candidate, by_volume_name=True)
             return candidate
 
     return None

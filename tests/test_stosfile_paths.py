@@ -115,6 +115,46 @@ class TestStosPathHelpers(unittest.TestCase):
             self.assertNotIn("Y:", resolved)
             self.assertNotIn("Volumes", resolved.split(os.sep))
 
+    def test_path_from_stos_file_does_not_log_unchanged_windows_path(self) -> None:
+        """Same-machine Windows paths that already exist should not log a rebase."""
+        with tempfile.TemporaryDirectory() as root:
+            image = os.path.join(root, "TEM", "1383", "TEM", "Leveled", "Images", "032", "1383_TEM_Leveled.png")
+            stos_dir = os.path.join(root, "TEM", "Grid32")
+            os.makedirs(os.path.dirname(image), exist_ok=True)
+            os.makedirs(stos_dir, exist_ok=True)
+            _write_tiny_png(image)
+            stored = os.path.abspath(image)
+
+            with mock.patch.object(stosfile._logger, "info") as info:
+                resolved = _path_from_stos_file(stored, stos_dir)
+
+            self.assertEqual(os.path.normpath(resolved), os.path.normpath(image))
+            for call in info.call_args_list:
+                message = call.args[0] if call.args else ""
+                self.assertNotIn("Rebased Windows STOS path", message)
+
+    def test_path_from_stos_file_logs_when_windows_path_changes(self) -> None:
+        """Log only when rebase maps a Windows path onto a different location."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            image = os.path.join(
+                volume, "TEM", "0999", "TEM", "Leveled", "Images", "032", "0999_TEM_Leveled.png")
+            stos_dir = os.path.join(volume, "TEM", "Grid32")
+            os.makedirs(os.path.dirname(image), exist_ok=True)
+            os.makedirs(stos_dir, exist_ok=True)
+            _write_tiny_png(image)
+            stored = r"Y:\Volumes\RC2\TEM\0999\TEM\Leveled\Images\032\0999_TEM_Leveled.png"
+
+            with mock.patch.object(stosfile._logger, "info") as info:
+                resolved = _path_from_stos_file(stored, stos_dir)
+
+            self.assertEqual(os.path.normpath(resolved), os.path.normpath(image))
+            rebase_calls = [
+                call for call in info.call_args_list
+                if call.args and "Rebased Windows STOS path" in call.args[0]
+            ]
+            self.assertEqual(len(rebase_calls), 1)
+
     def test_path_from_stos_file_rebases_windows_absolute_when_missing(self) -> None:
         """Rebase by shared volume folder name even if the image is not on disk yet."""
         with tempfile.TemporaryDirectory() as root:
