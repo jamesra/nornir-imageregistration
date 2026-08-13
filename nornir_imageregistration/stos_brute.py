@@ -841,8 +841,17 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     del target_image_data
     del source_image_data
 
-    target_image = cp.asarray(target_image) if use_cp and not isinstance(target_image, cp.ndarray) else target_image
-    source_image = cp.asarray(source_image) if use_cp and not isinstance(source_image, cp.ndarray) else source_image
+    def _ensure_device_for_scoring(image: NDArray) -> NDArray:
+        """Upload for GPU scoring. Log-polar stays on host until this is called."""
+        if use_cp and not isinstance(image, cp.ndarray):
+            return cp.asarray(image)
+        return image
+
+    # LogPolar (skimage) is host-only. Uploading here would H→D then immediately
+    # coerce back in _find_angle_and_scale_with_logpolar. BruteForce scores on GPU.
+    if use_cp and settings.method != SliceToSliceMethod.LogPolar:
+        target_image = _ensure_device_for_scoring(target_image)
+        source_image = _ensure_device_for_scoring(source_image)
 
     metadata_scale_y, metadata_scale_x = _normalize_scale_xy(settings.source_image_scale_factors)
     metadata_scale_iso = _isotropic_scale_from_xy(metadata_scale_y, metadata_scale_x)
@@ -885,8 +894,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         fallback_angles = _adaptive_fallback_angle_range(logpolar_result.angle, diagnostics)
         angle_count = len(fallback_angles)
 
-        brute_force_result = _find_best_angle(source_image=candidate_source_image,
-                                              target_image=target_image,
+        brute_force_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
+                                              target_image=_ensure_device_for_scoring(target_image),
                                               source_stats=source_stats,
                                               target_stats=target_stats,
                                               angle_range=fallback_angles,
@@ -904,8 +913,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             )
             pass_used = 2
             angle_count = len(widened_angles)
-            widened_result = _find_best_angle(source_image=candidate_source_image,
-                                              target_image=target_image,
+            widened_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
+                                              target_image=_ensure_device_for_scoring(target_image),
                                               source_stats=source_stats,
                                               target_stats=target_stats,
                                               angle_range=widened_angles,
@@ -920,8 +929,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
             pass_used = 3
             angle_count = len(settings.angle_range)
-            full_sweep_result = _find_best_angle(source_image=candidate_source_image,
-                                                 target_image=target_image,
+            full_sweep_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
+                                                 target_image=_ensure_device_for_scoring(target_image),
                                                  source_stats=source_stats,
                                                  target_stats=target_stats,
                                                  angle_range=settings.angle_range,
@@ -978,9 +987,13 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             settings, metadata_scale_iso, float(logpolar_probe.scale))
 
     # Replace extrema with noise
+    host_source_for_flip = source_image
     if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
         best_match = _find_logpolar_with_fallback(source_image)
         detected_scale = float(best_match.scale)
+        # ScoreOneAngle / narrow-angle refine run on the active GPU backend.
+        source_image = _ensure_device_for_scoring(source_image)
+        target_image = _ensure_device_for_scoring(target_image)
     else:
         best_match, detected_scale = _find_best_angle_with_scale_search(
             source_image=source_image,
@@ -1117,12 +1130,15 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
     best_refined_match = upright_final
     if settings.try_flipped:
-        _xp_img = cp.get_array_module(source_image)
-        flipped_source = _xp_img.flipud(source_image)
         if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-            flipped_seed = _find_logpolar_with_fallback(flipped_source)
+            host_xp = cp.get_array_module(host_source_for_flip)
+            flipped_host = host_xp.flipud(host_source_for_flip)
+            flipped_seed = _find_logpolar_with_fallback(flipped_host)
+            flipped_source = _ensure_device_for_scoring(flipped_host)
             flipped_final = _finalize_logpolar_candidate(flipped_source, flipped_seed, True)
         else:
+            _xp_img = cp.get_array_module(source_image)
+            flipped_source = _xp_img.flipud(source_image)
             flipped_seed, flipped_scale = _find_best_angle_with_scale_search(
                 source_image=flipped_source,
                 target_image=target_image,
@@ -1945,9 +1961,16 @@ def __ExecuteProfiler():
 
 
 if __name__ == '__main__':
-    from nornir_shared import NearestPowerOfTwo, misc
+    # Legacy Windows fixture profiler. Opt-in only:
+    #   NORNIR_PROFILE=1 python -m nornir_imageregistration.stos_brute
+    import os
+    _profile = os.environ.get('NORNIR_PROFILE', '').strip().lower()
+    if _profile not in ('1', 'true', 'yes', 'on'):
+        raise SystemExit(
+            'stos_brute.py is a library module. '
+            'Set NORNIR_PROFILE=1 to run the legacy fixture profiler.'
+        )
+    from nornir_shared import misc
 
     misc.RunWithProfiler("__ExecuteProfiler()", r"C:\Temp\StosBrute")
-    # __ExecuteProfiler()
-    pass
 

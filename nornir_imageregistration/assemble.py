@@ -457,12 +457,9 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                 outputImage.fill(cval)
                 return output_shared_mem_meta
             else:
-                if use_cp:
-                    empty_image = xp.full(output_area_shape, cval, dtype=original_dtype).get()  # type: ignore[union-attr]
-                else:
-                    empty_image = xp.full(output_area_shape, cval, dtype=original_dtype)
+                empty_image = xp.full(output_area_shape, cval, dtype=original_dtype)
                 if return_valid_mask:
-                    return empty_image, np.zeros(empty_image.shape, dtype=bool)
+                    return empty_image, xp.zeros(empty_image.shape, dtype=bool)
                 return empty_image
 
         del source_image

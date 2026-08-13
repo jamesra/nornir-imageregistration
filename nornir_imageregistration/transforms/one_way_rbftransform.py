@@ -26,6 +26,39 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation, Triangulation_GPUComponent
 
 
+def _tps_beta_matrix(
+        points: NDArray,
+        basis_function: Callable[[NDArray[np.floating]], NDArray[np.floating]],
+        xp,
+) -> NDArray:
+    """Build the thin-plate spline Beta matrix on *xp* (pairwise RBF plus linear terms)."""
+    # Duplicate check is N control points (typically hundreds). CuPy unique on
+    # that size is slower than a 2KB download plus NumPy unique.
+    if ControlPointsHaveDuplicatePositions(array_to_numpy_host(points)):
+        raise ValueError("Cannot have duplicate points in transform")
+
+    points = xp.asarray(points)
+    num_pts = int(points.shape[0])
+    beta = xp.zeros((num_pts + 3, num_pts + 3), dtype=np.float32)
+    if num_pts >= 2:
+        distances = pairwise_cdist(points, points)
+        if xp is cp and cp.get_array_module(distances) is np:
+            distances = cp.asarray(distances)
+        eye = xp.eye(num_pts, dtype=bool)
+        # r^2 log(r) is undefined at r=0; the old loop skipped the diagonal.
+        dist_safe = xp.where(eye, xp.asarray(1.0, dtype=distances.dtype), distances)
+        values = basis_function(dist_safe)
+        values = xp.where(eye, xp.asarray(0.0, dtype=np.float32), values)
+        beta[3:, :num_pts] = values.astype(beta.dtype, copy=False)
+    beta[3:, num_pts] = points[:, 1]
+    beta[3:, num_pts + 1] = points[:, 0]
+    beta[3:, num_pts + 2] = 1
+    beta[0, :num_pts] = points[:, 0]
+    beta[1, :num_pts] = points[:, 1]
+    beta[2, :num_pts] = 1
+    return beta
+
+
 class OneWayRBFWithLinearCorrection(Triangulation):
 
     @property
@@ -235,48 +268,9 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
     @staticmethod
     def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
-        # if BasisFunction is None:
-        #    BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
-
-        if ControlPointsHaveDuplicatePositions(points):
-            raise ValueError("Cannot have duplicate points in transform")
-
-        NumPts = len(points)
-        BetaMatrix = np.zeros([NumPts + 3, NumPts + 3], dtype=np.float32)
-
-        for iRow in range(3, NumPts + 3):
-            iPointA = iRow - 3
-
-            if (iPointA + 1) < NumPts:
-                p = points[list(range((iPointA + 1), NumPts))]
-                dList = pairwise_cdist(np.atleast_2d(points[iPointA]), p)
-
-                dList = dList.ravel()
-                valueList = BasisFunction(dList)  # type: ignore[misc]
-                # valueList = np.power(dList, 2)
-                # valueList = np.multiply(valueList, np.log(dList))
-                # valueList = valueList.ravel()
-
-                BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
-                BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
-
-                #            for iCol in range(iPointA+1, NumPts):
-                #                iPointB = iCol
-                #                dist = scipy.spatial.distance.euclidean(points[iPointA], points[iPointB])
-                #                value = BasisFunction(dist)
-                #                BetaMatrix[iRow, iCol] = value
-                #                BetaMatrix[iCol + 3, iRow - 3] = value
-
-            BetaMatrix[iRow, NumPts] = points[iPointA][1]
-            BetaMatrix[iRow, NumPts + 1] = points[iPointA][0]
-            BetaMatrix[iRow, NumPts + 2] = 1
-
-        for iCol in range(0, NumPts):
-            BetaMatrix[0, iCol] = points[iCol][0]
-            BetaMatrix[1, iCol] = points[iCol][1]
-            BetaMatrix[2, iCol] = 1
-
-        return BetaMatrix
+        if BasisFunction is None:
+            BasisFunction = OneWayRBFWithLinearCorrection.DefaultBasisFunction
+        return _tps_beta_matrix(points, BasisFunction, np)
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,
@@ -622,53 +616,9 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
     @staticmethod
     def CreateBetaMatrix(points: NDArray, BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
-        # if BasisFunction is None:
-        #    BasisFunction = OneWayRBFWithLinearCorrection_GPUComponent.DefaultBasisFunction
-
-        # points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
-
-        if ControlPointsHaveDuplicatePositions(points):
-            raise ValueError("Cannot have duplicate points in transform")
-
-        NumPts = len(points)
-        BetaMatrix = cp.zeros([NumPts + 3, NumPts + 3], dtype=np.float32)
-
-        # WARNING: ISSUE WITH INDICES (p becomes empty)
-        for iRow in range(3, NumPts + 3):
-            iPointA = iRow - 3
-
-            if (iPointA + 1) < NumPts:
-                p = points[list(range((iPointA + 1), NumPts))]
-                # Both args on the same array module so cdist stays on-device; BasisFunction uses CuPy ufuncs.
-                dList = pairwise_cdist(cp.atleast_2d(points[iPointA]), cp.asarray(p)).ravel()
-                if cp.get_array_module(dList) is np:
-                    dList = cp.asarray(dList)
-
-                valueList = BasisFunction(dList)  # type: ignore[misc]
-                # valueList = np.power(dList, 2)
-                # valueList = np.multiply(valueList, np.log(dList))
-                # valueList = valueList.ravel()
-
-                BetaMatrix[iRow, list(range(iPointA + 1, NumPts))] = valueList
-                BetaMatrix[list(range(iPointA + 1 + 3, NumPts + 3)), iRow - 3] = valueList
-
-                #            for iCol in range(iPointA+1, NumPts):
-                #                iPointB = iCol
-                #                dist = scipy.spatial.distance.euclidean(points[iPointA], points[iPointB])
-                #                value = BasisFunction(dist)
-                #                BetaMatrix[iRow, iCol] = value
-                #                BetaMatrix[iCol + 3, iRow - 3] = value
-
-            BetaMatrix[iRow, NumPts] = points[iPointA][1]
-            BetaMatrix[iRow, NumPts + 1] = points[iPointA][0]
-            BetaMatrix[iRow, NumPts + 2] = 1
-
-        for iCol in range(0, NumPts):
-            BetaMatrix[0, iCol] = points[iCol][0]
-            BetaMatrix[1, iCol] = points[iCol][1]
-            BetaMatrix[2, iCol] = 1
-
-        return BetaMatrix
+        if BasisFunction is None:
+            BasisFunction = OneWayRBFWithLinearCorrection_GPUComponent.DefaultBasisFunction
+        return _tps_beta_matrix(points, BasisFunction, cp)
 
     @staticmethod
     def CalculateRBFWeights(WarpedPoints: NDArray, ControlPoints: NDArray,

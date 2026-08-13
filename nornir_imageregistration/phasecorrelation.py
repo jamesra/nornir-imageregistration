@@ -98,10 +98,16 @@ def pad_image_for_phase_correlation(image: NDArray[np.floating],
     image = xp.asarray(image)
     on_gpu = xp is not np
 
-    min_val = image.min()
-    max_val = image.max()
-    min_v = float(xp.asarray(min_val, dtype=xp.float64).ravel()[0])
-    max_v = float(xp.asarray(max_val, dtype=xp.float64).ravel()[0])
+    if image_median is not None and image_stddev is not None:
+        min_v = float(image_median) - 4.0 * float(image_stddev)
+        max_v = float(image_median) + 4.0 * float(image_stddev)
+        min_val = min_v
+        max_val = max_v
+    else:
+        min_val = image.min()
+        max_val = image.max()
+        min_v = float(xp.asarray(min_val, dtype=xp.float64).ravel()[0])
+        max_v = float(xp.asarray(max_val, dtype=xp.float64).ravel()[0])
 
     height = image.shape[0]
     width = image.shape[1]
@@ -663,16 +669,21 @@ def find_offset(target_image: NDArray[np.floating],
 
 if __name__ == '__main__':
     """
-    Test code for phase correlation functionality.
+    Legacy Windows fixture + cProfile harness. Opt-in only:
 
-    This section is executed when the module is run directly.
-    It demonstrates how to use the phase correlation functions
-    to align two images.
+        NORNIR_PROFILE=1 python -m nornir_imageregistration.phasecorrelation
 
-    :note: This is for testing and demonstration purposes only.
+    Prefer ``scripts/audit_cupy_item_bench.py`` for CuPy audit timings.
     """
     import os
     import matplotlib.pyplot as plt
+
+    _profile = os.environ.get('NORNIR_PROFILE', '').strip().lower()
+    if _profile not in ('1', 'true', 'yes', 'on'):
+        raise SystemExit(
+            'phasecorrelation.py is a library module. '
+            'Set NORNIR_PROFILE=1 to run the legacy fixture profiler.'
+        )
 
     # Set up test files and output directory
     filename_a = 'C:\\BuildScript\\Test\\Images\\400.png'
@@ -718,7 +729,6 @@ if __name__ == '__main__':
             test_phase_correlation(im_a, im_b)
 
 
-    # Profile the execution to identify performance bottlenecks
     import cProfile
     import pstats
 

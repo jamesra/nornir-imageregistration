@@ -305,8 +305,9 @@ def estimate_global_fov_residual_translation(
     except Exception:
         return None
 
-    target = np.asarray(getattr(target, 'get', lambda: target)(), dtype=np.float64)
-    source = np.asarray(getattr(source, 'get', lambda: source)(), dtype=np.float64)
+    xp = nornir_imageregistration.GetComputationModule()
+    target = xp.asarray(target, dtype=xp.float64)
+    source = xp.asarray(source, dtype=xp.float64)
     if target.size == 0 or source.size == 0:
         return None
 
@@ -339,14 +340,15 @@ def estimate_global_fov_residual_translation(
             extrapolate=True,
             cval=0.0,
         )
-        warped = np.asarray(getattr(warped, 'get', lambda: warped)(), dtype=np.float64)
+        warped = xp.asarray(warped, dtype=xp.float64)
         # Replace NaNs from OOB with median so PC stays defined.
-        if not np.isfinite(warped).all():
-            finite = warped[np.isfinite(warped)]
-            fill = float(np.median(finite)) if finite.size else 0.0
-            warped = np.where(np.isfinite(warped), warped, fill)
+        finite_mask = xp.isfinite(warped)
+        if not bool(finite_mask.all()):
+            finite = warped[finite_mask]
+            fill = float(xp.median(finite)) if int(finite.size) else 0.0
+            warped = xp.where(finite_mask, warped, fill)
         record = find_offset(target_ds, warped)
-        peak = np.asarray(record.peak, dtype=np.float64).reshape(2)
+        peak = np.asarray(nornir_imageregistration.EnsureNumpyArray(record.peak), dtype=np.float64).reshape(2)
         if not np.all(np.isfinite(peak)):
             return None
         # Peak is in downsampled pixels; convert to full-resolution offset.
