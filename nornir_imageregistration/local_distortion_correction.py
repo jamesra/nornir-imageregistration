@@ -2786,6 +2786,15 @@ def _lock_candidate_ids_preview(
     return ids
 
 
+def should_finish_on_empty_alignment_pass(pass_index: int, n_finalized: int) -> bool:
+    """Return True when an empty remasure should end refine instead of aborting.
+
+    Pass 1 with no locked points is still a hard failure. Later passes, or any
+    pass that already locked cells, keep the current transform.
+    """
+    return int(n_finalized) > 0 or int(pass_index) > 1
+
+
 def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     settings: nornir_imageregistration.settings.GridRefinement,
                     SaveImages: bool = False,
@@ -2883,10 +2892,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         measure_s = time.perf_counter() - measure_t0
 
         if len(alignment_points) == 0:
-            if len(finalized_points) > 0:
-                prettyoutput.Log(
-                    f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
-                    f"finishing with {len(finalized_points)} locked points")
+            if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
+                if len(finalized_points) > 0:
+                    prettyoutput.Log(
+                        f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
+                        f"finishing with {len(finalized_points)} locked points")
+                else:
+                    prettyoutput.Log(
+                        f"Pass {i}: no alignment points generated; "
+                        f"keeping transform from pass {i - 1}")
                 break
             raise ValueError(f"No alignment points generated at pass #{i}")
 
@@ -2919,6 +2933,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     progress_callback=progress_callback)
                 measure_s += time.perf_counter() - measure_t0
                 if len(alignment_points) == 0:
+                    if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
+                        prettyoutput.Log(
+                            f"Pass {i}: no alignment points after residual revert; "
+                            f"keeping current transform")
+                        break
                     raise ValueError(
                         f"No alignment points generated at pass #{i} after residual revert")
                 alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
@@ -3627,7 +3646,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         )
         n_stos_pts = 0
         if isinstance(stosTransform, nornir_imageregistration.IControlPoints):
-            n_stos_pts = int(np.asarray(stosTransform.points).shape[0])
+            n_stos_pts = int(stosTransform.points.shape[0])
         # Without a real TranslateFixed residual, a tiny nudged set (often 3) replaces
         # a denser pass mesh / alignment field and blanks Pyre's composite view.
         if (not coherent_residual_translated

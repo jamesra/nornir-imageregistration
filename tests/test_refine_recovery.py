@@ -18,6 +18,9 @@ from nornir_imageregistration.refine_shared.coherent_residual import (
     should_preserve_post_residual_transform,
 )
 from nornir_imageregistration import local_distortion_correction as ldc
+from nornir_imageregistration.local_distortion_correction import (
+    should_finish_on_empty_alignment_pass,
+)
 from nornir_imageregistration.transforms.rigid import RigidTranslation
 
 
@@ -219,6 +222,19 @@ class TestPreservePostResidualTransform(unittest.TestCase):
             n_grid=6262,
             n_locks=2,
         ))
+
+
+class TestFinishOnEmptyAlignmentPass(unittest.TestCase):
+    """Empty remasure after a prior pass must not abort the refine pipeline."""
+
+    def test_pass_one_with_no_locks_is_hard_failure(self) -> None:
+        self.assertFalse(should_finish_on_empty_alignment_pass(1, 0))
+
+    def test_later_pass_keeps_prior_transform(self) -> None:
+        self.assertTrue(should_finish_on_empty_alignment_pass(3, 0))
+
+    def test_any_pass_with_locks_finishes(self) -> None:
+        self.assertTrue(should_finish_on_empty_alignment_pass(1, 4))
 
 
 class TestBuildMeshTransformOrKeep(unittest.TestCase):

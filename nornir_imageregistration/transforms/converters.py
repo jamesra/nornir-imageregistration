@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 import math
 import numpy as np
 from numpy.typing import NDArray
@@ -158,6 +158,40 @@ def EstimateScale(source_points: NDArray[np.floating],
     return float(scale)
 
 
+def _translation_only_rigid_components(
+        source_points: NDArray[np.floating],
+        target_points: NDArray[np.floating],
+        reflected: bool,
+        xp: Any) -> RigidComponents:
+    """Centroid translation when rotation or scale cannot be estimated."""
+    source_center = xp.mean(source_points, axis=0)
+    target_center = xp.mean(target_points, axis=0)
+    estimated_transform = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        target_offset=xp.zeros((2,)),
+        source_rotation_center=source_center,
+        angle=0.0,
+        scalar=1.0,
+        flip_ud=reflected)
+    test_target_points = estimated_transform.Transform(source_points)
+    _ttp_get = getattr(test_target_points, "get", None)
+    _ttp_np = np.asarray(_ttp_get() if callable(_ttp_get) else test_target_points)
+    test_target_points = _ttp_np if xp is np else xp.asarray(_ttp_np)
+    test_target_center = xp.mean(test_target_points, axis=0)
+    return RigidComponents(
+        source_rotation_center=source_center,
+        angle=0.0,
+        scale=1.0,
+        translation=target_center - test_target_center,
+        reflected=reflected)
+
+
+def _rotation_vectors_are_usable(vecs_a: NDArray[np.floating], vecs_b: NDArray[np.floating]) -> bool:
+    """Return False when scipy ``align_vectors`` would see a degenerate embedding."""
+    if not (np.isfinite(vecs_a).all() and np.isfinite(vecs_b).all()):
+        return False
+    return float(np.linalg.norm(vecs_a)) >= 1e-12 and float(np.linalg.norm(vecs_b)) >= 1e-12
+
+
 def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating],
                                              source_points: NDArray[np.floating],
                                              reflected_override: bool | None = None) -> RigidComponents:
@@ -174,8 +208,25 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     centered_source_points = source_points - source_center
     centered_target_points = target_points - target_center
 
-    scale_estimate = nornir_imageregistration.transforms.converters.EstimateScale(centered_source_points,
-                                                                                  centered_target_points)
+    if reflected_override is not None:
+        reflected = reflected_override
+    else:
+        relation = nornir_imageregistration.transforms.converters.calculate_control_points_relationship(
+            source_points, target_points)
+        reflected = relation == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
+        if relation == nornir_imageregistration.transforms.ControlPointRelation.COLINEAR:
+            raise ValueError("Colinear points detected")
+
+    centered_source_np = array_to_numpy_host(centered_source_points)
+    if (not np.isfinite(centered_source_np).all()
+            or float(np.linalg.norm(centered_source_np)) < 1e-12):
+        return _translation_only_rigid_components(source_points, target_points, reflected, xp)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        scale_estimate = nornir_imageregistration.transforms.converters.EstimateScale(
+            centered_source_points, centered_target_points)
+    if not math.isfinite(float(scale_estimate)) or abs(float(scale_estimate)) < 1e-15:
+        return _translation_only_rigid_components(source_points, target_points, reflected, xp)
 
     ###################################################################################
     # We know the scale now, remove the scalar from the target_points, and
@@ -192,25 +243,19 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
     # scipy.spatial.transform has no CuPy implementation; host arrays only.
     vecs_a_np = array_to_numpy_host(vecs_a)
     vecs_b_np = array_to_numpy_host(vecs_b)
-    rotation = scipy.spatial.transform.Rotation.align_vectors(vecs_a_np, vecs_b_np)
+    if not _rotation_vectors_are_usable(vecs_a_np, vecs_b_np):
+        return _translation_only_rigid_components(source_points, target_points, reflected, xp)
+    try:
+        rotation = scipy.spatial.transform.Rotation.align_vectors(vecs_a_np, vecs_b_np)
+    except np.linalg.LinAlgError:
+        # Collapsed or ill-conditioned meshes (common after a sparse refine) make SVD fail.
+        return _translation_only_rigid_components(source_points, target_points, reflected, xp)
     euler_angles = rotation[0].as_euler('zyx')
     estimated_angle = float(euler_angles[2])
 
     # Ensure the angle is in the range of -pi to pi
     if estimated_angle <= -math.pi or math.isclose(estimated_angle, -math.pi, abs_tol=1e-10):
         estimated_angle += math.pi * 2
-
-    ###################################################################################
-    # Determine if the transform is reflected
-    if reflected_override is not None:
-        reflected = reflected_override
-    else:
-        relation = nornir_imageregistration.transforms.converters.calculate_control_points_relationship(source_points,
-                                                                                                        target_points)
-        reflected = relation == nornir_imageregistration.transforms.ControlPointRelation.FLIPPED
-
-        if relation == nornir_imageregistration.transforms.ControlPointRelation.COLINEAR:
-            raise ValueError("Colinear points detected")
 
     ###################################################################################
     # The angle and reflection is estimated.  We remove the angle and reflection from the target
@@ -357,14 +402,45 @@ def EstimateRigidComponentsFromControlPointsBatched(
 
     source_rms = np.sqrt(np.sum(centered_source ** 2, axis=2)).sum(axis=1)
     target_rms = np.sqrt(np.sum(centered_target ** 2, axis=2)).sum(axis=1)
-    scales = target_rms / source_rms
-
-    unscaled_target = target / scales[:, None, None]
-    unscaled_centered_target = unscaled_target - unscaled_target.mean(axis=1)[:, None, :]
-    angles = _batched_similarity_angles(centered_source, unscaled_centered_target)
+    scales = np.divide(
+        target_rms, source_rms, out=np.full(num_sets, np.nan, dtype=np.float64), where=source_rms > 1e-12)
+    rotation_ok = (
+        np.isfinite(source).all(axis=(1, 2))
+        & np.isfinite(target).all(axis=(1, 2))
+        & np.isfinite(scales)
+        & (np.abs(scales) >= 1e-15)
+        & (target_rms > 1e-12)
+    )
+    angles = np.zeros(num_sets, dtype=np.float64)
+    scales_out = np.ones(num_sets, dtype=np.float64)
+    scales_out[rotation_ok] = scales[rotation_ok]
+    if np.any(rotation_ok):
+        unscaled_target = target[rotation_ok] / scales[rotation_ok, None, None]
+        unscaled_centered_target = unscaled_target - unscaled_target.mean(axis=1)[:, None, :]
+        try:
+            angles[rotation_ok] = _batched_similarity_angles(
+                centered_source[rotation_ok], unscaled_centered_target)
+        except np.linalg.LinAlgError:
+            override_arr = None if reflected_override is None else np.broadcast_to(
+                np.asarray(reflected_override, dtype=bool), (num_sets,))
+            return [
+                EstimateRigidComponentsFromControlPoints(
+                    target[i], source[i],
+                    reflected_override=None if override_arr is None else bool(override_arr[i]))
+                for i in range(num_sets)
+            ]
+    scales = scales_out
 
     if reflected_override is None:
-        reflected = _batched_ring_reflected(source, target)
+        reflected = np.zeros(num_sets, dtype=bool)
+        if np.any(rotation_ok):
+            try:
+                reflected[rotation_ok] = _batched_ring_reflected(source[rotation_ok], target[rotation_ok])
+            except ValueError:
+                return [
+                    EstimateRigidComponentsFromControlPoints(target[i], source[i])
+                    for i in range(num_sets)
+                ]
     else:
         reflected = np.broadcast_to(np.asarray(reflected_override, dtype=bool), (num_sets,)).copy()
 
@@ -425,9 +501,14 @@ def ConvertControlPointsToRigidTransformForBlend(input_transform: IControlPoints
 
     candidates: list[nornir_imageregistration.transforms.CenteredSimilarity2DTransform] = []
     for reflected in (False, True):
-        components = EstimateRigidComponentsFromControlPoints(target_points,
-                                                              source_points,
-                                                              reflected_override=reflected)
+        try:
+            components = EstimateRigidComponentsFromControlPoints(target_points,
+                                                                  source_points,
+                                                                  reflected_override=reflected)
+        except (ValueError, np.linalg.LinAlgError):
+            xp = cp.get_array_module(source_points, target_points)
+            components = _translation_only_rigid_components(
+                xp.asarray(source_points), xp.asarray(target_points), reflected, xp)
         candidates.append(RigidComponentsToCenteredSimilarityTransform(components))
 
     if abs(mesh_corr) < 0.9:

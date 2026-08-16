@@ -7,6 +7,10 @@ import numpy as np
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import MeshWithRBFFallback
+from nornir_imageregistration.transforms.converters import (
+    ConvertControlPointsToRigidTransformForBlend,
+    EstimateRigidComponentsFromControlPoints,
+)
 from nornir_imageregistration.transforms.utils import (
     DEFAULT_MAX_BLEND_WEIGHT,
     _as_numpy_points,
@@ -161,6 +165,42 @@ class TestBlendTransformsIteratively(unittest.TestCase):
     blended_corr = estimate_inverse_map_y_correlation(blended)
     self.assertLess(blended_corr, 0.0)
     self.assertEqual(np.sign(mesh_corr), np.sign(blended_corr))
+
+
+class TestDegenerateRigidFitForBlend(unittest.TestCase):
+  """Collapsed meshes must not abort LinearBlend via align_vectors SVD failure."""
+
+  def test_coincident_points_with_override_are_translation_only(self) -> None:
+    source = np.full((4, 2), 10.0)
+    target = np.full((4, 2), 25.0)
+    components = EstimateRigidComponentsFromControlPoints(
+        target, source, reflected_override=False)
+    self.assertEqual(components.angle, 0.0)
+    self.assertEqual(components.scale, 1.0)
+    np.testing.assert_allclose(components.translation, np.array([15.0, 15.0]), atol=1e-6)
+
+  def test_coincident_points_without_override_still_report_colinear(self) -> None:
+    source = np.full((4, 2), 10.0)
+    target = np.full((4, 2), 25.0)
+    with self.assertRaises(ValueError) as raised:
+      EstimateRigidComponentsFromControlPoints(target, source)
+    self.assertIn('colinear', str(raised.exception).lower())
+
+  def test_blend_converter_survives_collapsed_mesh(self) -> None:
+    source = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    target = np.full((4, 2), 50.0)
+    mesh = _mesh_from_points(source, target)
+    rigid = ConvertControlPointsToRigidTransformForBlend(mesh)
+    predicted = np.asarray(rigid.Transform(source))
+    self.assertEqual(predicted.shape, source.shape)
+    self.assertTrue(np.isfinite(predicted).all())
+
+  def test_blend_with_linear_survives_near_collapsed_targets(self) -> None:
+    source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])
+    target = np.array([[10.0, 10.0], [10.2, 10.0], [10.0, 10.2], [10.2, 10.2]])
+    mesh = _mesh_from_points(source, target)
+    blended = BlendWithLinear(mesh, min_blend=0.05, travel_limit=100.0)
+    self.assertTrue(np.isfinite(_as_numpy_points(blended.TargetPoints)).all())
 
 
 if __name__ == '__main__':
