@@ -12,6 +12,39 @@ import nornir_imageregistration
 import nornir_imageregistration.stos_brute as stos_brute
 
 
+def _concentric_ring_image(size: int) -> np.ndarray:
+    """Build rings so isotropic scale has a well-defined correlation peak."""
+    yy, xx = np.ogrid[:size, :size]
+    center = (size - 1) / 2.0
+    radius = np.sqrt((yy - center) ** 2 + (xx - center) ** 2)
+    image = np.zeros((size, size), dtype=np.float32)
+    with np.errstate(under='ignore'):
+        for ring_r, sigma, amp in (
+                (size * 0.16, size * 0.03, 1.0),
+                (size * 0.31, size * 0.03, 0.85),
+                (size * 0.43, size * 0.04, 0.55)):
+            image += amp * np.exp(-0.5 * ((radius - ring_r) / sigma) ** 2)
+    return image
+
+
+def _isotropic_shrink_pair(base: np.ndarray, shrink: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return (source, target) with *source* isotropically scaled about center."""
+    warped = scipy.ndimage.zoom(base, shrink, order=1)
+    if shrink <= 1.0:
+        pad_y = (base.shape[0] - warped.shape[0]) // 2
+        pad_x = (base.shape[1] - warped.shape[1]) // 2
+        source = np.zeros_like(base)
+        source[pad_y:pad_y + warped.shape[0], pad_x:pad_x + warped.shape[1]] = warped
+        return source, base
+    start_y = (warped.shape[0] - base.shape[0]) // 2
+    start_x = (warped.shape[1] - base.shape[1]) // 2
+    source = warped[
+        start_y:start_y + base.shape[0],
+        start_x:start_x + base.shape[1],
+    ]
+    return source, base
+
+
 class TestRpc3ScaleSearchBounds(unittest.TestCase):
     """Blind scale grid spans RPC3 manual corpus (module docstring in stos_brute)."""
 
@@ -62,16 +95,8 @@ class TestEstimateScaleRadialFft(unittest.TestCase):
 
     def test_scaled_spectrum_gives_shrink_factor(self) -> None:
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
-        rng = np.random.default_rng(42)
-        base = rng.standard_normal((128, 128)).astype(np.float32)
-        base -= base.min()
-        base /= base.max() + 1e-6
         shrink = 0.92
-        warped = scipy.ndimage.zoom(base, shrink, order=1)
-        pad_y = (base.shape[0] - warped.shape[0]) // 2
-        pad_x = (base.shape[1] - warped.shape[1]) // 2
-        source = np.zeros_like(base)
-        source[pad_y:pad_y + warped.shape[0], pad_x:pad_x + warped.shape[1]] = warped
+        source, base = _isotropic_shrink_pair(_concentric_ring_image(128), shrink)
         source_h = nornir_imageregistration.ImagePermutationHelper(source)
         target_h = nornir_imageregistration.ImagePermutationHelper(base)
         result = stos_brute._find_angle_and_scale_with_logpolar(
@@ -107,16 +132,8 @@ class TestScaleAtFinalAngle(unittest.TestCase):
 class TestRefineScaleLocal(unittest.TestCase):
     def test_recovers_shrink_near_seed(self) -> None:
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
-        rng = np.random.default_rng(3)
-        base = rng.standard_normal((128, 128)).astype(np.float32)
-        base -= base.min()
-        base /= base.max() + 1e-6
         shrink = 0.96
-        warped = scipy.ndimage.zoom(base, shrink, order=1)
-        pad_y = (base.shape[0] - warped.shape[0]) // 2
-        pad_x = (base.shape[1] - warped.shape[1]) // 2
-        source = np.zeros_like(base)
-        source[pad_y:pad_y + warped.shape[0], pad_x:pad_x + warped.shape[1]] = warped
+        source, base = _isotropic_shrink_pair(_concentric_ring_image(128), shrink)
         source_h = nornir_imageregistration.ImagePermutationHelper(source)
         target_h = nornir_imageregistration.ImagePermutationHelper(base)
         refined = stos_brute._refine_scale_local(
@@ -135,31 +152,11 @@ class TestRefineScaleLocal(unittest.TestCase):
 class TestSyntheticShrinkGrid(unittest.TestCase):
     """Phase A9 synthetic grid: isotropic shrink without metadata."""
 
-    def _shrink_pair(self, shrink: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
-        rng = np.random.default_rng(seed)
-        base = rng.standard_normal((256, 256)).astype(np.float32)
-        base -= base.min()
-        base /= base.max() + 1e-6
-        warped = scipy.ndimage.zoom(base, shrink, order=1)
-        if shrink <= 1.0:
-            pad_y = (base.shape[0] - warped.shape[0]) // 2
-            pad_x = (base.shape[1] - warped.shape[1]) // 2
-            source = np.zeros_like(base)
-            source[pad_y:pad_y + warped.shape[0], pad_x:pad_x + warped.shape[1]] = warped
-        else:
-            start_y = (warped.shape[0] - base.shape[0]) // 2
-            start_x = (warped.shape[1] - base.shape[1]) // 2
-            source = warped[
-                start_y:start_y + base.shape[0],
-                start_x:start_x + base.shape[1],
-            ]
-        return source, base
-
     def test_logpolar_shrink_grid(self) -> None:
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         for shrink in (0.95, 0.97, 1.0, 1.03, 1.05):
             with self.subTest(shrink=shrink):
-                source, base = self._shrink_pair(shrink, seed=int(shrink * 100))
+                source, base = _isotropic_shrink_pair(_concentric_ring_image(256), shrink)
                 source_h = nornir_imageregistration.ImagePermutationHelper(source)
                 target_h = nornir_imageregistration.ImagePermutationHelper(base)
                 result = stos_brute._find_angle_and_scale_with_logpolar(
