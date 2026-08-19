@@ -47,6 +47,66 @@ def _fixed_points_for_extrapolation_fill(
     return nornir_imageregistration.EnsurePointsAre2DCuPyArray(fixed_points)
 
 
+def _host_copy_points(points: Any) -> NDArray[np.floating]:
+    """Copy control points to host memory so a background RBF build cannot race the UI."""
+    if hasattr(points, "get"):
+        return np.asarray(points.get(), dtype=np.float64, copy=True)
+    return np.asarray(points, dtype=np.float64, copy=True)
+
+
+def _defer_continuous_rbf(model: Any) -> None:
+    """Mark the RBF fallback stale so the single prewarm worker can replace it."""
+    model._continuous_stale = True
+
+
+def _update_fallback_target_by_index(
+        model: Any,
+        index: int | NDArray[np.integer],
+        point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    """Update discrete target points; RBF reconstruction is always deferred."""
+    if point is None:
+        raise ValueError("point cannot be None")
+    result = model._discrete_transform.UpdateTargetPointsByIndex(index, point)
+    _defer_continuous_rbf(model)
+    model.OnTransformChanged()
+    return result
+
+
+def _update_fallback_target_by_position(
+        model: Any,
+        index: NDArray[np.floating],
+        point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+    """Update discrete target points by position; RBF reconstruction is always deferred."""
+    if point is None:
+        raise ValueError("point cannot be None")
+    result = model._discrete_transform.UpdateTargetPointsByPosition(index, point)
+    _defer_continuous_rbf(model)
+    model.OnTransformChanged()
+    return result
+
+
+def _build_refreshed_continuous(model: Any, continuous_ctor: Any) -> Any:
+    """Build a replacement RBF fallback from a snapshot of the discrete grid."""
+    src = _host_copy_points(model._discrete_transform.SourcePoints)
+    tgt = _host_copy_points(model._discrete_transform.TargetPoints)
+    continuous = continuous_ctor(src, tgt)
+    initialize = getattr(continuous, "InitializeDataStructures", None)
+    if callable(initialize):
+        initialize()
+    return continuous
+
+
+def _initialize_fallback_data_structures(model: Any, continuous_ctor: Any) -> None:
+    """Rebuild RBF weights, recreating the continuous transform if drag left it stale."""
+    if getattr(model, "_continuous_stale", False):
+        model._continuous_transform = continuous_ctor(
+            model._discrete_transform.SourcePoints,
+            model._discrete_transform.TargetPoints,
+        )
+        model._continuous_stale = False
+    model._continuous_transform.InitializeDataStructures()
+
+
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
                           ITransformTargetRotation, ITransformTranslation,
                           ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
@@ -54,6 +114,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
     """
     classdocs
     """
+    _continuous_stale: bool = False
 
     @property
     def type(self) -> TransformType:
@@ -81,10 +142,17 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         super(GridWithRBFFallback, self).__setstate__(dictionary)
         self._discrete_transform = dictionary['_discrete_transform']
         self._continuous_transform = dictionary['_continuous_transform']
+        self._continuous_stale = dictionary.get('_continuous_stale', False)
 
     def InitializeDataStructures(self):
-        self._continuous_transform.InitializeDataStructures()
+        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
+        _initialize_fallback_data_structures(self, twoway_ctor)
         # self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
+
+    def build_refreshed_continuous(self) -> Any:
+        """Return a new RBF fallback built from the current discrete grid (off-UI)."""
+        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
+        return _build_refreshed_continuous(self, twoway_ctor)
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -182,6 +250,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         self._discrete_transform = nornir_imageregistration.transforms.GridTransform(grid)
         twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
         self._continuous_transform = twoway_ctor(grid.SourcePoints, grid.TargetPoints)
+        self._continuous_stale = False
 
     def AddTransform(self, mappedTransform: IControlPoints, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
@@ -305,14 +374,14 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         '''Translate all fixed points by the specified amount'''
 
         self._discrete_transform.TranslateFixed(offset)
-        self._continuous_transform.TranslateFixed(offset)
-        self.OnFixedPointChanged()
+        _defer_continuous_rbf(self)
+        self.OnTransformChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._discrete_transform.TranslateWarped(offset)
-        self._continuous_transform.TranslateWarped(offset)
-        self.OnWarpedPointChanged()
+        _defer_continuous_rbf(self)
+        self.OnTransformChanged()
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
@@ -347,22 +416,12 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
                                                                                                                  NDArray[
                                                                                                                      np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
-        if point is None:
-            raise ValueError("point cannot be None")
-        result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
-        self._continuous_transform.UpdateTargetPointsByIndex(index, point)
-        self.OnTransformChanged()
-        return result
+        return _update_fallback_target_by_index(self, index, point)
 
     def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
                                                                                                                NDArray[
                                                                                                                    np.integer]:
-        if point is None:
-            raise ValueError("point cannot be None")
-        result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
-        self._continuous_transform.UpdateTargetPointsByPosition(index, point)
-        self.OnTransformChanged()
-        return result
+        return _update_fallback_target_by_position(self, index, point)
 
 
 class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITransformScaling,
@@ -373,6 +432,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
     """
     classdocs
     """
+    _continuous_stale: bool = False
 
     @property
     def type(self) -> TransformType:
@@ -400,10 +460,17 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         super(GridWithRBFFallback_GPUComponent, self).__setstate__(dictionary)
         self._discrete_transform = dictionary['_discrete_transform']
         self._continuous_transform = dictionary['_continuous_transform']
+        self._continuous_stale = dictionary.get('_continuous_stale', False)
 
     def InitializeDataStructures(self):
-        self._continuous_transform.InitializeDataStructures()
+        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection_GPUComponent)
+        _initialize_fallback_data_structures(self, twoway_ctor)
         # self._discrete_transform.InitializeDataStructures() Grid does not have an Initialize data structures call
+
+    def build_refreshed_continuous(self) -> Any:
+        """Return a new RBF fallback built from the current discrete grid (off-UI)."""
+        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection_GPUComponent)
+        return _build_refreshed_continuous(self, twoway_ctor)
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -472,6 +539,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         if points.shape[0] == 0:
             return cp.empty((0, 2), dtype=points.dtype)
 
+
         TransformedPoints = self._discrete_transform.InverseTransform(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
@@ -509,6 +577,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         self._discrete_transform = nornir_imageregistration.transforms.GridTransform_GPUComponent(grid)
         twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection_GPUComponent)
         self._continuous_transform = twoway_ctor(grid.SourcePoints, grid.TargetPoints)
+        self._continuous_stale = False
 
     def AddTransform(self, mappedTransform: IControlPoints, EnrichTolerance=None, create_copy=True):
         '''Take the control points of the mapped transform and map them through our transform so the control points are in our controlpoint space'''
@@ -632,14 +701,14 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         '''Translate all fixed points by the specified amount'''
 
         self._discrete_transform.TranslateFixed(offset)
-        self._continuous_transform.TranslateFixed(offset)
-        self.OnFixedPointChanged()
+        _defer_continuous_rbf(self)
+        self.OnTransformChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
         '''Translate all warped points by the specified amount'''
         self._discrete_transform.TranslateWarped(offset)
-        self._continuous_transform.TranslateWarped(offset)
-        self.OnWarpedPointChanged()
+        _defer_continuous_rbf(self)
+        self.OnTransformChanged()
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
@@ -674,22 +743,12 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
                                                                                                                  NDArray[
                                                                                                                      np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
-        if point is None:
-            raise ValueError("point cannot be None")
-        result = self._discrete_transform.UpdateTargetPointsByIndex(index, point)
-        self._continuous_transform.UpdateTargetPointsByIndex(index, point)
-        self.OnTransformChanged()
-        return result
+        return _update_fallback_target_by_index(self, index, point)
 
     def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
                                                                                                                NDArray[
                                                                                                                    np.integer]:
-        if point is None:
-            raise ValueError("point cannot be None")
-        result = self._discrete_transform.UpdateTargetPointsByPosition(index, point)
-        self._continuous_transform.UpdateTargetPointsByPosition(index, point)
-        self.OnTransformChanged()
-        return result
+        return _update_fallback_target_by_position(self, index, point)
 
 
 class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):

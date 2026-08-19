@@ -10,7 +10,10 @@ import nornir_imageregistration
 from nornir_imageregistration import interactive_edit
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms.gridtransform import GridTransform_GPUComponent
-from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback
+from nornir_imageregistration.transforms.gridwithrbffallback import (
+    GridWithRBFFallback,
+    GridWithRBFFallback_GPUComponent,
+)
 
 
 def _sample_grid_data() -> ITKGridDivision:
@@ -55,6 +58,41 @@ class TestGridOnFixedPointChanged(unittest.TestCase):
         model.UpdateTargetPointsByIndex(0, point)
         after = np.asarray(model.TargetPoints[0], dtype=np.float64)
         np.testing.assert_allclose(after, point, rtol=1e-5, atol=1e-4)
+
+    def test_interactive_drag_skips_rbf_rebuild(self) -> None:
+        """Mouse-move must update discrete TargetPoints without reconstructing RBF."""
+        model = GridWithRBFFallback_GPUComponent(_sample_grid_data())
+        continuous_before = model._continuous_transform
+        before = np.asarray(model.TargetPoints[0], dtype=np.float64)
+        point = np.asarray(before + np.array([4.0, 2.0], dtype=np.float64), dtype=np.float64)
+        interactive_edit.begin()
+        try:
+            model.UpdateTargetPointsByIndex(0, point)
+        finally:
+            interactive_edit.end()
+        after = np.asarray(model.TargetPoints[0], dtype=np.float64)
+        np.testing.assert_allclose(after, point, rtol=1e-5, atol=1e-4)
+        self.assertIs(model._continuous_transform, continuous_before)
+        self.assertTrue(model._continuous_stale)
+        model.InitializeDataStructures()
+        self.assertFalse(model._continuous_stale)
+        self.assertIsNot(model._continuous_transform, continuous_before)
+        rebuilt = model._continuous_transform.TargetPoints[0]
+        rebuilt = rebuilt.get() if hasattr(rebuilt, "get") else rebuilt
+        np.testing.assert_allclose(
+            np.asarray(rebuilt, dtype=np.float64),
+            point,
+            rtol=1e-5,
+            atol=1e-4,
+        )
+
+    def test_translate_fixed_defers_rbf(self) -> None:
+        """Spacebar register uses TranslateFixed; it must not rebuild RBF inline."""
+        model = GridWithRBFFallback_GPUComponent(_sample_grid_data())
+        continuous_before = model._continuous_transform
+        model.TranslateFixed(np.array([1.5, -2.0], dtype=np.float64))
+        self.assertTrue(model._continuous_stale)
+        self.assertIs(model._continuous_transform, continuous_before)
 
 
 if __name__ == "__main__":
