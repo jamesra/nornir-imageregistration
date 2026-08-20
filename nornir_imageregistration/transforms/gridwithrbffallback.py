@@ -47,13 +47,6 @@ def _fixed_points_for_extrapolation_fill(
     return nornir_imageregistration.EnsurePointsAre2DCuPyArray(fixed_points)
 
 
-def _host_copy_points(points: Any) -> NDArray[np.floating]:
-    """Copy control points to host memory so a background RBF build cannot race the UI."""
-    if hasattr(points, "get"):
-        return np.asarray(points.get(), dtype=np.float64, copy=True)
-    return np.asarray(points, dtype=np.float64, copy=True)
-
-
 def _defer_continuous_rbf(model: Any) -> None:
     """Mark the RBF fallback stale so the single prewarm worker can replace it."""
     model._continuous_stale = True
@@ -87,8 +80,8 @@ def _update_fallback_target_by_position(
 
 def _build_refreshed_continuous(model: Any, continuous_ctor: Any) -> Any:
     """Build a replacement RBF fallback from a snapshot of the discrete grid."""
-    src = _host_copy_points(model._discrete_transform.SourcePoints)
-    tgt = _host_copy_points(model._discrete_transform.TargetPoints)
+    src = utils.host_copy_points(model._discrete_transform.SourcePoints)
+    tgt = utils.host_copy_points(model._discrete_transform.TargetPoints)
     continuous = continuous_ctor(src, tgt)
     initialize = getattr(continuous, "InitializeDataStructures", None)
     if callable(initialize):
@@ -153,6 +146,11 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
         """Return a new RBF fallback built from the current discrete grid (off-UI)."""
         twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
         return _build_refreshed_continuous(self, twoway_ctor)
+
+    def apply_refreshed_continuous(self, continuous: Any) -> None:
+        """Install an off-UI RBF fallback onto this live grid."""
+        self._continuous_transform = continuous
+        self._continuous_stale = False
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -471,6 +469,11 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         """Return a new RBF fallback built from the current discrete grid (off-UI)."""
         twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection_GPUComponent)
         return _build_refreshed_continuous(self, twoway_ctor)
+
+    def apply_refreshed_continuous(self, continuous: Any) -> None:
+        """Install an off-UI RBF fallback onto this live grid."""
+        self._continuous_transform = continuous
+        self._continuous_stale = False
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.

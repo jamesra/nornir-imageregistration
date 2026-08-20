@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 from numpy.typing import NDArray
-from typing import Sequence
+from typing import Any, Sequence
 
 try:
     import cupy as cp
@@ -37,6 +37,13 @@ def _xp_for_transform_geometry(transforms: Sequence[ITransform]):
         if off is not None and hasattr(off, "shape"):
             return cp.get_array_module(off)
     return np
+
+
+def host_copy_points(points: Any) -> NDArray[np.floating]:
+    """Copy control points to host memory so a background build cannot race the UI."""
+    if hasattr(points, "get"):
+        return np.asarray(points.get(), dtype=np.float64, copy=True)
+    return np.asarray(points, dtype=np.float64, copy=True)
 
 
 def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:

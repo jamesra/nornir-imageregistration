@@ -44,6 +44,35 @@ from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITra
     ITriangulatedSourceSpace, IControlPointAddRemove
 from .controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
 
+
+def barycentric_sample_delaunay(
+        query_yx: NDArray[np.floating],
+        delaunay: scipy.spatial.Delaunay,
+        values: NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """Piecewise-linear interpolate ``values`` at ``query_yx`` using a cached Delaunay."""
+    queries = np.asarray(query_yx, dtype=np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    out = np.empty((queries.shape[0], values.shape[1]), dtype=np.float64)
+    simplex = delaunay.find_simplex(queries)
+    inside = simplex >= 0
+    ndim = int(queries.shape[1])
+    if np.any(inside):
+        s = simplex[inside]
+        transform = delaunay.transform[s]
+        offset = queries[inside] - transform[:, ndim]
+        bary = np.einsum('ijk,ik->ij', transform[:, :ndim], offset)
+        bary_coords = np.concatenate([bary, 1.0 - bary.sum(axis=1, keepdims=True)], axis=1)
+        out[inside] = np.einsum('ij,ijk->ik', bary_coords, values[delaunay.simplices[s]])
+    outside = ~inside
+    if np.any(outside):
+        points = np.asarray(delaunay.points, dtype=np.float64)
+        delta = queries[outside][:, np.newaxis, :] - points[np.newaxis, :, :]
+        nearest = np.argmin(np.sum(delta * delta, axis=2), axis=1)
+        out[outside] = values[nearest]
+    return out
+
+
 class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
                     ITransformSourceRotation,
                     ITransformTargetRotation, ITriangulatedTargetSpace, ITriangulatedSourceSpace,
@@ -769,8 +798,8 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         '''Return the fixed points nearest to the query points
         :return: Distance, Index
         '''
-        query_points = points if isinstance(points, np.ndarray) else np.asarray(points, dtype=np.float32)
-        return self.FixedKDTree.query(query_points)
+        # SciPy/CuVS index query already host-converts CuPy; do not np.asarray a CuPy array.
+        return self.FixedKDTree.query(points)
 
     def NearestSourcePoint(self, points: NDArray[np.floating]):
         return self.WarpedKDTree.query(points)

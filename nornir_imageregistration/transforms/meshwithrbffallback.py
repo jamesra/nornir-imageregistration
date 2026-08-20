@@ -4,8 +4,14 @@ Created on Oct 18, 2012
 @author: Jamesan
 """
 
-import numpy
+from dataclasses import dataclass
 from typing import Any
+
+import numpy
+import numpy as np
+from numpy.typing import NDArray
+import scipy.spatial
+from scipy.interpolate import LinearNDInterpolator
 
 try:
     import cupy as cp
@@ -23,8 +29,9 @@ import nornir_pools
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
     OneWayRBFWithLinearCorrection_GPUComponent
 from nornir_imageregistration.transforms.transform_type import TransformType
+from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
 from . import utils
-from .triangulation import Triangulation, Triangulation_GPUComponent
+from .triangulation import Triangulation, Triangulation_GPUComponent, barycentric_sample_delaunay
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
 
 
@@ -52,6 +59,22 @@ def GetTransformPrewarmPool():
     return nornir_pools.GetThreadPool("Transform prewarm", 1)
 
 
+@dataclass(frozen=True)
+class MeshRefreshedStructures:
+    """Delaunay interpolators, KD-trees, and RBF instances built from a point snapshot."""
+
+    warpedtri: scipy.spatial.Delaunay
+    fixedtri: scipy.spatial.Delaunay
+    forward_interpolator: Any
+    inverse_interpolator: Any
+    warped_kdtree: Any
+    fixed_kdtree: Any
+    forward_rbf: Any
+    reverse_rbf: Any
+    scipy_forward_interp: bool = True
+    scipy_inverse_interp: bool = True
+
+
 def _coerce_to_reference_backend(arr, reference):
     """Coerce arr to the same array backend as reference (numpy/cupy)."""
     xp = cp.get_array_module(reference)
@@ -73,9 +96,11 @@ def _coerce_indices_to_reference_backend(indices, reference):
 
 
 class MeshWithRBFFallback(Triangulation):
-    """
-    classdocs
-    """
+    """Triangulation warp with an RBF fallback for queries outside the hull."""
+
+    _continuous_stale: bool = False
+    _ForwardRBFInstance: Any
+    _ReverseRBFInstance: Any
 
     @property
     def type(self) -> TransformType:
@@ -86,10 +111,12 @@ class MeshWithRBFFallback(Triangulation):
         odict = super(MeshWithRBFFallback, self).__getstate__()
         odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
         odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
+        odict['_continuous_stale'] = self._continuous_stale  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
         super(MeshWithRBFFallback, self).__setstate__(dictionary)
+        self._continuous_stale = dictionary.get('_continuous_stale', False)
 
     @property
     def ReverseRBFInstance(self):
@@ -105,6 +132,51 @@ class MeshWithRBFFallback(Triangulation):
 
         return self._ForwardRBFInstance
 
+    def build_refreshed_continuous(self) -> MeshRefreshedStructures:
+        """Build replacement Delaunay interpolators and RBF weights from a point snapshot.
+
+        Does not mutate this instance. Intended to run on the transform-prewarm thread.
+        """
+        src = utils.host_copy_points(self.SourcePoints)
+        tgt = utils.host_copy_points(self.TargetPoints)
+        pool = nornir_pools.GetGlobalThreadPool()
+        forward_task = pool.add_task(
+            "Solve forward RBF transform",
+            _build_cpu_rbf_with_weights,
+            src,
+            tgt,
+        )
+        reverse_task = pool.add_task(
+            "Solve reverse RBF transform",
+            _build_cpu_rbf_with_weights,
+            tgt,
+            src,
+        )
+        warpedtri = scipy.spatial.Delaunay(src, incremental=False)
+        fixedtri = scipy.spatial.Delaunay(tgt, incremental=False)
+        return MeshRefreshedStructures(
+            warpedtri=warpedtri,
+            fixedtri=fixedtri,
+            forward_interpolator=LinearNDInterpolator(warpedtri, tgt),
+            inverse_interpolator=LinearNDInterpolator(fixedtri, src),
+            warped_kdtree=build_nearest_neighbor_index(src),
+            fixed_kdtree=build_nearest_neighbor_index(tgt),
+            forward_rbf=forward_task.wait_return(),
+            reverse_rbf=reverse_task.wait_return(),
+        )
+
+    def apply_refreshed_continuous(self, bundle: MeshRefreshedStructures) -> None:
+        """Install off-UI Delaunay/RBF structures onto this live mesh."""
+        self._warpedtri = bundle.warpedtri
+        self._fixedtri = bundle.fixedtri
+        self._ForwardInterpolator = bundle.forward_interpolator
+        self._InverseInterpolator = bundle.inverse_interpolator
+        self._WarpedKDTree = bundle.warped_kdtree
+        self._FixedKDTree = bundle.fixed_kdtree
+        self._ForwardRBFInstance = bundle.forward_rbf
+        self._ReverseRBFInstance = bundle.reverse_rbf
+        self._continuous_stale = False
+
     def InitializeDataStructures(self):
         """Build triangulation and precompute Forward/Reverse RBF weights.
 
@@ -112,25 +184,7 @@ class MeshWithRBFFallback(Triangulation):
         Call this from a non-pool driver thread (e.g. UI prewarm) so workers are
         not nested-waiting on the same pool.
         """
-        Pool = nornir_pools.GetGlobalThreadPool()
-
-        ForwardTask = Pool.add_task(
-            "Solve forward RBF transform",
-            _build_cpu_rbf_with_weights,
-            self.SourcePoints,
-            self.TargetPoints,
-        )
-        ReverseTask = Pool.add_task(
-            "Solve reverse RBF transform",
-            _build_cpu_rbf_with_weights,
-            self.TargetPoints,
-            self.SourcePoints,
-        )
-
-        super(MeshWithRBFFallback, self).InitializeDataStructures()
-
-        self._ForwardRBFInstance = ForwardTask.wait_return()
-        self._ReverseRBFInstance = ReverseTask.wait_return()
+        self.apply_refreshed_continuous(self.build_refreshed_continuous())
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -140,16 +194,47 @@ class MeshWithRBFFallback(Triangulation):
 
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
 
     def OnFixedPointChanged(self):
         super(MeshWithRBFFallback, self).OnFixedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
 
     def OnWarpedPointChanged(self):
         super(MeshWithRBFFallback, self).OnWarpedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
+
+    def _discrete_forward(self, points: NDArray[np.floating]) -> NDArray[np.floating]:
+        """Map source→target with cached source Delaunay; do not rebuild interpolators."""
+        if self._ForwardInterpolator is not None:
+            return super(MeshWithRBFFallback, self).Transform(points)
+        warpedtri = self._warpedtri
+        if warpedtri is None:
+            return super(MeshWithRBFFallback, self).Transform(points)
+        mapped = barycentric_sample_delaunay(
+            nornir_imageregistration.EnsureNumpyArray(points),
+            warpedtri,
+            nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+        )
+        return mapped.astype(np.float32, copy=False)
+
+    def _discrete_inverse(self, points: NDArray[np.floating]) -> NDArray[np.floating]:
+        """Map target→source with cached target Delaunay; do not rebuild interpolators."""
+        if self._InverseInterpolator is not None:
+            return super(MeshWithRBFFallback, self).InverseTransform(points)
+        fixedtri = self._fixedtri
+        if fixedtri is None:
+            return super(MeshWithRBFFallback, self).InverseTransform(points)
+        mapped = barycentric_sample_delaunay(
+            nornir_imageregistration.EnsureNumpyArray(points),
+            fixedtri,
+            nornir_imageregistration.EnsureNumpyArray(self.SourcePoints),
+        )
+        return mapped.astype(np.float32, copy=False)
 
     def Transform(self, points, **kwargs):
         """
@@ -162,7 +247,7 @@ class MeshWithRBFFallback(Triangulation):
         if points.shape[0] == 0:
             return []
 
-        TransformedPoints = super(MeshWithRBFFallback, self).Transform(points)
+        TransformedPoints = self._discrete_forward(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
             return TransformedPoints
@@ -173,7 +258,6 @@ class MeshWithRBFFallback(Triangulation):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_mask;
                 BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
@@ -196,7 +280,7 @@ class MeshWithRBFFallback(Triangulation):
         if points.shape[0] == 0:
             return []
 
-        TransformedPoints = super(MeshWithRBFFallback, self).InverseTransform(points)
+        TransformedPoints = self._discrete_inverse(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
             return TransformedPoints
@@ -226,6 +310,7 @@ class MeshWithRBFFallback(Triangulation):
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
+        self._continuous_stale = False
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
@@ -233,9 +318,11 @@ class MeshWithRBFFallback(Triangulation):
 
 
 class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
-    """
-    classdocs
-    """
+    """Triangulation warp with an RBF fallback for queries outside the hull (CuPy)."""
+
+    _continuous_stale: bool = False
+    _ForwardRBFInstance: Any
+    _ReverseRBFInstance: Any
 
     @property
     def type(self) -> TransformType:
@@ -246,10 +333,12 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         odict = super(MeshWithRBFFallback_GPUComponent, self).__getstate__()
         odict['_ReverseRBFInstance'] = self._ReverseRBFInstance  # type: ignore[assignment]
         odict['_ForwardRBFInstance'] = self._ForwardRBFInstance  # type: ignore[assignment]
+        odict['_continuous_stale'] = self._continuous_stale  # type: ignore[assignment]
         return odict
 
     def __setstate__(self, dictionary):
         super(MeshWithRBFFallback_GPUComponent, self).__setstate__(dictionary)
+        self._continuous_stale = dictionary.get('_continuous_stale', False)
 
     @property
     def ReverseRBFInstance(self):
@@ -265,18 +354,57 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         return self._ForwardRBFInstance
 
+    def build_refreshed_continuous(self) -> MeshRefreshedStructures:
+        """Build replacement Delaunay interpolators and RBF weights from a point snapshot.
+
+        Runs on the sticky CUDA transform-init thread. Does not mutate this instance.
+        """
+        from nornir_imageregistration.transforms.gridtransform import _build_linear_nd_interpolator
+
+        src = utils.host_copy_points(self.SourcePoints)
+        tgt = utils.host_copy_points(self.TargetPoints)
+        warpedtri = scipy.spatial.Delaunay(src, incremental=False)
+        fixedtri = scipy.spatial.Delaunay(tgt, incremental=False)
+        forward_interp, scipy_fwd = _build_linear_nd_interpolator(src, tgt)
+        inverse_interp, scipy_inv = _build_linear_nd_interpolator(tgt, src)
+        forward_rbf = OneWayRBFWithLinearCorrection_GPUComponent(src, tgt)
+        forward_rbf.PrecomputeWeights()
+        reverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(tgt, src)
+        reverse_rbf.PrecomputeWeights()
+        return MeshRefreshedStructures(
+            warpedtri=warpedtri,
+            fixedtri=fixedtri,
+            forward_interpolator=forward_interp,
+            inverse_interpolator=inverse_interp,
+            warped_kdtree=build_nearest_neighbor_index(src),
+            fixed_kdtree=build_nearest_neighbor_index(tgt),
+            forward_rbf=forward_rbf,
+            reverse_rbf=reverse_rbf,
+            scipy_forward_interp=scipy_fwd,
+            scipy_inverse_interp=scipy_inv,
+        )
+
+    def apply_refreshed_continuous(self, bundle: MeshRefreshedStructures) -> None:
+        """Install off-UI Delaunay/RBF structures onto this live mesh."""
+        self._warpedtri = bundle.warpedtri
+        self._fixedtri = bundle.fixedtri
+        self._ForwardInterpolator = bundle.forward_interpolator
+        self._InverseInterpolator = bundle.inverse_interpolator
+        self._WarpedKDTree = bundle.warped_kdtree
+        self._FixedKDTree = bundle.fixed_kdtree
+        self._ForwardRBFInstance = bundle.forward_rbf
+        self._ReverseRBFInstance = bundle.reverse_rbf
+        self._scipy_forward_interp = bundle.scipy_forward_interp
+        self._scipy_inverse_interp = bundle.scipy_inverse_interp
+        self._continuous_stale = False
+
     def InitializeDataStructures(self):
         """Build triangulation and precompute Forward/Reverse RBF weights on this thread.
 
         Intended to run on the sticky CUDA transform-init thread, not a random
         multi-worker pool (CuPy context).
         """
-        super(MeshWithRBFFallback_GPUComponent, self).InitializeDataStructures()
-
-        self._ForwardRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.SourcePoints, self.TargetPoints)
-        self._ForwardRBFInstance.PrecomputeWeights()
-        self._ReverseRBFInstance = OneWayRBFWithLinearCorrection_GPUComponent(self.TargetPoints, self.SourcePoints)
-        self._ReverseRBFInstance.PrecomputeWeights()
+        self.apply_refreshed_continuous(self.build_refreshed_continuous())
 
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
@@ -286,16 +414,47 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
 
     def OnFixedPointChanged(self):
         super(MeshWithRBFFallback_GPUComponent, self).OnFixedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
 
     def OnWarpedPointChanged(self):
         super(MeshWithRBFFallback_GPUComponent, self).OnWarpedPointChanged()
         self._ForwardRBFInstance = None
         self._ReverseRBFInstance = None
+        self._continuous_stale = True
+
+    def _discrete_forward(self, points):
+        """Map source→target with cached source Delaunay; do not rebuild interpolators."""
+        if self._ForwardInterpolator is not None:
+            return super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
+        warpedtri = self._warpedtri
+        if warpedtri is None:
+            return super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
+        mapped = barycentric_sample_delaunay(
+            nornir_imageregistration.EnsureNumpyArray(points),
+            warpedtri,
+            nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+        )
+        return cp.asarray(mapped, dtype=cp.float32)
+
+    def _discrete_inverse(self, points):
+        """Map target→source with cached target Delaunay; do not rebuild interpolators."""
+        if self._InverseInterpolator is not None:
+            return super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
+        fixedtri = self._fixedtri
+        if fixedtri is None:
+            return super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
+        mapped = barycentric_sample_delaunay(
+            nornir_imageregistration.EnsureNumpyArray(points),
+            fixedtri,
+            nornir_imageregistration.EnsureNumpyArray(self.SourcePoints),
+        )
+        return cp.asarray(mapped, dtype=cp.float32)
 
     def Transform(self, points, **kwargs):
         """
@@ -308,10 +467,9 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         if points.shape[0] == 0:
             return []
 
-        TransformedPoints = super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
+        TransformedPoints = self._discrete_forward(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
-            #     return TransformedPoints
             return TransformedPoints
 
         TransformedPoints = cp.asarray(TransformedPoints) if not isinstance(TransformedPoints,
@@ -322,7 +480,6 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
             return TransformedPoints
         else:
             if len(points) > 1:
-                # print invalid_mask;
                 BadPoints = points[invalid_mask]
             else:
                 BadPoints = points
@@ -347,7 +504,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         if points.shape[0] == 0:
             return []
 
-        TransformedPoints = super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
+        TransformedPoints = self._discrete_inverse(points)
         extrapolate = kwargs.get('extrapolate', True)
         if not extrapolate:
             return TransformedPoints
@@ -381,6 +538,7 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
+        self._continuous_stale = False
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):

@@ -98,6 +98,22 @@ class TestCpuGpuControlPointParity(unittest.TestCase):
         expected_source[:, 1] = -(expected_source[:, 1] - 5.0) + 5.0
         np.testing.assert_allclose(_as_host(cpu.points)[:, 2:4], expected_source, rtol=0, atol=1e-4)
 
+    def test_gpu_update_target_accepts_cupy_point(self) -> None:
+        """Pyre MovePoint passes a CuPy row into UpdateTargetPointsByIndex (NearestFixedPoint)."""
+        host_pts = np.array(
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 10.0, 0.0, 10.0],
+                [10.0, 0.0, 10.0, 0.0],
+                [10.0, 10.0, 10.0, 10.0],
+            ],
+            dtype=np.float32,
+        )
+        gpu = Triangulation_GPUComponent(cp.asarray(host_pts.copy()))
+        point = gpu.TargetPoints[0] + cp.asarray([1.5, -2.0], dtype=gpu.TargetPoints.dtype)
+        gpu.UpdateTargetPointsByIndex(0, point)
+        np.testing.assert_allclose(_as_host(gpu.TargetPoints[0]), _as_host(point), rtol=0, atol=1e-4)
+
 
 if __name__ == "__main__":
     unittest.main()
