@@ -108,6 +108,31 @@ class TestGpuCdistUsesCuVS(unittest.TestCase):
         np.testing.assert_allclose(_to_numpy(dist[0, 0]), 0.0, atol=1e-5)
         np.testing.assert_allclose(_to_numpy(dist[1, 1]), np.sqrt(2.0), atol=1e-5)
 
+    @unittest.skipUnless(
+        nornir_imageregistration.HasCupy() and nornir_imageregistration.HasCuVS(),
+        "CuPy and CuVS required",
+    )
+    def test_cupy_cdist_strided_view_matches_contiguous(self):
+        """CuVS must not interpret (N,4)[:, 2:4] SourcePoint views as packed rows."""
+        import cupy as cp
+
+        rng = np.random.RandomState(0)
+        packed = rng.randn(64, 4).astype(np.float32)
+        packed[:, 0:2] = packed[:, 0:2] * 100.0
+        packed[:, 2:4] = packed[:, 2:4] * 200.0
+        gpu_packed = cp.asarray(packed)
+        strided = gpu_packed[:, 2:4]
+        self.assertFalse(bool(strided.flags.c_contiguous))
+        dist_view = pairwise_cdist(strided, strided)
+        dist_contig = pairwise_cdist(cp.ascontiguousarray(strided), cp.ascontiguousarray(strided))
+        np.testing.assert_allclose(
+            _to_numpy(dist_view),
+            _to_numpy(dist_contig),
+            atol=1e-3,
+            rtol=1e-4,
+        )
+        self.assertLess(float(_to_numpy(dist_view).max()), 1.0e6)
+
 
 if __name__ == "__main__":
     unittest.main()

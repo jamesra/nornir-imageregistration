@@ -87,6 +87,12 @@ def cdist(XA: Any, XB: Any, metric: str = "euclidean", **kwargs: Any) -> Any:
     from nornir_imageregistration.computational_lib import HasCuVS
 
     XA, XB = _cdist_same_dtype(XA, XB, xp)
+    # CuVS pairwise_distance assumes C-contiguous (N, D) rows. Control-point
+    # SourcePoints/TargetPoints are typically a (N, 2) view of a (N, 4) array
+    # (float32 strides (16, 4)); CuVS then reads packed garbage distances and
+    # TPS weight solves become NaN/Inf.
+    XA = xp.ascontiguousarray(XA)
+    XB = xp.ascontiguousarray(XB)
     if HasCuVS() and _cupyx_spatial is not None:
         return getattr(_cupyx_spatial, "distance").cdist(XA, XB, metric, **kwargs)  # type: ignore[attr-defined, call-overload]
 
