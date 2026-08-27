@@ -212,6 +212,33 @@ class RigidTranslation(base.ITransformScaling,
 
         return odict
 
+    def GetRigidState(self) -> dict[str, typing.Any]:
+        """Snapshot the registration parameters for a later in-place restore.
+
+        Distinct from ``__getstate__``/``__setstate__`` on purpose. Those exist
+        for pickling a *fresh* object and ``__setstate__`` clears
+        ``OnChangeEventListeners``, which would silently unsubscribe every view
+        bound to a live shared model. Use this pair to undo an interactive
+        gesture without disturbing subscribers or the object's identity.
+        """
+        return {'angle': self._angle,
+                'target_offset': np.array(self._target_offset, copy=True),
+                'source_space_center_of_rotation': np.array(
+                    self._source_space_center_of_rotation, copy=True)}
+
+    def SetRigidState(self, state: dict[str, typing.Any]) -> None:
+        """Restore parameters captured by GetRigidState, keeping listeners intact."""
+        self._angle = state['angle']
+        self._target_offset = np.asarray(state['target_offset'], dtype=np.float32).ravel()[:2]
+        self._source_space_center_of_rotation = np.asarray(
+            state['source_space_center_of_rotation'], dtype=np.float32).ravel()[:2]
+
+        update_matrix = getattr(self, '_update_transform_matrix', None)
+        if update_matrix is not None:
+            update_matrix()
+
+        self.OnTransformChanged()
+
     def __setstate__(self, dictionary):
         self.__dict__.update(dictionary)  # type: ignore[attr-defined]
 
@@ -365,6 +392,17 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         super(Rigid, self).__setstate__(dictionary)
         self._flip_ud = dictionary['flip_ud']
         self._update_transform_matrix()
+
+    def GetRigidState(self) -> dict[str, typing.Any]:
+        state = super(Rigid, self).GetRigidState()
+        state['flip_ud'] = self._flip_ud
+        state['scalar'] = self._scalar
+        return state
+
+    def SetRigidState(self, state: dict[str, typing.Any]) -> None:
+        self._flip_ud = state['flip_ud']
+        self._scalar = state['scalar']
+        super(Rigid, self).SetRigidState(state)
 
     def __init__(self, target_offset: VectorLike,
                  source_rotation_center: VectorLike | None = None,

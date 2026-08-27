@@ -5,7 +5,7 @@ Created on Oct 18, 2012
 """
 import abc
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
@@ -385,6 +385,25 @@ class IRigidTransform(ITransform, ABC):
     @abc.abstractmethod
     def scalar(self) -> float:
         """Scaling factor"""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def GetRigidState(self) -> dict[str, Any]:
+        """Snapshot the registration parameters for a later in-place restore.
+
+        Interactive editors share one model instance across views and mutate it
+        in place, so undoing a gesture needs a parameter snapshot rather than a
+        reference to the model.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def SetRigidState(self, state: dict[str, Any]) -> None:
+        """Restore parameters from GetRigidState onto this instance.
+
+        Must preserve object identity and change subscribers, unlike
+        ``__setstate__``, which is for unpickling a fresh object.
+        """
         raise NotImplementedError()
 
 
