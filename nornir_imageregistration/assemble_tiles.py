@@ -165,6 +165,31 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
+def _remove_memmap_backing_file(path: str) -> None:
+    """Delete a memmap's backing file, tolerating a mapping that is still open.
+
+    Registered through weakref.finalize, which at interpreter shutdown can run
+    before NumPy releases the mapping. On Windows os.remove then raises
+    WinError 32 out of weakref._exitfunc, where nothing can handle it. The file
+    lives in the temp directory, so leaking one is strictly better than raising
+    during cleanup.
+
+    Logging is guarded because module globals may already be torn down by the
+    time a shutdown finalizer runs.
+    """
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        try:
+            logging.getLogger(__name__).debug(
+                "Could not delete memmap backing file %s; leaving it for the temp sweeper.",
+                path)
+        except Exception:
+            pass
+
+
 def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
     dtype = np.float16 if dtype is None else dtype
 
@@ -224,7 +249,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
             fullImage.fill(0)
-            finalizer = weakref.finalize(fullImage, os.remove, fullimage_array_path)
+            weakref.finalize(fullImage, _remove_memmap_backing_file, fullimage_array_path)
         except:
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
