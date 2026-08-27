@@ -4,9 +4,11 @@ Created on Oct 28, 2013
 Deals with assembling images composed of mosaics or dividing images into tiles
 """
 
+import atexit
 import copy
 from collections import deque
 import contextlib
+import gc
 import logging
 import multiprocessing
 import os
@@ -165,14 +167,30 @@ def __MaxZBufferValue(dtype):
     return np.finfo(dtype).max
 
 
+# Backing files for memmap assemble buffers, swept at exit by
+# _sweep_memmap_temp_files. Paths only: holding array references here would keep
+# the mappings alive and guarantee the deletion failure we are avoiding.
+_memmap_temp_files: set[str] = set()
+_memmap_temp_files_lock = threading.Lock()
+
+
+def _register_memmap_temp_file(path: str) -> None:
+    """Track a memmap backing file so the exit sweeper can retry deleting it."""
+    with _memmap_temp_files_lock:
+        _memmap_temp_files.add(path)
+
+
 def _remove_memmap_backing_file(path: str) -> None:
     """Delete a memmap's backing file, tolerating a mapping that is still open.
 
     Registered through weakref.finalize, which at interpreter shutdown can run
-    before NumPy releases the mapping. On Windows os.remove then raises
-    WinError 32 out of weakref._exitfunc, where nothing can handle it. The file
-    lives in the temp directory, so leaking one is strictly better than raising
-    during cleanup.
+    before NumPy releases the mapping. Deleting a mapped file is a
+    PermissionError on Windows (WinError 32), and raising out of
+    weakref._exitfunc reaches no handler. POSIX permits unlinking a mapped file,
+    so this only bites on Windows.
+
+    Failure is not the end of the story: the path stays registered and
+    _sweep_memmap_temp_files retries after the mappings are gone.
 
     Logging is guarded because module globals may already be torn down by the
     time a shutdown finalizer runs.
@@ -180,14 +198,57 @@ def _remove_memmap_backing_file(path: str) -> None:
     try:
         os.remove(path)
     except FileNotFoundError:
-        return
+        pass
     except OSError:
         try:
             logging.getLogger(__name__).debug(
-                "Could not delete memmap backing file %s; leaving it for the temp sweeper.",
+                "Could not delete memmap backing file %s yet; deferring to the exit sweeper.",
                 path)
         except Exception:
             pass
+        return
+
+    try:
+        with _memmap_temp_files_lock:
+            _memmap_temp_files.discard(path)
+    except Exception:
+        pass
+
+
+@atexit.register
+def _sweep_memmap_temp_files() -> None:
+    """Delete memmap backing files that were still mapped when first attempted.
+
+    The gc pass reclaims buffers that went out of scope but had not been
+    collected yet, and their files then unlink cleanly on Windows.
+
+    Known limitation: a buffer still referenced by a live global at exit is
+    *not* reclaimed, because atexit runs before module globals are cleared. Its
+    mapping stays open and Windows refuses to unlink a mapped file, so that file
+    survives until the OS temp sweeper takes it. Forcing the issue would mean
+    closing a mapping that live code may still hold, trading a leaked temp file
+    for a possible access violation -- not worth it for a temp file.
+    """
+    with _memmap_temp_files_lock:
+        paths = sorted(_memmap_temp_files)
+        _memmap_temp_files.clear()
+
+    if not paths:
+        return
+
+    gc.collect()
+
+    for path in paths:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            try:
+                logging.getLogger(__name__).debug(
+                    "Leaving memmap backing file %s for the OS temp sweeper.", path)
+            except Exception:
+                pass
 
 
 def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
@@ -201,6 +262,10 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
                                                           shape[0], shape[1], GetProcessAndThreadUniqueString()))
         fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=dtype, mode='w+', shape=shape)  # type: ignore[call-overload]
         fullImageZbuffer.fill(__MaxZBufferValue(dtype))
+        # This branch previously registered no cleanup at all, so every distance
+        # buffer leaked its backing file for the lifetime of the temp directory.
+        _register_memmap_temp_file(full_distance_image_array_path)
+        weakref.finalize(fullImageZbuffer, _remove_memmap_backing_file, full_distance_image_array_path)
         return fullImageZbuffer
         # fullImageZbuffer = np.memmap(full_distance_image_array_path, dtype=np.float16, mode='r+', shape=shape)
     else:
@@ -249,6 +314,7 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
                 fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
             fullImage.fill(0)
+            _register_memmap_temp_file(fullimage_array_path)
             weakref.finalize(fullImage, _remove_memmap_backing_file, fullimage_array_path)
         except:
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
