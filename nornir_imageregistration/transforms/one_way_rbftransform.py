@@ -26,6 +26,23 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 from .triangulation import Triangulation, Triangulation_GPUComponent
 
 
+def _is_singular_matrix_error(err: BaseException) -> bool:
+    """True when a LinAlgError reports a singular system.
+
+    The wording is not stable across backends, so an equality test against any
+    one of these silently disables the rigid-fallback recovery:
+
+      SciPy >= 1.11  "A singular matrix detected: slice(s) [0] are singular."
+      SciPy older    "Matrix is singular."
+      NumPy          "Singular matrix"
+      CuPy           varies with the cuSOLVER status it wraps
+
+    Matching on the word itself keeps every backend on the recovery path while
+    still re-raising the shape and dtype errors that indicate a caller bug.
+    """
+    return 'singular' in ' '.join(str(arg) for arg in err.args).lower()
+
+
 def _tps_beta_matrix(
         points: NDArray,
         basis_function: Callable[[NDArray[np.floating]], NDArray[np.floating]],
@@ -310,7 +327,7 @@ class OneWayRBFWithLinearCorrection(Triangulation):
 
             return np.hstack([WeightsX, WeightsY]), use_rigid_transform
         except np.linalg.LinAlgError as e:
-            if e.args[0] == 'Matrix is singular.':
+            if _is_singular_matrix_error(e):
                 # This is a distraction for now, but I should be able to fill in these weights correctly
                 # rigid_components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(ControlPoints,WarpedPoints)
                 # source_rotation_center, rotation_matrix, scale, translation, reflected = nornir_imageregistration.transforms.converters._kabsch_umeyama(
@@ -665,7 +682,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
             return cp.hstack([WeightsX, WeightsY]), use_rigid_transform
         except cp.linalg.LinAlgError as e:
-            if e.args[0] == 'Matrix is singular.':
+            if _is_singular_matrix_error(e):
                 wp_np = array_to_numpy_host(WarpedPoints)
                 cc_np = array_to_numpy_host(ControlPoints)
                 result = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPoints(
