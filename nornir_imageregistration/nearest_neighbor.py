@@ -70,15 +70,19 @@ def _ensure_host_float32(points: NDArray) -> np.ndarray:
 
 
 def _ensure_cupy_float32(points: NDArray):
-    """Return points as cupy float32."""
+    """Return points as a C-contiguous cupy float32 ``(N, D)`` array.
+
+    ``cp.asarray`` normalizes dtype but not strides, and it is a no-op on an
+    array that is already float32 CuPy. Control-point callers pass a (N, 2)
+    view of a (N, 4) array (float32 strides (16, 4)); CuVS brute-force assumes
+    packed rows and would otherwise read interleaved neighbors as coordinates.
+    Mirrors the same guard in ``spatial_distance.cdist``.
+    """
     import cupy as cp
-    if not hasattr(points, 'get'):
-        points = cp.asarray(points, dtype=cp.float32)
-    else:
-        points = cp.asarray(points, dtype=cp.float32)
+    points = cp.asarray(points, dtype=cp.float32)
     if points.ndim == 1:
         points = points.reshape(1, -1)
-    return points
+    return cp.ascontiguousarray(points)
 
 
 class _ScipyNNIndex:

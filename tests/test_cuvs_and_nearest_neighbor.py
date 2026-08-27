@@ -6,6 +6,7 @@ from nornir_imageregistration.nearest_neighbor import (
     CUVS_NN_MIN_POINTS_DEFAULT,
     _CuVSNNIndex,
     _ScipyNNIndex,
+    _ensure_cupy_float32,
     build_nearest_neighbor_index,
 )
 from nornir_imageregistration.spatial_distance import cdist as pairwise_cdist
@@ -132,6 +133,69 @@ class TestGpuCdistUsesCuVS(unittest.TestCase):
             rtol=1e-4,
         )
         self.assertLess(float(_to_numpy(dist_view).max()), 1.0e6)
+
+
+class TestEnsureCupyFloat32Contiguity(unittest.TestCase):
+    """`_ensure_cupy_float32` must pack strided control-point views for CuVS."""
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy required")
+    def test_strided_float32_view_is_packed(self):
+        """`cp.asarray` is a no-op on a float32 view, so strides must be fixed here."""
+        import cupy as cp
+
+        rng = np.random.RandomState(0)
+        packed = rng.randn(64, 4).astype(np.float32)
+        strided = cp.asarray(packed)[:, 2:4]
+        self.assertFalse(bool(strided.flags.c_contiguous))
+
+        out = _ensure_cupy_float32(strided)
+        self.assertTrue(bool(out.flags.c_contiguous))
+        np.testing.assert_array_equal(_to_numpy(out), packed[:, 2:4])
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy required")
+    def test_host_and_contiguous_inputs_still_packed(self):
+        import cupy as cp
+
+        rng = np.random.RandomState(1)
+        host = rng.randn(8, 2).astype(np.float64)
+        for candidate in (host, cp.asarray(host, dtype=cp.float32)):
+            out = _ensure_cupy_float32(candidate)
+            self.assertIs(cp.get_array_module(out), cp)
+            self.assertEqual(out.dtype, cp.float32)
+            self.assertTrue(bool(out.flags.c_contiguous))
+            np.testing.assert_allclose(_to_numpy(out), host.astype(np.float32))
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy required")
+    def test_single_point_vector_becomes_row(self):
+        out = _ensure_cupy_float32(np.asarray([3.0, 4.0], dtype=np.float64))
+        self.assertEqual(out.shape, (1, 2))
+        self.assertTrue(bool(out.flags.c_contiguous))
+
+    @unittest.skipUnless(
+        nornir_imageregistration.HasCupy() and nornir_imageregistration.HasCuVS(),
+        "CuPy and CuVS required",
+    )
+    def test_strided_view_query_matches_contiguous_above_gate(self):
+        """End-to-end: above the gate a (N,4)[:, 2:4] view must not read packed garbage."""
+        import cupy as cp
+
+        rng = np.random.RandomState(2)
+        n = CUVS_NN_MIN_POINTS_DEFAULT
+        packed = rng.randn(n, 4).astype(np.float32)
+        packed[:, 0:2] *= 100.0
+        strided = cp.asarray(packed)[:, 2:4]
+        self.assertFalse(bool(strided.flags.c_contiguous))
+
+        idx_view = build_nearest_neighbor_index(strided)
+        idx_contig = build_nearest_neighbor_index(cp.ascontiguousarray(strided))
+        self.assertIsInstance(idx_view, _CuVSNNIndex)
+
+        probe = strided[:16]
+        d_view, i_view = idx_view.query(probe, k=1)
+        d_contig, i_contig = idx_contig.query(cp.ascontiguousarray(probe), k=1)
+        np.testing.assert_array_equal(_to_numpy(i_view), _to_numpy(i_contig))
+        np.testing.assert_allclose(_to_numpy(d_view), _to_numpy(d_contig), atol=1e-4)
+        np.testing.assert_allclose(_to_numpy(d_view), np.zeros(16), atol=1e-4)
 
 
 if __name__ == "__main__":
