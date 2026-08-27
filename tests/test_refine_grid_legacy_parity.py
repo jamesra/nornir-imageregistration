@@ -7,6 +7,44 @@ import numpy as np
 
 import nornir_imageregistration
 
+# Windows returns these NTSTATUS values as the process exit code when the loader
+# cannot start the image at all, before main() runs. ir-refine-grid is a VS2010
+# x64 build that imports VCOMP100.DLL (the VS2010 OpenMP runtime), which is not
+# part of a stock Windows install, so this is the common failure on a machine
+# that has the executable but not the matching redistributable.
+_STATUS_DLL_NOT_FOUND = 0xC0000135
+_STATUS_ENTRYPOINT_NOT_FOUND = 0xC0000139
+
+
+def _loader_failure_status(returncode: int) -> int | None:
+    """Return the NTSTATUS if *returncode* is a loader failure, else None.
+
+    subprocess reports these as either the unsigned NTSTATUS or its signed
+    two's-complement equivalent depending on the platform and Python version.
+    """
+    for status in (_STATUS_DLL_NOT_FOUND, _STATUS_ENTRYPOINT_NOT_FOUND):
+        if returncode in (status, status - (1 << 32)):
+            return status
+    return None
+
+
+class TestLoaderFailureDetection(unittest.TestCase):
+    """The harness must not report a missing runtime as a parity failure."""
+
+    def test_dll_not_found_is_recognized_signed_and_unsigned(self):
+        self.assertEqual(_loader_failure_status(0xC0000135), _STATUS_DLL_NOT_FOUND)
+        self.assertEqual(_loader_failure_status(3221225781), _STATUS_DLL_NOT_FOUND)
+        self.assertEqual(_loader_failure_status(-1073741515), _STATUS_DLL_NOT_FOUND)
+
+    def test_entrypoint_not_found_is_recognized(self):
+        self.assertEqual(_loader_failure_status(0xC0000139), _STATUS_ENTRYPOINT_NOT_FOUND)
+        self.assertEqual(_loader_failure_status(-1073741511), _STATUS_ENTRYPOINT_NOT_FOUND)
+
+    def test_ordinary_exit_codes_are_not_loader_failures(self):
+        for code in (0, 1, 2, -1, 255):
+            with self.subTest(code=code):
+                self.assertIsNone(_loader_failure_status(code))
+
 
 class TestRefineGridLegacyParity(unittest.TestCase):
     """
@@ -66,6 +104,16 @@ class TestRefineGridLegacyParity(unittest.TestCase):
                 "-sh", "1",
             ]
             completed = subprocess.run(cmd, capture_output=True, text=True)
+
+            loader_status = _loader_failure_status(completed.returncode)
+            if loader_status is not None:
+                self.skipTest(
+                    f"Legacy ir-refine-grid could not be started by the OS loader "
+                    f"(NTSTATUS {loader_status:#010x}); a dependency DLL is missing. "
+                    f"{legacy_exe} is a VS2010 x64 build and imports VCOMP100.DLL, "
+                    f"which requires the Visual C++ 2010 x64 redistributable. "
+                    f"This is an environment gap, not a parity result.")
+
             self.assertEqual(
                 completed.returncode, 0,
                 msg=(
