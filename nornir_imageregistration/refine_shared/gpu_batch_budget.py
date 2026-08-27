@@ -27,10 +27,12 @@ _FFT_PEAK_BYTES_PER_CELL_128: int = 128 * 128 * 16 * 4
 _ROI_BYTES_PER_SAMPLE: int = 12
 
 _CPU_FFT_CELL_CHUNK: int = 1024
+# Same peak as 1024 cells of 128×128 (~1 GiB). Scale CPU chunks by cell area
+# from this budget so a 4096² stack cannot request 58 GiB in one fft2.
+_CPU_FFT_BUDGET_BYTES: int = _CPU_FFT_CELL_CHUNK * _FFT_PEAK_BYTES_PER_CELL_128
 _CPU_ROI_SAMPLE_BUDGET: int = 16_000_000
 _MAX_FFT_CELL_CHUNK: int = 16_384
 _MAX_ROI_SAMPLE_BUDGET: int = 128_000_000
-_MIN_FFT_CELL_CHUNK: int = 256
 
 
 def cuda_memory_info() -> tuple[int | None, int | None]:
@@ -70,15 +72,16 @@ def batched_fft_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[
     cell_h = int(shape[0]) if shape.size > 0 else 128
     cell_w = int(shape[1]) if shape.size > 1 else cell_h
 
+    bytes_per_cell = _fft_peak_bytes_per_cell(cell_h, cell_w)
     free_bytes, _ = cuda_memory_info()
     if free_bytes is None:
-        return _CPU_FFT_CELL_CHUNK
-
-    bytes_per_cell = _fft_peak_bytes_per_cell(cell_h, cell_w)
-    budget_bytes = max(0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
+        budget_bytes = _CPU_FFT_BUDGET_BYTES
+    else:
+        budget_bytes = max(
+            0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
     if budget_bytes <= 0:
-        return _MIN_FFT_CELL_CHUNK
-    chunk = max(_MIN_FFT_CELL_CHUNK, budget_bytes // bytes_per_cell)
+        return 1
+    chunk = max(1, budget_bytes // bytes_per_cell)
     return min(chunk, _MAX_FFT_CELL_CHUNK)
 
 

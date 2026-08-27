@@ -63,14 +63,14 @@ class TestGridOnFixedPointChanged(unittest.TestCase):
         """Mouse-move must update discrete TargetPoints without reconstructing RBF."""
         model = GridWithRBFFallback_GPUComponent(_sample_grid_data())
         continuous_before = model._continuous_transform
-        before = np.asarray(model.TargetPoints[0], dtype=np.float64)
+        before = nornir_imageregistration.EnsureNumpyArray(model.TargetPoints[0]).astype(np.float64)
         point = np.asarray(before + np.array([4.0, 2.0], dtype=np.float64), dtype=np.float64)
         interactive_edit.begin()
         try:
             model.UpdateTargetPointsByIndex(0, point)
         finally:
             interactive_edit.end()
-        after = np.asarray(model.TargetPoints[0], dtype=np.float64)
+        after = nornir_imageregistration.EnsureNumpyArray(model.TargetPoints[0]).astype(np.float64)
         np.testing.assert_allclose(after, point, rtol=1e-5, atol=1e-4)
         self.assertIs(model._continuous_transform, continuous_before)
         self.assertTrue(model._continuous_stale)

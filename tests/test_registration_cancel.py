@@ -33,6 +33,28 @@ class TestRegistrationControl(unittest.TestCase):
         self.assertEqual(seen, [(2, 5, "step")])
         report_progress(None, 1, 1, "ignored")
 
+    def test_report_progress_preview_uses_fourth_argument(self) -> None:
+        seen: list[tuple[int, int, str, object]] = []
+        report_progress(
+            lambda c, t, label, preview=None: seen.append((c, t, label, preview)),
+            1,
+            3,
+            "mesh",
+            preview="xf",
+        )
+        self.assertEqual(seen, [(1, 3, "mesh", "xf")])
+
+    def test_report_progress_preview_tolerates_three_arg_callback(self) -> None:
+        seen: list[tuple[int, int, str]] = []
+        report_progress(
+            lambda c, t, label: seen.append((c, t, label)),
+            1,
+            2,
+            "mesh",
+            preview="xf",
+        )
+        self.assertEqual(seen, [(1, 2, "mesh")])
+
 
 class TestFindBestAngleCancel(unittest.TestCase):
     def test_find_best_angle_aborts_when_cancelled(self) -> None:

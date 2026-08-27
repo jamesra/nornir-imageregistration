@@ -116,44 +116,95 @@ class Landmark_GPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
-    def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
+    def UpdateFixedPoints(
+            self,
+            index: int,
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        """Move target-space control points at *index*.
+
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; later RBF
+            rebuild can fail or remap rows. Use False only for a bounded
+            interactive sequence where the caller keeps indices stable.
+        """
         xp = cp.get_array_module(self._points)
         points_xp = xp.asarray(points)
         if not isinstance(index, (int, np.integer)):
             index = xp.asarray(index)
         self._points[index, 0:2] = points_xp
-        self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
+            self.OnFixedPointChanged()
+            distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
+            return index
         self.OnFixedPointChanged()
-
-        distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
         return index
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateFixedPoints(index, points)  # type: ignore[arg-type]
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateFixedPoints(index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)  # type: ignore[misc]
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateWarpedPoints(
+            self,
+            index: int | NDArray[np.integer] | NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move source-space control points at *index*.
+
+        :param remove_duplicates: See :meth:`UpdateFixedPoints`.
+        """
         xp = cp.get_array_module(self._points)
         points_xp = xp.asarray(points)
         if not isinstance(index, (int, np.integer)):
             index = xp.asarray(index)
         self._points[index, 2:4] = points_xp  # type: ignore[index]
-        self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Landmark_GPU.RemoveDuplicateControlPoints(self._points)
+            self.OnWarpedPointChanged()
+            distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
+            return index  # type: ignore[return-value]
         self.OnWarpedPointChanged()
-
-        distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
         return index  # type: ignore[return-value]
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateWarpedPoints(index, point)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateWarpedPoints(index, point, remove_duplicates=remove_duplicates)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateSourcePointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)  # type: ignore[misc]
-        return self.UpdateSourcePointsByIndex(index, points)
+        return self.UpdateSourcePointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
@@ -380,36 +431,87 @@ class Landmark_CPU(ITransformScaling, ITransformRelativeScaling, ITransformTrans
         Distance, index = self.NearestFixedPoint([pointpair[0], pointpair[1]])  # type: ignore[misc, arg-type]
         return index
 
-    def UpdateFixedPoints(self, index: int, points: NDArray[np.floating]):
-        self._points[index, 0:2] = points
-        self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
-        self.OnFixedPointChanged()
+    def UpdateFixedPoints(
+            self,
+            index: int,
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        """Move target-space control points at *index*.
 
-        distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; later RBF
+            rebuild can fail or remap rows. Use False only for a bounded
+            interactive sequence where the caller keeps indices stable.
+        """
+        self._points[index, 0:2] = points
+        if remove_duplicates:
+            self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
+            self.OnFixedPointChanged()
+            distance, index = self.NearestFixedPoint(points)  # type: ignore[misc]
+            return index
+        self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateFixedPoints(index, points)  # type: ignore[arg-type]
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateFixedPoints(index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)  # type: ignore[misc]
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[np.integer] | NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateWarpedPoints(
+            self,
+            index: int | NDArray[np.integer] | NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move source-space control points at *index*.
+
+        :param remove_duplicates: See :meth:`UpdateFixedPoints`.
+        """
         self._points[index, 2:4] = points  # type: ignore[index]
-        self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Landmark_CPU.RemoveDuplicateControlPoints(self._points)
+            self.OnWarpedPointChanged()
+            distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
+            return index  # type: ignore[return-value]
         self.OnWarpedPointChanged()
-
-        distance, index = self.NearestWarpedPoint(points)  # type: ignore[misc]
         return index  # type: ignore[return-value]
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[np.integer]:
-        return self.UpdateWarpedPoints(index, point)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateWarpedPoints(index, point, remove_duplicates=remove_duplicates)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateSourcePointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)  # type: ignore[misc]
-        return self.UpdateSourcePointsByIndex(index, points)
+        return self.UpdateSourcePointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:

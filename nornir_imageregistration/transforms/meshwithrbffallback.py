@@ -31,8 +31,21 @@ from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWi
 from nornir_imageregistration.transforms.transform_type import TransformType
 from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
 from . import utils
-from .triangulation import Triangulation, Triangulation_GPUComponent, barycentric_sample_delaunay
+from .triangulation import (
+    Triangulation,
+    Triangulation_GPUComponent,
+    _defer_structure_rebuild,
+    barycentric_sample_delaunay,
+)
 from nornir_imageregistration.transforms.landmark import Landmark_GPU, Landmark_CPU
+
+
+def _nan_mapped_points(points) -> NDArray[np.floating]:
+    """Return an all-NaN Nx2 map without rebuilding interpolators or Qhull."""
+    pts = nornir_imageregistration.EnsureNumpyArray(points)
+    out = numpy.empty((pts.shape[0], 2), dtype=numpy.float32)
+    out[:] = numpy.nan
+    return out
 
 
 def _ensure_float32_64(arr, xp):
@@ -95,12 +108,40 @@ def _coerce_indices_to_reference_backend(indices, reference):
     return nornir_imageregistration.EnsureNumpyArray(indices).astype(numpy.intp, copy=False)
 
 
+def _invalidate_host_control_point_cache(mesh: Any) -> None:
+    """Drop cached host Source/Target copies after a control-point edit."""
+    mesh._host_source_points = None
+    mesh._host_target_points = None
+
+
+def _cached_host_source_points(mesh: Any) -> NDArray[np.floating]:
+    """Host SourcePoints snapshot, refreshed after source edits rather than per query."""
+    cached = getattr(mesh, "_host_source_points", None)
+    if cached is None:
+        mesh._host_source_points = utils.host_copy_points(mesh.SourcePoints)
+        mesh._host_source_copy_count = int(getattr(mesh, "_host_source_copy_count", 0)) + 1
+    return mesh._host_source_points
+
+
+def _cached_host_target_points(mesh: Any) -> NDArray[np.floating]:
+    """Host TargetPoints snapshot, refreshed after target edits rather than per query."""
+    cached = getattr(mesh, "_host_target_points", None)
+    if cached is None:
+        mesh._host_target_points = utils.host_copy_points(mesh.TargetPoints)
+        mesh._host_target_copy_count = int(getattr(mesh, "_host_target_copy_count", 0)) + 1
+    return mesh._host_target_points
+
+
 class MeshWithRBFFallback(Triangulation):
     """Triangulation warp with an RBF fallback for queries outside the hull."""
 
     _continuous_stale: bool = False
     _ForwardRBFInstance: Any
     _ReverseRBFInstance: Any
+    _host_source_points: NDArray[np.floating] | None
+    _host_target_points: NDArray[np.floating] | None
+    _host_source_copy_count: int
+    _host_target_copy_count: int
 
     @property
     def type(self) -> TransformType:
@@ -117,6 +158,9 @@ class MeshWithRBFFallback(Triangulation):
     def __setstate__(self, dictionary):
         super(MeshWithRBFFallback, self).__setstate__(dictionary)
         self._continuous_stale = dictionary.get('_continuous_stale', False)
+        _invalidate_host_control_point_cache(self)
+        self._host_source_copy_count = 0
+        self._host_target_copy_count = 0
 
     @property
     def ReverseRBFInstance(self):
@@ -186,27 +230,23 @@ class MeshWithRBFFallback(Triangulation):
         """
         self.apply_refreshed_continuous(self.build_refreshed_continuous())
 
+    def OnFixedPointChanged(self):
+        super(MeshWithRBFFallback, self).OnFixedPointChanged()
+        self._continuous_stale = True
+        self._host_target_points = None
+
+    def OnWarpedPointChanged(self):
+        super(MeshWithRBFFallback, self).OnWarpedPointChanged()
+        self._continuous_stale = True
+        self._host_source_points = None
+
     def ClearDataStructures(self):
         """Something about the transform has changed, for example the points.
            Clear out our data structures so we do not use bad data"""
 
         super(MeshWithRBFFallback, self).ClearDataStructures()
-
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
         self._continuous_stale = True
-
-    def OnFixedPointChanged(self):
-        super(MeshWithRBFFallback, self).OnFixedPointChanged()
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
-        self._continuous_stale = True
-
-    def OnWarpedPointChanged(self):
-        super(MeshWithRBFFallback, self).OnWarpedPointChanged()
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
-        self._continuous_stale = True
+        _invalidate_host_control_point_cache(self)
 
     def _discrete_forward(self, points: NDArray[np.floating]) -> NDArray[np.floating]:
         """Map source→target with cached source Delaunay; do not rebuild interpolators."""
@@ -214,11 +254,14 @@ class MeshWithRBFFallback(Triangulation):
             return super(MeshWithRBFFallback, self).Transform(points)
         warpedtri = self._warpedtri
         if warpedtri is None:
+            if _defer_structure_rebuild():
+                return _nan_mapped_points(points)
             return super(MeshWithRBFFallback, self).Transform(points)
         mapped = barycentric_sample_delaunay(
             nornir_imageregistration.EnsureNumpyArray(points),
             warpedtri,
-            nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+            _cached_host_target_points(self),
+            nan_outside=True,
         )
         return mapped.astype(np.float32, copy=False)
 
@@ -228,11 +271,14 @@ class MeshWithRBFFallback(Triangulation):
             return super(MeshWithRBFFallback, self).InverseTransform(points)
         fixedtri = self._fixedtri
         if fixedtri is None:
+            if _defer_structure_rebuild():
+                return _nan_mapped_points(points)
             return super(MeshWithRBFFallback, self).InverseTransform(points)
         mapped = barycentric_sample_delaunay(
             nornir_imageregistration.EnsureNumpyArray(points),
             fixedtri,
-            nornir_imageregistration.EnsureNumpyArray(self.SourcePoints),
+            _cached_host_source_points(self),
+            nan_outside=True,
         )
         return mapped.astype(np.float32, copy=False)
 
@@ -264,7 +310,10 @@ class MeshWithRBFFallback(Triangulation):
 
         BadPoints = _ensure_float32_64(BadPoints, cp.get_array_module(points))
 
-        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
+        rbf = self._ForwardRBFInstance
+        if rbf is None:
+            rbf = self.ForwardRBFInstance
+        FixedPoints = rbf.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
         TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
@@ -297,7 +346,10 @@ class MeshWithRBFFallback(Triangulation):
 
         BadPoints = _ensure_float32_64(BadPoints, cp.get_array_module(points))
 
-        FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
+        rbf = self._ReverseRBFInstance
+        if rbf is None:
+            rbf = self.ReverseRBFInstance
+        FixedPoints = rbf.Transform(BadPoints)
         FixedPoints = _coerce_to_reference_backend(FixedPoints, TransformedPoints)
         TransformedPoints[invalid_mask] = FixedPoints
         return TransformedPoints
@@ -311,6 +363,10 @@ class MeshWithRBFFallback(Triangulation):
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
         self._continuous_stale = False
+        self._host_source_points = None
+        self._host_target_points = None
+        self._host_source_copy_count = 0
+        self._host_target_copy_count = 0
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):
@@ -323,6 +379,10 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
     _continuous_stale: bool = False
     _ForwardRBFInstance: Any
     _ReverseRBFInstance: Any
+    _host_source_points: NDArray[np.floating] | None
+    _host_target_points: NDArray[np.floating] | None
+    _host_source_copy_count: int
+    _host_target_copy_count: int
 
     @property
     def type(self) -> TransformType:
@@ -339,6 +399,9 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
     def __setstate__(self, dictionary):
         super(MeshWithRBFFallback_GPUComponent, self).__setstate__(dictionary)
         self._continuous_stale = dictionary.get('_continuous_stale', False)
+        _invalidate_host_control_point_cache(self)
+        self._host_source_copy_count = 0
+        self._host_target_copy_count = 0
 
     @property
     def ReverseRBFInstance(self):
@@ -411,22 +474,18 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
            Clear out our data structures so we do not use bad data"""
 
         super(MeshWithRBFFallback_GPUComponent, self).ClearDataStructures()
-
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
         self._continuous_stale = True
+        _invalidate_host_control_point_cache(self)
 
     def OnFixedPointChanged(self):
         super(MeshWithRBFFallback_GPUComponent, self).OnFixedPointChanged()
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
         self._continuous_stale = True
+        self._host_target_points = None
 
     def OnWarpedPointChanged(self):
         super(MeshWithRBFFallback_GPUComponent, self).OnWarpedPointChanged()
-        self._ForwardRBFInstance = None
-        self._ReverseRBFInstance = None
         self._continuous_stale = True
+        self._host_source_points = None
 
     def _discrete_forward(self, points):
         """Map source→target with cached source Delaunay; do not rebuild interpolators."""
@@ -434,11 +493,14 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
             return super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
         warpedtri = self._warpedtri
         if warpedtri is None:
+            if _defer_structure_rebuild():
+                return cp.asarray(_nan_mapped_points(points), dtype=cp.float32)
             return super(MeshWithRBFFallback_GPUComponent, self).Transform(points)
         mapped = barycentric_sample_delaunay(
             nornir_imageregistration.EnsureNumpyArray(points),
             warpedtri,
-            nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+            _cached_host_target_points(self),
+            nan_outside=True,
         )
         return cp.asarray(mapped, dtype=cp.float32)
 
@@ -448,11 +510,14 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
             return super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
         fixedtri = self._fixedtri
         if fixedtri is None:
+            if _defer_structure_rebuild():
+                return cp.asarray(_nan_mapped_points(points), dtype=cp.float32)
             return super(MeshWithRBFFallback_GPUComponent, self).InverseTransform(points)
         mapped = barycentric_sample_delaunay(
             nornir_imageregistration.EnsureNumpyArray(points),
             fixedtri,
-            nornir_imageregistration.EnsureNumpyArray(self.SourcePoints),
+            _cached_host_source_points(self),
+            nan_outside=True,
         )
         return cp.asarray(mapped, dtype=cp.float32)
 
@@ -486,7 +551,10 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         BadPoints = _ensure_float32_64(BadPoints, cp)
 
-        FixedPoints = self.ForwardRBFInstance.Transform(BadPoints)
+        rbf = self._ForwardRBFInstance
+        if rbf is None:
+            rbf = self.ForwardRBFInstance
+        FixedPoints = rbf.Transform(BadPoints)
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
@@ -523,7 +591,10 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
 
         BadPoints = _ensure_float32_64(BadPoints, cp)
 
-        FixedPoints = self.ReverseRBFInstance.Transform(BadPoints)
+        rbf = self._ReverseRBFInstance
+        if rbf is None:
+            rbf = self.ReverseRBFInstance
+        FixedPoints = rbf.Transform(BadPoints)
         FixedPoints = cp.asarray(FixedPoints) if not isinstance(FixedPoints,
                                                                 cp.ndarray) else FixedPoints
 
@@ -539,6 +610,10 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
         self._continuous_stale = False
+        self._host_source_points = None
+        self._host_target_points = None
+        self._host_source_copy_count = 0
+        self._host_target_copy_count = 0
 
     @staticmethod
     def Load(TransformString, pixelSpacing=None):

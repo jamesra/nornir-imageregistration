@@ -270,7 +270,8 @@ def BlobFilter(image: Any,
     """
     Apply ir-blob style filtering to an image array.
 
-    The reference implementation runs on NumPy to match legacy ``ir-blob`` output.
+    Accepts NumPy or CuPy images; the reference implementation is host-only (legacy
+    ``ir-blob`` parity). CuPy inputs are copied to NumPy, filtered, then uploaded.
     """
     image_arr = nornir_imageregistration.ImageParamToImageArray(image)
     xp_in = cp.get_array_module(image_arr)

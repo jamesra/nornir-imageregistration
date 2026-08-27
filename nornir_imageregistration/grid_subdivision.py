@@ -11,18 +11,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 import nornir_imageregistration
-from nornir_imageregistration import IGrid
+from nornir_imageregistration import IGrid, cp
 from nornir_imageregistration.transforms.base import ITransform
 
 from nornir_shared import prettyoutput
 from nornir_shared.mathhelper import NearestPowerOfTwo
-
-try:
-    import cupy as cp
-except ModuleNotFoundError:
-    import nornir_imageregistration.cupy_thunk as cp
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
 
 
 def build_coords_array(grid_dims: NDArray[np.integer]) -> NDArray[np.integer]:
@@ -105,12 +98,28 @@ class GridDivisionBase(IGrid):
         return self._axis_points
 
     def PopulateTargetPoints(self, transform: ITransform) -> NDArray[np.floating] | None:
-        if transform is not None:
-            self._TargetPoints = np.round(transform.Transform(self._SourcePoints), 3).astype(np.float32, copy=False)
-            if cp.get_array_module(self.TargetPoints) == cp:  # type: ignore[operator]
-                self._TargetPoints = self._TargetPoints.get()  # type: ignore[attr-defined]
-            return self._TargetPoints
-        return None
+        """Map source lattice through *transform*; keep the Transform output backend.
+
+        Host conversion belongs in CPU Grid/Triangulation constructors and at STOS save,
+        not here.
+        """
+        if transform is None:
+            return None
+        mapped = transform.Transform(self._SourcePoints)
+        xp = cp.get_array_module(mapped)
+        self._TargetPoints = xp.round(mapped, 3).astype(xp.float32, copy=False)
+        return self._TargetPoints
+
+    def pack_control_point_pairs(self, *, on_device: bool) -> NDArray[np.floating]:
+        """Stack (Target, Source) pairs onto host or device for a Grid constructor."""
+        if self._TargetPoints is None:
+            raise ValueError("TargetPoints must be populated before packing control points")
+        if on_device:
+            return cp.hstack((cp.asarray(self._TargetPoints), cp.asarray(self._SourcePoints)))
+        return np.hstack((
+            nornir_imageregistration.EnsureNumpyArray(self._TargetPoints),
+            nornir_imageregistration.EnsureNumpyArray(self._SourcePoints),
+        ))
 
     @staticmethod
     def _mask_summary(mask: NDArray) -> str:
@@ -179,6 +188,20 @@ class GridDivisionBase(IGrid):
                 valid,
                 context=f"target image mask at point centers; {self._mask_summary(target_mask)}")
 
+    @staticmethod
+    def _point_extent_summary(points: NDArray | None) -> str:
+        """Compact bbox of cell-center coordinates for operator-facing errors."""
+        if points is None:
+            return "points=None"
+        host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
+        if host.size == 0:
+            return "points_n=0"
+        return (
+            f"points_n={host.shape[0]}; "
+            f"y=[{float(host[:, 0].min()):.1f},{float(host[:, 0].max()):.1f}]; "
+            f"x=[{float(host[:, 1].min()):.1f},{float(host[:, 1].max()):.1f}]"
+        )
+
     def __CalculateMaskedCells(self, mask: NDArray[np.bool_], points: NDArray, min_unmasked_area: float | None = None):
         """
         :param ndarray mask: mask image used for calculation
@@ -233,7 +256,8 @@ class GridDivisionBase(IGrid):
                 context=(
                     f"target cell tissue mask; points_before={points_before}; "
                     f"min_unmasked_area={float(min_unmasked_area):g}; "
-                    f"{self._mask_summary(target_mask)}"
+                    f"{self._mask_summary(target_mask)}; "
+                    f"{self._point_extent_summary(self._TargetPoints)}"
                 ))
         return int(self.num_points)
 
@@ -270,8 +294,7 @@ class GridDivisionBase(IGrid):
     def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None,
                                       *, allow_empty: bool = False) -> int:
 
-        xp = nornir_imageregistration.GetComputationModule() if target_shape is None else cp.get_array_module(
-            target_shape)  # type: ignore[arg-type]
+        xp = cp.get_array_module(self._TargetPoints)
 
         if not isinstance(target_shape, np.ndarray):
             target_shape = xp.asarray(target_shape)
@@ -284,13 +307,13 @@ class GridDivisionBase(IGrid):
             allow_empty=allow_empty,
             context=(
                 f"target out-of-bounds filter; points_before={points_before}; "
-                f"target_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(target_shape)).tolist())}"
+                f"target_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(target_shape)).tolist())}; "
+                f"{self._point_extent_summary(self._TargetPoints)}"
             ))
 
     def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None,
                                       *, allow_empty: bool = False) -> int:
-        xp = nornir_imageregistration.GetComputationModule() if source_shape is None else cp.get_array_module(
-            source_shape)  # type: ignore[arg-type]
+        xp = cp.get_array_module(self._SourcePoints)
 
         if source_shape is None:
             source_shape = xp.asarray(self._source_shape)

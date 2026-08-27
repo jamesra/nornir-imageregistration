@@ -12,10 +12,7 @@ from nornir_imageregistration.refine_shared.cell_validity import (
     low_content_std_min_threshold,
 )
 
-try:
-    import cupy as cp
-except (ModuleNotFoundError, ImportError):
-    import nornir_imageregistration.cupy_thunk as cp
+from nornir_imageregistration import cp
 
 
 class SourceContentCache:
@@ -68,16 +65,26 @@ class SourceContentCache:
         """Read-only view of cached std values."""
         return self._std_by_id
 
+    def clear(self) -> None:
+        """Drop cached stds. Required when refine cell_size changes."""
+        self._std_by_id.clear()
+        self._low_content_ids.clear()
+
 
 def crop_source_cell_std(
         source_image: NDArray,
         source_point: NDArray[np.floating] | tuple[float, float],
         cell_size: NDArray[np.integer] | tuple[int, int] | Sequence[int],
 ) -> float:
-    """Crop an axis-aligned source cell and return its intensity std."""
+    """Crop an axis-aligned source cell and return its intensity std.
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
+    """
+    import nornir_imageregistration
+
     stds = crop_source_cell_stds_batched(
         source_image,
-        np.asarray(source_point, dtype=np.float64).reshape(1, 2),
+        nornir_imageregistration.EnsurePointsAre2DArray(source_point),
         cell_size)
     return float(stds[0])
 
@@ -89,6 +96,8 @@ def crop_source_cell_stds_batched(
 ) -> NDArray[np.floating]:
     """Crop axis-aligned source cells and return intensity stds in one vectorized pass.
 
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
+
     Stays on the input image's array module (no forced host→device upload of the
     full mosaic). Stacks ROI crops and computes ``std`` along spatial axes so a
     CuPy session does not pay per-cell ``float(xp.std(...))`` syncs when the
@@ -96,7 +105,8 @@ def crop_source_cell_stds_batched(
     """
     import nornir_imageregistration
 
-    points = np.asarray(source_points, dtype=np.float64).reshape(-1, 2)
+    xp = cp.get_array_module(source_image)
+    points = xp.asarray(source_points, dtype=xp.float64).reshape(-1, 2)
     num = int(points.shape[0])
     if num == 0:
         return np.zeros((0,), dtype=np.float64)
@@ -104,15 +114,13 @@ def crop_source_cell_stds_batched(
     area = np.asarray(cell_size, dtype=np.int64).ravel()[:2]
     h = int(area[0])
     w = int(area[1])
-    # Follow the input array — do not upgrade NumPy mosaics to CuPy here.
-    # Uploading a full Grid16 image just to std small crops regresses pass-1
-    # cell_extract under memory pressure.
-    xp = cp.get_array_module(source_image)
+    half = xp.asarray((h / 2.0, w / 2.0), dtype=points.dtype)
+    origins_host = nornir_imageregistration.EnsureNumpyArray(xp.floor(points - half))
 
     crops: list[NDArray] = []
     for i in range(num):
-        bot = int(np.floor(points[i, 0] - h / 2.0))
-        left = int(np.floor(points[i, 1] - w / 2.0))
+        bot = int(origins_host[i, 0])
+        left = int(origins_host[i, 1])
         roi = nornir_imageregistration.CropImage(
             source_image, left, bot, w, h, cval=0)
         crops.append(xp.asarray(roi, dtype=xp.float64))

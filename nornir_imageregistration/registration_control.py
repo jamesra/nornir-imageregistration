@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 
-ProgressCallback = Callable[[int, int, str], None]
+ProgressCallback = Callable[..., None]
 
 
 class RegistrationCancelled(Exception):
@@ -23,8 +23,22 @@ def report_progress(
         progress_callback: Optional[ProgressCallback],
         current: int,
         total: int,
-        label: str) -> None:
-    """Invoke *progress_callback* when provided."""
+        label: str,
+        preview: Any = None) -> None:
+    """Invoke *progress_callback* when provided.
+
+    *preview* is an optional extra payload (for example a per-pass transform).
+    Callables that only accept ``(current, total, label)`` remain supported.
+    """
     if progress_callback is None:
         return
-    progress_callback(int(current), int(total), str(label))
+    current_i = int(current)
+    total_i = int(total)
+    label_s = str(label)
+    if preview is None:
+        progress_callback(current_i, total_i, label_s)
+        return
+    try:
+        progress_callback(current_i, total_i, label_s, preview)
+    except TypeError:
+        progress_callback(current_i, total_i, label_s)

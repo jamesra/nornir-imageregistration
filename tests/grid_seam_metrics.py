@@ -242,8 +242,10 @@ def compare_mosaic_target_points_to_golden(
             continue
         if not isinstance(refined_transform, nornir_imageregistration.transforms.IGridTransform):
             continue
-        golden_targets = np.asarray(golden_transform.TargetPoints, dtype=np.float64)
-        refined_targets = np.asarray(refined_transform.TargetPoints, dtype=np.float64)
+        golden_targets = nornir_imageregistration.EnsureNumpyArray(
+            golden_transform.TargetPoints, dtype=np.float64)
+        refined_targets = nornir_imageregistration.EnsureNumpyArray(
+            refined_transform.TargetPoints, dtype=np.float64)
         if golden_targets.shape != refined_targets.shape:
             continue
         delta_by_tile[image_key] = refined_targets - golden_targets

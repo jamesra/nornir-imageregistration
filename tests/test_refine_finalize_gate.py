@@ -356,6 +356,15 @@ class TestFilterRecordsForMeshInclusion(unittest.TestCase):
         self.assertEqual(dropped, 2)
         self.assertEqual({r.ID for r in kept}, {(0, 0), (1, 0)})
 
+    def test_min_keep_zero_returns_empty_when_all_travel_dropped(self) -> None:
+        records = [
+            _rec((0, 0), peak=(50.0, 0.0), weight=12.0),
+            _rec((0, 1), peak=(40.0, 40.0), weight=12.0),
+        ]
+        kept, dropped = filter_records_for_mesh_inclusion(records, max_travel=2.0, min_keep=0)
+        self.assertEqual(len(kept), 0)
+        self.assertEqual(dropped, 2)
+
 
 class TestLegacyFinalizeMask(unittest.TestCase):
     def test_legacy_allows_low_weight_small_travel(self) -> None:

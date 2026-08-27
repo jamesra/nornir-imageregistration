@@ -1,4 +1,5 @@
 import os
+import unittest
 
 import numpy as np
 
@@ -70,3 +71,15 @@ class Test(setup_imagetest.TestBase):
         nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
                                                         title=f"Value at percentile",
                                                         horz_line_pos_list=[(cutoff_value_this_pass, {})])
+
+
+class TestPlotPercentilesEmpty(unittest.TestCase):
+    """Diagnostic plots must not abort refine when mesh inclusion is empty."""
+
+    def test_empty_1d_is_noop(self) -> None:
+        plot_percentiles(np.zeros(0, dtype=np.float64), filename=None)
+
+    def test_empty_mesh_score_column_is_noop(self) -> None:
+        scores = np.zeros((0, 3), dtype=np.float64)
+        plot_percentiles(scores[:, 0], filename=None)
+

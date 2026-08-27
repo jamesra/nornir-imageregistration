@@ -414,6 +414,14 @@ class TestExcludeRejectMesh(unittest.TestCase):
         self.assertEqual(dropped, 1)
         self.assertEqual(len(kept), 3)
 
+    def test_all_reject_min_keep_zero_does_not_fill(self) -> None:
+        """RefineTransform must not emergency-fill a 3-point mesh from reject soup."""
+        records = [_rec((0, i), peak=(10.0 + i, 0.0), peak_ratio=1.0) for i in range(8)]
+        roles = [Role.REJECT] * len(records)
+        kept, dropped = exclude_reject_mesh_records(records, roles, min_keep=0)
+        self.assertEqual(len(kept), 0)
+        self.assertEqual(dropped, 8)
+
 
 class TestLowContentGate(unittest.TestCase):
     def test_constant_not_alignable(self) -> None:
@@ -431,6 +439,13 @@ class TestLowContentGate(unittest.TestCase):
         self.assertTrue(cache.is_low_content((0, 0)))
         # Second remember does not revive.
         self.assertTrue(cache.is_low_content((0, 0)))
+
+    def test_source_cache_clear(self) -> None:
+        cache = SourceContentCache(min_std=1.0)
+        cache.remember((0, 0), 0.1)
+        cache.clear()
+        self.assertFalse(cache.is_low_content((0, 0)))
+        self.assertIsNone(cache.get((0, 0)))
 
     def test_env_low_content_std_override(self) -> None:
         old = os.environ.get('NORNIR_REFINE_LOW_CONTENT_STD_MIN')

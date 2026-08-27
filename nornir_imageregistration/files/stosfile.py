@@ -4,8 +4,11 @@ import copy
 import logging
 import ntpath
 import os
+import re
+from collections.abc import Sequence
 
 import numpy as np
+from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration import ITransform
@@ -15,6 +18,10 @@ import nornir_shared.files
 import nornir_shared.prettyoutput as PrettyOutput
 
 _logger = logging.getLogger(__name__)
+
+# Desktop / local-export names such as 1042_TEM_32_Leveled.png
+_FLATTENED_EXPORT_NAME = re.compile(
+    r'^(?P<section>\d+)_(?P<channel>[^_]+)_(?P<downsample>\d+)_(?P<filter>.+)$')
 
 
 def paths_refer_to_same_file(left: str | None, right: str | None) -> bool:
@@ -33,6 +40,97 @@ def paths_refer_to_same_file(left: str | None, right: str | None) -> bool:
     except (OSError, TypeError, ValueError):
         return False
     return left_norm == right_norm
+
+
+def transform_text_contains_nonfinite(transform: object | None) -> bool:
+    """Return True when a STOS transform string contains NaN or Inf tokens."""
+    if transform is None:
+        return False
+    text = str(transform).lower()
+    return 'nan' in text or 'inf' in text
+
+
+def _stos_image_hw(image_dim: list[float] | None) -> tuple[int, int] | None:
+    """Return ``(height, width)`` from a STOS image-dim vector, or None."""
+    if image_dim is None or len(image_dim) < 4:
+        return None
+    height = int(image_dim[3])
+    width = int(image_dim[2])
+    if height <= 0 or width <= 0:
+        return None
+    return height, width
+
+
+def _control_points_as_host_yx(points: NDArray | Sequence) -> np.ndarray | None:
+    """Return an (N, 2) host array of (Y, X) points, or None if unusable."""
+    try:
+        arr = nornir_imageregistration.EnsureNumpyArray(points, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if arr.ndim == 1 and arr.size >= 2:
+        arr = np.reshape(arr, (1, -1))
+    if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] < 2:
+        return None
+    return np.asarray(arr[:, :2], dtype=np.float64)
+
+
+def _any_point_near_image(points: np.ndarray, height: float, width: float, slack: float) -> bool:
+    """True when at least one finite point lies near the image rectangle."""
+    finite = np.isfinite(points).all(axis=1)
+    if not bool(np.any(finite)):
+        return False
+    pts = points[finite]
+    y_lo, y_hi = -slack * height, (1.0 + slack) * height
+    x_lo, x_hi = -slack * width, (1.0 + slack) * width
+    near = (
+        (pts[:, 0] >= y_lo) & (pts[:, 0] <= y_hi)
+        & (pts[:, 1] >= x_lo) & (pts[:, 1] <= x_hi))
+    return bool(np.any(near))
+
+
+def stos_transform_maps_onto_control_image(stos: StosFile, *, slack: float = 2.0) -> bool:
+    """True when the transform's control-space points lie near the control image.
+
+    Used to reject GridTransform files whose control points are orders of
+    magnitude off the image (legacy ir-tools / corrupt refine output). Those
+    files pass checksum/path freshness checks but place every refine cell
+    outside the tissue mask.
+
+    Mesh/grid STOS files are judged from recorded target (control) points, not
+    by transforming the full-image corners. Those corners usually sit outside
+    a tissue mesh, so corner ``Transform()`` extrapolates and false-rejects
+    healthy refine output.
+    """
+    target_hw = _stos_image_hw(stos.ControlImageDim)
+    if target_hw is None or stos.Transform is None:
+        return True
+    try:
+        transform = nornir_imageregistration.transforms.LoadTransform(stos.Transform, 1)
+    except (TypeError, ValueError, AssertionError):
+        return False
+    if transform is None:
+        return False
+
+    target_h, target_w = target_hw
+    target_points = getattr(transform, 'TargetPoints', None)
+    if target_points is not None:
+        pts = _control_points_as_host_yx(target_points)
+        if pts is not None:
+            return _any_point_near_image(pts, float(target_h), float(target_w), slack)
+
+    source_hw = _stos_image_hw(stos.MappedImageDim)
+    if source_hw is None:
+        return True
+    source_h, source_w = source_hw
+    samples = np.array(((float(source_h) * 0.5, float(source_w) * 0.5),), dtype=np.float64)
+    try:
+        mapped = transform.Transform(samples)
+    except (TypeError, ValueError):
+        return False
+    pts = _control_points_as_host_yx(mapped)
+    if pts is None:
+        return False
+    return _any_point_near_image(pts, float(target_h), float(target_w), slack)
 
 
 def _normalize_stos_path(path: str) -> str:
@@ -157,6 +255,35 @@ def _rebase_windows_absolute_to_stos_volume(stored_path: str, stos_dir: str) -> 
     return None
 
 
+def _rebase_flattened_export_name(stored_path: str, stos_dir: str) -> str | None:
+    """Map a flattened export name onto the volume image next to *stos_dir*.
+
+    Legacy local copies used names such as ``1042_TEM_32_Leveled.png``. The
+    assembled volume file is
+    ``{section}/{channel}/{filter}/Images/{downsample:03d}/{section}_{channel}_{filter}.ext``.
+    """
+    filename = os.path.basename(stored_path.replace('\\', '/'))
+    stem, ext = os.path.splitext(filename)
+    match = _FLATTENED_EXPORT_NAME.match(stem)
+    if match is None:
+        return None
+
+    section = match.group('section')
+    channel = match.group('channel')
+    downsample = int(match.group('downsample'))
+    filter_name = match.group('filter')
+    standard_name = f'{section}_{channel}_{filter_name}{ext}'
+    relative = os.path.join(
+        section, channel, filter_name, 'Images', f'{downsample:03d}', standard_name)
+
+    for ancestor in _iter_path_ancestors(stos_dir):
+        candidate = os.path.normpath(os.path.join(ancestor, relative))
+        if os.path.isfile(candidate):
+            _log_rebased_windows_stos_path(stored_path, candidate)
+            return candidate
+    return None
+
+
 def _path_from_stos_file(stored_path: str, stos_dir: str) -> str:
     """Resolve a stored STOS path (relative or absolute) to an absolute path.
 
@@ -173,6 +300,11 @@ def _path_from_stos_file(stored_path: str, stos_dir: str) -> str:
 
     if _looks_like_windows_absolute(stored_path):
         rebased = _rebase_windows_absolute_to_stos_volume(stored_path, stos_dir)
+        if rebased is not None and os.path.exists(rebased):
+            return rebased
+        flattened = _rebase_flattened_export_name(stored_path, stos_dir)
+        if flattened is not None:
+            return flattened
         if rebased is not None:
             return rebased
         if os.path.isabs(stored_path):
@@ -574,6 +706,10 @@ class StosFile(object):
         (see :func:`_path_for_stos_file`). After :meth:`Load`, in-memory
         ``*FullPath`` fields are absolute again.
         """
+        if transform_text_contains_nonfinite(self.Transform):
+            raise ValueError(
+                f"Refusing to write STOS with NaN/Inf transform values: {filename}")
+
         OutLines = list()
         stos_dir = os.path.dirname(os.path.abspath(filename))
 
@@ -991,6 +1127,12 @@ def AddStosTransforms(A_To_B,
     '''
     A_To_B_Stos = __argumentToStos(A_To_B)
     B_To_C_Stos = __argumentToStos(B_To_C)
+    a_label = A_To_B if isinstance(A_To_B, str) else "mapped→control STOS"
+    c_label = B_To_C if isinstance(B_To_C, str) else "control→volume STOS"
+    if transform_text_contains_nonfinite(A_To_B_Stos.Transform):
+        raise ValueError(f"NaN/Inf values in mapped→control transform: {a_label}")
+    if transform_text_contains_nonfinite(B_To_C_Stos.Transform):
+        raise ValueError(f"NaN/Inf values in control→volume transform: {c_label}")
 
     # I'll need to make sure I remember to set the downsample factor when I warp the .mosaic files
     A_To_B_Transform = nornir_imageregistration.transforms.LoadTransform(A_To_B_Stos.Transform)  # type: ignore[arg-type]
@@ -1023,6 +1165,9 @@ def AddStosTransforms(A_To_B,
     A_To_C_Stos.ControlMaskFullPath = B_To_C_Stos.ControlMaskFullPath
 
     A_To_C_Stos.Transform = nornir_imageregistration.transforms.TransformToIRToolsString(A_To_C_Transform)  # type: ignore[arg-type]
+    if transform_text_contains_nonfinite(A_To_C_Stos.Transform):
+        raise ValueError(
+            f"Composing {a_label} with {c_label} introduced NaN/Inf transform values")
 
     #     if hasattr(A_To_B_Transform, "gridWidth") and hasattr(A_To_B_Transform, "gridHeight"):
     #         A_To_C_Stos.transform = nornir_imageregistration.transforms.TransformToIRToolsGridString(A_To_C_Transform, A_To_B_Transform.gridWidth, A_To_B_Transform.gridHeight)

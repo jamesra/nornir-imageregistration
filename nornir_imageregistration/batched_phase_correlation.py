@@ -132,11 +132,16 @@ def batched_find_peak(images: NDArray[np.floating],
         xp_mask = cp.get_array_module(overlap_mask)
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
-        mask2d = overlap_mask.astype(bool)
+        mask2d = overlap_mask.astype(xp.bool_)
         # Argmax should ignore non-overlap pixels.
         search = xp.where(mask2d[None, :, :], images, xp.asarray(-xp.inf, dtype=images.dtype))
-        mask_count = float(xp.count_nonzero(mask2d))
-        mean_pixel = (images * mask2d[None, :, :]).sum(axis=(-2, -1)) / max(mask_count, 1.0)
+        # Keep the count on-device: float(xp.count_nonzero(...)) forces a host sync and
+        # can raise CuPy implicit-conversion errors under some backends.
+        mask_count = xp.asarray(xp.count_nonzero(mask2d), dtype=images.dtype)
+        mean_pixel = (
+            (images * mask2d[None, :, :]).sum(axis=(-2, -1))
+            / xp.maximum(mask_count, xp.asarray(1.0, dtype=images.dtype))
+        )
     else:
         search = images
         mean_pixel = images.mean(axis=(-2, -1))

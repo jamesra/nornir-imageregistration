@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from hypothesis import example, given, settings, strategies as st
+
 import numpy as np
 
 import nornir_imageregistration.core as core
@@ -18,6 +20,8 @@ from nornir_imageregistration.files.stosfile import (
     _path_for_stos_file,
     _path_from_stos_file,
     paths_refer_to_same_file,
+    stos_transform_maps_onto_control_image,
+    transform_text_contains_nonfinite,
 )
 
 # Minimal valid rigid transform for a 4x4 image pair.
@@ -154,6 +158,48 @@ class TestStosPathHelpers(unittest.TestCase):
                 if call.args and "Rebased Windows STOS path" in call.args[0]
             ]
             self.assertEqual(len(rebase_calls), 1)
+
+    def test_path_from_stos_file_rebases_flattened_desktop_export(self) -> None:
+        """Desktop copies named 1042_TEM_32_Leveled.png map onto the volume pyramid file."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            image = os.path.join(
+                volume, "TEM", "1042", "TEM", "Leveled", "Images", "032", "1042_TEM_Leveled.png")
+            stos_dir = os.path.join(volume, "TEM", "Grid32", "Manual")
+            os.makedirs(os.path.dirname(image), exist_ok=True)
+            os.makedirs(stos_dir, exist_ok=True)
+            _write_tiny_png(image)
+
+            stored = r"C:\Users\u0490822\Desktop\RC2_LocalEnhanced\1042_TEM_32_Leveled.png"
+            resolved = _path_from_stos_file(stored, stos_dir)
+            self.assertEqual(os.path.normpath(resolved), os.path.normpath(image))
+            self.assertTrue(os.path.isfile(resolved))
+
+    def test_stos_load_rebases_flattened_desktop_export_lines(self) -> None:
+        """Manual .stos files from a local enhanced folder load volume images."""
+        with tempfile.TemporaryDirectory() as root:
+            volume = os.path.join(root, "RC2")
+            stos_dir = os.path.join(volume, "TEM", "Grid32", "Manual")
+            os.makedirs(stos_dir, exist_ok=True)
+            control = os.path.join(
+                volume, "TEM", "1042", "TEM", "Leveled", "Images", "032", "1042_TEM_Leveled.png")
+            mapped = os.path.join(
+                volume, "TEM", "1044", "TEM", "Leveled", "Images", "032", "1044_TEM_Leveled.png")
+            for path in (control, mapped):
+                _write_tiny_png(path)
+
+            stos_path = os.path.join(
+                stos_dir, "1044-1042_ctrl-TEM_Leveled_map-TEM_Leveled.stos")
+            with open(stos_path, "w", encoding="utf-8") as handle:
+                handle.write(r"C:\Users\u0490822\Desktop\RC2_LocalEnhanced\1042_TEM_32_Leveled.png" + "\n")
+                handle.write(r"C:\Users\u0490822\Desktop\RC2_LocalEnhanced\1044_TEM_32_Leveled.png" + "\n")
+                handle.write("0\n0\n")
+                handle.write("1 1 4 4\n1 1 4 4\n")
+                handle.write(f"{_MIN_TRANSFORM}\n")
+
+            loaded = StosFile.Load(stos_path)
+            self.assertEqual(os.path.normpath(loaded.ControlImageFullPath), os.path.normpath(control))
+            self.assertEqual(os.path.normpath(loaded.MappedImageFullPath), os.path.normpath(mapped))
 
     def test_path_from_stos_file_rebases_windows_absolute_when_missing(self) -> None:
         """Rebase by shared volume folder name even if the image is not on disk yet."""
@@ -334,6 +380,71 @@ class TestStosFileRelativePaths(unittest.TestCase):
         self.assertTrue(paths_refer_to_same_file(absolute, self.layout["control_image"]))
         self.assertFalse(
             paths_refer_to_same_file(self.layout["control_image"], self.layout["mapped_image"]))
+
+
+class TestStosTransformPlausibility(unittest.TestCase):
+    """Reject GridTransforms whose control points are off the recorded image."""
+
+    def test_identity_grid_is_plausible(self) -> None:
+        stos = StosFile()
+        stos.ControlImageDim = [1.0, 1.0, 64.0, 64.0]
+        stos.MappedImageDim = [1.0, 1.0, 64.0, 64.0]
+        stos.Transform = (
+            "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 1 0 0 1 0 0 1 1 fp 2 32 32")
+        self.assertTrue(stos_transform_maps_onto_control_image(stos))
+
+    def test_huge_grid_control_points_are_implausible(self) -> None:
+        stos = StosFile()
+        stos.ControlImageDim = [1.0, 1.0, 3637.0, 3506.0]
+        stos.MappedImageDim = [1.0, 1.0, 3495.0, 3496.0]
+        stos.Transform = (
+            "GridTransform_double_2_2 vp 8 18836250 264763264 27859404 391586080 "
+            "36882556 518408864 45905708 645231680 fp 7 0 1 1 0 0 3495 3496")
+        self.assertFalse(stos_transform_maps_onto_control_image(stos))
+
+    def test_inset_mesh_is_plausible_without_image_corners(self) -> None:
+        """Tissue meshes do not cover the image rectangle; corners must not reject them."""
+        stos = StosFile()
+        stos.ControlImageDim = [1.0, 1.0, 64.0, 64.0]
+        stos.MappedImageDim = [1.0, 1.0, 64.0, 64.0]
+        stos.Transform = (
+            "MeshTransform_double_2_2 vp 12 "
+            "0.3 0.3 20 20 0.7 0.3 45 20 0.5 0.7 32 45 "
+            "fp 8 0 16 16 0 0 64 64 3")
+        self.assertTrue(stos_transform_maps_onto_control_image(stos))
+
+    @given(width=st.integers(min_value=8, max_value=512), height=st.integers(min_value=8, max_value=512))
+    @example(width=64, height=64)
+    @settings(max_examples=25, deadline=None)
+    def test_identity_affine_is_plausible_for_any_image_size(self, width: int, height: int) -> None:
+        stos = StosFile()
+        stos.ControlImageDim = [1.0, 1.0, float(width), float(height)]
+        stos.MappedImageDim = [1.0, 1.0, float(width), float(height)]
+        stos.Transform = (
+            "FixedCenterOfRotationAffineTransform_double_2_2 vp 8 1 0 0 1 0 0 1 1 "
+            f"fp 2 {width / 2:g} {height / 2:g}")
+        self.assertTrue(stos_transform_maps_onto_control_image(stos))
+
+
+class TestStosNonfiniteTransform(unittest.TestCase):
+    def test_detects_nan_and_inf_tokens(self) -> None:
+        self.assertTrue(transform_text_contains_nonfinite("GridTransform_double_2_2 vp 4 nan nan nan nan"))
+        self.assertTrue(transform_text_contains_nonfinite("vp 2 inf -inf"))
+        self.assertFalse(transform_text_contains_nonfinite(_MIN_TRANSFORM))
+
+    def test_save_refuses_nan_transform(self) -> None:
+        stos = StosFile()
+        stos.ControlImageFullPath = "control.png"
+        stos.MappedImageFullPath = "mapped.png"
+        stos.ControlImageDim = [1.0, 1.0, 4.0, 4.0]
+        stos.MappedImageDim = [1.0, 1.0, 4.0, 4.0]
+        stos.Transform = "GridTransform_double_2_2 vp 4 nan nan nan nan"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_path = os.path.join(temp_dir, "bad.stos")
+            with self.assertRaises(ValueError) as raised:
+                stos.Save(out_path)
+            self.assertIn("NaN/Inf", str(raised.exception))
+            self.assertFalse(os.path.exists(out_path))
 
 
 if __name__ == "__main__":

@@ -6,10 +6,12 @@ import unittest
 
 import hypothesis.strategies as st
 import numpy as np
-from hypothesis import given, settings
+from hypothesis import example, given, settings
+from hypothesis.extra.numpy import arrays
 
 from nornir_imageregistration.transforms.controlpointbase import (
     ControlPointBase,
+    ControlPointBase_GPUComponent,
     ControlPointsHaveDuplicatePositions,
     GroupControlPointIndicesByPosition,
 )
@@ -139,6 +141,33 @@ class TestControlPointsHaveDuplicatePositions(unittest.TestCase):
         self.assertTrue(ControlPointsHaveDuplicatePositions(with_dup))
 
 
+_finite32 = st.floats(
+    min_value=-1e5, max_value=1e5, allow_nan=False, allow_infinity=False, width=32)
+
+
+def _as_host(arr) -> np.ndarray:
+    getter = getattr(arr, "get", None)
+    if callable(getter):
+        return np.asarray(getter())
+    return np.asarray(arr)
+
+
+def _keep_first_oracle(pts: np.ndarray, decimals: int = 3) -> np.ndarray:
+    yx = np.asarray(pts[:, 0:2], dtype=np.float64)
+    scale = 10.0 ** decimals
+    rounded = np.around(yx, decimals=decimals)
+    qy = np.rint(rounded[:, 0] * scale).astype(np.int64)
+    qx = np.rint(rounded[:, 1] * scale).astype(np.int64)
+    seen: set[tuple[int, int]] = set()
+    keep: list[int] = []
+    for i in range(int(pts.shape[0])):
+        key = (int(qy[i]), int(qx[i]))
+        if key not in seen:
+            seen.add(key)
+            keep.append(i)
+    return pts[np.asarray(keep, dtype=np.intp)]
+
+
 class TestDuplicateGrouping(unittest.TestCase):
     def test_find_duplicates_returns_only_multi_member_groups(self) -> None:
         points = np.array(
@@ -173,6 +202,78 @@ class TestDuplicateGrouping(unittest.TestCase):
                 dtype=np.float32,
             ),
         )
+
+    def test_remove_duplicate_empty_and_single(self) -> None:
+        empty = np.empty((0, 4), dtype=np.float32)
+        self.assertEqual(ControlPointBase.RemoveDuplicateControlPoints(empty).shape[0], 0)
+        one = np.array([[1.5, 2.5, 3.5, 4.5]], dtype=np.float32)
+        np.testing.assert_array_equal(ControlPointBase.RemoveDuplicateControlPoints(one), one)
+
+    def test_remove_duplicate_drops_nan_rows(self) -> None:
+        points = np.array(
+            [
+                [0.0, 0.0, 1.0, 1.0],
+                [np.nan, 0.0, 2.0, 2.0],
+                [1.0, 1.0, 3.0, 3.0],
+            ],
+            dtype=np.float32,
+        )
+        cleaned = ControlPointBase.RemoveDuplicateControlPoints(points)
+        np.testing.assert_array_equal(
+            cleaned,
+            np.array([[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 3.0, 3.0]], dtype=np.float32),
+        )
+
+    def test_remove_duplicate_rounds_to_three_decimals(self) -> None:
+        points = np.array(
+            [
+                [1.0, 1.0, 10.0, 10.0],
+                [1.0004, 1.0004, 20.0, 20.0],
+            ],
+            dtype=np.float32,
+        )
+        cleaned = ControlPointBase.RemoveDuplicateControlPoints(points)
+        self.assertEqual(cleaned.shape[0], 1)
+        np.testing.assert_array_equal(cleaned[0], points[0])
+
+    @given(
+        yx=arrays(
+            dtype=np.float32,
+            shape=st.integers(min_value=2, max_value=24).map(lambda n: (n, 2)),
+            elements=_finite32,
+        ),
+        dup_src=st.integers(min_value=0, max_value=23),
+        dup_dst=st.integers(min_value=0, max_value=23),
+    )
+    @example(
+        yx=np.array([[0.0, 0.0], [1.0, 1.0], [0.0, 0.0]], dtype=np.float32),
+        dup_src=0,
+        dup_dst=2,
+    )
+    @example(
+        yx=np.array([[-2.5, -3.25], [1.0, 0.0], [-2.5, -3.25]], dtype=np.float32),
+        dup_src=0,
+        dup_dst=2,
+    )
+    @settings(max_examples=40, deadline=None)
+    def test_remove_dups_keeps_first_numpy_matches_cupy(
+            self,
+            yx: np.ndarray,
+            dup_src: int,
+            dup_dst: int) -> None:
+        n = int(yx.shape[0])
+        yx = np.array(yx, copy=True)
+        yx[int(dup_dst) % n] = yx[int(dup_src) % n]
+        pts = np.hstack((yx, yx + 100.0)).astype(np.float32)
+        host_out = ControlPointBase.RemoveDuplicateControlPoints(pts)
+        np.testing.assert_array_equal(host_out, _keep_first_oracle(pts))
+        cp = _maybe_cupy()
+        if cp is None:
+            return
+        device_out = ControlPointBase.RemoveDuplicateControlPoints(cp.asarray(pts))
+        gpu_out = ControlPointBase_GPUComponent.RemoveDuplicateControlPoints(cp.asarray(pts))
+        np.testing.assert_allclose(_as_host(device_out), host_out, rtol=0, atol=1e-5)
+        np.testing.assert_allclose(_as_host(gpu_out), host_out, rtol=0, atol=1e-5)
 
 
 class TestCreateBetaMatrixDuplicates(unittest.TestCase):

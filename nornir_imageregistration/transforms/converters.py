@@ -7,17 +7,11 @@ from numpy.typing import NDArray
 import scipy
 
 import nornir_imageregistration
+from nornir_imageregistration import cp
 from nornir_imageregistration.spatial_distance import array_to_numpy_host
 from nornir_imageregistration.transforms import IControlPoints, ITransform, TransformType
 from nornir_imageregistration.transforms.pointrelations import ControlPointRelation, \
     calculate_control_points_relationship
-
-try:
-    import cupy as cp
-except ModuleNotFoundError:
-    import nornir_imageregistration.cupy_thunk as cp
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
 
 tau = np.pi * 2
 
@@ -158,6 +152,15 @@ def EstimateScale(source_points: NDArray[np.floating],
     return float(scale)
 
 
+def _coerce_to_array_module(arr: NDArray[np.floating], xp: Any) -> NDArray[np.floating]:
+    """Place *arr* on *xp* without a host round-trip when already resident there."""
+    if cp.get_array_module(arr) is xp:
+        return arr
+    if xp is np:
+        return nornir_imageregistration.EnsureNumpyArray(arr)
+    return xp.asarray(arr)
+
+
 def _translation_only_rigid_components(
         source_points: NDArray[np.floating],
         target_points: NDArray[np.floating],
@@ -172,10 +175,8 @@ def _translation_only_rigid_components(
         angle=0.0,
         scalar=1.0,
         flip_ud=reflected)
-    test_target_points = estimated_transform.Transform(source_points)
-    _ttp_get = getattr(test_target_points, "get", None)
-    _ttp_np = np.asarray(_ttp_get() if callable(_ttp_get) else test_target_points)
-    test_target_points = _ttp_np if xp is np else xp.asarray(_ttp_np)
+    test_target_points = _coerce_to_array_module(
+        estimated_transform.Transform(source_points), xp)
     test_target_center = xp.mean(test_target_points, axis=0)
     return RigidComponents(
         source_rotation_center=source_center,
@@ -271,10 +272,8 @@ def EstimateRigidComponentsFromControlPoints(target_points: NDArray[np.floating]
         scalar=scale_estimate,
         flip_ud=reflected)
 
-    test_target_points = estimated_transform.Transform(source_points)
-    _ttp_get = getattr(test_target_points, "get", None)
-    _ttp_np = np.asarray(_ttp_get() if callable(_ttp_get) else test_target_points)
-    test_target_points = _ttp_np if xp is np else xp.asarray(_ttp_np)
+    test_target_points = _coerce_to_array_module(
+        estimated_transform.Transform(source_points), xp)
     test_target_center = xp.mean(test_target_points, axis=0)
     tranlsation_estimate = target_center - test_target_center
 
@@ -638,7 +637,8 @@ def GetControlPointsForRigidTransform(input_transform: ITransform,
                         [ymax, 0],
                         [ymax, xmax]])
     out_corners = input_transform.Transform(corners)
-    return np.append(out_corners, corners, 1)
+    xp = cp.get_array_module(out_corners)
+    return xp.append(out_corners, xp.asarray(corners), 1)
 
 
 def ConvertTransformToGridTransform(input_transform: ITransform, source_image_shape: NDArray,
@@ -658,8 +658,6 @@ def ConvertTransformToGridTransform(input_transform: ITransform, source_image_sh
     grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,
                                                          grid_spacing=grid_spacing, grid_dims=grid_dims)
     grid_data.PopulateTargetPoints(input_transform)
-
-    point_pairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
 
     # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
 

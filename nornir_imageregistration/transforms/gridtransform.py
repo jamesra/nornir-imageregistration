@@ -284,7 +284,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
         self._grid = grid
         try:
-            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=False)
         except:
             print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
@@ -343,10 +343,8 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
     @property
     def fixedtri(self):
         if self._fixedtri is None:
-            # try:
-            # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
-            # except:
-            self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
+            self._fixedtri = scipy.spatial.Delaunay(
+                nornir_imageregistration.EnsureNumpyArray(self.TargetPoints), incremental=False)
 
         return self._fixedtri
 
@@ -515,8 +513,18 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
+
+        *remove_duplicates* is accepted for interface compatibility and is ignored;
+        a grid never unique-collapses (source lattice identity).
+        """
         xp = cp.get_array_module(self._points)
         point_xp = xp.asarray(point)
         if not isinstance(index, (int, np.integer)):
@@ -525,13 +533,18 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
-                                                                                                              NDArray[
-                                                                                                                  np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
-        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
+        return self.UpdateTargetPointsByIndex(
+            cast(int | NDArray[np.integer], index), points, remove_duplicates=remove_duplicates)
 
     def OnFixedPointChanged(self):
         super(GridTransform, self).OnFixedPointChanged()
@@ -565,7 +578,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
 class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, ITransformTranslation,
                                  ITransformTargetRotation, ITargetSpaceControlPointEdit,
-                                 IGridTransform, ITriangulatedTargetSpace, ControlPointBase):
+                                 IGridTransform, ITriangulatedTargetSpace, ControlPointBase_GPUComponent):
 
     @property
     def type(self) -> TransformType:
@@ -607,7 +620,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
         self._grid = grid
         try:
-            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=True)
         except:
             print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
@@ -665,10 +678,8 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def fixedtri(self):
         if self._fixedtri is None:
-            # try:
-            # self._fixedtri = Delaunay(self.TargetPoints, incremental =True)
-            # except:
-            self._fixedtri = scipy.spatial.Delaunay(self.TargetPoints, incremental=False)
+            self._fixedtri = scipy.spatial.Delaunay(
+                nornir_imageregistration.EnsureNumpyArray(self.TargetPoints), incremental=False)
 
         return self._fixedtri
 
@@ -718,12 +729,12 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     def TranslateFixed(self, offset: NDArray[np.floating]):
         """Translate all fixed points by the specified amount"""
 
-        self._points[:, 0:2] = self._points[:, 0:2] + offset
+        self._points[:, 0:2] = self._points[:, 0:2] + cp.asarray(offset)
         self.OnFixedPointChanged()
 
     def TranslateWarped(self, offset: NDArray[np.floating]):
         """Translate all warped points by the specified amount"""
-        self._points[:, 2:4] = self._points[:, 2:4] + offset
+        self._points[:, 2:4] = self._points[:, 2:4] + cp.asarray(offset)
         self.OnWarpedPointChanged()
 
     def GetPointPairsInRect(self, points: NDArray[np.floating],
@@ -855,17 +866,30 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             triangles = self.FixedTriangles
 
         fixedTriangleVerticies = self.TargetPoints[triangles]
-        swappedTriangleVerticies = np.swapaxes(fixedTriangleVerticies, 0, 2)
-        Centroids = np.mean(swappedTriangleVerticies, 1)
-        return np.swapaxes(Centroids, 0, 1)
+        xp = cp.get_array_module(fixedTriangleVerticies)
+        swappedTriangleVerticies = xp.swapaxes(fixedTriangleVerticies, 0, 2)
+        Centroids = xp.mean(swappedTriangleVerticies, 1)
+        return xp.swapaxes(Centroids, 0, 1)
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         """Rotate all warped points about a center by a given angle"""
-        self._points[:, 0:2] = ControlPointBase.RotatePoints(self.TargetPoints, rangle, rotationCenter)
+        xp = cp.get_array_module(self.TargetPoints)
+        center = rotationCenter if rotationCenter is not None else xp.mean(self.TargetPoints, axis=0)
+        self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, center)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
+
+        *remove_duplicates* is accepted for interface compatibility and is ignored;
+        a grid never unique-collapses (source lattice identity).
+        """
         xp = cp.get_array_module(self._points)
         point_xp = xp.asarray(point)
         if not isinstance(index, (int, np.integer)):
@@ -874,13 +898,18 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
-                                                                                                              NDArray[
-                                                                                                                  np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         distance, index = self.NearestFixedPoint(old_points)
-        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
+        return self.UpdateTargetPointsByIndex(
+            cast(int | NDArray[np.integer], index), points, remove_duplicates=remove_duplicates)
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPUComponent, self).OnFixedPointChanged()
@@ -889,7 +918,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             if interactive_edit.in_progress():
                 self._ForwardInterpolator = None
                 self._InverseInterpolator = None
-                super(ControlPointBase, self).OnTransformChanged()
+                super(ControlPointBase_GPUComponent, self).OnTransformChanged()
                 return
         except ImportError:
             pass
@@ -956,7 +985,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
         self._grid = grid
         try:
-            control_points = cp.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=True)
         except:
             print(f'Invalid grid:\n{grid.TargetPoints}\n\n{grid.SourcePoints}')
             raise
@@ -1145,12 +1174,23 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
 
     def RotateTargetPoints(self, rangle: float, rotationCenter: NDArray[np.floating] | None):
         """Rotate all warped points about a center by a given angle"""
-        center = rotationCenter if rotationCenter is not None else np.mean(self.TargetPoints, axis=0)
+        xp = cp.get_array_module(self.TargetPoints)
+        center = rotationCenter if rotationCenter is not None else xp.mean(self.TargetPoints, axis=0)
         self._points[:, 0:2] = ControlPointBase_GPUComponent.RotatePoints(self.TargetPoints, rangle, center)
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
+
+        *remove_duplicates* is accepted for interface compatibility and is ignored;
+        a grid never unique-collapses (source lattice identity).
+        """
         xp = cp.get_array_module(self._points)
         point_xp = xp.asarray(point)
         if not isinstance(index, (int, np.integer)):
@@ -1159,9 +1199,13 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
-                                                                                                              NDArray[
-                                                                                                                  np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         old_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(old_points)
         points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
         query_result = cast(
@@ -1169,7 +1213,8 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
             self.NearestFixedPoint(old_points),
         )
         distance, index = query_result
-        return self.UpdateTargetPointsByIndex(cast(int | NDArray[np.integer], index), points)
+        return self.UpdateTargetPointsByIndex(
+            cast(int | NDArray[np.integer], index), points, remove_duplicates=remove_duplicates)
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPU, self).OnFixedPointChanged()

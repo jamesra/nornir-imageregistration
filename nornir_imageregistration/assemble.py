@@ -62,6 +62,10 @@ def _assemble_distance_warp_order() -> int | None:
 
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray,
                  *, xp=None) -> NDArray[np.floating]:
+    """Integer YX meshgrid for a rectangle origin and area.
+
+    Accepts NumPy or CuPy via the *xp* argument (defaults to ``GetComputationModule``).
+    """
     if xp is None:
         xp = nornir_imageregistration.GetComputationModule()
     use_cp = xp is not np

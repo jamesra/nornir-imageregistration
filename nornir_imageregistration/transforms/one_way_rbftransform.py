@@ -114,7 +114,10 @@ class OneWayRBFWithLinearCorrection(Triangulation):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
                  BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
 
-        points = np.hstack((FixedPoints, WarpedPoints))
+        points = np.hstack((
+            nornir_imageregistration.EnsureNumpyArray(FixedPoints),
+            nornir_imageregistration.EnsureNumpyArray(WarpedPoints),
+        ))
         super(OneWayRBFWithLinearCorrection, self).__init__(points)
 
         self._rigid_transform = None
@@ -459,7 +462,7 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
                  BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
 
-        points = np.hstack((FixedPoints, WarpedPoints))
+        points = cp.hstack((cp.asarray(FixedPoints), cp.asarray(WarpedPoints)))
         super(OneWayRBFWithLinearCorrection_GPUComponent, self).__init__(points)
 
         self._rigid_transform = None

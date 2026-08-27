@@ -129,6 +129,7 @@ class TestGridDivisionAndMasking(unittest.TestCase):
         self.assertIn("target cell tissue mask", message)
         self.assertIn("mask_true_fraction=0.0000", message)
         self.assertIn("min_unmasked_area=0.49", message)
+        self.assertIn("points_n=", message)
 
     def test_masking_simple(self):
         cell_size = np.asarray((128, 128), dtype=int)

@@ -16,6 +16,7 @@ from nornir_imageregistration.refine_shared.coherent_residual import (
     estimate_global_fov_residual_translation,
     should_attempt_global_fov_recovery,
     should_preserve_post_residual_transform,
+    should_keep_prior_sparse_mesh,
 )
 from nornir_imageregistration import local_distortion_correction as ldc
 from nornir_imageregistration.local_distortion_correction import (
@@ -224,6 +225,47 @@ class TestPreservePostResidualTransform(unittest.TestCase):
         ))
 
 
+class TestKeepPriorSparseMesh(unittest.TestCase):
+    """Non-residual reject-soup must not replace a usable prior pose."""
+
+    def test_keeps_rigid_prior_when_mesh_is_triangulation_floor(self) -> None:
+        """784-782 style: 0 locks, ~3 emergency-filled rejects, rigid input."""
+        self.assertTrue(should_keep_prior_sparse_mesh(
+            residual_applied=False,
+            n_mesh=3,
+            n_grid=274,
+            n_locks=0,
+            n_prior_points=0,
+        ))
+
+    def test_keeps_dense_prior_when_mesh_collapses(self) -> None:
+        self.assertTrue(should_keep_prior_sparse_mesh(
+            residual_applied=False,
+            n_mesh=3,
+            n_grid=274,
+            n_locks=0,
+            n_prior_points=200,
+        ))
+
+    def test_allows_dense_rebuild(self) -> None:
+        self.assertFalse(should_keep_prior_sparse_mesh(
+            residual_applied=False,
+            n_mesh=150,
+            n_grid=274,
+            n_locks=0,
+            n_prior_points=0,
+        ))
+
+    def test_still_preserves_after_residual(self) -> None:
+        self.assertTrue(should_keep_prior_sparse_mesh(
+            residual_applied=True,
+            n_mesh=14,
+            n_grid=6000,
+            n_locks=0,
+            n_prior_points=6000,
+        ))
+
+
 class TestFinishOnEmptyAlignmentPass(unittest.TestCase):
     """Empty remasure after a prior pass must not abort the refine pipeline."""
 
@@ -252,6 +294,18 @@ class TestBuildMeshTransformOrKeep(unittest.TestCase):
         self.assertEqual(empty.shape, (0, 4))
         self.assertEqual(ldc._fixed_point_count(empty), 0)
         self.assertEqual(ldc._fixed_point_count(None), 0)
+
+    def test_control_point_count_rigid_is_zero(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        self.assertEqual(ldc._control_point_count(prior), 0)
+
+    def test_keeps_prior_when_zero_records(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        transform, used, scores = ldc._build_mesh_transform_or_keep(
+            [], prior_transform=prior, fixed_points=None)
+        self.assertIs(transform, prior)
+        self.assertEqual(len(used), 0)
+        self.assertEqual(scores.shape[0], 0)
 
 
 if __name__ == '__main__':

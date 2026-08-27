@@ -263,6 +263,8 @@ def image_phase_correlation(target_image: NDArray[np.floating],
     :param fft_target: Optional precomputed FFT of ``(target_image - target_mean)``. When
         provided, the target FFT is reused and not freed (for multi-angle sweeps).
     :return: Correlation image of the FFT's. Light pixels indicate the phase is well aligned at that offset.
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
     :raises ValueError: If the dimensions of target_image and source_image do not match.
     """
     xp = cp.get_array_module(target_image if fft_target is None else fft_target)

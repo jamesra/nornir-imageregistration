@@ -8,6 +8,7 @@ from typing import Protocol, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from nornir_imageregistration import cp
 from nornir_imageregistration.refine_shared.failure_mode_stats import peak_direction_coherence
 from nornir_imageregistration.refine_shared.peak_ratio_gates import PEAK_RATIO_MIN, finite_peak_ratio
 
@@ -252,6 +253,17 @@ def should_attempt_global_fov_recovery(
     return False
 
 
+def _sparse_mesh_floor(
+        n_grid: int,
+        *,
+        min_mesh_frac: float = MIN_MESH_FRAC_AFTER_RESIDUAL,
+        min_mesh_abs: int = MIN_MESH_ABS_AFTER_RESIDUAL,
+) -> int:
+    """Minimum included-cell count before a mesh rebuild is considered dense."""
+    grid_n = max(1, int(n_grid))
+    return max(int(min_mesh_abs), int(float(min_mesh_frac) * float(grid_n)))
+
+
 def should_preserve_post_residual_transform(
         *,
         residual_applied: bool,
@@ -274,8 +286,47 @@ def should_preserve_post_residual_transform(
     grid_n = max(1, int(n_grid))
     if float(n_locks) / float(grid_n) >= float(lock_frac_trigger):
         return False
-    min_keep = max(int(min_mesh_abs), int(float(min_mesh_frac) * float(grid_n)))
-    return int(n_mesh) < int(min_keep)
+    return int(n_mesh) < _sparse_mesh_floor(
+        grid_n, min_mesh_frac=min_mesh_frac, min_mesh_abs=min_mesh_abs)
+
+
+def should_keep_prior_sparse_mesh(
+        *,
+        n_mesh: int,
+        n_grid: int,
+        n_locks: int,
+        n_prior_points: int,
+        residual_applied: bool = False,
+        lock_frac_trigger: float = LOCK_FRAC_TRIGGER,
+        min_mesh_frac: float = MIN_MESH_FRAC_AFTER_RESIDUAL,
+        min_mesh_abs: int = MIN_MESH_ABS_AFTER_RESIDUAL,
+) -> bool:
+    """True when a sparse rebuild would replace a usable prior pose with soup.
+
+    Covers the post-residual case and the non-residual collapse where travel /
+    REJECT filters leave only the triangulation floor (often 3 emergency-filled
+    rejects) or a later path dumps every raw alignment, including wrap peaks.
+    """
+    if should_preserve_post_residual_transform(
+            residual_applied=residual_applied,
+            n_mesh=n_mesh,
+            n_grid=n_grid,
+            n_locks=n_locks,
+            lock_frac_trigger=lock_frac_trigger,
+            min_mesh_frac=min_mesh_frac,
+            min_mesh_abs=min_mesh_abs):
+        return True
+    if residual_applied:
+        return False
+    grid_n = max(1, int(n_grid))
+    if float(n_locks) / float(grid_n) >= float(lock_frac_trigger):
+        return False
+    if int(n_mesh) >= _sparse_mesh_floor(
+            grid_n, min_mesh_frac=min_mesh_frac, min_mesh_abs=min_mesh_abs):
+        return False
+    prior = int(n_prior_points)
+    # Rigid / non-mesh priors report 0 control points; a 3-point reject mesh is worse.
+    return prior > int(n_mesh) or prior == 0
 
 
 def estimate_global_fov_residual_translation(
@@ -305,7 +356,7 @@ def estimate_global_fov_residual_translation(
     except Exception:
         return None
 
-    xp = nornir_imageregistration.GetComputationModule()
+    xp = cp.get_array_module(target)
     target = xp.asarray(target, dtype=xp.float64)
     source = xp.asarray(source, dtype=xp.float64)
     if target.size == 0 or source.size == 0:
@@ -340,6 +391,10 @@ def estimate_global_fov_residual_translation(
             extrapolate=True,
             cval=0.0,
         )
+        # Assemble may follow the process-wide lib (CuPy in Pyre) even when
+        # the STOS images are host arrays. Bring the warp back onto *xp*.
+        if xp is np:
+            warped = nornir_imageregistration.EnsureNumpyArray(warped)
         warped = xp.asarray(warped, dtype=xp.float64)
         # Replace NaNs from OOB with median so PC stays defined.
         finite_mask = xp.isfinite(warped)

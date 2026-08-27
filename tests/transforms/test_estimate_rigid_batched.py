@@ -10,6 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
+import nornir_imageregistration
 from nornir_imageregistration.transforms import CenteredSimilarity2DTransform
 from nornir_imageregistration.transforms.converters import (
     EstimateRigidComponentsFromControlPoints,
@@ -93,6 +94,53 @@ class TestEstimateRigidBatched(unittest.TestCase):
         st_t = RigidComponentsToCenteredSimilarityTransform(scalar)
         err = np.max(np.abs(np.asarray(bt.Transform(source)) - np.asarray(st_t.Transform(source))))
         self.assertLess(float(err), 1e-5)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "requires CuPy")
+    def test_scalar_cupy_stays_on_device_and_matches_numpy(self) -> None:
+        import cupy as cupy_mod
+
+        rng = np.random.default_rng(1)
+        source = rng.normal(size=(9, 2)) * 10.0 + 50.0
+        t = CenteredSimilarity2DTransform(
+            target_offset=np.array([3.0, -2.0]),
+            source_rotation_center=source.mean(axis=0),
+            angle=0.4,
+            scalar=1.05,
+            flip_ud=False,
+        )
+        target = np.asarray(t.Transform(source))
+        host = EstimateRigidComponentsFromControlPoints(target, source)
+        device = EstimateRigidComponentsFromControlPoints(
+            cupy_mod.asarray(target), cupy_mod.asarray(source))
+        self.assertIsInstance(device.translation, cupy_mod.ndarray)
+        self.assertIsInstance(device.source_rotation_center, cupy_mod.ndarray)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(device.translation),
+            nornir_imageregistration.EnsureNumpyArray(host.translation), atol=1e-9)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(device.source_rotation_center),
+            nornir_imageregistration.EnsureNumpyArray(host.source_rotation_center),
+            atol=1e-9)
+        self.assertAlmostEqual(device.scale, host.scale, places=10)
+        self.assertLess(_angle_diff(device.angle, host.angle), 1e-9)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "requires CuPy")
+    def test_translation_only_cupy_stays_on_device(self) -> None:
+        import cupy as cupy_mod
+
+        source = np.ones((5, 2), dtype=np.float64) * 10.0
+        target = source + np.array([2.0, 3.0])
+        host = EstimateRigidComponentsFromControlPoints(
+            target, source, reflected_override=False)
+        device = EstimateRigidComponentsFromControlPoints(
+            cupy_mod.asarray(target), cupy_mod.asarray(source),
+            reflected_override=False)
+        self.assertIsInstance(device.translation, cupy_mod.ndarray)
+        np.testing.assert_allclose(
+            nornir_imageregistration.EnsureNumpyArray(device.translation),
+            nornir_imageregistration.EnsureNumpyArray(host.translation), atol=1e-9)
+        self.assertAlmostEqual(device.scale, 1.0)
+        self.assertAlmostEqual(device.angle, 0.0)
 
 
 if __name__ == '__main__':

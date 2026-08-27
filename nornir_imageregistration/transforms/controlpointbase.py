@@ -21,12 +21,60 @@ from nornir_imageregistration.transforms.base import IControlPoints, IDiscreteTr
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 
 
-def _as_bool_scalar(value: Any) -> bool:
-    """Convert a 0-d NumPy/CuPy boolean result to a Python bool."""
-    item = getattr(value, "item", None)
-    if callable(item):
-        return bool(item())
-    return bool(value)
+def _host_yx_columns(points: NDArray[np.floating]) -> np.ndarray:
+    """Return host ``(N, 2)`` target YX; empty input becomes ``(0, 2)``."""
+    host = array_to_numpy_host(points)
+    if host.ndim == 1:
+        host = np.atleast_2d(host)
+    if host.size == 0 or host.shape[0] == 0:
+        return np.empty((0, 2), dtype=np.float64)
+    return np.asarray(host[:, 0:2], dtype=np.float64, order="C")
+
+
+def _packed_rounded_yx_keys(yx: np.ndarray, decimals: int) -> np.ndarray:
+    """Pack rounded host YX into 1-D int64 keys.
+
+    CuPy ``unique(axis=0)`` on small 2-D arrays is hundreds of milliseconds;
+    a host 1-D unique on packed keys is the dual-backend path for control points.
+    """
+    decimals_i = int(decimals)
+    scale = 10.0 ** decimals_i
+    rounded = np.around(yx, decimals=decimals_i)
+    qy = np.rint(rounded[:, 0] * scale).astype(np.int64, copy=False)
+    qx = np.rint(rounded[:, 1] * scale).astype(np.int64, copy=False)
+    return (qy << np.int64(32)) | (qx & np.int64(0xFFFFFFFF))
+
+
+def _rounded_yx_unique(
+        points: NDArray[np.floating],
+        *,
+        decimals: int = 3,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(first_idx, inverse)`` for rounded fixed-space (y, x) on the host.
+
+    ``first_idx`` is the first occurrence of each unique key in ``np.unique``
+    (sorted-key) order. ``inverse`` maps each input row to that unique label.
+    """
+    yx = _host_yx_columns(points)
+    n = int(yx.shape[0])
+    if n == 0:
+        empty = np.empty(0, dtype=np.intp)
+        return empty, empty
+    keys = _packed_rounded_yx_keys(yx, decimals)
+    _uniq, first_idx, inverse = np.unique(keys, return_index=True, return_inverse=True)
+    return first_idx.astype(np.intp, copy=False), inverse.astype(np.intp, copy=False)
+
+
+def _first_indices_by_rounded_yx(
+        points: NDArray[np.floating],
+        *,
+        decimals: int = 3,
+) -> np.ndarray:
+    """Original-order indices of the first row at each rounded fixed-space (y, x)."""
+    first_idx, _inverse = _rounded_yx_unique(points, decimals=decimals)
+    if first_idx.size == 0:
+        return first_idx
+    return np.sort(first_idx)
 
 
 def GroupControlPointIndicesByPosition(
@@ -40,30 +88,19 @@ def GroupControlPointIndicesByPosition(
     position (first-seen order of positions; indices within a group in ascending
     input order). Singleton positions are included as length-1 lists.
 
-    Rounding and uniqueness run on the input array backend (``xp``). Only the
-    compact inverse/index vectors are brought to the host to assemble Python lists.
+    Uniqueness runs on the host from a packed 1-D key so NumPy and CuPy inputs
+    share one path (CuPy ``unique(axis=0)`` is not used).
     """
-    xp = cp.get_array_module(points)
-    pts = xp.asarray(points)
-    if pts.ndim == 1:
-        pts = xp.atleast_2d(pts)
-    if pts.shape[0] == 0:
+    first_idx, inverse = _rounded_yx_unique(points, decimals=decimals)
+    if first_idx.size == 0:
         return []
 
-    rounded = xp.around(pts[:, 0:2], decimals)
-    _unique, first_idx, inverse = xp.unique(
-        rounded, axis=0, return_index=True, return_inverse=True
-    )
-
-    # Host assembly of list[list[int]]; transfer only int index vectors.
-    first_idx_h = array_to_numpy_host(first_idx)
-    inverse_h = array_to_numpy_host(inverse)
-    appearance_order = np.argsort(first_idx_h)
+    appearance_order = np.argsort(first_idx)
     label_to_group = np.empty(appearance_order.shape[0], dtype=np.intp)
     label_to_group[appearance_order] = np.arange(appearance_order.shape[0], dtype=np.intp)
 
     groups: list[list[int]] = [[] for _ in range(appearance_order.shape[0])]
-    for i, label in enumerate(inverse_h.tolist()):
+    for i, label in enumerate(inverse.tolist()):
         groups[int(label_to_group[int(label)])].append(i)
     return groups
 
@@ -75,19 +112,15 @@ def ControlPointsHaveDuplicatePositions(
 ) -> bool:
     """Return True if any rounded fixed-space (y, x) position appears more than once.
 
-    Stays on the input backend; faster than building index groups when only a
-    yes/no answer is needed (e.g. RBF ``CreateBetaMatrix``).
+    Faster than building index groups when only a yes/no answer is needed
+    (e.g. RBF ``CreateBetaMatrix``).
     """
-    xp = cp.get_array_module(points)
-    pts = xp.asarray(points)
-    if pts.ndim == 1:
-        pts = xp.atleast_2d(pts)
-    if pts.shape[0] <= 1:
+    yx = _host_yx_columns(points)
+    n = int(yx.shape[0])
+    if n <= 1:
         return False
-
-    rounded = xp.around(pts[:, 0:2], decimals)
-    _unique, counts = xp.unique(rounded, axis=0, return_counts=True)
-    return _as_bool_scalar(xp.any(counts > 1))
+    keys = _packed_rounded_yx_keys(yx, decimals)
+    return int(np.unique(keys).shape[0]) != n
 
 
 class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, DefaultTransformChangeEvents,
@@ -124,14 +157,13 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         """Return a copy of *points* without duplicate fixed-space (y, x) coordinates.
 
         First occurrence order is preserved. Coordinates are rounded to 3 decimals
-        before comparison.
+        before comparison. Numpy in → numpy out; CuPy in → CuPy out.
         """
         (points, _invalid_mask) = utils.InvalidIndices(points)
         if points.shape[0] == 0:
             return points.copy()
 
-        groups = GroupControlPointIndicesByPosition(points)
-        keep_idx = [group[0] for group in groups]
+        keep_idx = _first_indices_by_rounded_yx(points, decimals=3)
         xp = cp.get_array_module(points)
         return xp.asarray(points)[xp.asarray(keep_idx, dtype=xp.intp)]
 
@@ -387,17 +419,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
     def RemoveDuplicateControlPoints(points: NDArray[np.floating]) -> NDArray[np.floating]:
         """Return a copy of *points* without duplicate fixed-space (y, x) coordinates.
 
-        First occurrence order is preserved. Coordinates are rounded to 3 decimals
-        before comparison.
+        Delegates to ``ControlPointBase`` so CPU/GPU collapse cannot drift.
         """
-        (points, _invalid_mask) = utils.InvalidIndices(points)
-        if points.shape[0] == 0:
-            return points.copy()
-
-        groups = GroupControlPointIndicesByPosition(points)
-        keep_idx = [group[0] for group in groups]
-        xp = cp.get_array_module(points)
-        return xp.asarray(points)[xp.asarray(keep_idx, dtype=xp.intp)]
+        return ControlPointBase.RemoveDuplicateControlPoints(points)
 
     @classmethod
     def EnsurePointsAre2DCuPyArray(cls, points):
@@ -591,9 +615,9 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
     def RotatePoints(points, rangle: float, rotationCenter: NDArray[np.floating]):
         """Rotate all points about a center by a given angle"""
 
-        rt = nornir_imageregistration.transforms.Rigid_GPU(target_offset=(0, 0),  # type: ignore[attr-defined]
-                                                           source_rotation_center=rotationCenter,
-                                                           angle=rangle)
+        rt = nornir_imageregistration.transforms.Rigid(target_offset=(0, 0),
+                                                       source_rotation_center=rotationCenter,
+                                                       angle=rangle)
         rotated = rt.Transform(points)
         return rotated
         # temp = points - rotationCenter

@@ -55,11 +55,15 @@ def _defer_continuous_rbf(model: Any) -> None:
 def _update_fallback_target_by_index(
         model: Any,
         index: int | NDArray[np.integer],
-        point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+        point: NDArray[np.floating] | None,
+        *,
+        remove_duplicates: bool = True,
+) -> int | NDArray[np.integer]:
     """Update discrete target points; RBF reconstruction is always deferred."""
     if point is None:
         raise ValueError("point cannot be None")
-    result = model._discrete_transform.UpdateTargetPointsByIndex(index, point)
+    result = model._discrete_transform.UpdateTargetPointsByIndex(
+        index, point, remove_duplicates=remove_duplicates)
     _defer_continuous_rbf(model)
     model.OnTransformChanged()
     return result
@@ -68,11 +72,15 @@ def _update_fallback_target_by_index(
 def _update_fallback_target_by_position(
         model: Any,
         index: NDArray[np.floating],
-        point: NDArray[np.floating] | None) -> int | NDArray[np.integer]:
+        point: NDArray[np.floating] | None,
+        *,
+        remove_duplicates: bool = True,
+) -> int | NDArray[np.integer]:
     """Update discrete target points by position; RBF reconstruction is always deferred."""
     if point is None:
         raise ValueError("point cannot be None")
-    result = model._discrete_transform.UpdateTargetPointsByPosition(index, point)
+    result = model._discrete_transform.UpdateTargetPointsByPosition(
+        index, point, remove_duplicates=remove_duplicates)
     _defer_continuous_rbf(model)
     model.OnTransformChanged()
     return result
@@ -410,16 +418,26 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | \
-                                                                                                                 NDArray[
-                                                                                                                     np.integer]:
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating] | None,
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
-        return _update_fallback_target_by_index(self, index, point)
+        return _update_fallback_target_by_index(
+            self, index, point, remove_duplicates=remove_duplicates)
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
-                                                                                                               NDArray[
-                                                                                                                   np.integer]:
-        return _update_fallback_target_by_position(self, index, point)
+    def UpdateTargetPointsByPosition(
+            self,
+            index: NDArray[np.floating],
+            point: NDArray[np.floating] | None,
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return _update_fallback_target_by_position(
+            self, index, point, remove_duplicates=remove_duplicates)
 
 
 class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITransformScaling,
@@ -742,16 +760,26 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
 
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], point: NDArray[np.floating] | None) -> int | \
-                                                                                                                 NDArray[
-                                                                                                                     np.integer]:
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            point: NDArray[np.floating] | None,
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         # Using this may cause errors since the discrete and continuous transforms are not guaranteed to use the same index
-        return _update_fallback_target_by_index(self, index, point)
+        return _update_fallback_target_by_index(
+            self, index, point, remove_duplicates=remove_duplicates)
 
-    def UpdateTargetPointsByPosition(self, index: NDArray[np.floating], point: NDArray[np.floating] | None) -> int | \
-                                                                                                               NDArray[
-                                                                                                                   np.integer]:
-        return _update_fallback_target_by_position(self, index, point)
+    def UpdateTargetPointsByPosition(
+            self,
+            index: NDArray[np.floating],
+            point: NDArray[np.floating] | None,
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return _update_fallback_target_by_position(
+            self, index, point, remove_duplicates=remove_duplicates)
 
 
 class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
@@ -875,7 +903,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
         """
         self._grid = grid
         try:
-            control_points = cp.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=True)
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
@@ -1008,7 +1036,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
         """
         self._grid = grid
         try:
-            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=False)
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
@@ -1183,7 +1211,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         """
         self._grid = grid
         try:
-            control_points = cp.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=True)
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
@@ -1362,16 +1390,17 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         """
         self._grid = grid
         try:
-            control_points = np.hstack((grid.TargetPoints, grid.SourcePoints))
+            control_points = grid.pack_control_point_pairs(on_device=False)
         except:
             print(f'Invalid grid: {grid.TargetPoints} {grid.SourcePoints}')
             raise
 
         super(GridWithRBFInterpolator_CPU, self).__init__(control_points)
-        self._discrete_transform = RegularGridInterpolator(self._grid.axis_points,
-                                                           np.reshape(self._grid.TargetPoints, (
-                                                               self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
-                                                           bounds_error=False)
+        target_host = nornir_imageregistration.EnsureNumpyArray(self._grid.TargetPoints)
+        self._discrete_transform = RegularGridInterpolator(
+            self._grid.axis_points,
+            np.reshape(target_host, (self._grid.grid_dims[0], self._grid.grid_dims[1], 2)),
+            bounds_error=False)
         self._ReverseRBFInstance = None
         self._ForwardRBFInstance = None
 

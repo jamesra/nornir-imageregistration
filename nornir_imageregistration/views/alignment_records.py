@@ -123,12 +123,18 @@ def plot_percentiles(records: NDArray[np.floating],
                      title: str | None = None,
                      horz_line_pos_list: list[tuple[float, dict]] | None = None):
     '''
-    Plot the percentiles of the records
+    Plot the percentiles of the records.
+
+    Empty *records* is a no-op so diagnostic plots do not abort refine when
+    mesh inclusion dropped every cell.
     '''
     if title is None:
         title = "Percentiles"
 
-    a = records
+    a = np.asarray(records, dtype=np.float64).ravel()
+    if a.size == 0:
+        return
+
     p = np.linspace(0, 100, 101)
     plt.clf()
     ax = plt.gca()

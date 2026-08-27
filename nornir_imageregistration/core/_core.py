@@ -2257,8 +2257,7 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
                 raise e
         finally:
             im.close()
-            del im
-
+            del im 
     return
 
 

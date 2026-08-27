@@ -172,6 +172,38 @@ class TestRefineShared(unittest.TestCase):
         finally:
             os.environ.pop('NORNIR_REFINE_BATCHED_ROI_SAMPLES', None)
 
+    def test_batched_fft_chunk_size_cpu_scales_with_cell_area(self) -> None:
+        """CPU FFT chunks shrink with cell area so 4096² cannot batch hundreds of cells."""
+        from unittest import mock
+
+        from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+
+        os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
+        with mock.patch(
+                'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
+                return_value=(None, None)):
+            at_128 = batched_fft_cell_chunk_size((128, 128))
+            at_1024 = batched_fft_cell_chunk_size((1024, 1024))
+            at_4096 = batched_fft_cell_chunk_size((4096, 4096))
+        self.assertEqual(at_128, 1024)
+        self.assertEqual(at_1024, 16)
+        self.assertEqual(at_4096, 1)
+
+    def test_batched_fft_chunk_size_gpu_does_not_floor_large_cells(self) -> None:
+        """VRAM budget must not force 256 huge cells when only a handful fit."""
+        from unittest import mock
+
+        from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+
+        os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
+        with mock.patch(
+                'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
+                return_value=(20 * 1024 ** 3, 24 * 1024 ** 3)):
+            chunk = batched_fft_cell_chunk_size((4096, 4096))
+        self.assertLessEqual(chunk, 16)
+        self.assertGreaterEqual(chunk, 1)
+
+    def test_grid_refinement_numpy_backend_keeps_numpy_images(self) -> None:
         """NumPy backend must not promote GridRefinement images to CuPy."""
         previous = nornir_imageregistration.GetActiveComputationLib()
         try:
@@ -196,6 +228,39 @@ class TestRefineShared(unittest.TestCase):
                 self.assertIsInstance(settings.target_image, np.ndarray)
                 if cp is not None:
                     self.assertFalse(isinstance(settings.target_image, cp.ndarray))
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous)
+
+    def test_grid_refinement_cupy_processing_false_keeps_numpy_under_cupy(self) -> None:
+        """Explicit cupy_processing=False must not upload even when UsingCupy()."""
+        if not nornir_imageregistration.HasCupy() or cp is None:
+            self.skipTest("CuPy unavailable")
+
+        previous = nornir_imageregistration.GetActiveComputationLib()
+        try:
+            nornir_imageregistration.SetActiveComputationLib(
+                nornir_imageregistration.ComputationLib.cupy)
+            rng = np.random.default_rng(3)
+            target = rng.random((32, 32)).astype(np.float32)
+            source = rng.random((32, 32)).astype(np.float32)
+            target_stats = nornir_imageregistration.ImageStats.Create(target)
+            source_stats = nornir_imageregistration.ImageStats.Create(source)
+            with nornir_imageregistration.settings.GridRefinement(
+                    target_image=target,
+                    source_image=source,
+                    target_image_stats=target_stats,
+                    source_image_stats=source_stats,
+                    cell_size=(8, 8),
+                    grid_spacing=(8, 8),
+                    angles_to_search=[0],
+                    num_iterations=1,
+                    cupy_processing=False,
+                    single_thread_processing=True) as settings:
+                self.assertFalse(settings.cupy_processing)
+                self.assertIsInstance(settings.target_image, np.ndarray)
+                self.assertFalse(isinstance(settings.target_image, cp.ndarray))
+                self.assertIsInstance(settings.source_image, np.ndarray)
+                self.assertFalse(isinstance(settings.source_image, cp.ndarray))
         finally:
             nornir_imageregistration.SetActiveComputationLib(previous)
 

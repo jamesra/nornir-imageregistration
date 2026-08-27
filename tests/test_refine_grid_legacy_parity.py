@@ -98,8 +98,10 @@ class TestRefineGridLegacyParity(unittest.TestCase):
                 if not isinstance(python_transform, nornir_imageregistration.transforms.IGridTransform):
                     self.fail(f"Python output for {image_key} is not a grid transform")
 
-                legacy_targets = np.asarray(legacy_transform.TargetPoints, dtype=np.float64)
-                python_targets = np.asarray(python_transform.TargetPoints, dtype=np.float64)
+                legacy_targets = nornir_imageregistration.EnsureNumpyArray(
+                    legacy_transform.TargetPoints, dtype=np.float64)
+                python_targets = nornir_imageregistration.EnsureNumpyArray(
+                    python_transform.TargetPoints, dtype=np.float64)
                 self.assertEqual(legacy_targets.shape, python_targets.shape)
                 deltas.append(float(np.mean(np.linalg.norm(legacy_targets - python_targets, axis=1))))
 

@@ -37,6 +37,9 @@ from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 import nornir_imageregistration.assemble
 from nornir_imageregistration.local_distortion_correction import AlignRecordsToControlPoints, RefineStosFile, \
     _RefineGridPointsForTwoImages
+from nornir_imageregistration.transforms.base import IControlPoints
+from nornir_imageregistration.transforms.converters import EstimateRigidComponentsFromControlPoints
+from nornir_imageregistration.transforms.factory import LoadTransform
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement
 import nornir_pools
 import setup_imagetest
@@ -79,6 +82,32 @@ def _fake_refine_tile_overlap_batch_remote(anchor_tile, overlap_batch, image_sca
 
 def _serial_refinement_pool(_target_space_scale: float):
     return nornir_pools.GetGlobalSerialPool()
+
+
+_RC2_GRID16_AUTOMATIC_784_782_CANDIDATES = (
+    r"Y:\Volumes\RC2\TEM\Grid16\Automatic\784-782_ctrl-TEM_Leveled_map-TEM_Leveled.stos",
+    "/storage4/RC2/TEM/Grid16/Automatic/784-782_ctrl-TEM_Leveled_map-TEM_Leveled.stos",
+)
+
+_RC2_GRID16_PRODUCT_784_782_CANDIDATES = (
+    r"Y:\Volumes\RC2\TEM\Grid16\784-782_ctrl-TEM_Leveled_map-TEM_Leveled.stos",
+    "/storage4/RC2/TEM/Grid16/784-782_ctrl-TEM_Leveled_map-TEM_Leveled.stos",
+)
+
+
+def _first_existing_path(*candidates: str) -> str | None:
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _similarity_scale(transform: nornir_imageregistration.ITransform) -> float:
+    if not isinstance(transform, IControlPoints):
+        raise TypeError(f"Expected control-point transform, got {type(transform)!r}")
+    components = EstimateRigidComponentsFromControlPoints(
+        transform.TargetPoints, transform.SourcePoints)
+    return float(components.scale)
 
 
 # class TestLocalDistortion(setup_imagetest.TransformTestBase):
@@ -329,6 +358,88 @@ class TestSliceToSliceRefinement(setup_imagetest.TransformTestBase, picklehelper
         refined = nornir_imageregistration.files.StosFile.Load(output_path)
         self.assertIsNotNone(refined.Transform)
         self.assertGreater(len(refined.Transform.strip()), 0)
+
+    def testStosRefinementRC2_784_782_Grid16_Automatic_mesh(self):
+        """Live sign-off: Automatic 784-782 mesh must not densify to a ~2x grid.
+
+        Uses launch-config TEM Align RefineSectionAlignment (32→16) cell/spacing.
+        Skipped when the RC2 volume is not mounted. Full DS16 refine is slow.
+        """
+        stos_path = _first_existing_path(*_RC2_GRID16_AUTOMATIC_784_782_CANDIDATES)
+        if stos_path is None:
+            self.skipTest(
+                "RC2 Grid16 Automatic 784-782 STOS is not present "
+                f"(tried {_RC2_GRID16_AUTOMATIC_784_782_CANDIDATES})")
+
+        input_stos = nornir_imageregistration.files.StosFile.Load(stos_path)
+        input_stos.TryConvertRelativePathsToAbsolutePaths(os.path.dirname(stos_path))
+        input_transform_text = input_stos.Transform
+        self.assertIsNotNone(input_transform_text)
+        assert input_transform_text is not None
+        input_transform = LoadTransform(input_transform_text, 1)
+        self.assertIsNotNone(input_transform)
+        assert input_transform is not None
+        in_scale = _similarity_scale(input_transform)
+
+        output_path = os.path.join(self.TestOutputPath, "784-782_grid16_refine.stos")
+        os.makedirs(self.TestOutputPath, exist_ok=True)
+        RefineStosFile(
+            InputStos=stos_path,
+            OutputStosPath=output_path,
+            num_iterations=10,
+            cell_size=(256, 256),
+            grid_spacing=(192, 192),
+            angles_to_search=[0],
+            SaveImages=False,
+            SavePlots=False)
+        self.assertTrue(os.path.isfile(output_path), "RefineStosFile did not write output .stos")
+
+        output_stos = nornir_imageregistration.files.StosFile.Load(output_path)
+        output_transform_text = output_stos.Transform
+        self.assertIsNotNone(output_transform_text)
+        assert output_transform_text is not None
+        output_transform = LoadTransform(output_transform_text, 1)
+        self.assertIsNotNone(output_transform)
+        assert output_transform is not None
+        out_scale = _similarity_scale(output_transform)
+        self.assertLess(
+            abs(out_scale / in_scale - 1.0),
+            0.15,
+            f"output Kabsch scale {out_scale:.3f} vs Automatic mesh {in_scale:.3f}")
+
+        self.assertIsInstance(output_transform, IControlPoints)
+        assert isinstance(output_transform, IControlPoints)
+        src = nornir_imageregistration.EnsureNumpyArray(
+            output_transform.SourcePoints, dtype=np.float64)
+        tgt = nornir_imageregistration.EnsureNumpyArray(
+            output_transform.TargetPoints, dtype=np.float64)
+        src_step = float(np.linalg.norm(src[1] - src[0]))
+        tgt_step = float(np.linalg.norm(tgt[1] - tgt[0]))
+        self.assertGreater(src_step, 1.0)
+        self.assertLess(
+            tgt_step / src_step,
+            1.5,
+            f"first-neighbor spacing ratio {tgt_step / src_step:.3f} looks like the old ~2.6x lattice")
+
+        dims = input_stos.ControlImageDim
+        self.assertIsNotNone(dims)
+        assert dims is not None
+        control_width = float(dims[2] if len(dims) >= 4 else dims[1])
+        control_height = float(dims[3] if len(dims) >= 4 else dims[0])
+        self.assertLess(float(np.max(tgt[:, 1])), control_width * 1.5)
+        self.assertLess(float(np.max(tgt[:, 0])), control_height * 1.5)
+
+        bad_path = _first_existing_path(*_RC2_GRID16_PRODUCT_784_782_CANDIDATES)
+        if bad_path is not None:
+            bad_stos = nornir_imageregistration.files.StosFile.Load(bad_path)
+            bad_text = bad_stos.Transform
+            if bad_text:
+                bad_transform = LoadTransform(bad_text, 1)
+                if bad_transform is not None:
+                    bad_scale = _similarity_scale(bad_transform)
+                    self.assertLess(
+                        abs(out_scale / in_scale - 1.0),
+                        abs(bad_scale / in_scale - 1.0))
 
     # def testStosRefinementRPC3_449_450(self):
     #     """

@@ -11,6 +11,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 
 import nornir_imageregistration
+from nornir_imageregistration import cp
 from nornir_imageregistration.layout import Layout
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.type_info
@@ -905,7 +906,11 @@ def ScoreMosaicQuality(mosaicTileset):
 
 def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rect_A, scaled_overlapping_source_rect_B,
                            mask_extrema=True):
-    """Returns the difference between the images"""
+    """Returns the difference between the images.
+
+    Accepts NumPy or CuPy crops from ``CropImage``; ops follow ``cp.get_array_module``.
+    Host-only: file I/O via ``ImageParamToImageArray`` of filenames.
+    """
 
     dtype = nornir_imageregistration.default_image_dtype()
     try:
@@ -924,6 +929,8 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
             mask_extrema=mask_extrema,
             dtype=dtype)  # type: ignore[arg-type]
 
+        xp = cp.get_array_module(OverlappingRegionA)
+
         # If the entire region is a solid color, then return the maximum score possible
         if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \
                 (OverlappingRegionA.max() == 0) or \
@@ -937,12 +944,7 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         OverlappingRegionB -= OverlappingRegionB.min()
         OverlappingRegionB /= OverlappingRegionB.max()
 
-        # Mask off small regions of max values
-        # extremaMaskA = nornir_imageregistration.CreateExtremaMask(OverlappingRegionA, size_cutoff=0.001)
-        # extremaMaskB = nornir_imageregistration.CreateExtremaMask(OverlappingRegionB, size_cutoff=0.001)
-        # extremaMask = np.logical_and(extremaMaskA, extremaMaskB)  # Must be valid in both images to be scored
-
-        extremaMask = np.logical_and(extrema_mask_OverlappingRegionA, extrema_mask_OverlappingRegionB)  # type: ignore[arg-type]
+        extremaMask = xp.logical_and(extrema_mask_OverlappingRegionA, extrema_mask_OverlappingRegionB)  # type: ignore[arg-type]
 
         # ignore_indices = OverlappingRegionA == OverlappingRegionA.max()
         # ignore_indices |= OverlappingRegionA == OverlappingRegionA.min()
@@ -950,7 +952,10 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         # ignore_indices |= OverlappingRegionB == OverlappingRegionB.min()
 
         # There was data in the aligned images, but not overlapping.  So we return the maximum value
-        if np.all(extremaMask == False):
+        any_valid = xp.any(extremaMask)
+        if hasattr(any_valid, 'get'):
+            any_valid = any_valid.get()
+        if not bool(any_valid):
             if np.issubdtype(OverlappingRegionA.dtype, np.integer):
                 return np.iinfo(OverlappingRegionA.dtype).max
             else:
@@ -959,20 +964,22 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
         valid_indices = extremaMask
 
         OverlappingRegionA -= OverlappingRegionB
-        absoluteDiff = np.fabs(OverlappingRegionA)
+        absoluteDiff = xp.abs(OverlappingRegionA)
 
         # Multiple diff by the largest masked area to compensate for the large blank area
-        valid_mask_fraction_A = extrema_mask_OverlappingRegionA.sum() / (  # type: ignore[union-attr]
+        valid_mask_fraction_A = float(nornir_imageregistration.EnsureNumpyArray(
+            extrema_mask_OverlappingRegionA.sum())) / (  # type: ignore[union-attr]
                 extrema_mask_OverlappingRegionA.shape[0] * extrema_mask_OverlappingRegionA.shape[1])  # type: ignore[union-attr]
-        valid_mask_fraction_B = extrema_mask_OverlappingRegionB.sum() / (  # type: ignore[union-attr]
+        valid_mask_fraction_B = float(nornir_imageregistration.EnsureNumpyArray(
+            extrema_mask_OverlappingRegionB.sum())) / (  # type: ignore[union-attr]
                 extrema_mask_OverlappingRegionB.shape[0] * extrema_mask_OverlappingRegionB.shape[1])  # type: ignore[union-attr]
 
         valid_mask_fraction = min(valid_mask_fraction_A, valid_mask_fraction_B)
 
         absoluteDiff *= valid_mask_fraction
 
-        # nornir_imageregistration.ShowGrayscale([OverlappingRegionA, OverlappingRegionB, absoluteDiff])
-        return np.mean(absoluteDiff[valid_indices])
+        return float(nornir_imageregistration.EnsureNumpyArray(
+            xp.mean(absoluteDiff[valid_indices])))
     except FloatingPointError as e:
         print("FloatingPointError: {0} for images\n\t{1}\n\t{2}".format(str(e), A_Filename, B_Filename))
         raise e

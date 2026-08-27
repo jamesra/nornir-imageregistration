@@ -45,15 +45,34 @@ from .base import ITransform, ITransformScaling, ITransformRelativeScaling, ITra
 from .controlpointbase import ControlPointBase, ControlPointBase_GPUComponent
 
 
-def barycentric_sample_delaunay(
+def _defer_structure_rebuild() -> bool:
+    """True while a UI drag should keep cached Delaunay/KD-trees instead of rebuilding."""
+    try:
+        from nornir_imageregistration import interactive_edit
+        return interactive_edit.in_progress()
+    except ImportError:
+        return False
+
+
+def barycentric_stencil_delaunay(
         query_yx: NDArray[np.floating],
         delaunay: scipy.spatial.Delaunay,
-        values: NDArray[np.floating],
-) -> NDArray[np.floating]:
-    """Piecewise-linear interpolate ``values`` at ``query_yx`` using a cached Delaunay."""
+) -> tuple[NDArray[np.integer], NDArray[np.floating]]:
+    """Return per-query simplex vertex indices and barycentric weights.
+
+    Queries inside a simplex store that triangle's three Delaunay vertex ids and
+    matching weights. Queries outside the hull store the nearest site as
+    ``(i, i, i)`` with weights ``(1, 0, 0)``.
+    """
     queries = np.asarray(query_yx, dtype=np.float64)
-    values = np.asarray(values, dtype=np.float64)
-    out = np.empty((queries.shape[0], values.shape[1]), dtype=np.float64)
+    if queries.ndim == 1:
+        queries = queries.reshape(1, -1)
+    n_query = int(queries.shape[0])
+    indices = np.empty((n_query, 3), dtype=np.intp)
+    weights = np.zeros((n_query, 3), dtype=np.float64)
+    if n_query == 0:
+        return indices, weights
+
     simplex = delaunay.find_simplex(queries)
     inside = simplex >= 0
     ndim = int(queries.shape[1])
@@ -63,14 +82,90 @@ def barycentric_sample_delaunay(
         offset = queries[inside] - transform[:, ndim]
         bary = np.einsum('ijk,ik->ij', transform[:, :ndim], offset)
         bary_coords = np.concatenate([bary, 1.0 - bary.sum(axis=1, keepdims=True)], axis=1)
-        out[inside] = np.einsum('ij,ijk->ik', bary_coords, values[delaunay.simplices[s]])
+        indices[inside] = delaunay.simplices[s]
+        weights[inside] = bary_coords
     outside = ~inside
     if np.any(outside):
         points = np.asarray(delaunay.points, dtype=np.float64)
         delta = queries[outside][:, np.newaxis, :] - points[np.newaxis, :, :]
         nearest = np.argmin(np.sum(delta * delta, axis=2), axis=1)
-        out[outside] = values[nearest]
-    return out
+        indices[outside, :] = nearest[:, np.newaxis]
+        weights[outside, 0] = 1.0
+    return indices, weights
+
+
+def apply_barycentric_stencil(
+        indices: NDArray[np.integer],
+        weights: NDArray[np.floating],
+        values: NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """Blend ``values`` at stencil control-point indices by barycentric weights."""
+    values = np.asarray(values, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64)
+    idx = np.asarray(indices)
+    if idx.shape[0] == 0:
+        return np.empty((0, values.shape[1]), dtype=np.float64)
+    return (w[:, 0:1] * values[idx[:, 0]]
+            + w[:, 1:2] * values[idx[:, 1]]
+            + w[:, 2:3] * values[idx[:, 2]])
+
+
+def barycentric_weights_in_triangle(
+        query_yx: NDArray[np.floating],
+        vertex0_yx: NDArray[np.floating],
+        vertex1_yx: NDArray[np.floating],
+        vertex2_yx: NDArray[np.floating],
+) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """Barycentric weights of ``query_yx`` in triangle ``(v0, v1, v2)``.
+
+    Uses SciPy Delaunay's last-vertex convention (``v2`` is the 2x2 origin).
+    ``inside`` is True when the triangle is non-degenerate and all weights are
+    non-negative. Inputs broadcast to ``(N, 2)``.
+    """
+    query = np.atleast_2d(np.asarray(query_yx, dtype=np.float64))
+    v0 = np.atleast_2d(np.asarray(vertex0_yx, dtype=np.float64))
+    v1 = np.atleast_2d(np.asarray(vertex1_yx, dtype=np.float64))
+    v2 = np.atleast_2d(np.asarray(vertex2_yx, dtype=np.float64))
+    query, v0, v1, v2 = np.broadcast_arrays(query, v0, v1, v2)
+    col0 = v0 - v2
+    col1 = v1 - v2
+    det = col0[:, 0] * col1[:, 1] - col0[:, 1] * col1[:, 0]
+    offset = query - v2
+    with np.errstate(divide='ignore', invalid='ignore'):
+        inv_det = np.where(np.abs(det) > 1e-15, 1.0 / det, np.nan)
+        b0 = (col1[:, 1] * offset[:, 0] - col1[:, 0] * offset[:, 1]) * inv_det
+        b1 = (-col0[:, 1] * offset[:, 0] + col0[:, 0] * offset[:, 1]) * inv_det
+        b2 = 1.0 - b0 - b1
+    weights = np.column_stack((b0, b1, b2))
+    finite = np.isfinite(weights).all(axis=1)
+    inside = finite & np.all(weights >= -1e-12, axis=1)
+    return weights, inside
+
+
+def barycentric_sample_delaunay(
+        query_yx: NDArray[np.floating],
+        delaunay: scipy.spatial.Delaunay,
+        values: NDArray[np.floating],
+        *,
+        nan_outside: bool = False,
+) -> NDArray[np.floating]:
+    """Piecewise-linear interpolate ``values`` at ``query_yx`` using a cached Delaunay.
+
+    Outside-hull queries default to nearest-site copy. Pass ``nan_outside=True``
+    so Transform() can fill those samples with an RBF fallback.
+    """
+    indices, weights = barycentric_stencil_delaunay(query_yx, delaunay)
+    mapped = apply_barycentric_stencil(indices, weights, values)
+    if not nan_outside:
+        return mapped
+    queries = np.asarray(query_yx, dtype=np.float64)
+    if queries.ndim == 1:
+        queries = queries.reshape(1, -1)
+    outside = delaunay.find_simplex(queries) < 0
+    if np.any(outside):
+        mapped = np.asarray(mapped, dtype=np.float64).copy()
+        mapped[outside] = np.nan
+    return mapped
 
 
 class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTranslation, IControlPointEdit,
@@ -250,45 +345,89 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
         Distance, index = self.NearestFixedPoint((pointpair[0], pointpair[1]))
         return index
 
-    def UpdateFixedPoints(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._points[index, 0:2] = points
-        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
-        self.OnFixedPointChanged()
+    def UpdateFixedPoints(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
 
-        distance, index = self.NearestFixedPoint(points)
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; Delaunay/RBF
+            can later fail or remap rows. Use False only for a bounded interactive
+            sequence (drag, registration apply) where the caller keeps indices
+            stable and remeshes when idle.
+        """
+        self._points[index, 0:2] = points
+        if remove_duplicates:
+            self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+            self.OnFixedPointChanged()
+            _distance, index = self.NearestFixedPoint(points)
+            return index
+        self.OnFixedPointChanged()
         return index
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], new_points: NDArray[np.floating]) -> int | \
-                                                                                                               NDArray[
-                                                                                                                   np.integer]:
-        return self.UpdateFixedPoints(index, new_points)
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateFixedPoints(index, new_points, remove_duplicates=remove_duplicates)
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
-                                                                                                                  NDArray[
-                                                                                                                      np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, new_points)
+        return self.UpdateTargetPointsByIndex(index, new_points, remove_duplicates=remove_duplicates)
 
-    def UpdateWarpedPoints(self, index: int | NDArray[np.integer],
-                           points: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateWarpedPoints(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move source-space control points at *index*.
+
+        :param remove_duplicates: See :meth:`UpdateFixedPoints`. False skips
+            uniqueness; coincident points can remain and later remesh may remap rows.
+        """
         self._points[index, 2:4] = points
-        self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Triangulation.RemoveDuplicateControlPoints(self._points)
+            self.OnWarpedPointChanged()
+            _distance, index = self.NearestWarpedPoint(points)
+            return cast(int | NDArray[np.integer], index)
         self.OnWarpedPointChanged()
-
-        distance, index = self.NearestWarpedPoint(points)
         return cast(int | NDArray[np.integer], index)
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], new_points: NDArray[np.floating]) -> int | \
-                                                                                                               NDArray[
-                                                                                                                   np.integer]:
-        return self.UpdateWarpedPoints(index, new_points)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateWarpedPoints(index, new_points, remove_duplicates=remove_duplicates)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
-                                                                                                                  NDArray[
-                                                                                                                      np.integer]:
+    def UpdateSourcePointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)
-        return self.UpdateSourcePointsByIndex(index, new_points)
+        return self.UpdateSourcePointsByIndex(index, new_points, remove_duplicates=remove_duplicates)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         nToRemove = 1
@@ -349,19 +488,24 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def OnFixedPointChanged(self):
         super(Triangulation, self).OnFixedPointChanged()
-        self._FixedKDTree = None
-        self._fixedtri = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
-
+        if _defer_structure_rebuild():
+            super(Triangulation, self).OnTransformChanged()
+            return
+        self._FixedKDTree = None
+        self._fixedtri = None
         super(Triangulation, self).OnTransformChanged()
 
     def OnWarpedPointChanged(self):
         super(Triangulation, self).OnWarpedPointChanged()
-        self._WarpedKDTree = None
-        self._warpedtri = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
+        if _defer_structure_rebuild():
+            super(Triangulation, self).OnTransformChanged()
+            return
+        self._WarpedKDTree = None
+        self._warpedtri = None
         super(Triangulation, self).OnTransformChanged()
 
     def ClearDataStructures(self):
@@ -660,53 +804,98 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         Distance, nearest_index = self.NearestFixedPoint((float(pointpair[0]), float(pointpair[1])))
         return cast(int, nearest_index)
 
-    def UpdateFixedPoints(self, index: Any, points: NDArray[np.floating]) -> int | NDArray[np.integer]:
+    def UpdateFixedPoints(
+            self,
+            index: Any,
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
+
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; Delaunay/RBF
+            can later fail or remap rows. Use False only for a bounded interactive
+            sequence (drag, registration apply) where the caller keeps indices
+            stable and remeshes when idle.
+        """
         # Callers (e.g. Pyre MovePoint) often pass NumPy points; _points is CuPy.
         xp = cp.get_array_module(self._points)
         points_xp = xp.asarray(points)
         if not isinstance(index, (int, np.integer)):
             index = xp.asarray(index)
         self._points[index, 0:2] = points_xp
-        self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
+            self.OnFixedPointChanged()
+            _distance, index = self.NearestFixedPoint(points)
+            return cast(int | NDArray[np.integer], index)
         self.OnFixedPointChanged()
-
-        distance, index = self.NearestFixedPoint(points)
         return cast(int | NDArray[np.integer], index)
 
-    def UpdateTargetPointsByIndex(self, index: Any, points: NDArray[np.floating]) -> int | \
-                                                                                                           NDArray[
-                                                                                                               np.integer]:
-        return self.UpdateFixedPoints(index, points)
+    def UpdateTargetPointsByIndex(
+            self,
+            index: Any,
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateFixedPoints(index, points, remove_duplicates=remove_duplicates)
 
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
-                                                                                                              NDArray[
-                                                                                                                  np.integer]:
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         Distance, index = self.NearestTargetPoint(old_points)
-        return self.UpdateTargetPointsByIndex(index, points)
+        return self.UpdateTargetPointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
-    def UpdateWarpedPoints(self, index: Any,
-                           points: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
+    def UpdateWarpedPoints(
+            self,
+            index: Any,
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move source-space control points at *index*.
+
+        :param remove_duplicates: See :meth:`UpdateFixedPoints`. False skips
+            uniqueness; coincident points can remain and later remesh may remap rows.
+        """
         xp = cp.get_array_module(self._points)
         points_xp = xp.asarray(points)
         if not isinstance(index, (int, np.integer)):
             index = xp.asarray(index)
         self._points[index, 2:4] = points_xp
-        self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
+        if remove_duplicates:
+            self._points = Triangulation_GPUComponent.RemoveDuplicateControlPoints(self._points)
+            self.OnWarpedPointChanged()
+            _distance, index = self.NearestWarpedPoint(points)
+            return cast(int | NDArray[np.integer], index)
         self.OnWarpedPointChanged()
-
-        distance, index = self.NearestWarpedPoint(points)
         return cast(int | NDArray[np.integer], index)
 
-    def UpdateSourcePointsByIndex(self, index: Any, point: NDArray[np.floating]) -> int | NDArray[
-        np.integer]:
-        return self.UpdateWarpedPoints(index, point)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: Any,
+            point: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        return self.UpdateWarpedPoints(index, point, remove_duplicates=remove_duplicates)
 
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], points: NDArray[np.floating]) -> int | \
-                                                                                                              NDArray[
-                                                                                                                  np.integer]:
+    def UpdateSourcePointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
         distance, index = self.NearestSourcePoint(old_points)
-        return self.UpdateSourcePointsByIndex(index, points)
+        return self.UpdateSourcePointsByIndex(index, points, remove_duplicates=remove_duplicates)
 
     def RemovePoint(self, index: int | NDArray[np.integer]):
         if self._points.shape[0] <= 3:
@@ -765,19 +954,24 @@ class Triangulation_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def OnFixedPointChanged(self):
         super(Triangulation_GPUComponent, self).OnFixedPointChanged()
-        self._FixedKDTree = None
-        self._fixedtri = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
-
+        if _defer_structure_rebuild():
+            super(Triangulation_GPUComponent, self).OnTransformChanged()
+            return
+        self._FixedKDTree = None
+        self._fixedtri = None
         super(Triangulation_GPUComponent, self).OnTransformChanged()
 
     def OnWarpedPointChanged(self):
         super(Triangulation_GPUComponent, self).OnWarpedPointChanged()
-        self._WarpedKDTree = None
-        self._warpedtri = None
         self._ForwardInterpolator = None
         self._InverseInterpolator = None
+        if _defer_structure_rebuild():
+            super(Triangulation_GPUComponent, self).OnTransformChanged()
+            return
+        self._WarpedKDTree = None
+        self._warpedtri = None
         super(Triangulation_GPUComponent, self).OnTransformChanged()
 
     def ClearDataStructures(self):

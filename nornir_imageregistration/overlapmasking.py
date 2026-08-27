@@ -104,7 +104,9 @@ def GetOverlapMask(target_image_shape: ShapeLike,
                    source_image_shape: ShapeLike,
                    correlation_image_size: ShapeLike,
                    MinOverlap: float = 0.0, MaxOverlap: float = 1.0):
-    """Defines a mask that determines which peaks should be considered
+    """Defines a mask that determines which peaks should be considered.
+
+    Host-only: Rectangle geometry. Use ``GetOverlapMaskOnDevice`` to place the mask on CuPy.
     :param NDArray target_image_shape: Shape of fixed image, before padding
     :param NDArray source_image_shape: Shape of moving image, before padding
     :param NDArray correlation_image_size: Shape of correlation image, which will be equal to size of largest padded image dimensions

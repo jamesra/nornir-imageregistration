@@ -368,14 +368,14 @@ class LayoutPosition:
                  *args, **kwargs):
         """
         :param int ID: ID number
-        :param tuple position: Center position (Y,X)
+        :param tuple position: Center position (Y,X). Accepts NumPy or CuPy; stored as NumPy.
         :param tuple dims: Dimensions of node (Y,X)
         """
         if not isinstance(ID, int):
             raise TypeError("Node ID must be an integer: {0}".format(ID))
 
         self._ID = ID
-        self.Position = np.asarray(position, dtype=np.float64)
+        self.Position = nornir_imageregistration.EnsureNumpyArray(position, dtype=np.float64)
         self._OffsetArray = np.empty((0, 4), dtype=np.float64)  # dtype=LayoutPosition.offset_dtype)
         self._dims = dims
         self._IDToIndex = None

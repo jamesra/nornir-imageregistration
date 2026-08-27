@@ -28,6 +28,7 @@ import scipy.ndimage
 from numpy.typing import NDArray
 
 import nornir_imageregistration
+from nornir_imageregistration import cp
 import nornir_imageregistration.assemble
 import nornir_imageregistration.assemble_tiles
 from nornir_imageregistration.mathfuncs import EMA
@@ -61,6 +62,7 @@ from nornir_imageregistration.refine_shared import (
     smooth_peaks_from_locked_anchors,
     RefineGridProgressReporter,
     count_initial_grid_points,
+    report_pass_transform,
     classify_field,
     classify_roles,
     exclude_reject_mesh_records,
@@ -72,6 +74,16 @@ from nornir_imageregistration.refine_shared import (
     SourceContentCache,
     crop_source_cell_std,
     crop_source_cell_stds_batched,
+    CellPassHistoryStore,
+    write_cell_history_plots,
+)
+from nornir_imageregistration.refine_shared.ring_pose_limits import (
+    RING_ALLOW_FLIP_CHANGE,
+    RING_ANGLE_MAX_DEGREES,
+    RING_SCALE_FRACTION_MAX,
+    RingReferencePose,
+    clamp_similarity_arrays,
+    reference_pose_from_transform,
 )
 from nornir_imageregistration.refine_shared.discontinuity import (
     per_record_max_travel,
@@ -88,16 +100,21 @@ from nornir_imageregistration.refine_shared.coherent_residual import (
     diagnose_coherent_residual_translation,
     should_attempt_global_fov_recovery,
     estimate_global_fov_residual_translation,
-    should_preserve_post_residual_transform,
+    should_keep_prior_sparse_mesh,
 )
 from nornir_imageregistration.refine_shared.pass_diagnostics import (
     build_pass_diagnostic_rows,
     pass_diagnostics_enabled,
     write_pass_diagnostics,
 )
-from nornir_imageregistration.refine_shared.cell_history import (
-    CellPassHistoryStore,
-    write_cell_history_plots,
+from nornir_imageregistration.refine_shared.adaptive_cell_size import (
+    can_grow_cell_size_on_pass,
+    cell_size_cap_from_shapes,
+    cell_size_exceeds_requested,
+    clamp_cell_size_to_cap,
+    next_cell_size_after_failure,
+    pass_found_no_usable_alignments,
+    pass_found_registrations,
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 from nornir_imageregistration.refine_shared.peak_ratio_gates import finite_peak_ratio, PEAK_RATIO_MIN
@@ -106,13 +123,8 @@ from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
 
 try:
-    import cupy as cp
     import cupyx
-except ModuleNotFoundError:
-    import nornir_imageregistration.cupy_thunk as cp
-    import nornir_imageregistration.cupyx_thunk as cupyx
-except ImportError:
-    import nornir_imageregistration.cupy_thunk as cp
+except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupyx_thunk as cupyx
 
 # import nornir_imageregistration.views.grid_data
@@ -359,9 +371,14 @@ def _base_target_for_refinement_cell(
         B: nornir_imageregistration.Tile,
         full_source_a: NDArray[np.floating],
         full_source_b: NDArray[np.floating]) -> NDArray[np.floating]:
-    """Compute the nominal target-space center for a refinement subregion."""
-    target_a = A.Transform.Transform(np.asarray([full_source_a], dtype=np.float64))[0]
-    target_b = B.Transform.Transform(np.asarray([full_source_b], dtype=np.float64))[0]
+    """Compute the nominal target-space center for a refinement subregion.
+
+    Accepts NumPy or CuPy source points; Transform I/O is host-snapshotted for the 2-float mean.
+    """
+    src_a = nornir_imageregistration.EnsureNumpyArray(full_source_a, dtype=np.float64).reshape(1, 2)
+    src_b = nornir_imageregistration.EnsureNumpyArray(full_source_b, dtype=np.float64).reshape(1, 2)
+    target_a = nornir_imageregistration.EnsureNumpyArray(A.Transform.Transform(src_a)[0])
+    target_b = nornir_imageregistration.EnsureNumpyArray(B.Transform.Transform(src_b)[0])
     return (target_a + target_b) * 0.5
 
 
@@ -606,7 +623,7 @@ def _extract_refinement_cell_and_mask(
     cell_tuple = tuple(int(v) for v in cell_shape)
     # Legacy: origin = center - 0.5 * cell; pixel index i samples origin + i.
     start = np.floor(
-        np.asarray(center_scaled, dtype=np.float64)
+        nornir_imageregistration.EnsureNumpyArray(center_scaled, dtype=np.float64)
         - prewarped.origin
         - (cell_shape.astype(np.float64) / 2.0)).astype(np.int64)
     stop = start + cell_shape
@@ -645,7 +662,7 @@ def _measure_grid_vertex_displacements(
     measured phase-correlation peak is the residual shift to apply to the moving tile.
     Returns per-vertex (y, x) shifts in scaled mosaic pixels and a measured flag.
     """
-    centers_scaled = np.asarray(centers_scaled, dtype=np.float64)
+    centers_scaled = nornir_imageregistration.EnsureNumpyArray(centers_scaled, dtype=np.float64)
     cell_shape = np.asarray(cell_shape, dtype=np.int64)
     num_vertices = centers_scaled.shape[0]
     shifts = np.zeros((num_vertices, 2), dtype=np.float64)
@@ -725,7 +742,7 @@ def _measure_grid_vertex_displacements_batched(
     pass (one host transfer for the whole batch) instead of one tiny FFT and
     one ``.get()`` per vertex. Returns identical ``(shifts, measured)`` arrays.
     """
-    centers_scaled = np.asarray(centers_scaled, dtype=np.float64)
+    centers_scaled = nornir_imageregistration.EnsureNumpyArray(centers_scaled, dtype=np.float64)
     cell_shape = np.asarray(cell_shape, dtype=np.int64)
     num_vertices = centers_scaled.shape[0]
     shifts = np.zeros((num_vertices, 2), dtype=np.float64)
@@ -941,16 +958,19 @@ def _batched_roi_sample_budget(cell_h: int, cell_w: int) -> int:
 
 
 def _alignment_roi_botlefts(target_points: NDArray,
-                            alignment_area: NDArray | tuple[float, float]) -> NDArray[np.float64]:
-    """Return integer-origin botlefts ``(N, 2)`` matching ``BuildAlignmentROIs`` geometry."""
-    area = np.asarray(alignment_area, dtype=np.float64).ravel()[:2]
-    points = np.asarray(target_points, dtype=np.float64).reshape(-1, 2).copy()
-    adjust_mask = np.mod(area, 2) > 0
+                            alignment_area: NDArray | tuple[float, float]) -> NDArray:
+    """Return integer-origin botlefts ``(N, 2)`` matching ``BuildAlignmentROIs`` geometry.
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
+    """
+    xp = cp.get_array_module(target_points)
+    area = xp.asarray(alignment_area, dtype=xp.float64).ravel()[:2]
+    points = xp.asarray(target_points, dtype=xp.float64).reshape(-1, 2).copy()
+    adjust_mask = xp.mod(area, 2) > 0
     points[:, adjust_mask] += 0.5
     # Same as Rectangle.CreateFromPointAndArea → SnapRound → change_area(..., integer_origin=True)
     botleft = points - (area / 2.0)
-    botleft = np.floor(botleft)
-    return botleft
+    return xp.floor(botleft)
 
 
 def _rigid_inverse_matrices(rigid_transforms: Sequence[nornir_imageregistration.ITransform],
@@ -964,7 +984,9 @@ def _rigid_inverse_matrices(rigid_transforms: Sequence[nornir_imageregistration.
         angle = float(getattr(transform, 'angle', 0.0) or 0.0)
         scalar = float(getattr(transform, 'scalar', 1.0) or 1.0)
         flip_ud = bool(getattr(transform, 'flip_ud', False))
-        offset = np.asarray(getattr(transform, 'target_offset'), dtype=np.float64).ravel()[:2]
+        offset = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(getattr(transform, 'target_offset')),
+            dtype=np.float64).ravel()[:2]
         if angle == 0.0 and scalar == 1.0 and not flip_ud:
             # Match Rigid.InverseTransform's pure-translation branch (no rounding).
             matrix = np.eye(3, dtype=np.float64)
@@ -995,8 +1017,8 @@ def _sample_source_rois_batched(source_image: NDArray,
     num_cells = int(botlefts.shape[0])
     relative = nornir_imageregistration.assemble.GetROICoords((0.0, 0.0), (cell_h, cell_w), xp=xp)
     relative = xp.asarray(relative, dtype=np.float32)
-    botlefts_dev = xp.asarray(botlefts, dtype=np.float32)
-    matrices_dev = xp.asarray(inverse_matrices, dtype=np.float64)
+    botlefts_dev = _ensure_on_array_module(botlefts, xp).astype(np.float32, copy=False)
+    matrices_dev = _ensure_on_array_module(inverse_matrices, xp).astype(np.float64, copy=False)
     pure_mask = np.asarray(pure_translation_mask, dtype=bool).reshape(-1)
 
     source_image = _ensure_on_array_module(source_image, xp)
@@ -1114,12 +1136,16 @@ def _crop_target_rois_batched(target_image: NDArray,
                               cell_w: int,
                               target_image_stats: nornir_imageregistration.ImageStats | None,
                               xp) -> NDArray:
-    """Crop target-space cells into a ``(N, H, W)`` stack (still one CropImage per cell)."""
+    """Crop target-space cells into a ``(N, H, W)`` stack (still one CropImage per cell).
+
+    Accepts NumPy or CuPy images; ``CropImage`` origins are host-converted once.
+    """
     crops: list[NDArray] = []
     cval: float | int | str | None = False if target_image_stats is None else 'random'
-    for i in range(botlefts.shape[0]):
-        yo = int(botlefts[i, 0])
-        xo = int(botlefts[i, 1])
+    botlefts_host = nornir_imageregistration.EnsureNumpyArray(botlefts)
+    for i in range(botlefts_host.shape[0]):
+        yo = int(botlefts_host[i, 0])
+        xo = int(botlefts_host[i, 1])
         crop = nornir_imageregistration.CropImage(
             target_image, xo, yo, cell_w, cell_h,
             cval=cval, image_stats=target_image_stats)
@@ -1147,10 +1173,30 @@ def _apply_noise_mask_batched(source_stack: NDArray,
 
 
 def _ensure_on_array_module(array: NDArray, xp) -> NDArray:
-    """Return *array* on *xp* without copying when already resident there."""
+    """Return *array* on *xp* without copying when already resident there.
+
+    Accepts NumPy or CuPy; ``np.asarray`` is never used on a CuPy input.
+    """
     if cp.get_array_module(array) is xp:
         return array
+    if xp is np:
+        return nornir_imageregistration.EnsureNumpyArray(array)
     return xp.asarray(array)
+
+
+def _stos_settings_images(
+        settings: nornir_imageregistration.settings.GridRefinement
+) -> tuple[NDArray, NDArray]:
+    """Return target/source images on their stored array module.
+
+    Does not upgrade host arrays to CuPy from ``GetComputationModule()``.
+    """
+    dtype = nornir_imageregistration.default_image_dtype()
+    target = nornir_imageregistration.ImageParamToImageArray(
+        settings.target_image, dtype=dtype)
+    source = nornir_imageregistration.ImageParamToImageArray(
+        settings.source_image, dtype=dtype)
+    return target, source
 
 
 def BuildAlignmentROIsBatched(
@@ -1163,6 +1209,8 @@ def BuildAlignmentROIsBatched(
         alignment_area: NDArray | tuple[float, float],
 ) -> tuple[NDArray, NDArray, NDArray | None] | None:
     """Batched rigid ROI extract for translation-only STOS grid refine.
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
 
     Replaces the per-cell ``BuildAlignmentROIs`` → ``SourceImageToTargetSpace`` loop with
     stacked inverse-affine maps and one (chunked) ``map_coordinates`` over the source image.
@@ -1178,11 +1226,11 @@ def BuildAlignmentROIsBatched(
     if cell_h <= 0 or cell_w <= 0:
         return None
 
-    # Follow the process-wide backend (same as BuildAlignmentROIs / SourceImageToTargetSpace)
-    # so CuPy sessions keep ROI extract + FFT on device. Skip H↔D when already resident.
-    xp = nornir_imageregistration.GetComputationModule()
-    target_image = _ensure_on_array_module(target_image, xp)
+    # Follow the image array module so host STOS images stay on the CPU even when
+    # the process-wide lib is CuPy (Pyre display). CuPy-in stays on device.
+    xp = cp.get_array_module(target_image)
     source_image = _ensure_on_array_module(source_image, xp)
+    target_points = _ensure_on_array_module(target_points, xp)
     sp = cupyx.scipy if xp is not np else scipy
 
     botlefts = _alignment_roi_botlefts(target_points, alignment_area)
@@ -1220,18 +1268,11 @@ def _attempt_align_points_translation_batched(
 
     Returns ``None`` when ROI extraction fails for too many cells (caller falls back).
     Under CuPy, ROIs stay on-device through ``xp.stack`` and the batched FFT; peaks
-    sync to host once (same pattern as mosaic ``_measure_grid_vertex_displacements_batched``).
+    and the source/target lattices sync to host once each (same pattern as mosaic
+    ``_measure_grid_vertex_displacements_batched``).
     """
     with _PHASE_TIMER.section('cell_extract'):
-        xp_measure = nornir_imageregistration.GetComputationModule()
-        target_image = _ensure_on_array_module(
-            nornir_imageregistration.ImageParamToImageArray(
-                settings.target_image, dtype=nornir_imageregistration.default_image_dtype()),
-            xp_measure)
-        source_image = _ensure_on_array_module(
-            nornir_imageregistration.ImageParamToImageArray(
-                settings.source_image, dtype=nornir_imageregistration.default_image_dtype()),
-            xp_measure)
+        target_image, source_image = _stos_settings_images(settings)
 
         batched = BuildAlignmentROIsBatched(
             rigid_transforms=rigid_transforms,
@@ -1350,13 +1391,16 @@ def _attempt_align_points_translation_batched(
 
     with _PHASE_TIMER.section('record_assemble'):
         records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
+        # AlignmentRecord is host-only; one lattice transfer instead of per-cell D2H.
+        target_host = nornir_imageregistration.EnsureNumpyArray(target_points)
+        source_host = nornir_imageregistration.EnsureNumpyArray(source_points)
         for batch_pos, i in enumerate(kept_indices):
             if weights[batch_pos] <= 0 or np.any(np.isnan(peaks[batch_pos])):
                 continue
             records.append(nornir_imageregistration.EnhancedAlignmentRecord(
                 ID=keys[i],
-                TargetPoint=target_points[i, :],
-                SourcePoint=source_points[i, :],
+                TargetPoint=target_host[i, :],
+                SourcePoint=source_host[i, :],
                 peak=peaks[batch_pos],
                 weight=float(weights[batch_pos]),
                 angle=0.0,
@@ -1706,7 +1750,8 @@ def _apply_point_pair_updates_to_grid_transform(
 
     source_points = pairs[:, 2:4]
     target_points = pairs[:, 0:2]
-    predicted_targets = np.asarray(grid_transform.Transform(source_points), dtype=np.float64)
+    predicted_targets = nornir_imageregistration.EnsureNumpyArray(
+        grid_transform.Transform(source_points), dtype=np.float64)
     target_delta = target_points - predicted_targets
     delta_norm = np.linalg.norm(target_delta, axis=1)
     source_span = np.asarray(grid_transform.grid.source_shape, dtype=np.float64)
@@ -1747,7 +1792,8 @@ def _apply_point_pair_updates_to_grid_transform(
         index_to_deltas.setdefault(int(grid_index), []).append(target_delta[i])
 
     updated_cells = 0
-    current_targets = np.asarray(grid_transform.TargetPoints, dtype=np.float64)
+    current_targets = nornir_imageregistration.EnsureNumpyArray(
+        grid_transform.TargetPoints, dtype=np.float64)
     for grid_index, deltas in index_to_deltas.items():
         averaged_delta = np.mean(np.asarray(deltas, dtype=np.float64), axis=0)
         grid_transform.UpdateTargetPointsByIndex(
@@ -2101,8 +2147,8 @@ def RefineGridMosaic(
     # Legacy ir-refine-grid never resamples at the end: the refined grid IS the output
     # transform. Resample only if a tile somehow is not on the output lattice, or to
     # downconvert an on-device GPU grid transform (NORNIR_REFINE_GPU_TRANSFORM) back to
-    # the host-backed CPU grid so the saved mosaic stays NumPy (PopulateTargetPoints
-    # brings the forward-transformed points to host).
+    # the host-backed CPU grid so the saved mosaic stays NumPy (CPU Grid constructor
+    # packs TargetPoints onto the host).
     for tile in tiles.values():
         source_shape = _tile_source_shape_for_grid(tile)
         is_gpu_grid = isinstance(
@@ -2668,6 +2714,7 @@ def _compute_zncc_for_candidates(
         settings: nornir_imageregistration.settings.GridRefinement,
         *,
         travel_eps: float = 0.5,
+        reference_pose: RingReferencePose | None = None,
 ) -> dict[tuple[int, int], float]:
     """Score masked ZNCC at each lock-candidate peak.
 
@@ -2701,16 +2748,12 @@ def _compute_zncc_for_candidates(
         rigid_transforms = ApproximateRigidTransformBySourcePoints(
             input_transform=transform,
             source_points=source_points,
-            cell_size=settings.cell_size)
-        xp_zncc = nornir_imageregistration.GetComputationModule()
-        target_image = _ensure_on_array_module(
-            nornir_imageregistration.ImageParamToImageArray(
-                settings.target_image, dtype=nornir_imageregistration.default_image_dtype()),
-            xp_zncc)
-        source_image = _ensure_on_array_module(
-            nornir_imageregistration.ImageParamToImageArray(
-                settings.source_image, dtype=nornir_imageregistration.default_image_dtype()),
-            xp_zncc)
+            cell_size=settings.cell_size,
+            reference_pose=reference_pose,
+            ring_scale_fraction_max=settings.ring_scale_fraction_max,
+            ring_angle_max_degrees=settings.ring_angle_max_degrees,
+            ring_allow_flip_change=settings.ring_allow_flip_change)
+        target_image, source_image = _stos_settings_images(settings)
         batched = BuildAlignmentROIsBatched(
             rigid_transforms=rigid_transforms,
             target_image=target_image,
@@ -2737,7 +2780,11 @@ def _compute_zncc_for_candidates(
             rigid = ApproximateRigidTransformBySourcePoints(
                 input_transform=transform,
                 source_points=source_points[i:i + 1],
-                cell_size=settings.cell_size)[0]
+                cell_size=settings.cell_size,
+                reference_pose=reference_pose,
+                ring_scale_fraction_max=settings.ring_scale_fraction_max,
+                ring_angle_max_degrees=settings.ring_angle_max_degrees,
+                ring_allow_flip_change=settings.ring_allow_flip_change)[0]
             rois = BuildAlignmentROIs(
                 transform=rigid,
                 targetImage_param=settings.target_image,
@@ -2789,10 +2836,92 @@ def _lock_candidate_ids_preview(
 def should_finish_on_empty_alignment_pass(pass_index: int, n_finalized: int) -> bool:
     """Return True when an empty remasure should end refine instead of aborting.
 
-    Pass 1 with no locked points is still a hard failure. Later passes, or any
-    pass that already locked cells, keep the current transform.
+    Pass 1 with no locked points is still a hard failure after cell-size
+    doubling cannot continue. Later passes, or any pass that already locked
+    cells, keep the current transform.
     """
     return int(n_finalized) > 0 or int(pass_index) > 1
+
+
+def _clamp_settings_cell_size(
+        settings: nornir_imageregistration.settings.GridRefinement,
+) -> NDArray[np.int64]:
+    """Clamp ``settings.cell_size`` to the image/1024 cap. Returns the clamped size."""
+    cap = cell_size_cap_from_shapes(
+        settings.source_image.shape, settings.target_image.shape)
+    current = np.asarray(settings.cell_size, dtype=np.int64).ravel()[:2].copy()
+    clamped = clamp_cell_size_to_cap(current, cap)
+    if bool(np.any(current > cap)):
+        prettyoutput.Log(
+            f'cell_size {current.tolist()} exceeds cap {cap.tolist()}; clamping')
+        settings.cell_size = clamped
+    return clamped
+
+
+def _grow_refine_cell_size_after_failure(
+        settings: nornir_imageregistration.settings.GridRefinement,
+        source_content_cache: SourceContentCache,
+        *,
+        pass_index: int,
+        final_pass: bool,
+) -> bool:
+    """Double ``settings.cell_size`` for remaining passes after a failed measure.
+
+    Returns True when cell size grew. Sticky LOW_CONTENT cache entries from the
+    smaller crop must be dropped so larger ROIs are remeasured.
+    """
+    if not can_grow_cell_size_on_pass(
+            pass_index=pass_index,
+            num_iterations=int(settings.num_iterations),
+            final_pass=final_pass):
+        return False
+    previous = np.asarray(settings.cell_size, dtype=np.int64).copy()
+    grown = next_cell_size_after_failure(
+        previous,
+        cell_size_cap_from_shapes(
+            settings.source_image.shape, settings.target_image.shape),
+    )
+    if grown is None:
+        prettyoutput.Log(
+            f'Pass {pass_index}: no usable alignments; cell_size already at cap '
+            f'{previous.tolist()}')
+        return False
+    settings.cell_size = grown
+    source_content_cache.clear()
+    prettyoutput.Log(
+        f'Pass {pass_index}: no usable alignments; doubling cell_size '
+        f'{previous.tolist()} -> {grown.tolist()} for remaining passes')
+    return True
+
+
+def _restore_refine_cell_size_after_success(
+        settings: nornir_imageregistration.settings.GridRefinement,
+        source_content_cache: SourceContentCache,
+        requested_cell_size: NDArray[np.integer] | Sequence[int],
+        *,
+        pass_index: int,
+        final_pass: bool,
+) -> bool:
+    """Return ``settings.cell_size`` to the caller's requested size after registrations.
+
+    Returns True when cell size shrank. Source-content cache entries from the
+    larger crop are dropped so the original ROI size is remeasured.
+    """
+    if not can_grow_cell_size_on_pass(
+            pass_index=pass_index,
+            num_iterations=int(settings.num_iterations),
+            final_pass=final_pass):
+        return False
+    if not cell_size_exceeds_requested(settings.cell_size, requested_cell_size):
+        return False
+    previous = np.asarray(settings.cell_size, dtype=np.int64).ravel()[:2].copy()
+    restored = np.asarray(requested_cell_size, dtype=np.int64).ravel()[:2].copy()
+    settings.cell_size = restored
+    source_content_cache.clear()
+    prettyoutput.Log(
+        f'Pass {pass_index}: found registrations; restoring cell_size '
+        f'{previous.tolist()} -> {restored.tolist()} for remaining passes')
+    return True
 
 
 def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
@@ -2809,10 +2938,31 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     The routine alternates between generating candidate alignments, building an
     updated transform from cutoff-selected points, and finalizing stable points
     until convergence or pass limits are reached.
+
+    When *progress_callback* accepts a fourth argument, each completed pass
+    (and residual ``TranslateFixed``) delivers a deep-copied transform so a UI
+    can preview the working mesh without sharing the worker's live object.
+    MQTT dashboard progress is separate and does not carry the transform.
+
+    Pass state (locks, ring pose, residual check, cell-size adaptation) lives
+    in this call. Repeating ``num_iterations=1`` N times is not equivalent.
+
+    When a pass measures nothing usable (empty grid or all REJECT), remaining
+    iterations double ``settings.cell_size`` up to ``MAX_REFINE_CELL_SIZE``
+    (1024), further limited by the smaller image shape. When a later pass finds
+    FREE/LOCKABLE registrations, remaining iterations return to the original
+    requested cell size. Grid spacing is unchanged. The caller's ``cell_size``
+    is restored on exit.
     """
 
     if (SavePlots or SaveImages) and outputDir is None:
         raise ValueError("outputDir must be specified if SavePlots or SaveImages is true.")
+
+    # Frozen input pose for ring linearization. Do not re-Kabsch from later meshes.
+    ring_reference_pose = reference_pose_from_transform(stosTransform)
+    # Same object as *stosTransform* until a mesh rebuild replaces it. TranslateFixed
+    # mutations remain visible here; collapsed 3-point meshes must not.
+    refine_input_transform = stosTransform
 
     # Convert inputs to numpy arrays
 
@@ -2828,6 +2978,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     last_residual_translation: NDArray[np.floating] | None = None
     residual_undo_attempted = False
     source_content_cache = SourceContentCache()
+    original_cell_size = settings.cell_size
+    requested_cell_size = _clamp_settings_cell_size(settings)
     cell_history = CellPassHistoryStore()
     if legacy_finalize:
         prettyoutput.Log(
@@ -2849,6 +3001,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     updatedTransform = None  # type: nornir_imageregistration.ITransform | None
 
     i = 1
+    combined_records_this_pass: AlignmentRecordDict = {}
+    role_result = None
 
     finalize_ema = EMA(settings.num_iterations // 2, 2)  # Track the cutoff values over the last three passes
     cutoff_ema = EMA(settings.num_iterations // 2, 2)
@@ -2864,832 +3018,911 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         depth_base=progress_depth_base,
     )
 
-    while i <= settings.num_iterations:
-        check_cancelled(cancel_event)
-        report_progress(
-            progress_callback,
-            i,
-            settings.num_iterations,
-            f"Refine pass {i}/{settings.num_iterations}")
-        pass_t0 = time.perf_counter()
-        pass_phase_baseline = _PHASE_TIMER.snapshot()
-        measure_s = 0.0
-        finalize_s = 0.0
-        diagnostics_tables_s = 0.0
-        diagnostics_heatmaps_s = 0.0
+    try:
+        while i <= settings.num_iterations:
+            check_cancelled(cancel_event)
+            report_progress(
+                progress_callback,
+                i,
+                settings.num_iterations,
+                f"Refine pass {i}/{settings.num_iterations}")
+            pass_t0 = time.perf_counter()
+            pass_phase_baseline = _PHASE_TIMER.snapshot()
+            measure_s = 0.0
+            finalize_s = 0.0
+            diagnostics_tables_s = 0.0
+            diagnostics_heatmaps_s = 0.0
 
-        if i == settings.num_iterations:
-            final_pass = True
+            if i == settings.num_iterations:
+                final_pass = True
 
-        measure_t0 = time.perf_counter()
-        alignment_points = _RefineGridPointsForTwoImages(
-            stosTransform,
-            settings=settings,
-            finalized=finalized_points,
-            source_content_cache=source_content_cache,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback)
-        measure_s = time.perf_counter() - measure_t0
+            measure_t0 = time.perf_counter()
+            alignment_points = _RefineGridPointsForTwoImages(
+                stosTransform,
+                settings=settings,
+                finalized=finalized_points,
+                source_content_cache=source_content_cache,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
+                reference_pose=ring_reference_pose)
+            measure_s = time.perf_counter() - measure_t0
 
-        if len(alignment_points) == 0:
-            if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
-                if len(finalized_points) > 0:
-                    prettyoutput.Log(
-                        f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
-                        f"finishing with {len(finalized_points)} locked points")
-                else:
-                    prettyoutput.Log(
-                        f"Pass {i}: no alignment points generated; "
-                        f"keeping transform from pass {i - 1}")
-                break
-            raise ValueError(f"No alignment points generated at pass #{i}")
-
-        alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
-
-        prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
-
-        # FOV / coherent residual can leave almost no cells registering. Undo once
-        # so a bad TranslateFixed does not starve mesh construction.
-        if (coherent_residual_translated
-                and not residual_undo_attempted
-                and last_residual_translation is not None
-                and len(finalized_points) == 0
-                and len(alignment_points) < 3):
-            translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
-            if callable(translate_fixed):
-                residual_undo_attempted = True
-                translate_fixed(-np.asarray(last_residual_translation, dtype=np.float64))
-                coherent_residual_translated = False
-                prettyoutput.Log(
-                    f'Reverted residual translation after sparse remasure '
-                    f'({len(alignment_points)} alignments, 0 locks); remeasuring')
-                measure_t0 = time.perf_counter()
-                alignment_points = _RefineGridPointsForTwoImages(
-                    stosTransform,
-                    settings=settings,
-                    finalized=finalized_points,
-                    source_content_cache=source_content_cache,
-                    cancel_event=cancel_event,
-                    progress_callback=progress_callback)
-                measure_s += time.perf_counter() - measure_t0
-                if len(alignment_points) == 0:
-                    if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
+            if len(alignment_points) == 0:
+                if _grow_refine_cell_size_after_failure(
+                        settings,
+                        source_content_cache,
+                        pass_index=i,
+                        final_pass=final_pass):
+                    i += 1
+                    continue
+                if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
+                    if len(finalized_points) > 0:
                         prettyoutput.Log(
-                            f"Pass {i}: no alignment points after residual revert; "
-                            f"keeping current transform")
-                        break
-                    raise ValueError(
-                        f"No alignment points generated at pass #{i} after residual revert")
-                alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
-                prettyoutput.Log(
-                    f"Pass {i} aligned {len(alignment_points)} points after residual revert")
+                            f"Pass {i}: no remaining unfinalized points meet mask/bounds criteria; "
+                            f"finishing with {len(finalized_points)} locked points")
+                    else:
+                        prettyoutput.Log(
+                            f"Pass {i}: no alignment points generated; "
+                            f"keeping transform from pass {i - 1}")
+                    break
+                raise ValueError(f"No alignment points generated at pass #{i}")
 
-        # Track A: once per refine, absorb a coherent residual translation when
-        # almost nothing has locked. If unique peaks are too scarce/incoherent
-        # (wrap-like), try downsampled whole-FOV phase-correlation once.
-        # coherent_residual_checked gates the attempt; coherent_residual_translated
-        # is True only when TranslateFixed ran (preserve must not treat "checked"
-        # as "translated" or sparse meshes discard a non-existent residual).
-        if not coherent_residual_checked:
-            grid_n = max(1, len(alignment_points) + len(finalized_points))
-            lock_fraction = float(len(finalized_points)) / float(grid_n)
-            diagnosis = diagnose_coherent_residual_translation(
-                alignment_points, lock_fraction=lock_fraction)
-            residual = diagnosis.result
-            translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
-            if residual is not None and callable(translate_fixed):
-                translate_fixed(residual.translation)
-                finalize_candidates.clear()
-                coherent_residual_translated = True
-                coherent_residual_checked = True
-                last_residual_translation = np.asarray(residual.translation, dtype=np.float64).copy()
-                prettyoutput.Log(
-                    f'Coherent residual translation: (dy, dx)=('
-                    f'{float(residual.translation[0]):.2f}, '
-                    f'{float(residual.translation[1]):.2f}) '
-                    f'coherence={residual.coherence:.3f} '
-                    f'n_unique={residual.n_unique} '
-                    f'n_inliers={residual.n_inliers}')
-                _log_phase_breakdown(f'RefineTransform pass {i} (coherent residual)', pass_phase_baseline)
-                continue
-            if lock_fraction < float(LOCK_FRAC_TRIGGER):
-                prettyoutput.Log(
-                    f'Coherent residual skipped: reason={diagnosis.skip_reason} '
-                    f'n_unique={diagnosis.n_unique} n_inliers={diagnosis.n_inliers} '
-                    f'coherence={diagnosis.coherence:.3f}')
-                if (not global_pose_recovery_applied
-                        and should_attempt_global_fov_recovery(diagnosis, lock_fraction)
-                        and callable(translate_fixed)):
-                    global_peak = estimate_global_fov_residual_translation(
+            alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
+
+            prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
+
+            # FOV / coherent residual can leave almost no cells registering. Undo once
+            # so a bad TranslateFixed does not starve mesh construction.
+            if (coherent_residual_translated
+                    and not residual_undo_attempted
+                    and last_residual_translation is not None
+                    and len(finalized_points) == 0
+                    and len(alignment_points) < 3):
+                translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
+                if callable(translate_fixed):
+                    residual_undo_attempted = True
+                    translate_fixed(-np.asarray(last_residual_translation, dtype=np.float64))
+                    coherent_residual_translated = False
+                    prettyoutput.Log(
+                        f'Reverted residual translation after sparse remasure '
+                        f'({len(alignment_points)} alignments, 0 locks); remeasuring')
+                    report_pass_transform(
+                        progress_callback,
                         stosTransform,
-                        settings.target_image,
-                        settings.source_image,
-                    )
-                    global_pose_recovery_applied = True
-                    if global_peak is not None and float(np.linalg.norm(global_peak)) >= 1.0:
-                        translate_fixed(global_peak)
-                        finalize_candidates.clear()
-                        coherent_residual_translated = True
-                        coherent_residual_checked = True
-                        last_residual_translation = np.asarray(global_peak, dtype=np.float64).copy()
+                        i,
+                        settings.num_iterations,
+                        label=f"Refine pass {i}: residual revert")
+                    measure_t0 = time.perf_counter()
+                    alignment_points = _RefineGridPointsForTwoImages(
+                        stosTransform,
+                        settings=settings,
+                        finalized=finalized_points,
+                        source_content_cache=source_content_cache,
+                        cancel_event=cancel_event,
+                        progress_callback=progress_callback,
+                        reference_pose=ring_reference_pose)
+                    measure_s += time.perf_counter() - measure_t0
+                    if len(alignment_points) == 0:
+                        if _grow_refine_cell_size_after_failure(
+                                settings,
+                                source_content_cache,
+                                pass_index=i,
+                                final_pass=final_pass):
+                            i += 1
+                            continue
+                        if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
+                            prettyoutput.Log(
+                                f"Pass {i}: no alignment points after residual revert; "
+                                f"keeping current transform")
+                            break
+                        raise ValueError(
+                            f"No alignment points generated at pass #{i} after residual revert")
+                    alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
+                    prettyoutput.Log(
+                        f"Pass {i} aligned {len(alignment_points)} points after residual revert")
+
+            # Track A: once per refine, absorb a coherent residual translation when
+            # almost nothing has locked. If unique peaks are too scarce/incoherent
+            # (wrap-like), try downsampled whole-FOV phase-correlation once.
+            # coherent_residual_checked gates the attempt; coherent_residual_translated
+            # is True only when TranslateFixed ran (preserve must not treat "checked"
+            # as "translated" or sparse meshes discard a non-existent residual).
+            if not coherent_residual_checked:
+                grid_n = max(1, len(alignment_points) + len(finalized_points))
+                lock_fraction = float(len(finalized_points)) / float(grid_n)
+                diagnosis = diagnose_coherent_residual_translation(
+                    alignment_points, lock_fraction=lock_fraction)
+                residual = diagnosis.result
+                translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
+                if residual is not None and callable(translate_fixed):
+                    translate_fixed(residual.translation)
+                    finalize_candidates.clear()
+                    coherent_residual_translated = True
+                    coherent_residual_checked = True
+                    last_residual_translation = np.asarray(residual.translation, dtype=np.float64).copy()
+                    prettyoutput.Log(
+                        f'Coherent residual translation: (dy, dx)=('
+                        f'{float(residual.translation[0]):.2f}, '
+                        f'{float(residual.translation[1]):.2f}) '
+                        f'coherence={residual.coherence:.3f} '
+                        f'n_unique={residual.n_unique} '
+                        f'n_inliers={residual.n_inliers}')
+                    report_pass_transform(
+                        progress_callback,
+                        stosTransform,
+                        i,
+                        settings.num_iterations,
+                        label=f"Refine pass {i}: residual translation")
+                    _log_phase_breakdown(f'RefineTransform pass {i} (coherent residual)', pass_phase_baseline)
+                    continue
+                if lock_fraction < float(LOCK_FRAC_TRIGGER):
+                    prettyoutput.Log(
+                        f'Coherent residual skipped: reason={diagnosis.skip_reason} '
+                        f'n_unique={diagnosis.n_unique} n_inliers={diagnosis.n_inliers} '
+                        f'coherence={diagnosis.coherence:.3f}')
+                    if (not global_pose_recovery_applied
+                            and should_attempt_global_fov_recovery(diagnosis, lock_fraction)
+                            and callable(translate_fixed)):
+                        global_peak = estimate_global_fov_residual_translation(
+                            stosTransform,
+                            settings.target_image,
+                            settings.source_image,
+                        )
+                        global_pose_recovery_applied = True
+                        if global_peak is not None and float(np.linalg.norm(global_peak)) >= 1.0:
+                            translate_fixed(global_peak)
+                            finalize_candidates.clear()
+                            coherent_residual_translated = True
+                            coherent_residual_checked = True
+                            last_residual_translation = np.asarray(global_peak, dtype=np.float64).copy()
+                            prettyoutput.Log(
+                                f'Global FOV residual translation: (dy, dx)=('
+                                f'{float(global_peak[0]):.2f}, {float(global_peak[1]):.2f})')
+                            report_pass_transform(
+                                progress_callback,
+                                stosTransform,
+                                i,
+                                settings.num_iterations,
+                                label=f"Refine pass {i}: residual translation")
+                            _log_phase_breakdown(
+                                f'RefineTransform pass {i} (global FOV residual)',
+                                pass_phase_baseline)
+                            continue
                         prettyoutput.Log(
-                            f'Global FOV residual translation: (dy, dx)=('
-                            f'{float(global_peak[0]):.2f}, {float(global_peak[1]):.2f})')
-                        _log_phase_breakdown(
-                            f'RefineTransform pass {i} (global FOV residual)',
-                            pass_phase_baseline)
-                        continue
-                    prettyoutput.Log(
-                        'Global FOV residual skipped: no usable peak')
-                elif (not global_pose_recovery_applied
-                      and int(diagnosis.n_unique) <= 0):
-                    prettyoutput.Log(
-                        'Global FOV residual skipped: n_unique=0 '
-                        '(all cell peaks rejected; no TranslateFixed)')
-                # Pathological recovery attempts finished for this refine.
-                coherent_residual_checked = True
-            else:
-                # Locks already healthy — no residual recovery needed.
-                coherent_residual_checked = True
+                            'Global FOV residual skipped: no usable peak')
+                    elif (not global_pose_recovery_applied
+                          and int(diagnosis.n_unique) <= 0):
+                        prettyoutput.Log(
+                            'Global FOV residual skipped: n_unique=0 '
+                            '(all cell peaks rejected; no TranslateFixed)')
+                    # Pathological recovery attempts finished for this refine.
+                    coherent_residual_checked = True
+                else:
+                    # Locks already healthy — no residual recovery needed.
+                    coherent_residual_checked = True
 
-        progress_reporter.on_pass_start(i)
-        report_progress(
-            progress_callback,
-            i,
-            settings.num_iterations,
-            f"Refine pass {i}: scoring / finalize")
+            progress_reporter.on_pass_start(i)
+            report_progress(
+                progress_callback,
+                i,
+                settings.num_iterations,
+                f"Refine pass {i}: scoring / finalize")
 
-        updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
-        updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
-            updated_and_finalized_alignment_points,
-            max_distance=max(settings.cell_size))
+            updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
+            updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
+                updated_and_finalized_alignment_points,
+                max_distance=max(settings.cell_size))
 
-        # What fraction of the maximum number of iterations have been completed?
-        adjustment_scalar = (i - 1) / settings.num_iterations
+            # What fraction of the maximum number of iterations have been completed?
+            adjustment_scalar = (i - 1) / settings.num_iterations
 
-        # transform_inclusion_percentile_this_pass = transform_inclusion_percentile
-        # if adjustment_scalar != 0:
-        #     transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
-        #
-        # transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0,
-        #                                                          100.0))  # This is a float, so don't bother with out parameter
-        #
-        # transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],
-        #                                            # Do not include finalize points because they have a distance of zero which throws off the composite scores
-        #                                            transform_inclusion_percentile_this_pass)
+            # transform_inclusion_percentile_this_pass = transform_inclusion_percentile
+            # if adjustment_scalar != 0:
+            #     transform_inclusion_percentile_this_pass -= (transform_inclusion_range * adjustment_scalar)
+            #
+            # transform_inclusion_percentile_this_pass = float(np.clip(transform_inclusion_percentile_this_pass, 10.0,
+            #                                                          100.0))  # This is a float, so don't bother with out parameter
+            #
+            # transform_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 2],
+            #                                            # Do not include finalize points because they have a distance of zero which throws off the composite scores
+            #                                            transform_inclusion_percentile_this_pass)
 
-        # finalize_percentile_this_pass = finalize_percentile
-        # if adjustment_scalar != 0:
-        #     finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
-        #
-        # finalize_percentile_this_pass = float(
-        #     np.clip(finalize_percentile_this_pass, 10.0, 100.0))  # This is a float, so don't bother with out parameter
-        #
-        # finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
-        #                                           finalize_percentile_this_pass)
+            # finalize_percentile_this_pass = finalize_percentile
+            # if adjustment_scalar != 0:
+            #     finalize_percentile_this_pass -= (finalize_range * adjustment_scalar)
+            #
+            # finalize_percentile_this_pass = float(
+            #     np.clip(finalize_percentile_this_pass, 10.0, 100.0))  # This is a float, so don't bother with out parameter
+            #
+            # finalize_cutoff_this_pass = np.percentile(updated_and_finalized_weights_distance[:, 0],
+            #                                           finalize_percentile_this_pass)
 
-        # Using the set of alignment record scores, estimate the cutoff value that separates successful registrations from failed registrations
-        weight_cutoff = estimate_registration_weight_cutoff(
-            updated_and_finalized_weights_distance[:, WeightMethod.Registration])
-        cutoff_percentile_this_pass = weight_cutoff.cutoff_percentile_index
-        inflection_percentile = weight_cutoff.inflection_percentile_index
-        cutoff_value_this_pass = weight_cutoff.cutoff_value
-        polyfit_weights = weight_cutoff.percentile_curve
-        if weight_cutoff.used_fallback:
+            # Using the set of alignment record scores, estimate the cutoff value that separates successful registrations from failed registrations
+            weight_cutoff = estimate_registration_weight_cutoff(
+                updated_and_finalized_weights_distance[:, WeightMethod.Registration])
+            cutoff_percentile_this_pass = weight_cutoff.cutoff_percentile_index
+            inflection_percentile = weight_cutoff.inflection_percentile_index
+            cutoff_value_this_pass = weight_cutoff.cutoff_value
+            polyfit_weights = weight_cutoff.percentile_curve
+            if weight_cutoff.used_fallback:
+                prettyoutput.Log(
+                    "No inflection in registration weights; including nearly all measured points this pass")
+
+            # Diagnostic-only inflection (kept for logs / EMA history). Mesh inclusion,
+            # lock candidacy, and finalize no longer gate on registration weight —
+            # travel + Role/ZNCC secondary are the active bars.
+            transform_cutoff_percentile = inflection_percentile
+            diagnostic_inflection_value = float(polyfit_weights[transform_cutoff_percentile])
+            cutoff_ema.add(diagnostic_inflection_value)
+            if first_cutoff is None:
+                first_cutoff = float(cutoff_value_this_pass)
+
+            transform_cutoff_value = float('-inf')
+            cutoff_value = transform_cutoff_value
+
             prettyoutput.Log(
-                "No inflection in registration weights; including nearly all measured points this pass")
+                f'#######\n'
+                f'Registration weight cutoff disabled; gating via travel + Role/ZNCC\n'
+                f'Diagnostic inflection (unused): {transform_cutoff_percentile}% -> '
+                f'{diagnostic_inflection_value}\n'
+                f'Exponential Moving Average diagnostic inflection: {cutoff_ema.ema_value}\n')
 
-        # Diagnostic-only inflection (kept for logs / EMA history). Mesh inclusion,
-        # lock candidacy, and finalize no longer gate on registration weight —
-        # travel + Role/ZNCC secondary are the active bars.
-        transform_cutoff_percentile = inflection_percentile
-        diagnostic_inflection_value = float(polyfit_weights[transform_cutoff_percentile])
-        cutoff_ema.add(diagnostic_inflection_value)
-        if first_cutoff is None:
-            first_cutoff = float(cutoff_value_this_pass)
+            finalize_t0 = time.perf_counter()
+            preserve_post_residual = False
+            with _PHASE_TIMER.section_wall('finalize'):
+                anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+                n_travel_dropped = 0
+                inclusion_travel = float(settings.max_travel_for_finalization) * float(
+                    getattr(settings, 'inclusion_travel_multiplier', 1.0))
+                discontinuity_ids: set[tuple[int, int]] = set()
+                if sharp_warps_enabled() and len(alignment_points) > 0:
+                    discontinuity_ids = tag_discontinuities(
+                        alignment_points,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        stable_ids=None,
+                    )
+                    if discontinuity_ids:
+                        prettyoutput.Log(
+                            f'Sharp-warp discontinuities: {len(discontinuity_ids)} cells '
+                            f'(neighbor peak disagreement)')
 
-        transform_cutoff_value = float('-inf')
-        cutoff_value = transform_cutoff_value
-
-        prettyoutput.Log(
-            f'#######\n'
-            f'Registration weight cutoff disabled; gating via travel + Role/ZNCC\n'
-            f'Diagnostic inflection (unused): {transform_cutoff_percentile}% -> '
-            f'{diagnostic_inflection_value}\n'
-            f'Exponential Moving Average diagnostic inflection: {cutoff_ema.ema_value}\n')
-
-        finalize_t0 = time.perf_counter()
-        preserve_post_residual = False
-        with _PHASE_TIMER.section_wall('finalize'):
-            anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
-            n_travel_dropped = 0
-            inclusion_travel = float(settings.max_travel_for_finalization) * float(
-                getattr(settings, 'inclusion_travel_multiplier', 1.0))
-            discontinuity_ids: set[tuple[int, int]] = set()
-            if sharp_warps_enabled() and len(alignment_points) > 0:
-                discontinuity_ids = tag_discontinuities(
-                    alignment_points,
-                    max_travel=float(settings.max_travel_for_finalization),
-                    stable_ids=None,
-                )
-                if discontinuity_ids:
+                # Soft travel/weight only for disc cells with finite peak_ratio >= min.
+                soft_disc_ids = soft_discontinuity_ids(alignment_points, discontinuity_ids)
+                if discontinuity_ids and len(soft_disc_ids) < len(discontinuity_ids):
                     prettyoutput.Log(
-                        f'Sharp-warp discontinuities: {len(discontinuity_ids)} cells '
-                        f'(neighbor peak disagreement)')
+                        f'Sharp-warp soft floors: {len(soft_disc_ids)}/{len(discontinuity_ids)} '
+                        f'disc cells eligible (peak_ratio >= min)')
 
-            # Soft travel/weight only for disc cells with finite peak_ratio >= min.
-            soft_disc_ids = soft_discontinuity_ids(alignment_points, discontinuity_ids)
-            if discontinuity_ids and len(soft_disc_ids) < len(discontinuity_ids):
-                prettyoutput.Log(
-                    f'Sharp-warp soft floors: {len(soft_disc_ids)}/{len(discontinuity_ids)} '
-                    f'disc cells eligible (peak_ratio >= min)')
-
-            # Mesh raw-preserve: ratio-eligible soft-disc ∪ unique large-travel
-            # ∪ coherent active disc fronts (cluster + direction; no pr floor).
-            # Do NOT raw-preserve all discontinuity tags — ambiguous wrap-like
-            # disc peaks (pr≈1.03) create a feedback loop (disc 78→489 on 252-254)
-            # unless they form a spatially coherent front.
-            unique_raw_ids = unique_large_travel_raw_preserve_ids(
-                alignment_points,
-                max_travel=float(settings.max_travel_for_finalization),
-            )
-            coherent_disc_ids = coherent_discontinuity_raw_preserve_ids(
-                alignment_points,
-                discontinuity_ids,
-                max_travel=float(settings.max_travel_for_finalization),
-            )
-            raw_preserve_ids = set(soft_disc_ids) | unique_raw_ids | coherent_disc_ids
-            if unique_raw_ids or soft_disc_ids or coherent_disc_ids:
-                prettyoutput.Log(
-                    f'Mesh raw-preserve: soft-disc={len(soft_disc_ids)} '
-                    f'unique_large={len(unique_raw_ids)} '
-                    f'coherent_front={len(coherent_disc_ids)} → {len(raw_preserve_ids)} '
-                    f'(tagged disc={len(discontinuity_ids)})')
-
-            travel_limits = per_record_max_travel(
-                alignment_points,
-                base_max_travel=inclusion_travel,
-                discontinuity_ids=raw_preserve_ids,
-            )
-            # Soft weight floor unused while primary registration-weight bar is off.
-            soft_weight_cutoff = None
-
-            # Role + FieldMode classification (once per pass).
-            finalize_cutoff_preview = float(transform_cutoff_value)
-            finalize_travel_limits = per_record_max_travel(
-                alignment_points,
-                base_max_travel=float(settings.max_travel_for_finalization),
-                discontinuity_ids=soft_disc_ids,
-            )
-            classify_t0 = time.perf_counter()
-            grid_n = max(1, len(alignment_points) + len(finalized_points))
-            lock_fraction = float(len(finalized_points)) / float(grid_n)
-            with _PHASE_TIMER.section_wall('classify'):
-                field_mode = classify_field(
+                # Mesh raw-preserve: ratio-eligible soft-disc ∪ unique large-travel
+                # ∪ coherent active disc fronts (cluster + direction; no pr floor).
+                # Do NOT raw-preserve all discontinuity tags — ambiguous wrap-like
+                # disc peaks (pr≈1.03) create a feedback loop (disc 78→489 on 252-254)
+                # unless they form a spatially coherent front.
+                unique_raw_ids = unique_large_travel_raw_preserve_ids(
                     alignment_points,
-                    lock_fraction=lock_fraction,
                     max_travel=float(settings.max_travel_for_finalization),
-                    travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                    locked_records=list(finalized_points.values()),
                 )
-                cand_ids = _lock_candidate_ids_preview(
+                coherent_disc_ids = coherent_discontinuity_raw_preserve_ids(
                     alignment_points,
-                    transform_cutoff=finalize_cutoff_preview,
+                    discontinuity_ids,
                     max_travel=float(settings.max_travel_for_finalization),
-                    per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
-                    soft_weight_cutoff=None,
+                )
+                raw_preserve_ids = set(soft_disc_ids) | unique_raw_ids | coherent_disc_ids
+                if unique_raw_ids or soft_disc_ids or coherent_disc_ids:
+                    prettyoutput.Log(
+                        f'Mesh raw-preserve: soft-disc={len(soft_disc_ids)} '
+                        f'unique_large={len(unique_raw_ids)} '
+                        f'coherent_front={len(coherent_disc_ids)} -> {len(raw_preserve_ids)} '
+                        f'(tagged disc={len(discontinuity_ids)})')
+
+                travel_limits = per_record_max_travel(
+                    alignment_points,
+                    base_max_travel=inclusion_travel,
+                    discontinuity_ids=raw_preserve_ids,
+                )
+                # Soft weight floor unused while primary registration-weight bar is off.
+                soft_weight_cutoff = None
+
+                # Role + FieldMode classification (once per pass).
+                finalize_cutoff_preview = float(transform_cutoff_value)
+                finalize_travel_limits = per_record_max_travel(
+                    alignment_points,
+                    base_max_travel=float(settings.max_travel_for_finalization),
                     discontinuity_ids=soft_disc_ids,
                 )
-                field_suspect_ids = field_brand_identity_suspect_ids(
-                    alignment_points,
-                    field_mode=field_mode,
-                    max_travel=float(settings.max_travel_for_finalization),
-                    travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                    discontinuity_ids=discontinuity_ids if discontinuity_ids else None,
-                )
-                # Skip expensive ZNCC ROI re-extract when field already brands suspect.
-                zncc_cand_ids = cand_ids - field_suspect_ids
-            zncc_t0 = time.perf_counter()
-            with _PHASE_TIMER.section_wall('zncc_secondary'):
-                zncc_by_id = _compute_zncc_for_candidates(
-                    alignment_points,
-                    zncc_cand_ids,
-                    stosTransform,
-                    settings,
-                    travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                )
-            zncc_s = time.perf_counter() - zncc_t0
-            with _PHASE_TIMER.section_wall('classify'):
-                role_result = classify_roles(
-                    alignment_points,
-                    transform_cutoff=finalize_cutoff_preview,
-                    max_travel=float(settings.max_travel_for_finalization),
-                    per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
-                    soft_weight_cutoff=None,
-                    discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
-                    zncc_by_id=zncc_by_id,
-                    low_content_ids=source_content_cache.low_content_ids,
-                    field_mode=field_mode,
-                    field_suspect_ids=field_suspect_ids,
-                    travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                )
-            classify_s = time.perf_counter() - classify_t0
-            lockable_ids = {
-                key for key, role in role_result.role_by_id.items() if role == Role.LOCKABLE
-            }
-            prettyoutput.Log(
-                f'field_mode={field_mode.name} '
-                f'reject={role_result.n_reject} free={role_result.n_free} '
-                f'lockable={role_result.n_lockable} '
-                f'identity_suspect={role_result.n_identity_suspect} '
-                f'peak_amb={role_result.n_peak_ambiguous} '
-                f'low_content={role_result.n_low_content} '
-                f'lock_cand={role_result.n_lock_cand} '
-                f'zncc_eval={role_result.n_zncc_eval} '
-                f'zncc_pass={role_result.n_zncc_pass} '
-                f'zncc_fail={role_result.n_zncc_fail} '
-                f'source_low_content_skip={len(source_content_cache.low_content_ids)} '
-                f'classify_s={classify_s:.3f} zncc_s={zncc_s:.3f}')
+                classify_t0 = time.perf_counter()
+                grid_n = max(1, len(alignment_points) + len(finalized_points))
+                lock_fraction = float(len(finalized_points)) / float(grid_n)
+                with _PHASE_TIMER.section_wall('classify'):
+                    field_mode = classify_field(
+                        alignment_points,
+                        lock_fraction=lock_fraction,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                        locked_records=list(finalized_points.values()),
+                    )
+                    cand_ids = _lock_candidate_ids_preview(
+                        alignment_points,
+                        transform_cutoff=finalize_cutoff_preview,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                        soft_weight_cutoff=None,
+                        discontinuity_ids=soft_disc_ids,
+                    )
+                    field_suspect_ids = field_brand_identity_suspect_ids(
+                        alignment_points,
+                        field_mode=field_mode,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                        discontinuity_ids=discontinuity_ids if discontinuity_ids else None,
+                    )
+                    # Skip expensive ZNCC ROI re-extract when field already brands suspect.
+                    zncc_cand_ids = cand_ids - field_suspect_ids
+                zncc_t0 = time.perf_counter()
+                with _PHASE_TIMER.section_wall('zncc_secondary'):
+                    zncc_by_id = _compute_zncc_for_candidates(
+                        alignment_points,
+                        zncc_cand_ids,
+                        stosTransform,
+                        settings,
+                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                        reference_pose=ring_reference_pose,
+                    )
+                zncc_s = time.perf_counter() - zncc_t0
+                with _PHASE_TIMER.section_wall('classify'):
+                    role_result = classify_roles(
+                        alignment_points,
+                        transform_cutoff=finalize_cutoff_preview,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                        soft_weight_cutoff=None,
+                        discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
+                        zncc_by_id=zncc_by_id,
+                        low_content_ids=source_content_cache.low_content_ids,
+                        field_mode=field_mode,
+                        field_suspect_ids=field_suspect_ids,
+                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                    )
+                classify_s = time.perf_counter() - classify_t0
+                lockable_ids = {
+                    key for key, role in role_result.role_by_id.items() if role == Role.LOCKABLE
+                }
+                prettyoutput.Log(
+                    f'field_mode={field_mode.name} '
+                    f'reject={role_result.n_reject} free={role_result.n_free} '
+                    f'lockable={role_result.n_lockable} '
+                    f'identity_suspect={role_result.n_identity_suspect} '
+                    f'peak_amb={role_result.n_peak_ambiguous} '
+                    f'low_content={role_result.n_low_content} '
+                    f'lock_cand={role_result.n_lock_cand} '
+                    f'zncc_eval={role_result.n_zncc_eval} '
+                    f'zncc_pass={role_result.n_zncc_pass} '
+                    f'zncc_fail={role_result.n_zncc_fail} '
+                    f'source_low_content_skip={len(source_content_cache.low_content_ids)} '
+                    f'classify_s={classify_s:.3f} zncc_s={zncc_s:.3f}')
 
+                if anchor_smooth_active:
+                    # Soft-disc + unique large-travel keep raw peaks; ambiguous disc
+                    # are gap-filled from locked anchors (avoids disc feedback loop).
+                    mesh_alignment_points = smooth_peaks_from_locked_anchors(
+                        finalized_points,
+                        alignment_points,
+                        stosTransform,
+                        settings,
+                        discontinuity_ids=raw_preserve_ids if raw_preserve_ids else None,
+                    )
+                    prettyoutput.Log(
+                        f'Anchor-smooth mesh: {len(finalized_points)} locked seeds, '
+                        f'{len(mesh_alignment_points)} cells in smoothed field '
+                        f'(raw-preserve={len(raw_preserve_ids)})')
+                    (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                        _build_mesh_transform_or_keep(
+                            mesh_alignment_points,
+                            prior_transform=stosTransform,
+                            fixed_points=None,
+                        ))
+                else:
+                    # Exclude free points whose residual travel exceeds the inclusion travel bar.
+                    # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
+                    # outliers reshaped the triangulation while locks stayed near 2% (228-229 Grid16).
+                    # Disc / unique large-travel cells get a relaxed limit for mesh inclusion.
+                    # (Soft-disc only — not all tagged discontinuities.)
+                    mesh_alignment_points, n_travel_dropped = filter_records_for_mesh_inclusion(
+                        alignment_points,
+                        max_travel=inclusion_travel,
+                        min_keep=0,
+                        per_record_max_travel=travel_limits if raw_preserve_ids else None,
+                    )
+                    if n_travel_dropped > 0:
+                        prettyoutput.Log(
+                            f'Dropped {n_travel_dropped} free points from mesh inclusion '
+                            f'(peak travel > limit); '
+                            f'{len(mesh_alignment_points)} remain after travel filter')
+
+                    # Drop REJECT roles from mesh (peak-ambiguous / low-content).
+                    # min_keep=0: do not emergency-fill with rejects; _build_mesh_transform_or_keep
+                    # retains the prior pose when fewer than three clear cells remain.
+                    mesh_roles = [
+                        role_result.role_by_id.get(
+                            (int(rec.ID[0]), int(rec.ID[1])), Role.FREE)
+                        for rec in mesh_alignment_points
+                    ]
+                    mesh_alignment_points, n_rej_dropped = exclude_reject_mesh_records(
+                        mesh_alignment_points, mesh_roles, min_keep=0)
+                    if n_rej_dropped > 0:
+                        prettyoutput.Log(
+                            f'Dropped {n_rej_dropped} REJECT free points from mesh inclusion; '
+                            f'{len(mesh_alignment_points)} remain')
+
+                    # No registration-weight bar: travel + REJECT already filtered;
+                    # raw-preserve cells keep residuals via relaxed travel only.
+                    (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                        _build_mesh_transform_or_keep(
+                            mesh_alignment_points,
+                            prior_transform=stosTransform,
+                            fixed_points=AlignRecordsToControlPoints(finalized_points.values()),
+                        ))
+
+                # Sparse inclusion (reject/travel soup, or post-residual wrap peaks)
+                # must not replace a usable prior pose with a 3-point triangulation.
+                preserve_post_residual = should_keep_prior_sparse_mesh(
+                    residual_applied=coherent_residual_translated,
+                    n_mesh=len(included_alignment_records),
+                    n_grid=grid_n,
+                    n_locks=len(finalized_points),
+                    n_prior_points=_control_point_count(stosTransform),
+                )
+                if preserve_post_residual:
+                    min_mesh = max(
+                        int(MIN_MESH_ABS_AFTER_RESIDUAL),
+                        int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(grid_n)),
+                    )
+                    prettyoutput.Log(
+                        f'Keeping prior transform; mesh only has '
+                        f'{len(included_alignment_records)} points (min {min_mesh})')
+                    updatedTransform = stosTransform
+
+                prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
+
+                finalize_percentile_this_pass = cutoff_percentile_this_pass
+                finalize_cutoff_this_pass = float(np.percentile(polyfit_weights,  # type: ignore[arg-type]
+                                                                finalize_percentile_this_pass))
+                finalize_ema.add(finalize_cutoff_this_pass)
+
+                if final_pass:
+                    finalize_cutoff_this_pass = first_cutoff  # type: ignore[assignment]
+
+                # Unlock stale locks that disagree with the updated mesh before adding new locks.
+                unlocked_keys: list[tuple[int, int]] = []
+                if updatedTransform is not None and len(finalized_points) > 0 and not legacy_finalize:
+                    finalized_points, unlocked_keys = unlock_stale_finalized(
+                        finalized_points, updatedTransform, finalize_settings)
+
+                if legacy_finalize:
+                    finalize_cutoff = float(np.percentile(polyfit_weights, 2.0))
+                    new_finalized_points = legacy_finalize_mask(
+                        alignment_points,
+                        max_travel_distance=settings.max_travel_for_finalization,
+                        polyfit_weights=polyfit_weights,
+                        floor_percentile=2.0)
+                    deferred_stability = 0
+                    prettyoutput.Log(
+                        f'Finalize cutoff this pass (legacy): 2% -> {finalize_cutoff}\n#####\n')
+                else:
+                    # Only Role.LOCKABLE cells may lock (PC-pass ∧ ZNCC-pass).
+                    # Registration-weight bar is disabled (-inf); travel + Role/ZNCC gate.
+                    finalize_cutoff = float(transform_cutoff_value)
+                    eval_result = evaluate_finalize_candidates(
+                        alignment_points,
+                        transform_cutoff=finalize_cutoff,
+                        settings=finalize_settings,
+                        pass_index=i,
+                        prior_candidates=finalize_candidates,
+                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                        soft_weight_cutoff=None,
+                        discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
+                        lockable_ids=lockable_ids,
+                    )
+                    new_finalized_points = eval_result.lock_mask
+                    finalize_candidates = eval_result.candidates
+                    deferred_stability = eval_result.deferred_stability_count
+                    prettyoutput.Log(
+                        f'Finalize cutoff this pass: weight bar disabled '
+                        f'(travel + Role/ZNCC)\n'
+                        f'  rejected weight={eval_result.rejected_weight_count} '
+                        f'travel={eval_result.rejected_travel_count} '
+                        f'pass={eval_result.rejected_pass_count} '
+                        f'ambiguous={eval_result.rejected_ambiguous_count} '
+                        f'identity_suspect={eval_result.rejected_identity_suspect_count} '
+                        f'deferred_stability={deferred_stability}\n#####\n')
+            finalize_s = time.perf_counter() - finalize_t0
+
+            new_finalized_alignments_list = list(
+                filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+
+            if first_pass_weight_distance_composite_scores is None:
+                first_pass_weight_distance_composite_scores = weight_distance_composite_scores
+
+            new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
+            new_finalization_count = len(new_finalized_alignments_dict)
+
+            # remove finalized points from alignment_points
+            non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
+
+            # Check previous finalizations to see if we can do better now
+            (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
+                                                                             finalized_points,
+                                                                             settings)
+
+            # Bake new locks immediately (peak -> TargetPoint) so unlock/mesh see Adjusted==Target.
+            baked_new_locks: AlignmentRecordDict = {}
+            for key, rec in new_finalized_alignments_dict.items():
+                baked_new_locks[key] = nornir_imageregistration.EnhancedAlignmentRecord(
+                    rec.ID,
+                    TargetPoint=rec.AdjustedTargetPoint,
+                    SourcePoint=rec.SourcePoint,
+                    peak=np.asarray((0, 0), dtype=np.float32),
+                    weight=rec.weight,
+                    angle=0,
+                    flipped_ud=rec.flippedud,
+                    peak_ratio=getattr(rec, 'peak_ratio', None),
+                )
+            finalized_points = {**finalized_points, **baked_new_locks}
+            # Drop candidate tracking for cells that just locked.
+            for key in baked_new_locks:
+                finalize_candidates.pop(key, None)
+
+            prettyoutput.Log(
+                f"Pass {i} has locked {new_finalization_count} new points, "
+                f"unlocked {len(unlocked_keys)}, deferred_stability {deferred_stability}; "
+                f"{len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
+
+            prettyoutput.Log(
+                f"  Improved {len(improved_alignments)} finalized points using latest transform")
+
+            progress_reporter.on_pass_locked(
+                i,
+                len(finalized_points),
+                len(updated_and_finalized_alignment_points),
+            )
+
+            if SavePlots:
+                np.savez(os.path.join(outputDir,  # type: ignore[arg-type]
+                                      f'weight_distance_composite_scores_pass{i}.npz'),
+                         updated_and_finalized_weights_distance=updated_and_finalized_weights_distance,
+                         weight_distance_composite_scores=weight_distance_composite_scores,
+                         )
+                mesh_scores = np.asarray(weight_distance_composite_scores)
+                if mesh_scores.size == 0 or mesh_scores.shape[0] == 0:
+                    prettyoutput.Log(
+                        f'Pass {i}: skipping percentile plot; no mesh inclusion scores')
+                else:
+                    percentile_filename = os.path.join(outputDir, f'percentile_pass{i}.svg')  # type: ignore[arg-type]
+                    nornir_imageregistration.views.plot_percentiles(
+                        mesh_scores[:, 0],
+                        percentile_filename,
+                        title=f"Value at percentile",
+                        horz_line_pos_list=[(diagnostic_inflection_value,
+                                             {'label': 'Diagnostic inflection (unused)',
+                                              'color': 'green'}),
+                                            (finalize_cutoff,
+                                             {'label': 'Finalize Cutoff',
+                                              'color': 'brown'})])
+
+                histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.svg')  # type: ignore[arg-type]
+                nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
+                                                                   transform_cutoff=transform_cutoff_percentile / 100.0,
+                                                                   finalize_cutoff=finalize_percentile_this_pass / 100.0,
+                                                                   line_pos_list=[diagnostic_inflection_value,
+                                                                                  finalize_cutoff_this_pass],
+                                                                   title=f"Histogram of Weights, pass #{i}")
+
+                vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.svg')  # type: ignore[arg-type]
+                nornir_imageregistration.views.PlotPeakList(non_final_alignment_points, list(finalized_points.values()),
+                                                            vector_field_filename,
+                                                            ylim=(0, settings.target_image.shape[1]),
+                                                            xlim=(0, settings.target_image.shape[0]))
+                # vector_field_filename = os.path.join(outputDir, f'Vector_field_pass_delta{i}.png')
+                # nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),
+                #                                             vector_field_filename,
+                #                                             ylim=(0, settings.target_image.shape[1]),
+                #                                             xlim=(0, settings.target_image.shape[0]),
+                #                                             attrib='PSDDelta')
+
+            # Always merge locks into the pass control set (previously only when TryToImprove
+            # reported improvements, which dropped fixed anchors on many passes).
+            smoothed_by_id: dict[tuple[int, int], object] = {}
             if anchor_smooth_active:
-                # Soft-disc + unique large-travel keep raw peaks; ambiguous disc
-                # are gap-filled from locked anchors (avoids disc feedback loop).
-                mesh_alignment_points = smooth_peaks_from_locked_anchors(
+                smoothed_pass_records = smooth_peaks_from_locked_anchors(
                     finalized_points,
-                    alignment_points,
-                    stosTransform,
+                    list({a.ID: a for a in included_alignment_records}.values()),
+                    updatedTransform,
                     settings,
                     discontinuity_ids=raw_preserve_ids if raw_preserve_ids else None,
                 )
-                prettyoutput.Log(
-                    f'Anchor-smooth mesh: {len(finalized_points)} locked seeds, '
-                    f'{len(mesh_alignment_points)} cells in smoothed field '
-                    f'(raw-preserve={len(raw_preserve_ids)})')
-                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
-                    _build_mesh_transform_or_keep(
-                        mesh_alignment_points,
-                        prior_transform=stosTransform,
-                        fixed_points=None,
-                    ))
+                combined_records_this_pass = {rec.ID: rec for rec in smoothed_pass_records}
+                smoothed_by_id = combined_records_this_pass
             else:
-                # Exclude free points whose residual travel exceeds the inclusion travel bar.
-                # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
-                # outliers reshaped the triangulation while locks stayed near 2% (228-229 Grid16).
-                # Disc / unique large-travel cells get a relaxed limit for mesh inclusion.
-                # (Soft-disc only — not all tagged discontinuities.)
-                mesh_alignment_points, n_travel_dropped = filter_records_for_mesh_inclusion(
-                    alignment_points,
-                    max_travel=inclusion_travel,
-                    min_keep=max(3, 3 - len(finalized_points)),
-                    per_record_max_travel=travel_limits if raw_preserve_ids else None,
-                )
+                combined_records_this_pass = {a.ID: a for a in included_alignment_records}
+                combined_records_this_pass.update(finalized_points)
+
+            if pass_diagnostics_enabled(SavePlots) and outputDir is not None:
+                included_ids = {(int(r.ID[0]), int(r.ID[1])) for r in included_alignment_records}
+                travel_dropped_ids: set[tuple[int, int]] = set()
                 if n_travel_dropped > 0:
-                    prettyoutput.Log(
-                        f'Dropped {n_travel_dropped} free points from mesh inclusion '
-                        f'(peak travel > limit); '
-                        f'{len(mesh_alignment_points)} remain after travel filter')
-
-                # Drop REJECT roles from mesh (peak-ambiguous / low-content).
-                mesh_min_keep = max(3, 3 - len(finalized_points))
-                mesh_roles = [
-                    role_result.role_by_id.get(
-                        (int(rec.ID[0]), int(rec.ID[1])), Role.FREE)
-                    for rec in mesh_alignment_points
-                ]
-                mesh_alignment_points, n_rej_dropped = exclude_reject_mesh_records(
-                    mesh_alignment_points, mesh_roles, min_keep=mesh_min_keep)
-                if n_rej_dropped > 0:
-                    prettyoutput.Log(
-                        f'Dropped {n_rej_dropped} REJECT free points from mesh inclusion; '
-                        f'{len(mesh_alignment_points)} remain')
-
-                # No registration-weight bar: travel + REJECT already filtered;
-                # raw-preserve cells keep residuals via relaxed travel only.
-                (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
-                    _build_mesh_transform_or_keep(
-                        mesh_alignment_points,
-                        prior_transform=stosTransform,
-                        fixed_points=AlignRecordsToControlPoints(finalized_points.values()),
-                    ))
-
-            # After Track A / global FOV, a collapsed mesh undoes TranslateFixed.
-            preserve_post_residual = should_preserve_post_residual_transform(
-                residual_applied=coherent_residual_translated,
-                n_mesh=len(included_alignment_records),
-                n_grid=grid_n,
-                n_locks=len(finalized_points),
-            )
-            if preserve_post_residual:
-                min_mesh = max(
-                    int(MIN_MESH_ABS_AFTER_RESIDUAL),
-                    int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(grid_n)),
+                    kept_ids = {(int(r.ID[0]), int(r.ID[1])) for r in mesh_alignment_points}
+                    travel_dropped_ids = {
+                        (int(r.ID[0]), int(r.ID[1])) for r in alignment_points
+                        if (int(r.ID[0]), int(r.ID[1])) not in kept_ids
+                    }
+                pair_label = os.path.basename(outputDir.rstrip(os.sep)) or 'stos'
+                diag_rows = build_pass_diagnostic_rows(
+                    alignment_points=alignment_points,
+                    finalized=finalized_points,
+                    included_ids=included_ids,
+                    travel_dropped_ids=travel_dropped_ids,
+                    unlocked_ids=set(unlocked_keys),
+                    transform_cutoff=float(diagnostic_inflection_value),
+                    finalize_candidates=finalize_candidates,
+                    transform=updatedTransform,
+                    discontinuity_ids=discontinuity_ids,
+                    smoothed_by_id=smoothed_by_id,
+                    role_by_id={k: int(v) for k, v in role_result.role_by_id.items()},
+                    reject_reason_by_id={
+                        (int(rec.ID[0]), int(rec.ID[1])): int(reason)
+                        for rec, reason in zip(alignment_points, role_result.reject_reasons)
+                    },
+                    zncc_by_id=zncc_by_id,
+                    lock_candidate_ids={
+                        (int(rec.ID[0]), int(rec.ID[1]))
+                        for rec, ok in zip(alignment_points, role_result.lock_candidate)
+                        if bool(ok)
+                    },
+                    source_content_by_id=dict(source_content_cache.as_mapping()),
                 )
-                prettyoutput.Log(
-                    f'Keeping post-residual transform; mesh only has '
-                    f'{len(included_alignment_records)} points (min {min_mesh})')
-                updatedTransform = stosTransform
+                written_diag = write_pass_diagnostics(
+                    outputDir,
+                    i,
+                    diag_rows,
+                    pair_label=pair_label,
+                    write_heatmaps=bool(SavePlots),
+                )
+                cell_history.append_pass(i, diag_rows)
+                diagnostics_tables_s = float(written_diag.get('tables_s', 0.0))
+                diagnostics_heatmaps_s = float(written_diag.get('heatmaps_s', 0.0))
+                _PHASE_TIMER.add('diagnostics_tables', diagnostics_tables_s)
+                if diagnostics_heatmaps_s > 0:
+                    _PHASE_TIMER.add('diagnostics_heatmaps', diagnostics_heatmaps_s)
 
-            prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
+            pass_wall_s = time.perf_counter() - pass_t0
+            prettyoutput.Log(
+                f'RefineTransform pass {i} pass_wall_s={pass_wall_s:.2f} '
+                f'measure_s={measure_s:.2f} finalize_s={finalize_s:.2f} '
+                f'diagnostics_tables_s={diagnostics_tables_s:.2f} '
+                f'diagnostics_heatmaps_s={diagnostics_heatmaps_s:.2f}')
+            # Log after classify / zncc_secondary so PHASE_TIMING buckets are non-zero.
+            _log_phase_breakdown(f'RefineTransform pass {i}', pass_phase_baseline)
 
-            finalize_percentile_this_pass = cutoff_percentile_this_pass
-            finalize_cutoff_this_pass = float(np.percentile(polyfit_weights,  # type: ignore[arg-type]
-                                                            finalize_percentile_this_pass))
-            finalize_ema.add(finalize_cutoff_this_pass)
+            if len(combined_records_this_pass) > 2:
+                # Recompute preserve against current locks/mesh in case finalize
+                # path already kept stosTransform — still skip sparse rebuild.
+                preserve_end = should_keep_prior_sparse_mesh(
+                    residual_applied=coherent_residual_translated,
+                    n_mesh=len(combined_records_this_pass),
+                    n_grid=max(1, len(alignment_points) + len(finalized_points)),
+                    n_locks=len(finalized_points),
+                    n_prior_points=_control_point_count(stosTransform),
+                )
+                if preserve_post_residual or preserve_end:
+                    prettyoutput.Log(
+                        f'Keeping prior transform for next round; '
+                        f'combined mesh would have {len(combined_records_this_pass)} points')
+                    updatedTransform = stosTransform
+                else:
+                    prettyoutput.Log(
+                        f'Building transform for next round with {len(included_alignment_records)} free '
+                        f'and {len(finalized_points)} finalized points')
+                    updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                        AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
+
+            report_pass_transform(
+                progress_callback,
+                updatedTransform,
+                i,
+                settings.num_iterations)
+
+            if SaveImages:
+                # InputStos.Save(os.path.join(outputDir, "UpdatedTransform_pass{0}.stos".format(i)))
+
+                warpedToFixedImage = nornir_imageregistration.assemble.TransformStos(updatedTransform,
+                                                                                     fixedImage=settings.target_image,
+                                                                                     warpedImage=settings.source_image)
+
+                Delta = warpedToFixedImage - settings.source_image  # type: ignore[operator]
+                ComparisonImage = np.abs(Delta)
+                if ComparisonImage.max() != 0:
+                    ComparisonImage = ComparisonImage / ComparisonImage.max()
+
+                # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'delta_pass{i}.png'), ComparisonImage, bpp=8)
+                # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'image_pass{i}.png'), warpedToFixedImage, bpp=8)
+                pool = nornir_pools.GetGlobalThreadPool()
+                pool.add_task(f'delta_pass{i}.png', nornir_imageregistration.SaveImage,
+                              os.path.join(outputDir, f'delta_pass{i}.png'), np.copy(ComparisonImage), bpp=8)  # type: ignore[call-overload, arg-type]
+                pool.add_task(f'image_pass{i}.png', nornir_imageregistration.SaveImage,
+                              os.path.join(outputDir, f'image_pass{i}.png'), np.copy(warpedToFixedImage), bpp=8)  # type: ignore[call-overload, arg-type]
+
+            i += 1
 
             if final_pass:
-                finalize_cutoff_this_pass = first_cutoff  # type: ignore[assignment]
+                break
 
-            # Unlock stale locks that disagree with the updated mesh before adding new locks.
-            unlocked_keys: list[tuple[int, int]] = []
-            if updatedTransform is not None and len(finalized_points) > 0 and not legacy_finalize:
-                finalized_points, unlocked_keys = unlock_stale_finalized(
-                    finalized_points, updatedTransform, finalize_settings)
+            grew_cell_size = False
+            if pass_found_no_usable_alignments(
+                    role_result, n_measured=len(alignment_points)):
+                grew_cell_size = _grow_refine_cell_size_after_failure(
+                    settings,
+                    source_content_cache,
+                    pass_index=i - 1,
+                    final_pass=final_pass)
+            elif pass_found_registrations(
+                    role_result, n_measured=len(alignment_points)):
+                _restore_refine_cell_size_after_success(
+                    settings,
+                    source_content_cache,
+                    requested_cell_size,
+                    pass_index=i - 1,
+                    final_pass=final_pass)
 
-            if legacy_finalize:
-                finalize_cutoff = float(np.percentile(polyfit_weights, 2.0))
-                new_finalized_points = legacy_finalize_mask(
-                    alignment_points,
-                    max_travel_distance=settings.max_travel_for_finalization,
-                    polyfit_weights=polyfit_weights,
-                    floor_percentile=2.0)
-                deferred_stability = 0
-                prettyoutput.Log(
-                    f'Finalize cutoff this pass (legacy): 2% -> {finalize_cutoff}\n#####\n')
-            else:
-                # Only Role.LOCKABLE cells may lock (PC-pass ∧ ZNCC-pass).
-                # Registration-weight bar is disabled (-inf); travel + Role/ZNCC gate.
-                finalize_cutoff = float(transform_cutoff_value)
-                eval_result = evaluate_finalize_candidates(
-                    alignment_points,
-                    transform_cutoff=finalize_cutoff,
-                    settings=finalize_settings,
-                    pass_index=i,
-                    prior_candidates=finalize_candidates,
-                    per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
-                    soft_weight_cutoff=None,
-                    discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
-                    lockable_ids=lockable_ids,
-                )
-                new_finalized_points = eval_result.lock_mask
-                finalize_candidates = eval_result.candidates
-                deferred_stability = eval_result.deferred_stability_count
-                prettyoutput.Log(
-                    f'Finalize cutoff this pass: weight bar disabled '
-                    f'(travel + Role/ZNCC)\n'
-                    f'  rejected weight={eval_result.rejected_weight_count} '
-                    f'travel={eval_result.rejected_travel_count} '
-                    f'pass={eval_result.rejected_pass_count} '
-                    f'ambiguous={eval_result.rejected_ambiguous_count} '
-                    f'identity_suspect={eval_result.rejected_identity_suspect_count} '
-                    f'deferred_stability={deferred_stability}\n#####\n')
-        finalize_s = time.perf_counter() - finalize_t0
+            if grew_cell_size:
+                stosTransform = updatedTransform
+                continue
 
-        new_finalized_alignments_list = list(
-            filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
+            if i == settings.num_iterations - 1:  # Check if the next pass is the last pass
+                final_pass = True
 
-        if first_pass_weight_distance_composite_scores is None:
-            first_pass_weight_distance_composite_scores = weight_distance_composite_scores
+            # If we've locked 10% of the points and have not locked any new ones we are done
+            if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
+                final_pass = True
 
-        new_finalized_alignments_dict = {fp[1].ID: fp[1] for fp in new_finalized_alignments_list}
-        new_finalization_count = len(new_finalized_alignments_dict)
+            # If we've locked 90% of the points we are done
+            if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
+                final_pass = True
 
-        # remove finalized points from alignment_points
-        non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
+            if len(finalized_points) >= len(updated_and_finalized_alignment_points):
+                break  # There are no more points to align, everything is finalized
 
-        # Check previous finalizations to see if we can do better now
-        (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
-                                                                         finalized_points,
-                                                                         settings)
+            stosTransform = updatedTransform
 
-        # Bake new locks immediately (peak -> TargetPoint) so unlock/mesh see Adjusted==Target.
-        baked_new_locks: AlignmentRecordDict = {}
-        for key, rec in new_finalized_alignments_dict.items():
-            baked_new_locks[key] = nornir_imageregistration.EnhancedAlignmentRecord(
-                rec.ID,
-                TargetPoint=rec.AdjustedTargetPoint,
-                SourcePoint=rec.SourcePoint,
-                peak=np.asarray((0, 0), dtype=np.float32),
-                weight=rec.weight,
-                angle=0,
-                flipped_ud=rec.flippedud,
-                peak_ratio=getattr(rec, 'peak_ratio', None),
-            )
-        finalized_points = {**finalized_points, **baked_new_locks}
-        # Drop candidate tracking for cells that just locked.
-        for key in baked_new_locks:
-            finalize_candidates.pop(key, None)
-
-        prettyoutput.Log(
-            f"Pass {i} has locked {new_finalization_count} new points, "
-            f"unlocked {len(unlocked_keys)}, deferred_stability {deferred_stability}; "
-            f"{len(finalized_points)} of {len(updated_and_finalized_alignment_points)} are locked")
-
-        prettyoutput.Log(
-            f"  Improved {len(improved_alignments)} finalized points using latest transform")
-
-        progress_reporter.on_pass_locked(
-            i,
-            len(finalized_points),
-            len(updated_and_finalized_alignment_points),
-        )
-
-        if SavePlots:
-            np.savez(os.path.join(outputDir,  # type: ignore[arg-type]
-                                  f'weight_distance_composite_scores_pass{i}.npz'),
-                     updated_and_finalized_weights_distance=updated_and_finalized_weights_distance,
-                     weight_distance_composite_scores=weight_distance_composite_scores,
-                     )
-            percentile_filename = os.path.join(outputDir, f'percentile_pass{i}.svg')  # type: ignore[arg-type]
-            nornir_imageregistration.views.plot_percentiles(weight_distance_composite_scores[:, 0],
-                                                            percentile_filename,
-                                                            title=f"Value at percentile",
-                                                            horz_line_pos_list=[(diagnostic_inflection_value,
-                                                                                 {'label': 'Diagnostic inflection (unused)',
-                                                                                  'color': 'green'}),
-                                                                                # finalize_cutoff_this_pass, cutoff_value,
-                                                                                (finalize_cutoff,
-                                                                                 {'label': 'Finalize Cutoff',
-                                                                                  'color': 'brown'})])
-
-            histogram_filename = os.path.join(outputDir, f'weight_histogram_pass{i}.svg')  # type: ignore[arg-type]
-            nornir_imageregistration.views.PlotWeightHistogram(alignment_points, filename=histogram_filename,
-                                                               transform_cutoff=transform_cutoff_percentile / 100.0,
-                                                               finalize_cutoff=finalize_percentile_this_pass / 100.0,
-                                                               line_pos_list=[diagnostic_inflection_value,
-                                                                              finalize_cutoff_this_pass],
-                                                               title=f"Histogram of Weights, pass #{i}")
-
-            vector_field_filename = os.path.join(outputDir, f'Vector_field_pass{i}.svg')  # type: ignore[arg-type]
-            nornir_imageregistration.views.PlotPeakList(non_final_alignment_points, list(finalized_points.values()),
-                                                        vector_field_filename,
-                                                        ylim=(0, settings.target_image.shape[1]),
-                                                        xlim=(0, settings.target_image.shape[0]))
-            # vector_field_filename = os.path.join(outputDir, f'Vector_field_pass_delta{i}.png')
-            # nornir_imageregistration.views.PlotPeakList(alignment_points, list(finalized_points.values()),
-            #                                             vector_field_filename,
-            #                                             ylim=(0, settings.target_image.shape[1]),
-            #                                             xlim=(0, settings.target_image.shape[0]),
-            #                                             attrib='PSDDelta')
-
-        # Always merge locks into the pass control set (previously only when TryToImprove
-        # reported improvements, which dropped fixed anchors on many passes).
-        smoothed_by_id: dict[tuple[int, int], object] = {}
-        if anchor_smooth_active:
-            smoothed_pass_records = smooth_peaks_from_locked_anchors(
-                finalized_points,
-                list({a.ID: a for a in included_alignment_records}.values()),
-                updatedTransform,
-                settings,
-                discontinuity_ids=raw_preserve_ids if raw_preserve_ids else None,
-            )
-            combined_records_this_pass = {rec.ID: rec for rec in smoothed_pass_records}
-            smoothed_by_id = combined_records_this_pass
-        else:
-            combined_records_this_pass = {a.ID: a for a in included_alignment_records}
-            combined_records_this_pass.update(finalized_points)
-
-        if pass_diagnostics_enabled(SavePlots) and outputDir is not None:
-            included_ids = {(int(r.ID[0]), int(r.ID[1])) for r in included_alignment_records}
-            travel_dropped_ids: set[tuple[int, int]] = set()
-            if n_travel_dropped > 0:
-                kept_ids = {(int(r.ID[0]), int(r.ID[1])) for r in mesh_alignment_points}
-                travel_dropped_ids = {
-                    (int(r.ID[0]), int(r.ID[1])) for r in alignment_points
-                    if (int(r.ID[0]), int(r.ID[1])) not in kept_ids
-                }
-            pair_label = os.path.basename(outputDir.rstrip(os.sep)) or 'stos'
-            diag_rows = build_pass_diagnostic_rows(
-                alignment_points=alignment_points,
-                finalized=finalized_points,
-                included_ids=included_ids,
-                travel_dropped_ids=travel_dropped_ids,
-                unlocked_ids=set(unlocked_keys),
-                transform_cutoff=float(diagnostic_inflection_value),
-                finalize_candidates=finalize_candidates,
-                transform=updatedTransform,
-                discontinuity_ids=discontinuity_ids,
-                smoothed_by_id=smoothed_by_id,
-                role_by_id={k: int(v) for k, v in role_result.role_by_id.items()},
-                reject_reason_by_id={
-                    (int(rec.ID[0]), int(rec.ID[1])): int(reason)
-                    for rec, reason in zip(alignment_points, role_result.reject_reasons)
-                },
-                zncc_by_id=zncc_by_id,
-                lock_candidate_ids={
-                    (int(rec.ID[0]), int(rec.ID[1]))
-                    for rec, ok in zip(alignment_points, role_result.lock_candidate)
-                    if bool(ok)
-                },
-                source_content_by_id=dict(source_content_cache.as_mapping()),
-            )
-            written_diag = write_pass_diagnostics(
-                outputDir,
-                i,
-                diag_rows,
-                pair_label=pair_label,
-                write_heatmaps=bool(SavePlots),
-            )
-            cell_history.append_pass(i, diag_rows)
-            diagnostics_tables_s = float(written_diag.get('tables_s', 0.0))
-            diagnostics_heatmaps_s = float(written_diag.get('heatmaps_s', 0.0))
-            _PHASE_TIMER.add('diagnostics_tables', diagnostics_tables_s)
-            if diagnostics_heatmaps_s > 0:
-                _PHASE_TIMER.add('diagnostics_heatmaps', diagnostics_heatmaps_s)
-
-        pass_wall_s = time.perf_counter() - pass_t0
-        prettyoutput.Log(
-            f'RefineTransform pass {i} pass_wall_s={pass_wall_s:.2f} '
-            f'measure_s={measure_s:.2f} finalize_s={finalize_s:.2f} '
-            f'diagnostics_tables_s={diagnostics_tables_s:.2f} '
-            f'diagnostics_heatmaps_s={diagnostics_heatmaps_s:.2f}')
-        # Log after classify / zncc_secondary so PHASE_TIMING buckets are non-zero.
-        _log_phase_breakdown(f'RefineTransform pass {i}', pass_phase_baseline)
-
-        if len(combined_records_this_pass) > 2:
-            # Recompute preserve against current locks/mesh in case finalize
-            # path already kept stosTransform — still skip sparse rebuild.
-            preserve_end = should_preserve_post_residual_transform(
-                residual_applied=coherent_residual_translated,
-                n_mesh=len(combined_records_this_pass),
-                n_grid=max(1, len(alignment_points) + len(finalized_points)),
-                n_locks=len(finalized_points),
-            )
-            if preserve_post_residual or preserve_end:
-                prettyoutput.Log(
-                    f'Keeping post-residual transform for next round; '
-                    f'combined mesh would have {len(combined_records_this_pass)} points')
-                updatedTransform = stosTransform
-            else:
-                prettyoutput.Log(
-                    f'Building transform for next round with {len(included_alignment_records)} free '
-                    f'and {len(finalized_points)} finalized points')
-                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                    AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
-
-        if SaveImages:
-            # InputStos.Save(os.path.join(outputDir, "UpdatedTransform_pass{0}.stos".format(i)))
-
-            warpedToFixedImage = nornir_imageregistration.assemble.TransformStos(updatedTransform,
-                                                                                 fixedImage=settings.target_image,
-                                                                                 warpedImage=settings.source_image)
-
-            Delta = warpedToFixedImage - settings.source_image  # type: ignore[operator]
-            ComparisonImage = np.abs(Delta)
-            if ComparisonImage.max() != 0:
-                ComparisonImage = ComparisonImage / ComparisonImage.max()
-
-            # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'delta_pass{i}.png'), ComparisonImage, bpp=8)
-            # nornir_imageregistration.SaveImage(os.path.join(outputDir, f'image_pass{i}.png'), warpedToFixedImage, bpp=8)
-            pool = nornir_pools.GetGlobalThreadPool()
-            pool.add_task(f'delta_pass{i}.png', nornir_imageregistration.SaveImage,
-                          os.path.join(outputDir, f'delta_pass{i}.png'), np.copy(ComparisonImage), bpp=8)  # type: ignore[call-overload, arg-type]
-            pool.add_task(f'image_pass{i}.png', nornir_imageregistration.SaveImage,
-                          os.path.join(outputDir, f'image_pass{i}.png'), np.copy(warpedToFixedImage), bpp=8)  # type: ignore[call-overload, arg-type]
-
-        i += 1
-
-        if final_pass:
-            break
-
-        if i == settings.num_iterations - 1:  # Check if the next pass is the final pass
-            final_pass = True
-
-        # If we've locked 10% of the points and have not locked any new ones we are done
-        if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
-            final_pass = True
-
-        # If we've locked 90% of the points we are done
-        if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
-            final_pass = True
-
-        if len(finalized_points) >= len(updated_and_finalized_alignment_points):
-            break  # There are no more points to align, everything is finalized
-
-        stosTransform = updatedTransform
-
-        # Make one more pass to see if we can improve finalized points
-    # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved.
-    # if len(finalized_points) >= 3:
-    #     final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-    #         AlignRecordsToControlPoints(finalized_points.values()))
-    # else:
-    #     final_transform = updatedTransform
-    final_transform = stosTransform
-
-    final_anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
-    if final_anchor_smooth_active:
-        final_disc_ids: set[tuple[int, int]] = set()
-        final_soft_disc_ids: set[tuple[int, int]] = set()
-        final_raw_preserve_ids: set[tuple[int, int]] = set()
-        if sharp_warps_enabled() and combined_records_this_pass:
-            final_disc_ids = tag_discontinuities(
-                list(combined_records_this_pass.values()),
-                max_travel=float(settings.max_travel_for_finalization),
-                stable_ids=None,
-            )
-            final_soft_disc_ids = soft_discontinuity_ids(
-                list(combined_records_this_pass.values()), final_disc_ids)
-            final_unique_raw = unique_large_travel_raw_preserve_ids(
-                list(combined_records_this_pass.values()),
-                max_travel=float(settings.max_travel_for_finalization),
-            )
-            final_coherent_disc = coherent_discontinuity_raw_preserve_ids(
-                list(combined_records_this_pass.values()),
-                final_disc_ids,
-                max_travel=float(settings.max_travel_for_finalization),
-            )
-            final_raw_preserve_ids = (
-                set(final_soft_disc_ids) | final_unique_raw | final_coherent_disc)
-        final_mesh_records = smooth_peaks_from_locked_anchors(
-            finalized_points,
-            list(combined_records_this_pass.values()),
-            stosTransform,
-            settings,
-            discontinuity_ids=final_raw_preserve_ids if final_raw_preserve_ids else None,
-        )
-        final_control_records = {rec.ID: rec for rec in final_mesh_records}
-        prettyoutput.Log(
-            f'Final anchor-smooth mesh: {len(finalized_points)} locked seeds, '
-            f'{len(final_mesh_records)} cells '
-            f'(raw-preserve={len(final_raw_preserve_ids)}, '
-            f'tagged disc={len(final_disc_ids)})')
-    else:
-        final_control_records = combined_records_this_pass
-
-    (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(
-        stosTransform, final_control_records, settings)
-    prettyoutput.Log(
-        f'Final tuning of points adjusted {len(nudged_point_keys)} of '
-        f'{len(final_control_records)} points')
-
-    # Return a transform built from control points, unless a post-residual
-    # sparse set would discard TranslateFixed. Use last-pass FOV grid size for
-    # lock_frac / min_mesh (not len(final_control_records) — that is ~12 when
-    # preserve already kept a sparse combined set and falsely raises lock_frac).
-    final_grid_n = max(1, len(alignment_points) + len(finalized_points))
-    preserve_final = should_preserve_post_residual_transform(
-        residual_applied=coherent_residual_translated,
-        n_mesh=len(nudged_final_points),
-        n_grid=final_grid_n,
-        n_locks=len(finalized_points),
-    )
-    if preserve_final:
-        prettyoutput.Log(
-            f'Keeping post-residual transform as final; control set only has '
-            f'{len(nudged_final_points)} points')
+            # Make one more pass to see if we can improve finalized points
+        # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved.
+        # if len(finalized_points) >= 3:
+        #     final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+        #         AlignRecordsToControlPoints(finalized_points.values()))
+        # else:
+        #     final_transform = updatedTransform
         final_transform = stosTransform
-    elif len(nudged_final_points) >= 3:
-        n_nudged = len(nudged_final_points)
-        min_keep = max(
-            int(MIN_MESH_ABS_AFTER_RESIDUAL),
-            int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(final_grid_n)),
-        )
-        n_stos_pts = 0
-        if isinstance(stosTransform, nornir_imageregistration.IControlPoints):
-            n_stos_pts = int(stosTransform.points.shape[0])
-        # Without a real TranslateFixed residual, a tiny nudged set (often 3) replaces
-        # a denser pass mesh / alignment field and blanks Pyre's composite view.
-        if (not coherent_residual_translated
-                and n_nudged < min_keep
-                and n_stos_pts > n_nudged):
-            prettyoutput.Log(
-                f'Keeping pass transform ({n_stos_pts} points); '
-                f'nudged final only has {n_nudged} points (min {min_keep})')
-            final_transform = stosTransform
-        elif (not coherent_residual_translated
-              and n_nudged < min_keep
-              and len(alignment_points) > n_nudged):
-            prettyoutput.Log(
-                f'Building final mesh from {len(alignment_points)} last-pass '
-                f'alignments; nudged final only has {n_nudged} points (min {min_keep})')
-            final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                AlignRecordsToControlPoints(alignment_points))  # type: ignore[arg-type]
-        else:
-            final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
 
-    progress_reporter.on_complete()
-
-    pair_wall_s = time.perf_counter() - pair_t0
-    prettyoutput.Log(f'RefineTransform pair_wall_s={pair_wall_s:.2f}')
-    _log_phase_breakdown('RefineTransform total', {})
-
-    if outputDir is not None and cell_history.pass_index:
-        hist_path = cell_history.write_npz(outputDir)
-        if hist_path is not None:
-            prettyoutput.Log(f'Wrote cell history NPZ: {hist_path}')
-        if SavePlots:
-            pair_label = os.path.basename(outputDir.rstrip(os.sep)) or 'stos'
-            written_hist = write_cell_history_plots(
-                outputDir,
-                cell_history.as_arrays(),
-                pair_label=pair_label,
-                travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+        final_anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+        if final_anchor_smooth_active:
+            final_disc_ids: set[tuple[int, int]] = set()
+            final_soft_disc_ids: set[tuple[int, int]] = set()
+            final_raw_preserve_ids: set[tuple[int, int]] = set()
+            if sharp_warps_enabled() and combined_records_this_pass:
+                final_disc_ids = tag_discontinuities(
+                    list(combined_records_this_pass.values()),
+                    max_travel=float(settings.max_travel_for_finalization),
+                    stable_ids=None,
+                )
+                final_soft_disc_ids = soft_discontinuity_ids(
+                    list(combined_records_this_pass.values()), final_disc_ids)
+                final_unique_raw = unique_large_travel_raw_preserve_ids(
+                    list(combined_records_this_pass.values()),
+                    max_travel=float(settings.max_travel_for_finalization),
+                )
+                final_coherent_disc = coherent_discontinuity_raw_preserve_ids(
+                    list(combined_records_this_pass.values()),
+                    final_disc_ids,
+                    max_travel=float(settings.max_travel_for_finalization),
+                )
+                final_raw_preserve_ids = (
+                    set(final_soft_disc_ids) | final_unique_raw | final_coherent_disc)
+            final_mesh_records = smooth_peaks_from_locked_anchors(
+                finalized_points,
+                list(combined_records_this_pass.values()),
+                stosTransform,
+                settings,
+                discontinuity_ids=final_raw_preserve_ids if final_raw_preserve_ids else None,
             )
-            for name, path in written_hist.items():
-                prettyoutput.Log(f'Wrote cell history plot ({name}): {path}')
+            final_control_records = {rec.ID: rec for rec in final_mesh_records}
+            prettyoutput.Log(
+                f'Final anchor-smooth mesh: {len(finalized_points)} locked seeds, '
+                f'{len(final_mesh_records)} cells '
+                f'(raw-preserve={len(final_raw_preserve_ids)}, '
+                f'tagged disc={len(final_disc_ids)})')
+        else:
+            final_control_records = combined_records_this_pass
 
-    return final_transform
+        (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(
+            stosTransform, final_control_records, settings)
+        prettyoutput.Log(
+            f'Final tuning of points adjusted {len(nudged_point_keys)} of '
+            f'{len(final_control_records)} points')
+
+        # Return a transform built from control points, unless a post-residual
+        # sparse set would discard TranslateFixed. Use last-pass FOV grid size for
+        # lock_frac / min_mesh (not len(final_control_records) — that is ~12 when
+        # preserve already kept a sparse combined set and falsely raises lock_frac).
+        final_grid_n = max(1, len(alignment_points) + len(finalized_points))
+        n_nudged = len(nudged_final_points)
+        n_stos_pts = _control_point_count(stosTransform)
+        n_input_pts = _control_point_count(refine_input_transform)
+        preserve_final = should_keep_prior_sparse_mesh(
+            residual_applied=coherent_residual_translated,
+            n_mesh=n_nudged,
+            n_grid=final_grid_n,
+            n_locks=len(finalized_points),
+            n_prior_points=n_stos_pts,
+        )
+        if preserve_final:
+            prettyoutput.Log(
+                f'Keeping prior transform as final; control set only has '
+                f'{n_nudged} points')
+            final_transform = stosTransform
+        elif should_keep_prior_sparse_mesh(
+                residual_applied=coherent_residual_translated,
+                n_mesh=n_nudged,
+                n_grid=final_grid_n,
+                n_locks=len(finalized_points),
+                n_prior_points=n_input_pts,
+        ):
+            prettyoutput.Log(
+                f'Keeping input transform as final; nudged set only has '
+                f'{n_nudged} points, pass mesh {n_stos_pts}')
+            final_transform = refine_input_transform
+        elif n_nudged >= 3:
+            min_keep = max(
+                int(MIN_MESH_ABS_AFTER_RESIDUAL),
+                int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(final_grid_n)),
+            )
+            if n_nudged < min_keep and n_stos_pts > n_nudged:
+                prettyoutput.Log(
+                    f'Keeping pass transform ({n_stos_pts} points); '
+                    f'nudged final only has {n_nudged} points (min {min_keep})')
+                final_transform = stosTransform
+            else:
+                final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                    AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
+
+        progress_reporter.on_complete()
+        report_pass_transform(
+            progress_callback,
+            final_transform,
+            settings.num_iterations,
+            settings.num_iterations,
+            label="Refine complete")
+
+        pair_wall_s = time.perf_counter() - pair_t0
+        prettyoutput.Log(f'RefineTransform pair_wall_s={pair_wall_s:.2f}')
+        _log_phase_breakdown('RefineTransform total', {})
+
+        if outputDir is not None and cell_history.pass_index:
+            hist_path = cell_history.write_npz(outputDir)
+            if hist_path is not None:
+                prettyoutput.Log(f'Wrote cell history NPZ: {hist_path}')
+            if SavePlots:
+                pair_label = os.path.basename(outputDir.rstrip(os.sep)) or 'stos'
+                written_hist = write_cell_history_plots(
+                    outputDir,
+                    cell_history.as_arrays(),
+                    pair_label=pair_label,
+                    travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                )
+                for name, path in written_hist.items():
+                    prettyoutput.Log(f'Wrote cell history plot ({name}): {path}')
+
+        return final_transform
+    finally:
+        settings.cell_size = original_cell_size
 
 
 def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms.ITransform,
@@ -3697,7 +3930,8 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                                   settings: nornir_imageregistration.settings.GridRefinement,
                                   source_content_cache: SourceContentCache | None = None,
                                   cancel_event: threading.Event | None = None,
-                                  progress_callback: ProgressCallback | None = None) -> list[
+                                  progress_callback: ProgressCallback | None = None,
+                                  reference_pose: RingReferencePose | None = None) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
     Build a refinement grid, remove masked/finalized cells, and align remaining cells.
@@ -3765,8 +3999,7 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                     uncached_indices.append(i)
                     uncached_keys.append(key)
                 if uncached_indices:
-                    pts = np.asarray(
-                        grid_data.SourcePoints[uncached_indices], dtype=np.float64).reshape(-1, 2)
+                    pts = grid_data.SourcePoints[uncached_indices]
                     stds = crop_source_cell_stds_batched(
                         settings.source_image, pts, settings.cell_size)
                     for j, i in enumerate(uncached_indices):
@@ -3798,13 +4031,17 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
             raise ValueError("No points meet criteria for grid refinement after target-mask filtering")
 
         coords = [tuple(row) for row in grid_data.coords]
-        source_points = grid_data.SourcePoints
-        target_points = grid_data.TargetPoints
+        # Cell coordinates are host metadata for ROI origins and alignment records.
+        source_points = nornir_imageregistration.EnsureNumpyArray(
+            grid_data.SourcePoints, dtype=np.float64)
+        target_points = nornir_imageregistration.EnsureNumpyArray(
+            grid_data.TargetPoints, dtype=np.float64)
 
     return _RefinePointsForTwoImages(
         transform, coords, source_points, target_points, settings,
         cancel_event=cancel_event,
-        progress_callback=progress_callback)
+        progress_callback=progress_callback,
+        reference_pose=reference_pose)
 
 
 def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITransform,
@@ -3813,7 +4050,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                               targetPoints: np.ndarray,
                               settings: nornir_imageregistration.settings.GridRefinement,
                               cancel_event: threading.Event | None = None,
-                              progress_callback: ProgressCallback | None = None) -> list[
+                              progress_callback: ProgressCallback | None = None,
+                              reference_pose: RingReferencePose | None = None) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
     Register corresponding source/target neighborhoods for each control-point key.
@@ -3825,7 +4063,7 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     nPoints = len(keys)
 
     pool = get_runtime_config(refresh=True).pool_for_cell_tasks(
-        nornir_imageregistration.UsingCupy())
+        settings.cupy_processing)
     # pool = nornir_pools.GetGlobalThreadPool()
     tasks = list()
     alignment_records = list()
@@ -3833,7 +4071,11 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
     with _PHASE_TIMER.section('approx_rigid'):
         rigid_transforms = ApproximateRigidTransformBySourcePoints(
             input_transform=transform, source_points=sourcePoints,
-            cell_size=settings.cell_size)
+            cell_size=settings.cell_size,
+            reference_pose=reference_pose,
+            ring_scale_fraction_max=settings.ring_scale_fraction_max,
+            ring_angle_max_degrees=settings.ring_angle_max_degrees,
+            ring_allow_flip_change=settings.ring_allow_flip_change)
 
     if (_use_batched_vertex_measurement()
             and _angles_are_translation_only(settings.angles_to_search)
@@ -3954,7 +4196,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                                                                 peak=arecord.peak,
                                                                 weight=arecord.weight,
                                                                 angle=arecord.angle,
-                                                                flipped_ud=arecord.flippedud)
+                                                                flipped_ud=arecord.flippedud,
+                                                                peak_ratio=arecord.peak_ratio)
 
         if nornir_imageregistration.in_debug_mode():
             erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
@@ -4003,16 +4246,31 @@ def AlignRecordsToControlPoints(
         alignment_records: AlignmentRecordList) -> NDArray[np.floating]:
     """
     Convert alignment records into ``[target_y, target_x, source_y, source_x]`` pairs.
+
+    Host-only: SciPy Qhull / file I/O. Point pairs feed CPU mesh constructors.
     """
     records = list(alignment_records)
     if not records:
         return np.zeros((0, 4), dtype=np.float64)
 
-    SourcePoints = np.asarray(list(map(lambda a: a.SourcePoint, records)))
-    TargetPoints = np.asarray(list(map(lambda a: a.AdjustedTargetPoint, records)))
+    SourcePoints = np.asarray(
+        [nornir_imageregistration.EnsureNumpyArray(a.SourcePoint) for a in records])
+    TargetPoints = np.asarray(
+        [nornir_imageregistration.EnsureNumpyArray(a.AdjustedTargetPoint) for a in records])
 
     PointPairs = np.hstack((TargetPoints, SourcePoints))
     return PointPairs
+
+
+def _control_point_count(transform: nornir_imageregistration.ITransform) -> int:
+    """Return the number of control pairs on *transform*, or 0 for rigid poses."""
+    points = getattr(transform, 'points', None)
+    if points is None:
+        return 0
+    host = nornir_imageregistration.EnsureNumpyArray(points)
+    if host.ndim != 2 or host.shape[0] == 0:
+        return 0
+    return int(host.shape[0])
 
 
 def _fixed_point_count(fixed_points: NDArray | None) -> int:
@@ -4179,24 +4437,16 @@ def _PeakListToTransform(alignment_records: AlignmentRecordList,
 
 def ConvertTransformToGridTransform(Transform: nornir_imageregistration.ITransform, source_image_shape: NDArray,
                                     cell_size: NDArray | None = None, grid_dims: NDArray | None = None,
-                                    grid_spacing: NDArray | None = None) -> nornir_imageregistration.transforms.triangulation.Triangulation:
-    """
-    Resample an arbitrary transform onto an ITK-style grid triangulation lattice.
-    """
-
-    grid_data = nornir_imageregistration.ITKGridDivision(source_image_shape, cell_size=cell_size,
-                                                         grid_spacing=grid_spacing, grid_dims=grid_dims)
-    grid_data.PopulateTargetPoints(Transform)
-
-    point_pairs = np.hstack((grid_data.TargetPoints, grid_data.SourcePoints))
-
-    # TODO, create a specific grid transform object that uses numpy's RegularGridInterpolator
-
-    T = nornir_imageregistration.transforms.triangulation.Triangulation(point_pairs)
-    T.gridWidth = grid_data.grid_dims[1]  # type: ignore[attr-defined]
-    T.gridHeight = grid_data.grid_dims[0]  # type: ignore[attr-defined]
-
-    return T
+                                    grid_spacing: NDArray | None = None,
+                                    prefer_gpu: bool = False) -> nornir_imageregistration.ITransform:
+    """Deprecated alias; use ``transforms.converters.ConvertTransformToGridTransform``."""
+    return nornir_imageregistration.transforms.converters.ConvertTransformToGridTransform(
+        Transform,
+        source_image_shape,
+        cell_size=cell_size,
+        grid_dims=grid_dims,
+        grid_spacing=grid_spacing,
+        prefer_gpu=prefer_gpu)
 
 
 # def AlignmentRecordsTo2DArray(alignment_records):
@@ -4267,7 +4517,12 @@ def CalculateFinalizedAlignmentPointsMask(alignment_records: AlignmentRecordList
 
 def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistration.ITransform,
                                             target_points: NDArray,
-                                            cell_size: NDArray[np.integer] | None = None) -> list[
+                                            cell_size: NDArray[np.integer] | None = None,
+                                            *,
+                                            reference_pose: RingReferencePose | None = None,
+                                            ring_scale_fraction_max: float | None = None,
+                                            ring_angle_max_degrees: float | None = None,
+                                            ring_allow_flip_change: bool | None = None) -> list[
     nornir_imageregistration.transforms.IRigidTransform] | list[nornir_imageregistration.transforms.Rigid]:
     """
     Estimate local rigid transforms at target points via inverse-mapped source points.
@@ -4282,7 +4537,12 @@ def ApproximateRigidTransformByTargetPoints(input_transform: nornir_imageregistr
 
     source_points = input_transform.InverseTransform(target_points)
 
-    return ApproximateRigidTransformBySourcePoints(input_transform, source_points, cell_size)
+    return ApproximateRigidTransformBySourcePoints(
+        input_transform, source_points, cell_size,
+        reference_pose=reference_pose,
+        ring_scale_fraction_max=ring_scale_fraction_max,
+        ring_angle_max_degrees=ring_angle_max_degrees,
+        ring_allow_flip_change=ring_allow_flip_change)
     # translate the target points by 1, and find the angle between the source points
     # offset = np.array([0, 1])
     # offset_source_points = source_points + offset
@@ -4365,7 +4625,12 @@ def AdjustSourcePointsToIndexImage(source_points: NDArray[np.floating],
 
 def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistration.ITransform,
                                             source_points: NDArray[np.floating],
-                                            cell_size: NDArray | None = None) -> list[
+                                            cell_size: NDArray | None = None,
+                                            *,
+                                            reference_pose: RingReferencePose | None = None,
+                                            ring_scale_fraction_max: float | None = None,
+                                            ring_angle_max_degrees: float | None = None,
+                                            ring_allow_flip_change: bool | None = None) -> list[
     nornir_imageregistration.transforms.IRigidTransform]:
     """
     Estimate one local rigid transform per source point using transformed ring samples.
@@ -4373,6 +4638,10 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     Rings for all source points are transformed in one batched ``Transform`` call
     (avoids thousands of per-point GPU launches on CuPy), then rigid components
     are estimated with a vectorized host batch (avoids N× scipy align_vectors).
+
+    Fitted scale, angle, and flip are clipped to ``reference_pose`` (derived from
+    ``input_transform`` when omitted). Each result is rebuilt so
+    ``Transform(source_point)`` still matches ``input_transform.Transform(source_point)``.
     """
 
     source_points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
@@ -4386,6 +4655,15 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
 
     if numPoints == 0:
         return []
+
+    if reference_pose is None:
+        reference_pose = reference_pose_from_transform(input_transform)
+    if ring_scale_fraction_max is None:
+        ring_scale_fraction_max = RING_SCALE_FRACTION_MAX
+    if ring_angle_max_degrees is None:
+        ring_angle_max_degrees = RING_ANGLE_MAX_DEGREES
+    if ring_allow_flip_change is None:
+        ring_allow_flip_change = RING_ALLOW_FLIP_CHANGE
 
     # Using the actual cell size can help avoid wildly incorrect scale values for the estimates rigid transforms
     offset = calculate_offset(source_points, cell_size)
@@ -4405,20 +4683,39 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
     target_rings = np.asarray(flat_target, dtype=np.float64).reshape(numPoints, n_ring, 2)
     source_rings_np = nornir_imageregistration.EnsurePointsAre2DNumpyArray(
         source_rings.reshape(numPoints * n_ring, 2)).reshape(numPoints, n_ring, 2)
+    source_centers = nornir_imageregistration.EnsurePointsAre2DNumpyArray(source_points)
 
     components = nornir_imageregistration.transforms.converters.EstimateRigidComponentsFromControlPointsBatched(
         source_rings=source_rings_np,
         target_rings=target_rings)
 
-    return [
-        nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=comp.translation,
-            source_rotation_center=comp.source_rotation_center,
-            angle=comp.angle,
-            flip_ud=comp.reflected,
-            scalar=comp.scale)
-        for comp in components
-    ]
+    scales = np.asarray([comp.scale for comp in components], dtype=np.float64)
+    angles = np.asarray([comp.angle for comp in components], dtype=np.float64)
+    flips = np.asarray([comp.reflected for comp in components], dtype=bool)
+    clamped_scales, clamped_angles, clamped_flips = clamp_similarity_arrays(
+        scales, angles, flips, reference_pose,
+        scale_fraction_max=float(ring_scale_fraction_max),
+        angle_max_degrees=float(ring_angle_max_degrees),
+        allow_flip_change=bool(ring_allow_flip_change))
+
+    desired_targets = nornir_imageregistration.EnsurePointsAre2DNumpyArray(
+        input_transform.Transform(source_centers))
+
+    output: list[nornir_imageregistration.transforms.IRigidTransform] = []
+    zeros = np.zeros(2, dtype=np.float64)
+    for i in range(numPoints):
+        center = source_centers[i]
+        rigid = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=zeros,
+            source_rotation_center=center,
+            angle=float(clamped_angles[i]),
+            flip_ud=bool(clamped_flips[i]),
+            scalar=float(clamped_scales[i]))
+        mapped = np.asarray(rigid.Transform(center.reshape(1, 2)), dtype=np.float64).reshape(2)
+        desired = np.asarray(desired_targets[i], dtype=np.float64).reshape(2)
+        rigid.TranslateFixed(desired - mapped)
+        output.append(rigid)
+    return output
 
 
 def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
@@ -4433,6 +4730,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     """
     Extract target/source ROIs in a common target-space frame for local registration.
 
+    Accepts NumPy or CuPy control points; Rectangle/CropImage use a host snapshot.
+
     When ``defer_oob_check`` is False (default), an entirely-out-of-bounds source ROI
     raises ``ValueError`` immediately, which requires a ``bool(...)`` device sync on CuPy.
     When ``defer_oob_check`` is True, that sync is skipped: a 3-tuple is returned instead,
@@ -4440,22 +4739,29 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     ``source_image_stats`` is ``None``, i.e. no check was performed either way) so a caller
     processing many cells can batch the accept/reject decision into a single sync.
     """
-    xp = nornir_imageregistration.GetComputationModule()
-
     targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param,  # type: ignore[arg-type]
                                                                   dtype=nornir_imageregistration.default_image_dtype())
     sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param,  # type: ignore[arg-type]
                                                                   dtype=nornir_imageregistration.default_image_dtype())
+    xp = cp.get_array_module(targetImage)
+    sourceImage = _ensure_on_array_module(sourceImage, xp)
 
     # Adjust the point by 0.5 if it is an odd-sized area to ensure the output is centered on the desired pixel
-    target_controlpoint = target_controlpoint.astype(float, copy=False).flatten()  # type: ignore[union-attr]
-    adjust_mask = np.mod(alignmentArea, 2) > 0
-    target_controlpoint[adjust_mask] += 0.5
+    if hasattr(target_controlpoint, 'dtype') or hasattr(target_controlpoint, 'shape'):
+        point_xp = cp.get_array_module(target_controlpoint)
+    else:
+        point_xp = xp
+    point = point_xp.asarray(target_controlpoint, dtype=point_xp.float64).ravel()[:2].copy()
+    area = point_xp.asarray(alignmentArea, dtype=point_xp.float64).ravel()[:2]
+    adjust_mask = point_xp.mod(area, 2) > 0
+    point[adjust_mask] += 0.5
+    point_host = nornir_imageregistration.EnsureNumpyArray(point)
+    area_host = nornir_imageregistration.EnsureNumpyArray(area)
 
     target_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
-        point=(target_controlpoint[0] - (alignmentArea[0] / 2.0),
-               target_controlpoint[1] - (alignmentArea[1] / 2.0)),
-        area=alignmentArea)
+        point=(float(point_host[0]) - (float(area_host[0]) / 2.0),
+               float(point_host[1]) - (float(area_host[1]) / 2.0)),
+        area=area_host)
 
     # Crop requires an integer for origin and area
     rounded_target_rectangle = nornir_imageregistration.Rectangle.SnapRound(target_rectangle)
@@ -4623,8 +4929,14 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       target_controlpoint: NDArray | tuple[float, float],
                       alignmentArea: NDArray | tuple[float, float],
                       anglesToSearch: Iterable[float] | None = None,
-                      min_alignment_overlap: float = 0.5) -> nornir_imageregistration.AlignmentRecord | None:
-    """Run synchronous rigid-registration for one control point."""
+                      min_alignment_overlap: float = 0.5,
+                      *,
+                      use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord | None:
+    """Run synchronous rigid-registration for one control point.
+
+    :param use_gpu: If False, score on the host even when the process backend is CuPy.
+        None (default) follows ``GetActiveComputationLib``.
+    """
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
@@ -4669,7 +4981,8 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
             MinOverlap=min_alignment_overlap,
             SingleThread=True,
             TestFlip=False,
-            method=SliceToSliceMethod.BruteForce)
+            method=SliceToSliceMethod.BruteForce,
+            use_gpu=use_gpu)
     except ValueError:
         # Empty / fully-extrema ROIs can fail ImagePermutationHelper stats; skip cell.
         return None
@@ -4732,7 +5045,9 @@ def TryToImproveAlignments(transform: nornir_imageregistration.transforms.ITrans
                                                                        SourcePoint=chosen_record.SourcePoint,
                                                                        peak=np.asarray((0, 0), dtype=np.float32),
                                                                        weight=chosen_record.weight, angle=0,
-                                                                       flipped_ud=chosen_record.flippedud)
+                                                                       flipped_ud=chosen_record.flippedud,
+                                                                       peak_ratio=getattr(chosen_record, 'peak_ratio',
+                                                                                          None))
 
         # output[key].PSDDelta = chosen_record.PSDDelta
 

@@ -97,6 +97,31 @@ class TestFindPeakPeakRatio(unittest.TestCase):
         self.assertAlmostEqual(float(ratios[1]), 1.0, places=5)
         self.assertGreater(float(ratios[2]), 5.0)
 
+    def test_batched_find_peak_with_overlap_mask_numpy_and_cupy(self) -> None:
+        """Overlap-mask mean must not host-sync via float(count_nonzero)."""
+        stack = np.full((2, 32, 32), 0.02, dtype=np.float64)
+        stack[0, 16, 16] = 1.0
+        stack[1, 12, 12] = 1.0
+        mask = np.zeros((32, 32), dtype=bool)
+        mask[8:24, 8:24] = True
+
+        peaks_np, weights_np, _ = batched_find_peak(stack, overlap_mask=mask)
+        self.assertEqual(peaks_np.shape, (2, 2))
+        self.assertTrue(np.all(np.asarray(weights_np) > 0))
+
+        try:
+            import cupy as cp
+        except ImportError:
+            return
+        if not hasattr(cp, 'cuda'):
+            return
+        peaks_cp, weights_cp, _ = batched_find_peak(
+            cp.asarray(stack), overlap_mask=cp.asarray(mask))
+        np.testing.assert_allclose(
+            cp.asnumpy(peaks_cp), np.asarray(peaks_np), rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            cp.asnumpy(weights_cp), np.asarray(weights_np), rtol=1e-5, atol=1e-5)
+
 
 if __name__ == '__main__':
     unittest.main()

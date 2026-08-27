@@ -262,18 +262,37 @@ class ITargetSpaceControlPointEdit(ABC):
        Originally added for grid transforms where source points are unmovable"""
 
     @abc.abstractmethod
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | \
-                                                                                                           NDArray[
-                                                                                                               np.integer]:
-        """:return: The new index of the points"""
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move target-space control points at *index*.
+
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; Delaunay/RBF
+            can later fail or remap rows. Use False only for a bounded interactive
+            sequence (drag, registration apply) where the caller keeps indices
+            stable and remeshes when idle.
+        :return: The index of the edited points after any collapse.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdateTargetPointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
-                                                                                                                  NDArray[
-                                                                                                                      np.integer]:
-        """Move the points closest to old_points to positions at new_points
-        :return: The new index of the points
+    def UpdateTargetPointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move the points closest to *old_points* to positions at *new_points*.
+
+        :param remove_duplicates: See :meth:`UpdateTargetPointsByIndex`.
+        :return: The index of the edited points after any collapse.
         """
         raise NotImplementedError()
 
@@ -282,18 +301,37 @@ class ISourceSpaceControlPointEdit(ABC):
     """Transforms where the source space side of control points can be moved"""
 
     @abc.abstractmethod
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]) -> int | \
-                                                                                                           NDArray[
-                                                                                                               np.integer]:
-        """:return: The new index of the points"""
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move source-space control points at *index*.
+
+        :param remove_duplicates: When True (default), collapse coincident control
+            points after the write and return the nearest remaining index. When
+            False, skip uniqueness: coincident points can remain; Delaunay/RBF
+            can later fail or remap rows. Use False only for a bounded interactive
+            sequence (drag, registration apply) where the caller keeps indices
+            stable and remeshes when idle.
+        :return: The index of the edited points after any collapse.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def UpdateSourcePointsByPosition(self, old_points: NDArray[np.floating], new_points: NDArray[np.floating]) -> int | \
-                                                                                                                  NDArray[
-                                                                                                                      np.integer]:
-        """Move the points closest to old_points to positions at new_points
-        :return: The new index of the points
+    def UpdateSourcePointsByPosition(
+            self,
+            old_points: NDArray[np.floating],
+            new_points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ) -> int | NDArray[np.integer]:
+        """Move the points closest to *old_points* to positions at *new_points*.
+
+        :param remove_duplicates: See :meth:`UpdateSourcePointsByIndex`.
+        :return: The index of the edited points after any collapse.
         """
         raise NotImplementedError()
 

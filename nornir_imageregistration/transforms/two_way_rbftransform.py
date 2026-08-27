@@ -179,23 +179,51 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByIndex(index, points)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateSourcePointsByIndex(
+            index, points, remove_duplicates=remove_duplicates)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateSourcePointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByPosition(index, points)  # type: ignore[arg-type]
+    def UpdateSourcePointsByPosition(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateSourcePointsByPosition(
+            index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByIndex(index, points)
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateTargetPointsByIndex(
+            index, points, remove_duplicates=remove_duplicates)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByPosition(index, points)  # type: ignore[arg-type]
+    def UpdateTargetPointsByPosition(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateTargetPointsByPosition(
+            index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
@@ -386,23 +414,51 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateSourcePointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByIndex(index, points)
+    def UpdateSourcePointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateSourcePointsByIndex(
+            index, points, remove_duplicates=remove_duplicates)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateSourcePointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateSourcePointsByPosition(index, points)  # type: ignore[arg-type]
+    def UpdateSourcePointsByPosition(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateSourcePointsByPosition(
+            index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByIndex(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByIndex(index, points)
+    def UpdateTargetPointsByIndex(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateTargetPointsByIndex(
+            index, points, remove_duplicates=remove_duplicates)
         self._reset_inverse_transform()
         self.OnTransformChanged()
 
-    def UpdateTargetPointsByPosition(self, index: int | NDArray[np.integer], points: NDArray[np.floating]):
-        self._forward_rbf.UpdateTargetPointsByPosition(index, points)  # type: ignore[arg-type]
+    def UpdateTargetPointsByPosition(
+            self,
+            index: int | NDArray[np.integer],
+            points: NDArray[np.floating],
+            *,
+            remove_duplicates: bool = True,
+    ):
+        self._forward_rbf.UpdateTargetPointsByPosition(
+            index, points, remove_duplicates=remove_duplicates)  # type: ignore[arg-type]
         self._reset_inverse_transform()
         self.OnTransformChanged()
 

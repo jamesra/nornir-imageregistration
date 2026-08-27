@@ -11,6 +11,11 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration.nornir_image_types import ImageLike
+from nornir_imageregistration.refine_shared.ring_pose_limits import (
+    RING_ALLOW_FLIP_CHANGE,
+    RING_ANGLE_MAX_DEGREES,
+    RING_SCALE_FRACTION_MAX,
+)
 
 try:
     import cupy as cp
@@ -42,6 +47,9 @@ class GridRefinement:
     anchor_smooth_median_radius: int
     min_alignment_overlap: float
     min_unmasked_area: float
+    ring_scale_fraction_max: float
+    ring_angle_max_degrees: float
+    ring_allow_flip_change: bool
     _single_thread_processing: bool
     _cupy_processing: bool
 
@@ -111,7 +119,11 @@ class GridRefinement:
                  anchor_smooth_median_radius: int | None = None,
                  min_alignment_overlap: float | None = None,
                  min_unmasked_area: float | None = None,
-                 single_thread_processing: bool = False):
+                 single_thread_processing: bool = False,
+                 cupy_processing: bool | None = None,
+                 ring_scale_fraction_max: float | None = None,
+                 ring_angle_max_degrees: float | None = None,
+                 ring_allow_flip_change: bool | None = None):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
@@ -138,10 +150,16 @@ class GridRefinement:
         :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from source and target space must still overlap by this minimum amount after being registered.
         :param float min_unmasked_area: Area of cell that must be unmasked in both images to utilize that cell
         :param bool single_thread_processing: True if the refinement should not use threads.  When set, arrays are not placed in shared memory
-        :param bool cupy_processing: True if the refinement will be done on the GPU.  When set, arrays are created as cupy arrays instead of NDArrays
+        :param cupy_processing: True to store full images on the GPU, False to keep
+            the input array module. ``None`` (default) follows ``UsingCupy()``.
+        :param float ring_scale_fraction_max: Max relative scale the 9-point ring may deviate from the input pose
+        :param float ring_angle_max_degrees: Max geodesic angle (degrees) the ring may deviate from the input pose
+        :param bool ring_allow_flip_change: When False, ring flip stays locked to the input pose
         """
 
-        self._cupy_processing = nornir_imageregistration.UsingCupy()
+        self._cupy_processing = (
+            nornir_imageregistration.UsingCupy()
+            if cupy_processing is None else bool(cupy_processing))
         self._single_thread_processing = single_thread_processing or self._cupy_processing
 
         if target_image is None:
@@ -222,6 +240,15 @@ class GridRefinement:
             1 if anchor_smooth_median_radius is None else int(anchor_smooth_median_radius))
         self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
         self.min_unmasked_area = 0.49 if min_unmasked_area is None else min_unmasked_area
+        self.ring_scale_fraction_max = (
+            RING_SCALE_FRACTION_MAX if ring_scale_fraction_max is None
+            else float(ring_scale_fraction_max))
+        self.ring_angle_max_degrees = (
+            RING_ANGLE_MAX_DEGREES if ring_angle_max_degrees is None
+            else float(ring_angle_max_degrees))
+        self.ring_allow_flip_change = (
+            RING_ALLOW_FLIP_CHANGE if ring_allow_flip_change is None
+            else bool(ring_allow_flip_change))
 
     @staticmethod
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
@@ -242,7 +269,11 @@ class GridRefinement:
                                      anchor_smooth_median_radius: int | None = None,
                                      min_alignment_overlap: float | None = None,
                                      min_unmasked_area: float | None = None,
-                                     single_thread_processing: bool = False) -> GridRefinement:
+                                     single_thread_processing: bool = False,
+                                     cupy_processing: bool | None = None,
+                                     ring_scale_fraction_max: float | None = None,
+                                     ring_angle_max_degrees: float | None = None,
+                                     ring_allow_flip_change: bool | None = None) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
 
@@ -268,7 +299,11 @@ class GridRefinement:
                               anchor_smooth_median_radius=anchor_smooth_median_radius,
                               min_alignment_overlap=min_alignment_overlap,
                               min_unmasked_area=min_unmasked_area,
-                              single_thread_processing=single_thread_processing)
+                              single_thread_processing=single_thread_processing,
+                              cupy_processing=cupy_processing,
+                              ring_scale_fraction_max=ring_scale_fraction_max,
+                              ring_angle_max_degrees=ring_angle_max_degrees,
+                              ring_allow_flip_change=ring_allow_flip_change)
 
     @staticmethod
     def CreateWithUnproccessedImages(
@@ -293,7 +328,11 @@ class GridRefinement:
             anchor_smooth_median_radius: int | None = None,
             min_alignment_overlap: float | None = None,
             min_unmasked_area: float | None = None,
-            single_thread_processing: bool = False) -> GridRefinement:
+            single_thread_processing: bool = False,
+            cupy_processing: bool | None = None,
+            ring_scale_fraction_max: float | None = None,
+            ring_angle_max_degrees: float | None = None,
+            ring_allow_flip_change: bool | None = None) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
         target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
                                                                           extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
@@ -317,7 +356,11 @@ class GridRefinement:
                                                            anchor_smooth_median_radius=anchor_smooth_median_radius,
                                                            min_alignment_overlap=min_alignment_overlap,
                                                            min_unmasked_area=min_unmasked_area,
-                                                           single_thread_processing=single_thread_processing)
+                                                           single_thread_processing=single_thread_processing,
+                                                           cupy_processing=cupy_processing,
+                                                           ring_scale_fraction_max=ring_scale_fraction_max,
+                                                           ring_angle_max_degrees=ring_angle_max_degrees,
+                                                           ring_allow_flip_change=ring_allow_flip_change)
 
     @staticmethod
     def _as_cupy_array(image: NDArray) -> NDArray:

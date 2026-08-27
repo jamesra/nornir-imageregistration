@@ -65,6 +65,24 @@ import nornir_pools
 from nornir_imageregistration.hann_window_cache import HannWindowCache
 
 
+def _fft2_image(image: NDArray) -> NDArray:
+    """2-D FFT on the input array's backend.
+
+    Accepts NumPy or CuPy; ops follow ``cupyx.scipy.get_array_module``.
+    """
+    sp = cupyx.scipy.get_array_module(image)
+    return sp.fft.fft2(image)
+
+
+def _fftshift_image(image: NDArray) -> NDArray:
+    """FFT-shift on the input array's backend.
+
+    Accepts NumPy or CuPy; ops follow ``cupyx.scipy.get_array_module``.
+    """
+    sp = cupyx.scipy.get_array_module(image)
+    return sp.fft.fftshift(image)
+
+
 def _normalize_angle_degrees(angle: float) -> float:
     a = float(angle)
     while a > 180.0:
@@ -188,13 +206,24 @@ def _logpolar_fft_magnitude(
         window: NDArray[np.floating],
         *,
         use_dog: bool) -> NDArray[np.floating]:
-    """Magnitude spectrum for log-polar warping (A8: DoG for angle, raw for scale)."""
+    """Magnitude spectrum for log-polar warping (A8: DoG for angle, raw for scale).
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
+    Host-only: ``skimage.filters.difference_of_gaussians`` when ``use_dog`` is True.
+    """
     if use_dog:
-        filtered = skimage.filters.difference_of_gaussians(padded_image, low_sigma=4, high_sigma=20)
-    else:
-        filtered = padded_image.astype(np.float32, copy=False)
-    freq = np.fft.fft2(filtered * window)
-    return np.abs(np.fft.fftshift(freq))
+        host = nornir_imageregistration.EnsureNumpyArray(padded_image)
+        win = nornir_imageregistration.EnsureNumpyArray(window)
+        filtered = skimage.filters.difference_of_gaussians(host, low_sigma=4, high_sigma=20)
+        freq = _fft2_image(filtered * win)
+        return np.abs(_fftshift_image(freq))
+    xp = cp.get_array_module(padded_image)
+    filtered = padded_image.astype(xp.float32, copy=False)
+    if cp.get_array_module(window) is not xp:
+        window = (nornir_imageregistration.EnsureNumpyArray(window)
+                  if xp is np else xp.asarray(window))
+    freq = _fft2_image(filtered * window)
+    return xp.abs(_fftshift_image(freq))
 
 
 def _parabolic_peak_index(values: NDArray[np.floating], peak_index: int) -> float:
@@ -221,7 +250,11 @@ def _estimate_scale_radial_fft(
     Full-plane ``warp_polar`` of the DoG magnitude spectrum (rotation decoupled from
     the angle half-plane). Column shift along log-radius gives scale
     (Reddy & Chatterji 1996). Returns ``(scale, peak_ratio)``.
+
+    Host-only: ``skimage.transform.warp_polar``.
     """
+    target_magnitude = nornir_imageregistration.EnsureNumpyArray(target_magnitude)
+    source_magnitude = nornir_imageregistration.EnsureNumpyArray(source_magnitude)
     target_log_polar = skimage.transform.warp_polar(
         target_magnitude,
         radius=max_radius,
@@ -238,7 +271,7 @@ def _estimate_scale_radial_fft(
     )
     phase_correlation = nornir_imageregistration.phasecorrelation.image_phase_correlation(
         target_log_polar, source_log_polar)
-    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    phase_correlation_shifted = _fftshift_image(phase_correlation)
     peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
     try:
         peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
@@ -383,7 +416,8 @@ def get_last_hybrid_fallback_stats() -> HybridFallbackStats | None:
 
 
 def _correlation_peak_ratio(arr: NDArray) -> float:
-    arr_np = np.asarray(arr)
+    """Host-only: top-2 partition on a 1-D host snapshot (scalar metric)."""
+    arr_np = nornir_imageregistration.EnsureNumpyArray(arr)
     if np.iscomplexobj(arr_np):
         arr_np = np.abs(arr_np)
     arr_np = np.asarray(arr_np, dtype=np.float32).ravel()
@@ -607,6 +641,20 @@ def _coerce_registration_image_pair(source_image: NDArray, target_image: NDArray
     return _coerce_to_source_module(source_image, xp), _coerce_to_source_module(target_image, xp)
 
 
+def _use_cupy_for_scoring(use_gpu: bool | None = None) -> bool:
+    """Return whether FFT scoring should use CuPy.
+
+    ``use_gpu=False`` forces host scoring even when the process backend is CuPy.
+    ``True`` or ``None`` follows ``GetActiveComputationLib``.
+    """
+    if use_gpu is False:
+        return False
+    return (
+        nornir_imageregistration.GetActiveComputationLib()
+        == nornir_imageregistration.ComputationLib.cupy
+    )
+
+
 def rotate_image(image: NDArray,
                  angle: float,
                  image_stats: nornir_imageregistration.ImageStats) -> NDArray:
@@ -714,7 +762,9 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                   method: SliceToSliceMethod = SliceToSliceMethod.LogPolar,
                                   initial_scale_hint: float | None = None,
                                   cancel_event: threading.Event | None = None,
-                                  progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
+                                  progress_callback: ProgressCallback | None = None,
+                                  *,
+                                  use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Given two images this function returns the rotation angle which best aligns them
        Largest dimension determines how large the images used for alignment should be.
 
@@ -731,8 +781,10 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the source image input by this amount before attempting registration
        :param float initial_scale_hint: Total scale on source image (e.g. current transform) to seed scale search
+       :param use_gpu: If False, score on the host even when the process backend is CuPy.
+           None (default) follows ``GetActiveComputationLib``.
        """
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+    use_cp = _use_cupy_for_scoring(use_gpu)
 
     if AngleSearchRange is not None:
         if not isinstance(AngleSearchRange, set):
@@ -782,7 +834,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                                                SingleThread=SingleThread,
                                                                Cluster=Cluster,
                                                                cancel_event=cancel_event,
-                                                               progress_callback=progress_callback)
+                                                               progress_callback=progress_callback,
+                                                               use_gpu=use_gpu)
 
 
 def NarrowAngleSearchRangeWithResult(angle_range: NDArray[np.floating],
@@ -829,11 +882,16 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         SingleThread: bool = False,
         Cluster: bool = False,
         cancel_event: threading.Event | None = None,
-        progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
-    use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+        progress_callback: ProgressCallback | None = None,
+        *,
+        use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
+    use_cp = _use_cupy_for_scoring(use_gpu)
 
     target_image = target_image_data.ImageWithMaskAsNoise
     source_image = source_image_data.ImageWithMaskAsNoise
+    if not use_cp:
+        source_image = _coerce_to_source_module(source_image, np)
+        target_image = _coerce_to_source_module(target_image, np)
 
     target_stats = target_image_data.Stats
     source_stats = source_image_data.Stats
@@ -903,7 +961,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                               SingleThread=SingleThread,
                                               use_cluster=Cluster,
                                               cancel_event=cancel_event,
-                                              progress_callback=progress_callback)
+                                              progress_callback=progress_callback,
+                                              use_gpu=use_gpu)
 
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
             widened_angles = _adaptive_fallback_angle_range(
@@ -922,7 +981,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                               SingleThread=SingleThread,
                                               use_cluster=Cluster,
                                               cancel_event=cancel_event,
-                                              progress_callback=progress_callback)
+                                              progress_callback=progress_callback,
+                                              use_gpu=use_gpu)
             if widened_result.weight > brute_force_result.weight:
                 brute_force_result = widened_result
 
@@ -938,7 +998,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                                                  SingleThread=SingleThread,
                                                  use_cluster=Cluster,
                                                  cancel_event=cancel_event,
-                                                 progress_callback=progress_callback)
+                                                 progress_callback=progress_callback,
+                                                 use_gpu=use_gpu)
             if full_sweep_result.weight > brute_force_result.weight:
                 brute_force_result = full_sweep_result
 
@@ -1011,6 +1072,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             force_search=force_scale_search,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            use_gpu=use_gpu,
         )
 
     def _finalize_logpolar_candidate(
@@ -1037,6 +1099,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 source_scale=1.0,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
+                use_gpu=use_gpu,
             )
             if float(angle_refined.weight) > float(seed.weight):
                 final_angle = float(angle_refined.angle)
@@ -1057,12 +1120,13 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             target_image_prepadded=False,
             min_overlap=settings.min_overlap,
             source_scale=detected)
-        return nornir_imageregistration.AlignmentRecord(
+        _record = nornir_imageregistration.AlignmentRecord(
             peak=translation_results.peak,
             weight=translation_results.weight,
             angle=final_angle,
             flipped_ud=flipped_ud,
             scale=metadata_scale_iso * detected)
+        return _record
 
     def _finalize_bruteforce_candidate(
             candidate_source: NDArray[np.floating],
@@ -1076,7 +1140,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 source_stats=source_stats, target_stats=target_stats,
                 angle_range=[(x * 0.2 + seed.angle) for x in range(-9, 10)],
                 min_overlap=settings.min_overlap, SingleThread=SingleThread,
-                cancel_event=cancel_event, progress_callback=progress_callback)
+                cancel_event=cancel_event, progress_callback=progress_callback,
+                use_gpu=use_gpu)
         else:
             min_step_size = 0.25
             if len(settings.angle_range) > 2:
@@ -1087,7 +1152,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                     source_stats=source_stats, target_stats=target_stats,
                     angle_range=np.array(list(refined_angle_search_range), float),
                     min_overlap=settings.min_overlap, SingleThread=SingleThread,
-                    cancel_event=cancel_event, progress_callback=progress_callback)
+                    cancel_event=cancel_event, progress_callback=progress_callback,
+                    use_gpu=use_gpu)
             else:
                 refined = seed
 
@@ -1155,6 +1221,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 force_search=force_scale_search,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
+                use_gpu=use_gpu,
             )
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
@@ -1384,7 +1451,9 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                               SingleThread: bool,
                               use_cluster: bool,
                               cancel_event: threading.Event | None = None,
-                              progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
+                              progress_callback: ProgressCallback | None = None,
+                              *,
+                              use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
     if np.isclose(source_scale, 1.0):
         return _find_best_angle(source_image=source_image,
                                 target_image=target_image,
@@ -1396,7 +1465,8 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                                 use_cluster=use_cluster,
                                 source_scale=1.0,
                                 cancel_event=cancel_event,
-                                progress_callback=progress_callback)
+                                progress_callback=progress_callback,
+                                use_gpu=use_gpu)
 
     scaled_source = _scale_registration_image(source_image, source_scale)
     scaled_stats = nornir_imageregistration.ImageStats.CalcStats(scaled_source)
@@ -1410,7 +1480,8 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                             use_cluster=use_cluster,
                             source_scale=1.0,
                             cancel_event=cancel_event,
-                            progress_callback=progress_callback)
+                            progress_callback=progress_callback,
+                            use_gpu=use_gpu)
 
 
 def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
@@ -1426,7 +1497,8 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                        *,
                                        force_search: bool = False,
                                        cancel_event: threading.Event | None = None,
-                                       progress_callback: ProgressCallback | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+                                       progress_callback: ProgressCallback | None = None,
+                                       use_gpu: bool | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
@@ -1436,7 +1508,8 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                           angle_range, min_overlap, candidate,
                                           SingleThread, use_cluster,
                                           cancel_event=cancel_event,
-                                          progress_callback=progress_callback)
+                                          progress_callback=progress_callback,
+                                          use_gpu=use_gpu)
         if best_match is None or match.weight > best_match.weight:
             best_match = match
             best_scale = candidate
@@ -1605,16 +1678,18 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     target_freq_shift_radial = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
     source_freq_shift_radial = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
 
-    target_image_log_polar = skimage.transform.warp_polar(target_freq_shift_angle,
-                                                          radius=radius_angle,
-                                                          output_shape=desired_shape,
-                                                          scaling='log',
-                                                          order=_LOGPOLAR_WARP_ORDER)
-    source_image_log_polar = skimage.transform.warp_polar(source_freq_shift_angle,
-                                                          radius=radius_angle,
-                                                          output_shape=desired_shape,
-                                                          scaling='log',
-                                                          order=_LOGPOLAR_WARP_ORDER)
+    target_image_log_polar = skimage.transform.warp_polar(
+        nornir_imageregistration.EnsureNumpyArray(target_freq_shift_angle),
+        radius=radius_angle,
+        output_shape=desired_shape,
+        scaling='log',
+        order=_LOGPOLAR_WARP_ORDER)
+    source_image_log_polar = skimage.transform.warp_polar(
+        nornir_imageregistration.EnsureNumpyArray(source_freq_shift_angle),
+        radius=radius_angle,
+        output_shape=desired_shape,
+        scaling='log',
+        order=_LOGPOLAR_WARP_ORDER)
 
     target_image_log_polar_left_half = target_image_log_polar[:target_image_log_polar.shape[0] // 2, :]
     source_image_log_polar_left_half = source_image_log_polar[:source_image_log_polar.shape[0] // 2, :]
@@ -1627,7 +1702,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     # )
 
     # phase_correlation_shifted = phase_correlation
-    phase_correlation_shifted = np.fft.fftshift(phase_correlation)
+    phase_correlation_shifted = _fftshift_image(phase_correlation)
     angle_scale_peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
     try:
         peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
@@ -1693,8 +1768,12 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     else:
         rotated_desired_height, rotated_desired_width = desired_shape
 
-    fft_target_ref = np.fft.fft2(padded_target * target_window)
-    fft_source_ref = np.fft.fft2(rotated_padded_source * source_window)
+    xp = cp.get_array_module(padded_target)
+    target_window = _coerce_to_source_module(target_window, xp)
+    source_window = _coerce_to_source_module(source_window, xp)
+    rotated_padded_source = _coerce_to_source_module(rotated_padded_source, xp)
+    fft_target_ref = _fft2_image(padded_target * target_window)
+    fft_source_ref = _fft2_image(rotated_padded_source * source_window)
 
     original_correlation = nornir_imageregistration.fft_phase_correlation(fft_target_ref, fft_source_ref)  # type: ignore[arg-type]
 
@@ -1712,7 +1791,8 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
                                                  min_overlap=min_overlap,
                                                  desired_shape=[rotated_desired_height, rotated_desired_width])  # type: ignore[arg-type]
 
-    rotated_source_freq = np.fft.fft2(rotated_padded_source * source_window)
+    rotated_padded_source = _coerce_to_source_module(rotated_padded_source, xp)
+    rotated_source_freq = _fft2_image(rotated_padded_source * source_window)
     rotated_correlation = nornir_imageregistration.fft_phase_correlation(fft_target_ref, rotated_source_freq)  # type: ignore[arg-type]
 
     original_peak = nornir_imageregistration.phasecorrelation.find_peak(original_correlation)
@@ -1773,7 +1853,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
             f'B1 scale seed={scale_seed:.6f} angle={recovered_angle:.4f} '
             f'peak_ratio={radial_peak_ratio:.3f}')
 
-    return AngleScaleResult(
+    _result = AngleScaleResult(
         angle=recovered_angle,
         scale=shift_scale,
         weight=angle_scale_peak.peak_strength,
@@ -1781,6 +1861,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
         ambiguous=ambiguous,
         diagnostics=diagnostics,
     )
+    return _result
 
 
 def _find_best_angle(source_image: NDArray[np.floating],
@@ -1793,7 +1874,9 @@ def _find_best_angle(source_image: NDArray[np.floating],
                      use_cluster: bool = False,
                      source_scale: float = 1.0,
                      cancel_event: threading.Event | None = None,
-                     progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.AlignmentRecord:
+                     progress_callback: ProgressCallback | None = None,
+                     *,
+                     use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
     """Find the best angle to align two images.  This function can be very memory intensive.
        Setting SingleThread=True makes debugging easier"""
 
@@ -1802,7 +1885,10 @@ def _find_best_angle(source_image: NDArray[np.floating],
     try:
         Debug = False
         pool = None
-        use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
+        use_cp = _use_cupy_for_scoring(use_gpu)
+        if not use_cp:
+            source_image = _coerce_to_source_module(source_image, np)
+            target_image = _coerce_to_source_module(target_image, np)
 
         # Temporarily disable until we have  cluster pool working again.  Leaving this on eliminates shared memory which is a big optimization
         use_cluster = False
@@ -1810,7 +1896,8 @@ def _find_best_angle(source_image: NDArray[np.floating],
         if len(angle_range) <= 1:
             SingleThread = True
 
-        if not SingleThread:
+        # GPU scoring stays on-device; do not start CPU workers that would need shm.
+        if not SingleThread and not use_cp:
             if nornir_imageregistration.in_debug_mode():
                 pool = nornir_pools.GetGlobalSerialPool()
             elif use_cluster:
@@ -1846,17 +1933,20 @@ def _find_best_angle(source_image: NDArray[np.floating],
                 image_median=target_stats.median,
                 image_stddev=target_stats.std)
 
-        if not (use_cluster or SingleThread):
+        image_dtype = nornir_imageregistration.default_image_dtype()
+        if use_cp:
+            # Shared memory is host-only (npArrayToSharedArray does cp.asnumpy). Keep the
+            # padded pair on device; upload once if the caller still has NumPy.
+            shared_padded_target = _coerce_to_source_module(padded_target, cp).astype(
+                image_dtype, copy=False)
+            shared_source = _coerce_to_source_module(source_image, cp).astype(
+                image_dtype, copy=False)
+        elif not (use_cluster or SingleThread):
             shared_target_metadata, shared_padded_target = nornir_imageregistration.npArrayToSharedArray(padded_target)
-            shared_source_metadata, shared_source = nornir_imageregistration.npArrayToSharedArray(source_image
-                                                                                                  )
+            shared_source_metadata, shared_source = nornir_imageregistration.npArrayToSharedArray(source_image)
         else:
-            shared_padded_target = padded_target.astype(nornir_imageregistration.default_image_dtype(),
-                                                        copy=False) if not use_cp else cp.array(padded_target,
-                                                                                                nornir_imageregistration.default_image_dtype())
-            shared_source = source_image.astype(nornir_imageregistration.default_image_dtype(),
-                                                copy=False) if not use_cp else cp.array(source_image,
-                                                                                        nornir_imageregistration.default_image_dtype())
+            shared_padded_target = padded_target.astype(image_dtype, copy=False)
+            shared_source = source_image.astype(image_dtype, copy=False)
 
         CheckTaskInterval = 16
 
