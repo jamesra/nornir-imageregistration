@@ -42,6 +42,19 @@ from nornir_imageregistration.transforms.utils import InvalidIndices
 _gpu_warp_lock: threading.Lock = threading.Lock()
 
 
+def _ensure_on_array_module(array: NDArray, xp) -> NDArray:
+    """Return *array* on *xp* without copying when already resident there.
+
+    Accepts NumPy or CuPy; ``np.asarray`` is never used on a CuPy input because
+    CuPy refuses the implicit host conversion.
+    """
+    if cp.get_array_module(array) is xp:
+        return array
+    if xp is np:
+        return nornir_imageregistration.EnsureNumpyArray(array)
+    return xp.asarray(array)
+
+
 def _assemble_distance_warp_order() -> int | None:
     """Spline order for the distance z-buffer warp (image warp unchanged).
 
@@ -192,6 +205,11 @@ e coordinates.
 
     del read_space_coords
 
+    # use_host_roi_inverse leaves write_space_coords on the host while the transform may
+    # still return device coordinates, so the mask has to follow the array it indexes.
+    invalid_coords_mask = _ensure_on_array_module(
+        invalid_coords_mask, cp.get_array_module(write_space_coords))
+
     valid_write_space_coords = write_space_coords[~invalid_coords_mask, :]
     if use_host_roi_inverse and use_gpu_assemble:
         valid_read_space_coords = cp.asarray(valid_read_space_coords)
@@ -306,8 +324,7 @@ def _CropImageToFitCoords(input_image: NDArray, coordinates: NDArray, padding: i
        """
 
     xp = cp.get_array_module(input_image)
-    if cp.get_array_module(coordinates) is not xp:
-        coordinates = xp.asarray(coordinates)
+    coordinates = _ensure_on_array_module(coordinates, xp)
 
     bottom_left = xp.floor(xp.min(coordinates, 0))
     # bottom_left[bottom_left < 0] = 0
@@ -968,7 +985,9 @@ def TransformImage(transform: ITransform,
                 warpedImage.shape[:2],
                 extrapolate=extrapolate_flag,
             )
-            output = output.copy()
+            # No copy: SourceImageToTargetSpace allocates its own warp output, so
+            # this buffer is never the caller's warpedImage. Copying here doubled
+            # peak memory for a full section.
             output[~sample_mask] = enforce_background_cval
         return output  # type: ignore[return-value]
     else:
@@ -1029,7 +1048,7 @@ def TransformImage(transform: ITransform,
             warpedImage.shape[:2],
             extrapolate=extrapolate_flag,
         )
-        outputImage = outputImage.copy()
+        # No copy: outputImage is the locally allocated tile-assembly buffer.
         outputImage[~sample_mask] = enforce_background_cval
     return outputImage
 
