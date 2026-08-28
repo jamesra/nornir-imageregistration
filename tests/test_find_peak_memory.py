@@ -39,6 +39,9 @@ class TestFindPeakMemory(unittest.TestCase):
         self.assertAlmostEqual(copy_result.scaled_offset[0], in_place_result.scaled_offset[0], places=4)
         self.assertAlmostEqual(copy_result.scaled_offset[1], in_place_result.scaled_offset[1], places=4)
         self.assertAlmostEqual(copy_result.cutoff_value, in_place_result.cutoff_value, places=5)
+        # peak_ratio was omitted here, which is how the in-place cutoff was able to
+        # erase competing peaks unnoticed. See test_find_peak_inplace_ratio_parity.
+        self.assertAlmostEqual(copy_result.peak_ratio, in_place_result.peak_ratio, places=4)
 
     def test_allow_in_place_mutates_input(self) -> None:
         image, mask = _synthetic_peak(np)

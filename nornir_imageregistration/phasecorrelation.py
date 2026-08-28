@@ -444,9 +444,11 @@ def find_peak(image: NDArray[np.floating],
     :param image: Phase correlation image to find the peak in
     :param overlap_mask: Mask describing which pixels are eligible for consideration, defaults to None
     :param cutoff: Percentile used to threshold image. Values below the percentile are ignored. If None, an automatic cutoff is determined, defaults to None
-    :param allow_in_place: If True, *image* may be overwritten (mask multiply and cutoff).
-        Callers that discard the correlation image immediately after may pass True to
-        avoid a full-size copy. Defaults to False.
+    :param allow_in_place: If True, *image* may be overwritten by the overlap-mask
+        multiply. Callers that discard the correlation image immediately after may
+        pass True to avoid a full-size copy. The cutoff is *not* applied to *image*;
+        it is evaluated into a separate boolean so the uniqueness ratio can still
+        see competing peaks. Defaults to False.
     :param peak_ratio_exclusion_radius: Half-width cleared around the primary peak
         before measuring uniqueness (primary / 2nd peak).
     :return: A named tuple containing the offset of the peak, the strength of the peak,
@@ -467,31 +469,31 @@ def find_peak(image: NDArray[np.floating],
     # Fuse copy + mask: one allocation (or in-place) instead of copy + logical_not temp.
     if overlap_mask is not None:
         if allow_in_place:
-            threshold_image = image
-            threshold_image *= overlap_mask
+            masked_image = image
+            masked_image *= overlap_mask
         else:
-            threshold_image = image * overlap_mask
+            masked_image = image * overlap_mask
     elif allow_in_place:
-        threshold_image = image
+        masked_image = image
     else:
-        threshold_image = xp.copy(image)
+        masked_image = xp.copy(image)
 
     # Mean over valid pixels BEFORE cutoff thresholding. Uses mask-entry count so
     # in-mask zeros are retained (matches xp.mean(image[overlap_mask])).
     if overlap_mask is not None:
         n_valid = int(xp.count_nonzero(overlap_mask))
-        mean_pixel = float(threshold_image.sum(dtype=xp.float64) / n_valid) if n_valid > 0 else 0.0
+        mean_pixel = float(masked_image.sum(dtype=xp.float64) / n_valid) if n_valid > 0 else 0.0
     else:
-        mean_pixel = float(threshold_image.mean())
+        mean_pixel = float(masked_image.mean())
 
     # Determine the cutoff value for thresholding
     if cutoff is None:
         percentiles = np.linspace(0.95, 1, 101) * 100
         try:
             if overlap_mask is not None:
-                masked_values = threshold_image[overlap_mask].ravel()
+                masked_values = masked_image[overlap_mask].ravel()
             else:
-                masked_values = threshold_image.ravel()
+                masked_values = masked_image.ravel()
 
             curve_host = _percentile_curve_for_cutoff(masked_values, percentiles)
             del masked_values
@@ -508,26 +510,37 @@ def find_peak(image: NDArray[np.floating],
         except ValueError:
             cutoff_percent = 99.6
             if overlap_mask is not None:
-                masked = threshold_image[overlap_mask]
+                masked = masked_image[overlap_mask]
             else:
-                masked = threshold_image.ravel()
+                masked = masked_image.ravel()
             cutoff_value = float(xp.percentile(masked, q=cutoff_percent))
             del masked
     else:
         # Use the provided cutoff value (fraction 0-1 -> percentile 0-100)
         cutoff_percent = cutoff * 100
         if overlap_mask is not None:
-            masked = threshold_image[overlap_mask]
+            masked = masked_image[overlap_mask]
         else:
-            masked = threshold_image.ravel()
+            masked = masked_image.ravel()
         cutoff_value = float(xp.percentile(masked, q=cutoff_percent))
         del masked
 
-    # Apply thresholding without fancy-index assignment (avoids a bool temp buffer).
-    xp.multiply(threshold_image, threshold_image >= cutoff_value, out=threshold_image)
+    # Identify the above-cutoff region as a boolean rather than zeroing sub-cutoff
+    # values in the surface itself. The old in-place multiply destroyed the
+    # caller's correlation image when allow_in_place=True, and the uniqueness
+    # measurement below needs that surface intact to see competing peaks. A bool
+    # mask costs the same temporary the multiply already allocated for its
+    # comparison, minus the multiply.
+    above_cutoff = masked_image >= cutoff_value
+    if cutoff_value <= 0.0:
+        # The multiply left exact zeros as background even when the cutoff was
+        # <= 0. Preserve that: otherwise zero regions join neighbouring
+        # components and drag the center of mass off the peak.
+        above_cutoff &= masked_image != 0
 
-    # Label connected components in the thresholded image
-    [label_image, num_labels] = sp.ndimage.label(threshold_image)
+    # Label connected components of the above-cutoff region
+    [label_image, num_labels] = sp.ndimage.label(above_cutoff)
+    del above_cutoff
 
     # If no labels were found, there are no peaks
     if num_labels == 0:
@@ -535,12 +548,15 @@ def find_peak(image: NDArray[np.floating],
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
-    label_sums = sp.ndimage.sum_labels(threshold_image, label_image, xp.array(range(1, num_labels + 1)))
+    # Weighted statistics read the un-thresholded surface: every pixel inside a
+    # label is above the cutoff by construction, so these sums are identical to
+    # the values the old thresholded buffer produced.
+    label_sums = sp.ndimage.sum_labels(masked_image, label_image, xp.array(range(1, num_labels + 1)))
 
     if label_sums.sum() == 0:  # There are no peaks identified
         del label_sums
         del label_image
-        del threshold_image
+        del masked_image
 
         return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
 
@@ -550,12 +566,12 @@ def find_peak(image: NDArray[np.floating],
 
     # Calculate the center of mass for the strongest peak
     # Because we offset the sum_labels call by 1, we must do the same for the peak_value_index
-    peak_center_of_mass = sp.ndimage.center_of_mass(threshold_image, label_image, int(peak_value_index + 1))
+    peak_center_of_mass = sp.ndimage.center_of_mass(masked_image, label_image, int(peak_value_index + 1))
 
     # Signal-to-noise: peak max / pre-threshold mean of valid pixels
-    peak_pixel = sp.ndimage.maximum(threshold_image, label_image, int(peak_value_index + 1))
+    peak_pixel = sp.ndimage.maximum(masked_image, label_image, int(peak_value_index + 1))
     del label_image
-    del threshold_image
+    del masked_image
 
     signal_to_noise = float(peak_pixel) / mean_pixel if mean_pixel != 0.0 else 0.0
     # Calculate the offset from the center of the image using the same array module as the input.
