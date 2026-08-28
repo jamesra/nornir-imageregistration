@@ -257,6 +257,34 @@ def _parabolic_peak_index(values: NDArray[np.floating], peak_index: int) -> floa
     return float(peak_index) + float(np.clip(delta, -0.5, 0.5))
 
 
+def _normalized_peak_search_surface(
+        correlation: NDArray[np.floating]) -> NDArray[np.floating] | None:
+    """Return ``correlation`` rescaled to [0, 1], or None if it carries no peak.
+
+    Returns None instead of raising when the surface is flat or non-finite, which
+    is the caller's cue to report a degenerate result.
+
+    Both call sites used to rely on ``peak_search /= peak_search.max()`` tripping
+    ``FloatingPointError``. That works only because ``nornir_imageregistration``
+    sets ``np.seterr(invalid='raise', divide='raise')`` at import, and only on the
+    host: CuPy ignores ``seterr`` entirely, and any caller inside
+    ``np.errstate(invalid='ignore')`` silently disarms it. Checking the range
+    explicitly is the same guard ``phasecorrelation.find_offset`` already applies,
+    and it holds regardless of error state or array module.
+    """
+    xp = cp.get_array_module(correlation)
+    surface = correlation.astype(xp.float32, copy=True)
+    minimum = float(xp.asarray(surface.min(), dtype=xp.float64).ravel()[0])
+    if not np.isfinite(minimum):
+        return None
+    surface -= minimum
+    span = float(xp.asarray(surface.max(), dtype=xp.float64).ravel()[0])
+    if not np.isfinite(span) or span <= 0.0:
+        return None
+    surface /= span
+    return surface
+
+
 def _estimate_scale_radial_fft(
         target_magnitude: NDArray[np.floating],
         source_magnitude: NDArray[np.floating],
@@ -293,11 +321,8 @@ def _estimate_scale_radial_fft(
         target_log_polar, source_log_polar)
     phase_correlation_shifted = _fftshift_image(phase_correlation)
     peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
-    try:
-        peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
-        peak_search -= peak_search.min()
-        peak_search /= peak_search.max()
-    except FloatingPointError:
+    peak_search = _normalized_peak_search_surface(phase_correlation_shifted)
+    if peak_search is None:
         return 1.0, 0.0
     peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
     klog = output_shape[1] / float(np.log(max(max_radius, 2)))
@@ -1762,14 +1787,13 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     # phase_correlation_shifted = phase_correlation
     phase_correlation_shifted = _fftshift_image(phase_correlation)
     angle_scale_peak_ratio = float(_correlation_peak_ratio(phase_correlation_shifted))
-    try:
-        peak_search = phase_correlation_shifted.astype(np.float32, copy=True)
-        peak_search -= peak_search.min()
-        peak_search /= peak_search.max()
-    except FloatingPointError as e:
-        print(f"Floating point error: {e} for {phase_correlation.min()} or {phase_correlation.max()}")
-        record = AngleScaleResult(angle=0, scale=1.0, weight=0, translation=(0, 0))
-        return record
+    peak_search = _normalized_peak_search_surface(phase_correlation_shifted)
+    if peak_search is None:
+        logging.getLogger(__name__).warning(
+            'log-polar angle correlation surface carries no peak '
+            '(min=%s, max=%s); reporting no rotation',
+            phase_correlation.min(), phase_correlation.max())
+        return AngleScaleResult(angle=0, scale=1.0, weight=0, translation=(0, 0))
 
     angle_scale_peak = nornir_imageregistration.phasecorrelation.find_peak(peak_search)
     refined_row_offset = float(angle_scale_peak.scaled_offset[0])
