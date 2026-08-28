@@ -657,7 +657,7 @@ def _use_cupy_for_scoring(use_gpu: bool | None = None) -> bool:
 
 def rotate_image(image: NDArray,
                  angle: float,
-                 image_stats: nornir_imageregistration.ImageStats) -> NDArray:
+                 image_stats: nornir_imageregistration.ImageStats | None) -> NDArray:
     """Rotates an image, filling empty space with noise that matches the image stats
     :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed"""
 
@@ -673,7 +673,10 @@ def rotate_image(image: NDArray,
 
     # gc.set_debug(gc.DEBUG_LEAK)
     if image_stats is None:
-        image_stats = nornir_imageregistration.ImageStats.CalcStats(image_stats)
+        # Stats describe the source image, whose distribution the fill noise has to
+        # match. Passing image_stats here made this recovery raise instead of
+        # recovering, since CalcStats(None) cannot build stats out of nothing.
+        image_stats = nornir_imageregistration.ImageStats.CalcStats(image)
 
     # This confused me for years, but the implementation of rotate calls affine_transform with
     # the rotation matrix.  However the docs for affine_transform state it needs to be called
@@ -702,7 +705,7 @@ def rotate_image(image: NDArray,
 
 def pad_and_rotate_image(image: NDArray,
                          angle: float,
-                         image_stats: nornir_imageregistration.ImageStats,
+                         image_stats: nornir_imageregistration.ImageStats | None,
                          desired_shape: tuple[int, int] | None = None,
                          min_overlap: float = 0.75,
                          original_shape: NDArray | tuple[int, int] | None = None,
@@ -724,6 +727,12 @@ def pad_and_rotate_image(image: NDArray,
 
     if desired_shape is None:
         desired_shape = (None, None)  # type: ignore[assignment]
+
+    # Recover here rather than relying on rotate_image's own guard: that guard only
+    # repairs its local copy, so the padding call below would still dereference None.
+    # An angle of 0 skips rotate_image altogether, leaving no guard at all.
+    if image_stats is None:
+        image_stats = nornir_imageregistration.ImageStats.CalcStats(image)
 
     rotated_image = rotate_image(image, angle=angle, image_stats=image_stats) if angle != 0 else image
 
@@ -761,6 +770,7 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                   estimate_angle: bool = True,
                                   method: SliceToSliceMethod = SliceToSliceMethod.LogPolar,
                                   initial_scale_hint: float | None = None,
+                                  search_scale: bool = True,
                                   cancel_event: threading.Event | None = None,
                                   progress_callback: ProgressCallback | None = None,
                                   *,
@@ -781,6 +791,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
        :param float AngleSearchRange: A list of rotation angles to test.  Pass None for the default which is every two degrees
        :param float WarpedImageScaleFactors: Scale the source image input by this amount before attempting registration
        :param float initial_scale_hint: Total scale on source image (e.g. current transform) to seed scale search
+       :param search_scale: If False, register at scale 1.0 with no log-polar scale probe and no
+           scale search or refinement, making the search a pure translation (plus AngleSearchRange) match
        :param use_gpu: If False, score on the host even when the process backend is CuPy.
            None (default) follows ``GetActiveComputationLib``.
        """
@@ -826,7 +838,8 @@ def SliceToSliceRigidRegistration(target_image: ImageLike,
                                  larget_dimension=LargestDimension,
                                  try_flipped=TestFlip,
                                  estimated_scale_hint=estimated_scale_hint,
-                                 initial_scale_hint=initial_scale_hint)
+                                 initial_scale_hint=initial_scale_hint,
+                                 search_scale=search_scale)
 
     return SliceToSliceRigidRegistrationWithPreprocessedImages(source_image_data=source_image_data,
                                                                target_image_data=target_image_data,
@@ -1038,7 +1051,12 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
     resolved_scale_hint, force_scale_search = _resolve_scale_search_params(
         settings, metadata_scale_iso)
+    if not settings.search_scale:
+        # Caller registers at scale 1.0, so the log-polar probe below (which exists only to
+        # seed a scale search) would be pure cost.
+        resolved_scale_hint, force_scale_search = 1.0, False
     if (settings.method == nornir_imageregistration.settings.SliceToSliceMethod.BruteForce
+            and settings.search_scale
             and resolved_scale_hint is None and not force_scale_search):
         logpolar_probe = _find_angle_and_scale_with_logpolar(
             source_image=source_image,
@@ -1057,6 +1075,21 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         # ScoreOneAngle / narrow-angle refine run on the active GPU backend.
         source_image = _ensure_device_for_scoring(source_image)
         target_image = _ensure_device_for_scoring(target_image)
+    elif not settings.search_scale:
+        best_match = _find_best_angle(
+            source_image=source_image,
+            target_image=target_image,
+            source_stats=source_stats,
+            target_stats=target_stats,
+            angle_range=settings.angle_range,
+            min_overlap=settings.min_overlap,
+            SingleThread=SingleThread,
+            use_cluster=Cluster,
+            source_scale=1.0,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+            use_gpu=use_gpu)
+        detected_scale = 1.0
     else:
         best_match, detected_scale = _find_best_angle_with_scale_search(
             source_image=source_image,
@@ -1157,15 +1190,18 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             else:
                 refined = seed
 
-        refine_initial = _refine_scale_initial_center(
-            settings, metadata_scale_iso, seed_scale, resolved_scale_hint)
-        use_wide_scale_search = (
-            (force_scale_search or resolved_scale_hint is None)
-            and settings.initial_scale_hint is None)
-        detected = _refine_scale_local(
-            candidate_source, target_image, source_stats, target_stats,
-            float(refined.angle), refine_initial, settings.min_overlap,
-            wide_search=use_wide_scale_search)
+        if settings.search_scale:
+            refine_initial = _refine_scale_initial_center(
+                settings, metadata_scale_iso, seed_scale, resolved_scale_hint)
+            use_wide_scale_search = (
+                (force_scale_search or resolved_scale_hint is None)
+                and settings.initial_scale_hint is None)
+            detected = _refine_scale_local(
+                candidate_source, target_image, source_stats, target_stats,
+                float(refined.angle), refine_initial, settings.min_overlap,
+                wide_search=use_wide_scale_search)
+        else:
+            detected = 1.0
         translation_results = ScoreOneAngle(
             source_original=candidate_source,
             target_original=target_image,
