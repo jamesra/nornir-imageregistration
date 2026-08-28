@@ -3777,8 +3777,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 stosTransform = updatedTransform
                 continue
 
-            if i == settings.num_iterations - 1:  # Check if the next pass is the last pass
-                final_pass = True
+            # No "next pass is the last" check here. `i` was already incremented above,
+            # so it holds the *next* pass number (the cell-size calls just above pass
+            # `pass_index=i - 1` for exactly that reason). Testing num_iterations - 1
+            # therefore declared the final pass one pass too early and refine stopped a
+            # pass short: with cell_size 256 and num_iterations=4 it ran passes 1-3 only.
+            # The top of the loop already sets final_pass when `i == num_iterations`, and
+            # it does so on every path -- including the `continue` above, which this block
+            # is skipped by.
 
             # If we've locked 10% of the points and have not locked any new ones we are done
             if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
@@ -4849,8 +4855,14 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                            target_controlpoint: NDArray | tuple[float, float],
                            alignmentArea: NDArray | tuple[float, float],
                            anglesToSearch: Iterable[float] | None = None,
-                           min_alignment_overlap: float = 0.5) -> nornir_pools.Task | None:
-    """Create and enqueue an asynchronous rigid-registration task for one point."""
+                           min_alignment_overlap: float = 0.5,
+                           *,
+                           estimate_angle: bool = True,
+                           search_scale: bool = True) -> nornir_pools.Task | None:
+    """Create and enqueue an asynchronous rigid-registration task for one point.
+
+    :param estimate_angle: See :func:`AttemptAlignPoint`.
+    """
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
         # Ensure we check a non-rotated alignment
@@ -4910,7 +4922,9 @@ def StartAttemptAlignPoint(pool: nornir_pools.IPool,
                          MinOverlap=min_alignment_overlap,
                          SingleThread=True,
                          TestFlip=False,
-                         method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce)
+                         method=nornir_imageregistration.settings.SliceToSliceMethod.BruteForce,
+                         estimate_angle=estimate_angle,
+                         search_scale=search_scale)
 
     task.TargetROI = target_image_roi  # type: ignore[attr-defined]
     task.SourceROI = source_image_roi  # type: ignore[attr-defined]
@@ -4931,9 +4945,15 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       anglesToSearch: Iterable[float] | None = None,
                       min_alignment_overlap: float = 0.5,
                       *,
+                      estimate_angle: bool = True,
+                      search_scale: bool = True,
                       use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord | None:
     """Run synchronous rigid-registration for one control point.
 
+    :param estimate_angle: If True, a log-polar estimate appends an angle to
+        *anglesToSearch*. Pass False when the caller wants only the angles it
+        supplied, for example a translation-only search.
+    :param search_scale: If False, register at scale 1.0 with no scale probe or search.
     :param use_gpu: If False, score on the host even when the process backend is CuPy.
         None (default) follows ``GetActiveComputationLib``.
     """
@@ -4943,6 +4963,50 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
     rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
                                                               target_points=target_controlpoint,  # type: ignore[arg-type]
                                                               cell_size=alignmentArea)  # type: ignore[arg-type]
+
+    # #region agent log
+    def _dbg_log(hypothesis_id, message, data):
+        try:
+            import json as _json, os as _os, time as _t
+            with open(r'd:\src\git\nornir\debug-f7347d.log', 'a') as _f:
+                _f.write(_json.dumps({'sessionId': 'f7347d', 'runId': 'point2',
+                                      'hypothesisId': hypothesis_id,
+                                      'location': 'local_distortion_correction.py:AttemptAlignPoint',
+                                      'message': message, 'data': data, 'pid': _os.getpid(),
+                                      'timestamp': int(_t.time() * 1000)}, default=str) + '\n')
+        except Exception:
+            pass
+
+    def _dbg_arr(a):
+        try:
+            return nornir_imageregistration.EnsureNumpyArray(np.asarray(a)).ravel().tolist()[:8]
+        except Exception:
+            return str(a)
+
+    _dbg_log('A', 'AttemptAlignPoint entry', {
+        'estimate_angle': bool(estimate_angle),
+        'anglesToSearch': _dbg_arr(list(anglesToSearch)),
+        'target_controlpoint': _dbg_arr(target_controlpoint),
+        'alignmentArea': _dbg_arr(alignmentArea),
+        'rigid_transform_type': type(rigid_transform[0]).__name__,
+        'rigid_target_botleft': _dbg_arr(getattr(rigid_transform[0], 'target_space_center_of_rotation', None)),
+        'rigid_angle': str(getattr(rigid_transform[0], 'angle', None)),
+        'transform_type': type(transform).__name__,
+    })
+
+    def _dbg_inverse(t):
+        try:
+            pt = np.asarray(nornir_imageregistration.EnsureNumpyArray(
+                np.asarray(target_controlpoint, dtype=np.float64))).reshape(1, 2)
+            return _dbg_arr(t.InverseTransform(pt))
+        except Exception as exc:
+            return f'error: {exc}'
+
+    _dbg_log('G', 'where does each transform send the control point', {
+        'mesh_inverse_of_target_point': _dbg_inverse(transform),
+        'rigid_approx_inverse_of_target_point': _dbg_inverse(rigid_transform[0]),
+    })
+    # #endregion
 
     try:
         target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
@@ -4955,6 +5019,15 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                                                                 description='')
     except ValueError:
         return None
+
+    # #region agent log
+    _dbg_log('D', 'alignment ROIs built', {
+        'target_roi_shape': list(target_image_roi.shape),
+        'source_roi_shape': list(source_image_roi.shape),
+        'target_image_shape': list(np.shape(targetImage)),
+        'source_image_shape': list(np.shape(sourceImage)),
+    })
+    # #endregion
 
     # Just ignore pure color regions
     if not is_alignable_cell(target_image_roi):
@@ -4982,10 +5055,146 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
             SingleThread=True,
             TestFlip=False,
             method=SliceToSliceMethod.BruteForce,
+            estimate_angle=estimate_angle,
+            search_scale=search_scale,
             use_gpu=use_gpu)
     except ValueError:
         # Empty / fully-extrema ROIs can fail ImagePermutationHelper stats; skip cell.
         return None
+
+    # #region agent log
+    try:
+        import os as _os, time as _tm
+        from PIL import Image as _Image
+        _roi_dir = r'd:\src\git\nornir\_debug_rois'
+        _os.makedirs(_roi_dir, exist_ok=True)
+        _stamp = str(int(_tm.time() * 1000))
+
+        def _save_roi(name, arr):
+            a = nornir_imageregistration.EnsureNumpyArray(arr).astype(np.float64)
+            a = np.nan_to_num(a, nan=0.0)
+            lo, hi = float(a.min()), float(a.max())
+            a = (a - lo) / (hi - lo) if hi > lo else np.zeros_like(a)
+            _Image.fromarray((a * 255).astype(np.uint8)).save(
+                _os.path.join(_roi_dir, f'{_stamp}_{name}.png'))
+
+        _pk = nornir_imageregistration.EnsureNumpyArray(np.asarray(result.peak)).ravel()
+        _src_host = nornir_imageregistration.EnsureNumpyArray(source_image_roi)
+        _save_roi('target', target_image_roi)
+        _save_roi('source', source_image_roi)
+        _save_roi('source_shifted_by_peak',
+                  np.roll(np.roll(_src_host, int(round(float(_pk[0]))), axis=0),
+                          int(round(float(_pk[1]))), axis=1))
+        _dbg_log('F', 'ROI images saved', {'dir': _roi_dir, 'stamp': _stamp,
+                                           'peak': _pk.tolist()})
+
+        _tgt_host_img = nornir_imageregistration.EnsureNumpyArray(targetImage)
+        _src_host_img = nornir_imageregistration.EnsureNumpyArray(sourceImage)
+        _tgt_pt = nornir_imageregistration.EnsureNumpyArray(
+            np.asarray(target_controlpoint, dtype=np.float64)).ravel()[:2]
+        _src_pt = np.asarray(rigid_transform[0].InverseTransform(
+            _tgt_pt.reshape(1, 2))).ravel()[:2]
+
+        def _crop(a, centre_yx, half=256):
+            cy, cx = int(round(float(centre_yx[0]))), int(round(float(centre_yx[1])))
+            y0, x0 = max(0, cy - half), max(0, cx - half)
+            return a[y0:y0 + 2 * half, x0:x0 + 2 * half]
+
+        def _measure(a, b, label):
+            try:
+                r = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
+                    target_image=a, source_image=b, AngleSearchRange=[0], MinOverlap=0.25,
+                    SingleThread=True, TestFlip=False,
+                    method=SliceToSliceMethod.BruteForce, estimate_angle=False,
+                    search_scale=False, use_gpu=use_gpu)
+                return {'label': label,
+                        'peak': nornir_imageregistration.EnsureNumpyArray(
+                            np.asarray(r.peak)).ravel().tolist(),
+                        'weight': float(r.weight)}
+            except Exception as exc:
+                return {'label': label, 'error': str(exc)}
+
+        # O: fingerprint the arrays the worker actually received, so they can be compared
+        # against the images on disk that the stos transform was built from.
+        def _fp(a, name):
+            return {'name': name, 'shape': list(a.shape), 'dtype': str(a.dtype),
+                    'mean': float(np.nanmean(a)), 'std': float(np.nanstd(a)),
+                    'min': float(np.nanmin(a)), 'max': float(np.nanmax(a)),
+                    'nan_fraction': float(np.mean(np.isnan(a))),
+                    'corner_means': [float(np.nanmean(a[:64, :64])),
+                                     float(np.nanmean(a[:64, -64:])),
+                                     float(np.nanmean(a[-64:, :64])),
+                                     float(np.nanmean(a[-64:, -64:]))]}
+        _dbg_log('O', 'image arrays as received by the worker', {
+            'target': _fp(_tgt_host_img, 'target'),
+            'source': _fp(_src_host_img, 'source'),
+        })
+
+        # P: is the -173 degree local rigid angle real, or an artefact of the ring fit?
+        # Sample where the mesh actually sends four points around the control point.
+        _probe = _src_pt + np.array([[0., 0.], [100., 0.], [0., 100.], [-100., 0.]])
+        _dbg_log('P', 'local orientation of the mesh around the point', {
+            'rigid_angle_radians': float(getattr(rigid_transform[0], 'angle', float('nan'))),
+            'rigid_angle_degrees': float(np.degrees(
+                getattr(rigid_transform[0], 'angle', float('nan')))),
+            'rigid_scale': float(getattr(rigid_transform[0], 'scalar', float('nan'))),
+            'rigid_flip_ud': str(getattr(rigid_transform[0], 'flip_ud', None)),
+            'source_probe_points': _probe.tolist(),
+            'mesh_forward_of_probes': _dbg_arr(transform.Transform(_probe)),
+            'rigid_forward_of_probes': _dbg_arr(rigid_transform[0].Transform(_probe)),
+        })
+        # Q: is the transform globally consistent with these two arrays at all? Warp the
+        # whole source into target space on a coarse grid and compare against a coarse
+        # target. A correct pairing matches strongly at ~zero offset regardless of local
+        # distortion; noise here means the transform and the images do not belong together.
+        import scipy.ndimage as _ndi
+        _n = 512
+        _tsh = np.asarray(_tgt_host_img.shape[:2], dtype=np.float64)
+        _yy, _xx = np.meshgrid(np.linspace(0, _tsh[0] - 1, _n),
+                               np.linspace(0, _tsh[1] - 1, _n), indexing='ij')
+        _tflat = np.stack([_yy.ravel(), _xx.ravel()], axis=1)
+        _sflat = np.asarray(nornir_imageregistration.EnsureNumpyArray(
+            np.asarray(transform.InverseTransform(_tflat))), dtype=np.float64)
+        _coarse_warped_source = _ndi.map_coordinates(
+            _src_host_img.astype(np.float32), [_sflat[:, 0], _sflat[:, 1]],
+            order=1, cval=0.0).reshape(_n, _n)
+        _coarse_target = _ndi.map_coordinates(
+            _tgt_host_img.astype(np.float32), [_tflat[:, 0], _tflat[:, 1]],
+            order=1, cval=0.0).reshape(_n, _n)
+        _coarse_raw_source = _ndi.map_coordinates(
+            _src_host_img.astype(np.float32), [_yy.ravel(), _xx.ravel()],
+            order=1, cval=0.0).reshape(_n, _n)
+        _save_roi('global_target', _coarse_target)
+        _save_roi('global_source_warped', _coarse_warped_source)
+        _save_roi('global_source_raw', _coarse_raw_source)
+        _inb = np.mean((_sflat[:, 0] >= 0) & (_sflat[:, 0] < _src_host_img.shape[0]) &
+                       (_sflat[:, 1] >= 0) & (_sflat[:, 1] < _src_host_img.shape[1]))
+        _dbg_log('Q', 'whole-section consistency of transform with these arrays', {
+            'coarse_grid': _n,
+            'fraction_of_target_mapping_inside_source': float(_inb),
+            'warped_vs_target': _measure(_coarse_target, _coarse_warped_source, 'global_warped'),
+            'raw_vs_target': _measure(_coarse_target, _coarse_raw_source, 'global_raw'),
+            'target_extent': _tsh.tolist(),
+            'source_corners_from_target_corners': [
+                _sflat[0].tolist(), _sflat[_n - 1].tolist(),
+                _sflat[_n * (_n - 1)].tolist(), _sflat[-1].tolist()],
+        })
+    except Exception as _roi_exc:
+        import traceback as _tb
+        _dbg_log('F', 'ROI diagnostics failed',
+                 {'error': str(_roi_exc), 'trace': _tb.format_exc()[-1200:]})
+
+
+    _dbg_log('B', 'SliceToSliceRigidRegistration result', {
+        'peak': _dbg_arr(getattr(result, 'peak', None)),
+        'angle': str(getattr(result, 'angle', None)),
+        'weight': str(getattr(result, 'weight', None)),
+        'scale': str(getattr(result, 'scale', None)),
+        'flipped': str(getattr(result, 'flippedud', None)),
+        'roi_half': [float(np.asarray(alignmentArea).ravel()[0]) / 2.0,
+                     float(np.asarray(alignmentArea).ravel()[1]) / 2.0],
+    })
+    # #endregion
 
     if nornir_imageregistration.in_debug_mode():
         result.TargetROI = target_image_roi  # type: ignore[attr-defined]
