@@ -206,7 +206,24 @@ def _logpolar_fft_magnitude(
         window: NDArray[np.floating],
         *,
         use_dog: bool) -> NDArray[np.floating]:
-    """Magnitude spectrum for log-polar warping (A8: DoG for angle, raw for scale).
+    """Magnitude spectrum for log-polar warping.
+
+    Both the angle and the radial-scale estimates want ``use_dog=True``. An earlier
+    docstring here claimed "DoG for angle, raw for scale"; that is wrong for the
+    radial seed and measurement says so. A raw magnitude spectrum is dominated by
+    the DC and near-DC terms, which sit at radius 0 in every log-polar warp
+    regardless of scale, so the phase correlation peak is pinned at zero column
+    shift and ``_estimate_scale_radial_fft`` returns exactly 1.0 for every input.
+    With the DoG it tracks the true scale to within ~0.01 across the supported
+    ``_SCALE_REFINE_MIN``..``_SCALE_REFINE_MAX`` band. See
+    ``tests/test_logpolar_dog_scale_seed.py``.
+
+    The scale is nonetheless refined on *raw imagery* afterwards
+    (``_scale_at_final_angle`` -> ``_refine_scale_local``); the radial FFT only
+    supplies a seed. That is the sense in which "raw" belongs to the scale stage.
+
+    ``use_dog=False`` is kept because it is the only NumPy/CuPy-generic branch (the
+    DoG forces a host round-trip), but no caller uses it for scale.
 
     Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
     Host-only: ``skimage.filters.difference_of_gaussians`` when ``use_dog`` is True.
@@ -250,6 +267,9 @@ def _estimate_scale_radial_fft(
     Full-plane ``warp_polar`` of the DoG magnitude spectrum (rotation decoupled from
     the angle half-plane). Column shift along log-radius gives scale
     (Reddy & Chatterji 1996). Returns ``(scale, peak_ratio)``.
+
+    The magnitude spectrum must be DoG-filtered. A raw spectrum degenerates to a
+    constant 1.0 here; see ``_logpolar_fft_magnitude``.
 
     Host-only: ``skimage.transform.warp_polar``.
     """
@@ -1709,19 +1729,21 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     target_window = HannWindowCache.GetOrCreate(padded_target.shape)
     source_window = HannWindowCache.GetOrCreate(padded_source.shape)
 
-    target_freq_shift_angle = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
-    source_freq_shift_angle = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
-    target_freq_shift_radial = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
-    source_freq_shift_radial = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
+    # Angle and scale share one magnitude spectrum. Both need the DoG (see
+    # _logpolar_fft_magnitude on why raw is unusable for the radial seed), and the
+    # helper is pure, so computing it twice per image only cost two extra DoG+FFT
+    # passes for a bit-identical result.
+    target_freq_shift = _logpolar_fft_magnitude(padded_target, target_window, use_dog=True)
+    source_freq_shift = _logpolar_fft_magnitude(padded_source, source_window, use_dog=True)
 
     target_image_log_polar = skimage.transform.warp_polar(
-        nornir_imageregistration.EnsureNumpyArray(target_freq_shift_angle),
+        nornir_imageregistration.EnsureNumpyArray(target_freq_shift),
         radius=radius_angle,
         output_shape=desired_shape,
         scaling='log',
         order=_LOGPOLAR_WARP_ORDER)
     source_image_log_polar = skimage.transform.warp_polar(
-        nornir_imageregistration.EnsureNumpyArray(source_freq_shift_angle),
+        nornir_imageregistration.EnsureNumpyArray(source_freq_shift),
         radius=radius_angle,
         output_shape=desired_shape,
         scaling='log',
@@ -1755,8 +1777,8 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     degrees_per_pixel = 360 / desired_shape[0]
     recovered_angle = float(degrees_per_pixel * refined_row_offset)
     scale_seed, radial_peak_ratio = _estimate_scale_radial_fft(
-        target_freq_shift_radial,
-        source_freq_shift_radial,
+        target_freq_shift,
+        source_freq_shift,
         radius_radial,
         (int(desired_shape[0]), int(desired_shape[1])),
     )
