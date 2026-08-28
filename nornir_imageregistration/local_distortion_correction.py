@@ -2727,6 +2727,10 @@ def _masked_zncc_stack(fixed_stack: NDArray, moving_stack: NDArray) -> NDArray[n
     return nornir_imageregistration.EnsureNumpyArray(scores).astype(np.float64, copy=False)
 
 
+#: Per-candidate ZNCC failures reported individually before switching to a count.
+_ZNCC_FAILURE_LOG_LIMIT: int = 3
+
+
 def _compute_zncc_for_candidates(
         records: Sequence,
         candidate_ids: set[tuple[int, int]],
@@ -2790,10 +2794,18 @@ def _compute_zncc_for_candidates(
             for key, score in zip(keys, cell_scores):
                 scores[key] = float(score)
             return scores
-    except Exception:
-        pass
+    except Exception as e:
+        # Recoverable: the per-candidate fallback below still produces scores. Logged
+        # because silence here made a genuine defect in the batched ZNCC path look
+        # like normal operation, permanently degraded to the slow path.
+        prettyoutput.LogErr(
+            f'Batched ZNCC failed for {len(keys)} lock candidates, '
+            f'falling back to per-candidate scoring:\n{e}')
 
     # Fallback: per-candidate extract (batched path unavailable or failed).
+    # A systematic failure fails every candidate, so report the first few in full
+    # and then a count. Grids run to thousands of cells.
+    failed_keys: list[tuple[int, int]] = []
     for i, _rec in enumerate(cand_recs):
         key = keys[i]
         try:
@@ -2816,8 +2828,22 @@ def _compute_zncc_for_candidates(
                 defer_oob_check=False)
             scores[key] = _zncc_at_claimed_peak(
                 rois[0], rois[1], peaks[i], travel_eps=travel_eps)
-        except Exception:
-            scores[key] = 0.0
+        except Exception as e:
+            # Leave the key absent rather than storing 0.0. Zero is a legitimate
+            # ZNCC meaning "does not correlate", so recording it made an
+            # infrastructure failure indistinguishable from a measured verdict and
+            # wrote a score that was never measured into the pass diagnostics.
+            # classify_roles fails closed on a missing key (IDENTITY_SUSPECT, never
+            # locks) and pass_diagnostics already reports missing keys as NaN.
+            failed_keys.append(key)
+            if len(failed_keys) <= _ZNCC_FAILURE_LOG_LIMIT:
+                prettyoutput.LogErr(f'ZNCC scoring failed for lock candidate {key}:\n{e}')
+
+    if len(failed_keys) > _ZNCC_FAILURE_LOG_LIMIT:
+        prettyoutput.LogErr(
+            f'ZNCC scoring failed for {len(failed_keys)} of {len(cand_recs)} lock '
+            f'candidates; {_ZNCC_FAILURE_LOG_LIMIT} reported above. Those cells have '
+            f'no ZNCC score and cannot lock.')
     return scores
 
 
