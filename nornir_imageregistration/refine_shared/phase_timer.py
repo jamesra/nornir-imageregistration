@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import contextlib
-import os
 import threading
 import time
 from collections import defaultdict
 
 import nornir_imageregistration
+from nornir_imageregistration.refine_shared.runtime_config import _cached_config
 
 try:
     import cupy as cp
@@ -31,13 +31,35 @@ class RefinePhaseTimer:
     )
 
     def __init__(self, enabled: bool | None = None) -> None:
-        if enabled is None:
-            flag = os.environ.get('NORNIR_REFINE_PHASE_TIMING', '0').strip().lower()
-            enabled = flag not in ('', '0', 'false', 'no', 'off')
-        self.enabled = bool(enabled)
+        self._enabled_override: bool | None = None if enabled is None else bool(enabled)
         self.totals: dict[str, float] = defaultdict(float)
         self.counts: dict[str, int] = defaultdict(int)
         self._lock = threading.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        """True when the detailed phase buckets should record.
+
+        Deferred to ``RefineRuntimeConfig`` rather than latched from the
+        environment in ``__init__``. The process-global timer is built at import,
+        so latching left a benchmark that exported ``NORNIR_REFINE_PHASE_TIMING``
+        afterwards with the config reporting timing on and every bucket empty.
+
+        Reads the cached config, not ``refresh=True``: this is consulted inside
+        timed sections, and refreshing re-reads the whole environment. Callers pick
+        up a late change the documented way, by refreshing the config once.
+
+        Calls ``_cached_config`` rather than ``get_runtime_config`` to skip a frame
+        and the ``refresh`` branch; sections run per vertex in the serial mesh loop.
+        """
+        if self._enabled_override is not None:
+            return self._enabled_override
+        return _cached_config().phase_timing
+
+    @enabled.setter
+    def enabled(self, value: bool | None) -> None:
+        """Pin the flag, or pass ``None`` to follow the runtime config again."""
+        self._enabled_override = None if value is None else bool(value)
 
     def reset(self) -> None:
         """Clear all accumulated phase totals and counts."""
