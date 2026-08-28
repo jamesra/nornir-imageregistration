@@ -2,6 +2,7 @@
 scipy image arrays are indexed [y,x]
 """
 
+from collections import deque
 from collections.abc import Iterable, Sequence
 import math
 import multiprocessing
@@ -768,6 +769,36 @@ _DEFAULT_GPU_BATCH_MB: int = int(
 )
 CONVERT_IMAGES_GPU_BATCH_BYTES: int = _DEFAULT_GPU_BATCH_MB * 1024 * 1024
 
+# Host-memory budget for decoded tiles held ahead of the GPU in
+# :func:`ConvertImagesInDictGpu`.  Loads were previously submitted for every tile
+# at once, so a completed task retained its decoded host array until its chunk
+# was consumed and resident memory tracked the *tile count* rather than any
+# budget.  A 419 MB section measured a 415 MB peak; an 8 GB section would have
+# held 8 GB.
+#
+# Dispatch mirrors :func:`ConvertImagesInDictGpuPyramid`, whose hybrid rule is
+# already benchmark-tuned:
+#   - section_bytes <= budget: all loads submitted upfront (max NFS concurrency,
+#     byte-for-byte the previous behaviour, so tuned sections do not regress).
+#   - otherwise: a sliding window of ``budget // tile_host_bytes`` decoded tiles.
+#
+# Override via ``NORNIR_GPU_CONTRAST_LOAD_BUDGET_MB`` (integer megabytes).
+_DEFAULT_GPU_CONTRAST_LOAD_BUDGET_MB: int = int(
+    os.environ.get("NORNIR_GPU_CONTRAST_LOAD_BUDGET_MB", "2048")
+)
+CONVERT_IMAGES_GPU_LOAD_BUDGET_BYTES: int = (
+    _DEFAULT_GPU_CONTRAST_LOAD_BUDGET_MB * 1024 * 1024)
+
+# Chunks of saves allowed to remain outstanding in ConvertImagesInDictGpu.
+# Each queued save holds a view into its chunk's D->H result buffer, so an
+# unbounded save queue pins one host buffer per chunk for the whole section.
+#
+# 2 preserves the intended overlap -- saves for chunk N run while the GPU works
+# on chunk N+1 -- while capping resident result buffers at two.
+CONVERT_IMAGES_GPU_SAVE_LOOKAHEAD_CHUNKS: int = max(1, int(
+    os.environ.get("NORNIR_GPU_CONTRAST_SAVE_LOOKAHEAD_CHUNKS", "2")
+))
+
 # Host-memory budget for :func:`ConvertImagesInDictGpuPyramid` (decoded source tiles
 # resident ahead of the GPU).  Separate from contrast-only chunk sizing because 1× 4K
 # tiles (~64 MB float32 each) need many tiles prefetched for sustained NFS overlap.
@@ -787,6 +818,42 @@ _DEFAULT_GPU_PYRAMID_BATCH_MB: int = int(
     os.environ.get("NORNIR_GPU_PYRAMID_BATCH_MB", "2048")
 )
 CONVERT_IMAGES_GPU_PYRAMID_BATCH_BYTES: int = _DEFAULT_GPU_PYRAMID_BATCH_MB * 1024 * 1024
+
+
+def _gpu_load_window_size(n_tiles: int,
+                          tile_host_bytes: int,
+                          chunk_size: int,
+                          num_io_workers: int,
+                          budget_bytes: int) -> int:
+    """How many tile loads :func:`ConvertImagesInDictGpu` may have outstanding.
+
+    Mirrors the hybrid dispatch of :func:`ConvertImagesInDictGpuPyramid`: submit
+    the whole section when it fits the host-memory budget (maximum NFS
+    concurrency, and byte-for-byte the behaviour before the window existed),
+    otherwise slide a window sized to the budget.
+
+    The window is floored at one chunk and one task per I/O worker; below that
+    the GPU stalls waiting on loads. That floor makes resident host memory scale
+    with worker count rather than with section size, which is the point -- an
+    8 GB section no longer means 8 GB of decoded tiles.
+
+    :param n_tiles: Tiles in the section.
+    :param tile_host_bytes: Decoded size of one tile in its original dtype.
+    :param chunk_size: Tiles per GPU chunk.
+    :param num_io_workers: Threads in the load pool.
+    :param budget_bytes: Host-memory budget for decoded tiles held ahead of the GPU.
+    :return: Maximum outstanding load tasks, never more than ``n_tiles``.
+    """
+    if n_tiles <= 0:
+        return 0
+
+    if n_tiles * tile_host_bytes <= budget_bytes:
+        return n_tiles
+
+    window = max(int(budget_bytes // max(tile_host_bytes, 1)),
+                 chunk_size,
+                 num_io_workers)
+    return min(window, n_tiles)
 
 
 def _clear_gpu_convert_load_chunk(load_tasks: Sequence, start: int, end: int) -> None:
@@ -819,8 +886,10 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                             progress_task_key: str | None = None) -> bool:
     """GPU-accelerated contrast conversion using a chunked pipeline.
 
-    Submits all load tasks to a thread pool upfront (maximum NFS concurrency),
-    then processes tiles in chunks sized by *batch_bytes*.  Each chunk:
+    Submits load tasks to a thread pool through a window sized by the
+    ``CONVERT_IMAGES_GPU_LOAD_BUDGET_BYTES`` host-memory budget -- the whole
+    section upfront when it fits (maximum NFS concurrency), otherwise a sliding
+    window -- then processes tiles in chunks sized by *batch_bytes*.  Each chunk:
 
     1. Collects loaded arrays from the pool (nearly zero-wait — tasks are
        already running in the background).
@@ -833,6 +902,13 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
        vectorised over the batch axis on the GPU.
     5. D→H downloads the result, then dispatches per-tile saves to a second
        thread pool so saving chunk *N* overlaps with GPU work on chunk *N+1*.
+       Saves hold views into the chunk's D→H buffer, so at most
+       ``CONVERT_IMAGES_GPU_SAVE_LOOKAHEAD_CHUNKS`` chunks stay outstanding.
+
+    **Host memory** — decoded tiles resident ahead of the GPU are capped by
+    ``CONVERT_IMAGES_GPU_LOAD_BUDGET_BYTES``
+    (``NORNIR_GPU_CONTRAST_LOAD_BUDGET_MB``), so in-flight memory scales with
+    worker count rather than with section size.
 
     **Chunk sizing** — ``batch_bytes`` controls how many tiles fit in one GPU
     round-trip.  Smaller batches allow load/compute/save overlap to start
@@ -922,10 +998,35 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
     # ------------------------------------------------------------------
     num_io_workers = min(multiprocessing.cpu_count() * 2, n_tiles + 1)
     load_pool = nornir_pools.GetThreadPool("ConvertImagesInDictGpu_load", num_io_workers)
-    all_load_tasks = [
-        load_pool.add_task(p, _LoadImageByExtension, p, None)
-        for p in input_paths
-    ]
+
+    # Loads are submitted through a sliding window rather than all at once.
+    # Submitting every tile up front kept a decoded host array alive in each
+    # completed task until its chunk was consumed, so in-flight host memory grew
+    # with the tile count instead of the chunk budget: a 200-tile 1024x1024
+    # uint16 set peaked at 466 MB, essentially the whole set, against a 64 MB
+    # chunk budget.
+    #
+    # The window still has to outrun the GPU, or the loop stalls waiting on I/O
+    # and the original throughput rationale (saturate NFS concurrency) is lost.
+    # _load_window_size keeps every worker fed plus whole chunks of look-ahead.
+    all_load_tasks: list = [None] * n_tiles
+    _load_cursor = 0
+
+    def _submit_loads_through(target_exclusive: int) -> None:
+        """Ensure load tasks are queued for every index below target_exclusive."""
+        nonlocal _load_cursor
+        limit = min(target_exclusive, n_tiles)
+        while _load_cursor < limit:
+            path = input_paths[_load_cursor]
+            all_load_tasks[_load_cursor] = load_pool.add_task(
+                path, _LoadImageByExtension, path, None)
+            _load_cursor += 1
+
+    # Only the first tile is queued here. Tile size is unknown until it lands,
+    # and priming the workers instead would commit num_io_workers tiles blind --
+    # 64 4096x4096 uint16 tiles is 2 GB before any budget is known. One serial
+    # read costs a fraction of a section.
+    _submit_loads_through(1)
 
     save_pool = nornir_pools.GetThreadPool("ConvertImagesInDictGpu_save", num_io_workers)
 
@@ -963,6 +1064,34 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
     tile_float32_bytes = tile_float32_elems * 4
     chunk_size = max(1, batch_bytes // tile_float32_bytes)
     n_chunks = (n_tiles + chunk_size - 1) // chunk_size
+
+    # Budget against the decoded host size (original dtype), which is what the
+    # load tasks actually retain.
+    _load_window_size = _gpu_load_window_size(
+        n_tiles=n_tiles,
+        tile_host_bytes=tile_float32_elems * original_dtype.itemsize,
+        chunk_size=chunk_size,
+        num_io_workers=num_io_workers,
+        budget_bytes=CONVERT_IMAGES_GPU_LOAD_BUDGET_BYTES)
+
+    _submit_loads_through(_load_window_size)
+
+    # Outstanding save tasks, grouped by chunk. Saves receive views into the
+    # chunk's result_np, so an unbounded save queue pins every chunk's D->H
+    # buffer: 13 chunks x 33.5 MB measured as a 435 MB peak for a 419 MB tile
+    # set. Retiring older chunks caps that at
+    # CONVERT_IMAGES_GPU_SAVE_LOOKAHEAD_CHUNKS buffers while still overlapping
+    # saves for chunk N with GPU work on chunk N+1.
+    _pending_save_chunks: deque[list] = deque()
+
+    def _retire_save_chunks(max_outstanding: int) -> None:
+        while len(_pending_save_chunks) > max_outstanding:
+            for save_task in _pending_save_chunks.popleft():
+                try:
+                    save_task.wait()
+                except Exception as exc:
+                    prettyoutput.LogErr(
+                        f"ConvertImagesInDictGpu: save failed {save_task.name}\n{exc}")
 
     # Pinned host buffer sized for one chunk.
     # np.frombuffer requires explicit count= when wrapping a PinnedMemoryPointer;
@@ -1005,6 +1134,10 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                 end = min(start + chunk_size, n_tiles)
                 chunk_out = output_paths[start:end]
 
+                # Top up before consuming, so the loads for the chunks after
+                # this one are already in flight while the GPU works.
+                _submit_loads_through(end + _load_window_size)
+
                 arrays_chunk: list[np.ndarray | None] = []
                 for i in range(start, end):
                     if chunk_idx == 0 and i == 0:
@@ -1031,6 +1164,7 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                     fell_back = True
 
                 if fell_back:
+                    fallback_saves: list = []
                     for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
                         if arr is None:
                             continue
@@ -1038,14 +1172,17 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                                                      MinMax=MinMax, Gamma=gamma_val, Bpp=InputBpp)
                         (_, ext) = os.path.splitext(out_path)
                         kw: dict = {'optimize': True} if ext.lower() == '.png' else {}
-                        save_pool.add_task(f"save {out_path}", SaveImage,
-                                           out_path, result, bpp=OutputBpp, **kw)
+                        fallback_saves.append(
+                            save_pool.add_task(f"save {out_path}", SaveImage,
+                                               out_path, result, bpp=OutputBpp, **kw))
                         tiles_completed += 1
                         in_path = input_paths[start + i]
                         reporter.update(
                             tiles_completed,
                             element=os.path.basename(in_path),
                             path=in_path)
+                    _pending_save_chunks.append(fallback_saves)
+                    _retire_save_chunks(CONVERT_IMAGES_GPU_SAVE_LOOKAHEAD_CHUNKS)
                     _clear_gpu_convert_load_chunk(all_load_tasks, start, end)
                     if chunk_idx == 0:
                         first_array = None
@@ -1073,13 +1210,15 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                 del batch
 
                 last_input_path: str | None = None
+                chunk_saves: list = []
                 for i, (out_path, arr) in enumerate(zip(chunk_out, arrays_chunk)):
                     if arr is None:
                         continue
                     (_, ext) = os.path.splitext(out_path)
                     kw = {'optimize': True} if ext.lower() == '.png' else {}
-                    save_pool.add_task(f"save {out_path}", SaveImage,
-                                       out_path, result_np[i], bpp=OutputBpp, **kw)
+                    chunk_saves.append(
+                        save_pool.add_task(f"save {out_path}", SaveImage,
+                                           out_path, result_np[i], bpp=OutputBpp, **kw))
                     last_input_path = input_paths[start + i]
 
                 tiles_completed += sum(1 for a in arrays_chunk if a is not None)
@@ -1095,7 +1234,13 @@ def ConvertImagesInDictGpu(ImagesToConvertDict: dict[str, str],
                 if chunk_idx == 0:
                     first_array = None
                 del arrays_chunk
+
+                # Saves hold views into result_np, so dropping the local name is
+                # not enough; retire older chunks to actually release them.
+                _pending_save_chunks.append(chunk_saves)
+                del chunk_saves
                 del result_np
+                _retire_save_chunks(CONVERT_IMAGES_GPU_SAVE_LOOKAHEAD_CHUNKS)
         finally:
             # Drain async I/O before removing the dashboard track so the bar
             # stays visible while saves are still in flight.
