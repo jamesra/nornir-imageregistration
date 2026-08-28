@@ -208,13 +208,19 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
                         correlation_coefficient: Optional[float] = None,
                         centroid_radius: int = 1,
                         peak_ratio_exclusion_radius: int = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
+                        min_std: Optional[float] = None,
                         ) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Batched analog of ``phasecorrelation.find_offset`` for equal-sized cells.
 
     Normalizes each cell to ``[0, 1]`` (matching ``_phase_correlate_refinement_cell``),
     runs batched phase correlation, fft-shifts, per-image normalizes, applies the
-    shared overlap mask, and runs the vectorized peak finder. Degenerate cells
-    (constant intensity) yield a zero-weight result, mirroring the serial guard.
+    shared overlap mask, and runs the vectorized peak finder.
+
+    Degenerate cells yield a zero-weight result, mirroring the serial
+    ``is_alignable_cell`` guard: constant intensity, all-zero, and intensity std
+    below the low-content floor are all rejected. The std floor matters because
+    each cell is normalized by its own span, which amplifies micro-contrast into
+    full-range noise and would otherwise produce a confident-looking peak.
 
     :param fixed_cells: ``(N, h, w)`` fixed (target) cells.
     :param moving_cells: ``(N, h, w)`` moving (source) cells, same shape.
@@ -224,6 +230,9 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
     :param correlation_coefficient: See ``batched_image_phase_correlation``.
     :param centroid_radius: Centroid refinement window half-width.
     :param peak_ratio_exclusion_radius: See ``batched_find_peak``.
+    :param min_std: Minimum per-cell intensity std, matching
+        ``is_alignable_cell(min_std=...)``. ``None`` reads
+        ``NORNIR_REFINE_LOW_CONTENT_STD_MIN``.
     :return: ``(peaks (N,2), weights (N,), peak_ratios (N,))`` on the input module.
     """
     xp = cp.get_array_module(fixed_cells)
@@ -235,11 +244,38 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
     fixed = xp.asarray(fixed_cells, dtype=xp.float64)
     moving = xp.asarray(moving_cells, dtype=xp.float64)
 
+    # Imported lazily: refine_shared.cell_validity lives under a package whose
+    # __init__ imports cell_measurement, which imports this module.
+    from nornir_imageregistration.refine_shared.cell_validity import (
+        low_content_std_min_threshold)
+
+    std_threshold = float(min_std if min_std is not None else low_content_std_min_threshold())
+
+    # For any sample with range ``span`` over ``n`` points, std >= span / sqrt(2n):
+    # the least-spread arrangement puts one point at each extreme. So a large
+    # enough span guarantees the floor is met, and the std reduction can be
+    # skipped for those cells. Real cells span most of their range, so this
+    # normally clears the whole batch and keeps the gate close to free.
+    n_pixels = int(fixed.shape[-1]) * int(fixed.shape[-2])
+    span_implies_content = std_threshold * float(np.sqrt(2.0 * n_pixels))
+
     def _normalize(stack: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
         amin = stack.min(axis=(-2, -1), keepdims=True)
         amax = stack.max(axis=(-2, -1), keepdims=True)
         span = amax - amin
-        valid = (span.reshape(-1) > 0) & (amax.reshape(-1) != 0)
+        span_flat = span.reshape(-1)
+        valid = (span_flat > 0) & (amax.reshape(-1) != 0)
+        if std_threshold > 0.0:
+            # Serial rejects low-content cells on intensity std; without this the
+            # batched path normalizes near-flat cells up to full range and returns
+            # a noise peak with a plausible weight.
+            content = span_flat >= span_implies_content
+            if not bool(xp.all(content | ~valid)):
+                # Some cell is ambiguous, so pay for the exact reduction. Cells
+                # holding NaN already failed the span test above, so plain std
+                # matches cell_intensity_std for everything still in play.
+                content = content | (stack.std(axis=(-2, -1)).reshape(-1) >= std_threshold)
+            valid = valid & content
         safe_span = xp.where(span > 0, span, xp.asarray(1.0, dtype=stack.dtype))
         return (stack - amin) / safe_span, valid
 
