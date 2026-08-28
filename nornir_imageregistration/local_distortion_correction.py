@@ -1266,7 +1266,17 @@ def _attempt_align_points_translation_batched(
 ) -> list[nornir_imageregistration.EnhancedAlignmentRecord] | None:
     """Measure translation-only STOS cells with the shared batched FFT helper.
 
-    Returns ``None`` when ROI extraction fails for too many cells (caller falls back).
+    Returns ``None`` only when the batched path could not run: ROI extraction
+    failed for too many cells, cell shapes disagree, or too few cells survive to
+    batch. The caller treats ``None`` as "batched unavailable" and re-measures the
+    whole grid with the serial peak finder.
+
+    Returns an empty list when the batched path *did* run and legitimately found
+    nothing to align -- every cell rejected as unalignable, or every measured peak
+    unusable. That is an answer, not a failure, so it must not be reported as
+    ``None``: doing so sent the caller through a different peak finder and made the
+    control points depend on whether the batched result happened to be empty.
+
     Under CuPy, ROIs stay on-device through ``xp.stack`` and the batched FFT; peaks
     and the source/target lattices sync to host once each (same pattern as mosaic
     ``_measure_grid_vertex_displacements_batched``).
@@ -1362,7 +1372,10 @@ def _attempt_align_points_translation_batched(
         keep_mask = nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)
 
         if not np.any(keep_mask):
-            return None
+            # Decided, not unavailable: the serial path applies the same
+            # alignability gate, so re-measuring the grid can only spend a full
+            # serial pass to arrive back at nothing.
+            return []
 
         if not np.all(keep_mask):
             keep_mask_dev = xp.asarray(keep_mask)
@@ -1370,6 +1383,9 @@ def _attempt_align_points_translation_batched(
             moving_stack = moving_stack[keep_mask_dev]
             kept_indices = [idx for idx, keep in zip(kept_indices, keep_mask) if keep]
 
+        # Genuinely unavailable rather than empty: batching needs at least three
+        # cells. The serial pass will reject the same cells this gate rejected, so
+        # it arrives at the same records, only slower.
         if len(kept_indices) < 3:
             return None
 
@@ -1406,7 +1422,11 @@ def _attempt_align_points_translation_batched(
                 angle=0.0,
                 flipped_ud=False,
                 peak_ratio=float(peak_ratios[batch_pos])))
-    return records if len(records) > 0 else None
+    # An empty list is returned as-is. The measurement ran; every peak was simply
+    # unusable. Reporting None here re-ran the whole grid through the serial peak
+    # finder, which can disagree, so the control points depended on whether the
+    # batched result happened to come back empty.
+    return records
 
 
 def _cupy_memory_pool_stats() -> tuple[int | None, int | None]:
@@ -4092,6 +4112,10 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             target_points=targetPoints,
             rigid_transforms=rigid_transforms,
             settings=settings)
+        # None means the batched path could not run, so fall through and measure
+        # serially. An empty list means it ran and found nothing alignable, which is
+        # an answer: re-measuring with a different peak finder would make the
+        # control points depend on whether the batched result came back empty.
         if batched is not None:
             return batched
 
