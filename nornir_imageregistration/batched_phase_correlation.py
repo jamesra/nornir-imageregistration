@@ -313,4 +313,11 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
     zero = xp.asarray(0.0, dtype=weights.dtype)
     weights = xp.where(valid, weights, zero)
     peak_ratios = xp.where(valid, peak_ratios, zero)
+    # Zero the offset too, matching find_offset, which blanks the whole correlation
+    # image when its max is non-finite. Leaving the argmax in place returned the
+    # centre of the correlation surface -- a plausible-looking shift of half the cell
+    # -- for a cell with no usable signal. Callers that gate on weight were unharmed,
+    # but the offset is the primary return value and should not carry a number the
+    # weight says is meaningless.
+    peaks = xp.where(valid[:, None], peaks, xp.asarray(0.0, dtype=peaks.dtype))
     return peaks, weights, peak_ratios
