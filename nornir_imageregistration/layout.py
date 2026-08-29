@@ -1430,10 +1430,31 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
         layout_pair_to_merge = sorted_layout_pair_offset_count.pop(0)
         layout_pair = layout_pair_to_merge[0]
         (iLayout_A, iLayout_B) = layout_pair
-        print("Layout {0} absorbing {1}".format(iLayout_A, iLayout_B))
         assert (iLayout_A != iLayout_B)
         ALayout = layout_list[iLayout_A]
         BLayout = layout_list[iLayout_B]
+
+        if ALayout is BLayout:
+            # An earlier pair already merged these two. The index comparison above
+            # cannot detect that: layout_list slots are rebound as layouts merge,
+            # but the pending pair list and tile_to_layout keep the original
+            # indices, so distinct indices no longer imply distinct layouts. Any
+            # set of three pairwise-connected layouts produces such a pair.
+            #
+            # Merging here would hand the same object to MergeLayoutsWithAbsoluteOffset
+            # as both A and B, translating the merged layout against itself by a
+            # residual offset -- measured [-965.67, 972.33] on three layouts -- and
+            # then merging it with itself, which is a no-op. The translation is
+            # uniform, so relative geometry survives and the usual
+            # TranslateToZeroOrigin afterwards hides it entirely; a caller that
+            # skips that normalization sees a displaced mosaic instead.
+            #
+            # The offsets in this pair are redundant constraints on a merge that
+            # already happened, so dropping them loses no information here; the
+            # relaxation pass is what reconciles competing offsets.
+            continue
+
+        print("Layout {0} absorbing {1}".format(iLayout_A, iLayout_B))
 
         tile_offsets = cross_layout_keys[layout_pair]
 
