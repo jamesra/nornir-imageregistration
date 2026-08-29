@@ -802,12 +802,16 @@ def SourceImageToTargetSpace(transform: ITransform,
         return result
 
 
-def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistration.ITransform):
+def _ParameterToStosTransformAndFile(
+        transformData: str | NDArray | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform
+) -> tuple[ITransform | None, nornir_imageregistration.StosFile | None]:
+    """Resolve *transformData* to a transform and, when one exists, its stos file.
+
+    Callers that need the stos file's image paths cannot recover them from the
+    transform alone, so both are returned together.
     """
-    :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
-    :return: A transform
-    """
-    stostransform = None
+    stos: nornir_imageregistration.StosFile | None = None
+    stostransform: ITransform | None = None
 
     if isinstance(transformData, str):
         if not os.path.exists(transformData):
@@ -815,11 +819,22 @@ def ParameterToStosTransform(transformData: str | NDArray | nornir_imageregistra
         stos = nornir_imageregistration.StosFile.Load(transformData)
         stostransform = factory.LoadTransform(stos.Transform)  # type: ignore[arg-type]
     elif isinstance(transformData, nornir_imageregistration.StosFile):
-        stos = transformData.Transform
-        stostransform = factory.LoadTransform(stos.transform)  # type: ignore[union-attr]
+        stos = transformData
+        # StosFile.Transform is already the IRTools transform string.
+        stostransform = factory.LoadTransform(stos.Transform)  # type: ignore[arg-type]
     elif isinstance(transformData, ITransform):
         stostransform = transformData
 
+    return stostransform, stos
+
+
+def ParameterToStosTransform(
+        transformData: str | NDArray | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform):
+    """
+    :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
+    :return: A transform
+    """
+    stostransform, _stos = _ParameterToStosTransformAndFile(transformData)
     return stostransform
 
 
@@ -834,8 +849,7 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
     :param bool CropUndefined: If true exclude areas outside the convex hull of the transform, if it exists
     """
 
-    stos = None
-    stostransform = ParameterToStosTransform(transformData)
+    stostransform, stos = _ParameterToStosTransformAndFile(transformData)
 
     if fixedImage is None:
         if stos is None:
@@ -858,7 +872,7 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
 
     stostransform.Scale(scalar)  # type: ignore[attr-defined]
 
-    # warpedImage_shared_mem = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
+    warpedImage = TransformImage(stostransform, fixedImageShape, warpedImage, CropUndefined)
 
     if not OutputFilename is None:
         nornir_imageregistration.SaveImage(OutputFilename,
