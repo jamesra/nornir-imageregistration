@@ -173,7 +173,10 @@ class LayoutPosition:
 
     def GetWeight(self, ID) -> float:
         iKnown = self.ConnectedIDs == ID
-        return float(self._OffsetArray[iKnown, LayoutPosition.iOffsetWeight])
+        # Boolean indexing yields a shape-(1,) array, and NumPy 2 refuses to convert
+        # anything but a 0-d array to a scalar, so the unflattened float() raised
+        # TypeError on every call. GetOffset above already flattens for this reason.
+        return float(self._OffsetArray[iKnown, LayoutPosition.iOffsetWeight].flatten()[0])
 
     @property
     def IDToIndex(self) -> dict[int, int]:

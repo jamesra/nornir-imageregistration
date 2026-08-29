@@ -628,13 +628,28 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
             # diff = ActualOffset - PredictedOffset
             # distance = np.sqrt(np.sum(diff ** 2))
             feature_scores = tile_overlap.normalized_feature_scores
-            if feature_scores is not None:
-                f_score = min(feature_scores)
 
-            final_weight = offset.weight  # * f_score
+            final_weight = offset.weight
 
             if use_feature_score:
-                final_weight *= f_score
+                if feature_scores is None:
+                    # Binding f_score only inside a "scores is not None" test left it
+                    # unbound on the first such overlap (UnboundLocalError) and, worse,
+                    # left the *previous* overlap's score bound for every later one,
+                    # since this is a loop body. That silently scaled one overlap's
+                    # weight by an unrelated overlap's texture measurement.
+                    #
+                    # Reaching here means the caller asked to scale by feature score
+                    # without computing one. TranslateSettings.feature_score_calculations_required
+                    # makes ArrangeTilesWithTranslate run ScoreTileOverlaps and
+                    # NormalizeOverlapFeatureScores whenever use_feature_score is set,
+                    # so this is a direct-caller contract violation, not a data case.
+                    raise ValueError(
+                        f"use_feature_score is set but overlap {tile_overlap.ID} has no "
+                        f"normalized_feature_scores. Call NormalizeOverlapFeatureScores on "
+                        f"the overlaps first, or leave use_feature_score off.")
+
+                final_weight *= min(feature_scores)
 
             # print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
 
