@@ -606,6 +606,44 @@ def _extract_refinement_cell(
     return cell, valid_count / float(cell_shape.prod())
 
 
+_CellWindow = tuple[tuple[int, int, int, int], tuple[int, int, int, int]]
+
+
+def _refinement_cell_window(
+        prewarped: _PrewarpedTile,
+        center_scaled: NDArray[np.floating],
+        cell_shape: NDArray[np.integer]) -> _CellWindow | None:
+    """
+    Resolve the pure-host slice geometry for one refinement cell.
+
+    Returns ``((ws0, we0, ws1, we1), (rs0, re0, rs1, re1))`` naming the
+    destination window within a ``cell_shape`` cell and the source window within
+    the prewarped tile, or None when the cell falls entirely off the tile. Split
+    out from extraction so callers can copy straight into a preallocated batch
+    stack rather than materializing one array per cell.
+    """
+    cell_shape = np.asarray(cell_shape, dtype=np.int64)
+    # Legacy: origin = center - 0.5 * cell; pixel index i samples origin + i.
+    start = np.floor(
+        nornir_imageregistration.EnsureNumpyArray(center_scaled, dtype=np.float64)
+        - prewarped.origin
+        - (cell_shape.astype(np.float64) / 2.0)).astype(np.int64)
+    stop = start + cell_shape
+
+    image_shape = np.asarray(prewarped.image.shape, dtype=np.int64)
+    clipped_start = np.maximum(start, 0)
+    clipped_stop = np.minimum(stop, image_shape)
+    if np.any(clipped_start >= clipped_stop):
+        return None
+
+    write_start = clipped_start - start
+    write_stop = write_start + (clipped_stop - clipped_start)
+    return ((int(write_start[0]), int(write_stop[0]),
+             int(write_start[1]), int(write_stop[1])),
+            (int(clipped_start[0]), int(clipped_stop[0]),
+             int(clipped_start[1]), int(clipped_stop[1])))
+
+
 def _extract_refinement_cell_and_mask(
         prewarped: _PrewarpedTile,
         center_scaled: NDArray[np.floating],
@@ -619,32 +657,18 @@ def _extract_refinement_cell_and_mask(
     the batched caller can reduce many cells in a single device->host transfer.
     """
     xp = cp.get_array_module(prewarped.image)
-    cell_shape = np.asarray(cell_shape, dtype=np.int64)
-    cell_tuple = tuple(int(v) for v in cell_shape)
-    # Legacy: origin = center - 0.5 * cell; pixel index i samples origin + i.
-    start = np.floor(
-        nornir_imageregistration.EnsureNumpyArray(center_scaled, dtype=np.float64)
-        - prewarped.origin
-        - (cell_shape.astype(np.float64) / 2.0)).astype(np.int64)
-    stop = start + cell_shape
-
-    image_shape = np.asarray(prewarped.image.shape, dtype=np.int64)
-    clipped_start = np.maximum(start, 0)
-    clipped_stop = np.minimum(stop, image_shape)
+    cell_tuple = tuple(int(v) for v in np.asarray(cell_shape, dtype=np.int64))
 
     cell = xp.zeros(cell_tuple, dtype=prewarped.image.dtype)
     valid_cell = xp.zeros(cell_tuple, dtype=bool)
-    if np.any(clipped_start >= clipped_stop):
+
+    window = _refinement_cell_window(prewarped, center_scaled, cell_shape)
+    if window is None:
         return cell, valid_cell
 
-    write_start = clipped_start - start
-    write_stop = write_start + (clipped_stop - clipped_start)
-    ws0, ws1 = int(write_start[0]), int(write_start[1])
-    we0, we1 = int(write_stop[0]), int(write_stop[1])
-    cs0, cs1 = int(clipped_start[0]), int(clipped_start[1])
-    ce0, ce1 = int(clipped_stop[0]), int(clipped_stop[1])
-    cell[ws0:we0, ws1:we1] = prewarped.image[cs0:ce0, cs1:ce1]
-    valid_cell[ws0:we0, ws1:we1] = prewarped.valid_mask[cs0:ce0, cs1:ce1]
+    (ws0, we0, ws1, we1), (rs0, re0, rs1, re1) = window
+    cell[ws0:we0, ws1:we1] = prewarped.image[rs0:re0, rs1:re1]
+    valid_cell[ws0:we0, ws1:we1] = prewarped.valid_mask[rs0:re0, rs1:re1]
     return cell, valid_cell
 
 
@@ -749,54 +773,75 @@ def _measure_grid_vertex_displacements_batched(
     measured = np.zeros(num_vertices, dtype=bool)
 
     fixed_shape = np.asarray(fixed.image.shape, dtype=np.float64)
+    xp = cp.get_array_module(fixed.image)
+    cell_tuple = (int(cell_shape[0]), int(cell_shape[1]))
     candidate_indices: list[int] = []
-    cand_fixed_cells: list[NDArray[np.floating]] = []
-    cand_moving_cells: list[NDArray[np.floating]] = []
-    cand_fixed_valid: list[NDArray[np.bool_]] = []
-    cand_moving_valid: list[NDArray[np.bool_]] = []
+    candidate_windows: list[tuple[_CellWindow | None, _CellWindow | None]] = []
 
     with _PHASE_TIMER.section('cell_extract'):
-        # Extract every center-eligible vertex's cells without computing the
-        # per-cell validity fraction (which would force a host sync each call).
+        # Two passes so no per-cell array is ever materialized: gate on validity
+        # using only the bool masks, then copy the surviving image cells straight
+        # into an exactly-sized stack. Accumulating one array per cell and then
+        # stacking held the whole candidate set several times over at the moment
+        # of the stack, and freeing the pieces afterwards cannot undo that peak.
+        # Tile measurement can run on a thread pool, so the peak is multiplied by
+        # the worker count.
+        fixed_valid_stack = xp.zeros((num_vertices,) + cell_tuple, dtype=bool)
+        moving_valid_stack = xp.zeros((num_vertices,) + cell_tuple, dtype=bool)
+
         for k in range(num_vertices):
             center = centers_scaled[k]
             local_fixed = center - fixed.origin
             if np.any(local_fixed < 0) or np.any(local_fixed >= fixed_shape):
                 continue
 
-            fixed_cell, fixed_valid = _extract_refinement_cell_and_mask(fixed, center, cell_shape)
-            moving_cell, moving_valid = _extract_refinement_cell_and_mask(moving, center, cell_shape)
+            row = len(candidate_indices)
+            fixed_window = _refinement_cell_window(fixed, center, cell_shape)
+            moving_window = _refinement_cell_window(moving, center, cell_shape)
+            if fixed_window is not None:
+                (ws0, we0, ws1, we1), (rs0, re0, rs1, re1) = fixed_window
+                fixed_valid_stack[row, ws0:we0, ws1:we1] = fixed.valid_mask[rs0:re0, rs1:re1]
+            if moving_window is not None:
+                (ws0, we0, ws1, we1), (rs0, re0, rs1, re1) = moving_window
+                moving_valid_stack[row, ws0:we0, ws1:we1] = moving.valid_mask[rs0:re0, rs1:re1]
             candidate_indices.append(k)
-            cand_fixed_cells.append(fixed_cell)
-            cand_moving_cells.append(moving_cell)
-            cand_fixed_valid.append(fixed_valid)
-            cand_moving_valid.append(moving_valid)
+            candidate_windows.append((fixed_window, moving_window))
 
-        if len(candidate_indices) == 0:
+        num_candidates = len(candidate_indices)
+        if num_candidates == 0:
             return shifts, measured
 
-        xp = cp.get_array_module(cand_fixed_cells[0])
         cell_area = float(cell_shape.prod())
         # One batched validity reduction + a single device->host transfer for the
-        # whole candidate set, instead of one count_nonzero sync per cell.
-        counts = xp.stack((
-            xp.count_nonzero(xp.stack(cand_fixed_valid, axis=0), axis=(1, 2)),
-            xp.count_nonzero(xp.stack(cand_moving_valid, axis=0), axis=(1, 2))), axis=0)
+        # whole candidate set, instead of one count_nonzero sync per cell. The
+        # count vectors are (N,), so stacking them keeps it to one transfer.
         counts_host = np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(counts), dtype=np.float64)
+            nornir_imageregistration.EnsureNumpyArray(
+                xp.stack((xp.count_nonzero(fixed_valid_stack[:num_candidates], axis=(1, 2)),
+                          xp.count_nonzero(moving_valid_stack[:num_candidates], axis=(1, 2))),
+                         axis=0)),
+            dtype=np.float64)
+        del fixed_valid_stack, moving_valid_stack
         fixed_fraction = counts_host[0] / cell_area
         moving_fraction = counts_host[1] / cell_area
         eligible_mask = (fixed_fraction >= cell_min_overlap) & (moving_fraction >= cell_min_overlap)
 
-    eligible_indices = [candidate_indices[i] for i in range(len(candidate_indices))
-                        if eligible_mask[i]]
+    eligible_positions = [i for i in range(num_candidates) if eligible_mask[i]]
+    eligible_indices = [candidate_indices[i] for i in eligible_positions]
     if len(eligible_indices) == 0:
         return shifts, measured
 
-    fixed_stack = xp.stack(
-        [cand_fixed_cells[i] for i in range(len(candidate_indices)) if eligible_mask[i]], axis=0)
-    moving_stack = xp.stack(
-        [cand_moving_cells[i] for i in range(len(candidate_indices)) if eligible_mask[i]], axis=0)
+    with _PHASE_TIMER.section('cell_extract'):
+        fixed_stack = xp.zeros((len(eligible_positions),) + cell_tuple, dtype=fixed.image.dtype)
+        moving_stack = xp.zeros((len(eligible_positions),) + cell_tuple, dtype=moving.image.dtype)
+        for row, position in enumerate(eligible_positions):
+            fixed_window, moving_window = candidate_windows[position]
+            if fixed_window is not None:
+                (ws0, we0, ws1, we1), (rs0, re0, rs1, re1) = fixed_window
+                fixed_stack[row, ws0:we0, ws1:we1] = fixed.image[rs0:re0, rs1:re1]
+            if moving_window is not None:
+                (ws0, we0, ws1, we1), (rs0, re0, rs1, re1) = moving_window
+                moving_stack[row, ws0:we0, ws1:we1] = moving.image[rs0:re0, rs1:re1]
 
     with _PHASE_TIMER.section('fft'):
         peaks_dev, weights_dev, _peak_ratios_dev = measure_translation_cells_batched(
