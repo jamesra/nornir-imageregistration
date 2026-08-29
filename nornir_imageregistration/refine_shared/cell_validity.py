@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 from numpy.typing import NDArray
 
 from nornir_imageregistration.refine_shared.runtime_config import get_runtime_config
@@ -63,6 +64,46 @@ def cell_intensity_std(cell: NDArray, *, mask: NDArray | None = None) -> float:
     return float(xp.std(arr[finite]))
 
 
+def _alignable_on_device(
+        cell_arr: NDArray,
+        xp,
+        threshold: float,
+        mask: NDArray | None) -> bool:
+    """Evaluate the whole alignability test on device, syncing once at the end.
+
+    The host path reads three separate device scalars -- ``amin == amax``,
+    ``amax == 0``, then ``float(std)`` -- and each comparison drags a 0-d array
+    back across the bus. ``cell_intensity_std`` adds more: ``count_nonzero`` and
+    the ``arr[valid]`` boolean gather both need the element count on the host.
+
+    So every reduction is kept as a device scalar and combined into one boolean,
+    and the std is computed arithmetically rather than by gathering the valid
+    elements, which avoids a size that only the host would know.
+    """
+    amin = cell_arr.min()
+    amax = cell_arr.max()
+    # NaN compares unequal to everything, so a cell containing NaN passes both of
+    # these, exactly as the host path's == comparisons did.
+    ok = (amin != amax) & (amax != 0)
+
+    if threshold > 0.0:
+        arr = cell_arr.astype(xp.float64, copy=False)
+        valid = xp.isfinite(arr)
+        if mask is not None:
+            valid = valid & xp.asarray(mask, dtype=bool)
+        count = valid.sum()
+        # where() rather than a multiply: NaN * False is NaN, not zero.
+        divisor = xp.maximum(count, 1)
+        mean = xp.where(valid, arr, xp.float64(0.0)).sum() / divisor
+        deviation = xp.where(valid, arr - mean, xp.float64(0.0))
+        std = xp.sqrt((deviation * deviation).sum() / divisor)
+        # Fewer than two valid samples gave std 0.0 on the host, which rejects
+        # whenever the threshold is positive.
+        ok = ok & (count >= 2) & (std >= threshold)
+
+    return bool(ok)
+
+
 def is_alignable_cell(
         cell: NDArray,
         *,
@@ -79,6 +120,14 @@ def is_alignable_cell(
         return False
     xp = cp.get_array_module(cell)
     cell_arr = xp.asarray(cell)
+
+    if xp is not np:
+        threshold = float(
+            min_std if min_std is not None else low_content_std_min_threshold())
+        return _alignable_on_device(cell_arr, xp, threshold, mask)
+
+    # Host arrays have no sync to amortise, so keep short-circuiting instead and
+    # skip the std entirely for constant or all-zero cells.
     amin = cell_arr.min()
     amax = cell_arr.max()
     if amin == amax:
