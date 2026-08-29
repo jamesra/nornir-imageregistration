@@ -649,14 +649,33 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                 _ = scaled_transform.InverseInterpolator
 
         with ThreadPoolExecutor(max_workers=_TRANSFORM_WORKERS) as transform_executor:
-            # Submit all warps concurrently, but composite in work_items order so
-            # z-buffer ties match serial TilesToImage (as_completed is nondeterministic).
-            futures = [
-                transform_executor.submit(_transform_tile_worker, tile, region, target_space_scale)
-                for tile, region in work_items
-            ]
-            for future in futures:
-                transformed_image_data = future.result()
+            # Composite in work_items order so z-buffer ties match serial
+            # TilesToImage (as_completed is nondeterministic).
+            #
+            # Submit only a bounded window rather than every warp up front.
+            # Submitting all of them meant each finished tile's warped image stayed
+            # resident until its turn to composite arrived, so in-flight memory grew
+            # with the tile count instead of the worker count: measured 23 of 24
+            # tiles alive at once behind a slow first tile on an 8-worker pool.
+            # Keeping roughly one queued warp per worker still saturates the pool.
+            max_in_flight = _TRANSFORM_WORKERS * 2
+            pending: Deque[Future] = deque()
+            next_work_item = 0
+
+            def _submit_next() -> None:
+                nonlocal next_work_item
+                tile, region = work_items[next_work_item]
+                pending.append(transform_executor.submit(
+                    _transform_tile_worker, tile, region, target_space_scale))
+                next_work_item += 1
+
+            while next_work_item < len(work_items) and len(pending) < max_in_flight:
+                _submit_next()
+
+            while pending:
+                transformed_image_data = pending.popleft().result()
+                if next_work_item < len(work_items):
+                    _submit_next()
                 with _composite_lock:
                     _composite_transformed_tile_onto_canvas(
                         transformed_image_data, full_image, full_image_zbuffer, scaled_target_rect)
