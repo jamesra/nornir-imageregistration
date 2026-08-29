@@ -47,19 +47,27 @@ def host_copy_points(points: Any) -> NDArray[np.floating]:
 
 
 def InvalidIndices(points: NDArray[np.floating]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
-    """Remove rows containing NaN.
+    """Remove rows that are not finite, i.e. containing NaN or +-Inf.
 
     :param points: NxM array of points (e.g. Nx2 or Nx4).
-    :return: Tuple of (points_with_nan_rows_removed, invalid_row_mask).
+    :return: Tuple of (points_with_non_finite_rows_removed, invalid_row_mask).
         Callers that need the valid side can invert with ``~invalid_mask``.
         Returning a bool mask avoids CuPy ``flatnonzero`` index materialization
         and the host syncs that come with integer index arrays on the GPU path.
+
+    Inf counts as invalid, not just NaN. An infinite coordinate is no more usable
+    than NaN: callers either route these rows to a continuous fallback transform
+    or drop them before scattering, and an Inf that reads as valid becomes a
+    garbage sample index instead. On the host ``np.seterr(invalid='raise',
+    divide='raise')`` makes most ways of producing Inf raise first, but CuPy
+    ignores ``seterr``, so on the GPU path an overflowing float64->float32
+    downcast or a divide by zero yields Inf silently.
     """
     if points is None:
         raise ValueError("points must not be None")
 
     xp = cp.get_array_module(points)
-    invalid_mask = xp.isnan(points).any(axis=1)
+    invalid_mask = (~xp.isfinite(points)).any(axis=1)
     filtered = points[~invalid_mask, :].copy()
     return filtered, invalid_mask
 
