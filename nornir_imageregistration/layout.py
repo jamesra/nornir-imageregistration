@@ -811,7 +811,15 @@ class Layout:
         """Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
-        :return: nx2 array of tile movement distance
+        :return: nx2 array of (node ID, sort weight), one row per *connected* node.
+
+        Isolated nodes are omitted from the returned array rather than left as zero
+        rows. A zero row is indistinguishable from a real entry for node ID 0, and
+        the movement loop below walks every row, so each isolated node used to make
+        it relax node 0 an extra time -- measured as node 0 being visited 3 times
+        for 2 isolated nodes, landing 2.2 px away from where it belonged -- or raise
+        KeyError when the layout had no node 0 at all. Isolated nodes are expected
+        here, not hypothetical: they are the documented result of prune.
         """
 
         # TODO: Get rid of vector scalar.  Instead calculate the net tension vector at the new position.  Then add them and apply the merged vector. 
@@ -827,7 +835,8 @@ class Layout:
         # nodes = layout_obj.nodes.values()
 
         # Todo: Sort highest to lowest tension vectors, then adjust movement in that order
-        for (i, node_id) in enumerate(layout_obj.nodes):
+        connected_count = 0
+        for node_id in layout_obj.nodes:
             node = layout_obj.nodes[node_id]
             if node.NumConnections == 0:
                 continue
@@ -839,8 +848,13 @@ class Layout:
             magnitude = np.sqrt(vector.dot(vector))
             weight_sum *= magnitude  # If it wants to go a long ways, and has a high weight, I want to move it first
             # vectors[ID] = vector 
-            node_movement[i, :] = np.array([node.ID, weight_sum])
-        #     i += 1
+            node_movement[connected_count, 0] = node.ID
+            node_movement[connected_count, 1] = weight_sum
+            connected_count += 1
+
+        # Drop the unused tail rather than the rows of whichever nodes were isolated;
+        # the loop above packs connected nodes into the front of the array.
+        node_movement = node_movement[:connected_count]
 
         sort_by_weight_asc = np.argsort(node_movement[:, 1])
 
