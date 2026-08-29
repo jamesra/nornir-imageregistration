@@ -276,7 +276,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         :return: (minY, minX, maxY, maxX)
         """
         if self._TargetBoundingBox is None:
-            self._TargetBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
+            self._TargetBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.TargetPoints)
 
         return self._TargetBoundingBox
 
@@ -530,7 +530,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         :return: (minY, minX, maxY, maxX)
         """
         if self._FixedBoundingBox is None:
-            self._FixedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.TargetPoints)
+            self._FixedBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.TargetPoints)
 
         return self._FixedBoundingBox
 
@@ -571,7 +571,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultT
         :return: (minY, minX, maxY, maxX)
         """
         if self._MappedBoundingBox is None:
-            self._MappedBoundingBox = nornir_imageregistration.BoundingPrimitiveFromPoints(self.SourcePoints)
+            self._MappedBoundingBox = nornir_imageregistration.spatial.BoundingRectangleFromPoints(self.SourcePoints)
 
         return self._MappedBoundingBox
 
