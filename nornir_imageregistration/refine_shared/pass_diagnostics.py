@@ -48,10 +48,13 @@ class PassDiagnosticRow:
 
 
 def pass_diagnostics_enabled(save_plots: bool) -> bool:
-    """True when SavePlots is on or ``NORNIR_REFINE_PASS_DIAGNOSTICS=1``."""
+    """True when SavePlots is on or ``NORNIR_REFINE_PASS_DIAGNOSTICS=1``.
+
+    Reads the cached config; refine entry points refresh once per pass.
+    """
     if save_plots:
         return True
-    return get_runtime_config(refresh=True).pass_diagnostics
+    return get_runtime_config().pass_diagnostics
 
 
 def build_pass_diagnostic_rows(

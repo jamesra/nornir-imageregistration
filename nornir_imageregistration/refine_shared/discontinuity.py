@@ -12,8 +12,11 @@ from nornir_imageregistration.refine_shared.runtime_config import get_runtime_co
 
 
 def sharp_warps_enabled() -> bool:
-    """True unless ``NORNIR_REFINE_SHARP_WARPS=0`` (default ON)."""
-    return get_runtime_config(refresh=True).sharp_warps
+    """True unless ``NORNIR_REFINE_SHARP_WARPS=0`` (default ON).
+
+    Reads the cached config; refine entry points refresh once per pass.
+    """
+    return get_runtime_config().sharp_warps
 
 
 def discontinuity_travel_multiplier() -> float:
@@ -24,7 +27,7 @@ def discontinuity_travel_multiplier() -> float:
             return max(0.1, float(raw))
         except ValueError:
             pass
-    return float(get_runtime_config(refresh=True).discontinuity_k)
+    return float(get_runtime_config().discontinuity_k)
 
 
 def discontinuity_travel_relax() -> float:
@@ -35,7 +38,7 @@ def discontinuity_travel_relax() -> float:
             return max(1.0, float(raw))
         except ValueError:
             pass
-    return float(get_runtime_config(refresh=True).discontinuity_travel_mult)
+    return float(get_runtime_config().discontinuity_travel_mult)
 
 
 def tag_discontinuities(

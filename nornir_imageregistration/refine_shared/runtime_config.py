@@ -184,7 +184,20 @@ def _cached_config() -> RefineRuntimeConfig:
 
 
 def get_runtime_config(*, refresh: bool = False) -> RefineRuntimeConfig:
-    """Return the process refine runtime config, optionally refreshing from env."""
+    """Return the process refine runtime config, optionally refreshing from env.
+
+    ``refresh=True`` clears the cache and re-reads every refine env var, costing
+    roughly 8 us against 42 ns for a cached read. Use it at coarse boundaries only:
+    once per refine pass, per tile, or right after a test or benchmark changes the
+    environment.
+
+    Per-cell accessors (``low_content_std_min_threshold``,
+    ``identity_zncc_min_threshold``, ``sharp_warps_enabled``, and friends) read the
+    cache. They used to refresh, which cleared the cache on every access and meant
+    it never served a single hit -- ``is_alignable_cell`` alone paid that twice per
+    cell. The coarse callers in ``local_distortion_correction`` still refresh, so a
+    mid-process change is picked up without the per-cell cost.
+    """
     if refresh:
         _cached_config.cache_clear()
     return _cached_config()

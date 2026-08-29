@@ -88,8 +88,11 @@ class FinalizeSettings:
 
 
 def use_legacy_finalize_gate() -> bool:
-    """True when ``NORNIR_REFINE_FINALIZE_LEGACY=1`` restores distance+2% floor locking."""
-    return get_runtime_config(refresh=True).finalize_legacy
+    """True when ``NORNIR_REFINE_FINALIZE_LEGACY=1`` restores distance+2% floor locking.
+
+    Reads the cached config; refine entry points refresh once per pass.
+    """
+    return get_runtime_config().finalize_legacy
 
 
 def evaluate_finalize_candidates(

@@ -35,8 +35,14 @@ def low_content_std_min_threshold() -> float:
         ``RejectReason.LOW_CONTENT``. Does not permanently blacklist peak-ambiguous
         cells (those remasure). Moving-only flat with structured source may still
         remasure after the control transform improves.
+
+    Reads the cached config. ``is_alignable_cell`` calls this once per cell, twice
+    per measurement, and ``refresh=True`` re-reads every refine env var and rebuilds
+    the config -- 8 us against 42 ns cached, which also meant the ``lru_cache``
+    never served anything. Refine entry points refresh once per pass, so a
+    mid-process change still lands within one pass.
     """
-    return float(get_runtime_config(refresh=True).low_content_std_min)
+    return float(get_runtime_config().low_content_std_min)
 
 
 def cell_intensity_std(cell: NDArray, *, mask: NDArray | None = None) -> float:

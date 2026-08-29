@@ -120,8 +120,11 @@ def identity_zncc_min_threshold() -> float:
     Effect
         Score ``<`` threshold → ``Role.IDENTITY_SUSPECT`` (mesh OK, never lock).
         Score ``>=`` threshold → eligible for ``Role.LOCKABLE`` (with stability).
+
+    Reads the cached config; refine entry points refresh once per pass. See
+    ``low_content_std_min_threshold`` for why ``refresh=True`` is not used here.
     """
-    return float(get_runtime_config(refresh=True).identity_zncc_min)
+    return float(get_runtime_config().identity_zncc_min)
 
 
 def masked_zncc(
