@@ -986,19 +986,28 @@ def TransformImage(transform: ITransform,
             output_area=fixedImageShape,
             **warp_kwargs,
         )
+        # The warp already reports its own coverage when a cval is enforced, so
+        # take that mask rather than recomputing one. Rebuilding it via
+        # assembly_source_sample_mask ran a second whole-canvas inverse transform
+        # for a mask that was pixel-identical to this one, costing 27-51% of the
+        # warp itself and tens of coordinate-array MiB per call.
+        sample_mask = None
         if isinstance(result, tuple):
+            sample_mask = result[1]
             result = result[0]
         output = nornir_imageregistration.EnsureNumpyArray(
             result,
             dtype=_assembly_output_dtype(warpedImage.dtype),
         )
         if enforce_background_cval is not None:
-            sample_mask = assembly_source_sample_mask(
-                transform,
-                fixedImageShape,
-                warpedImage.shape[:2],
-                extrapolate=extrapolate_flag,
-            )
+            if sample_mask is None:
+                sample_mask = assembly_source_sample_mask(
+                    transform,
+                    fixedImageShape,
+                    warpedImage.shape[:2],
+                    extrapolate=extrapolate_flag,
+                )
+            sample_mask = nornir_imageregistration.EnsureNumpyArray(sample_mask)
             # No copy: SourceImageToTargetSpace allocates its own warp output, so
             # this buffer is never the caller's warpedImage. Copying here doubled
             # peak memory for a full section.
@@ -1049,15 +1058,31 @@ def TransformImage(transform: ITransform,
                     # outputImage[iY:end_iY, iX:end_iX] = registeredTile
             mpool.wait_completion()
 
+            # Accumulate the coverage each tile already reports, instead of
+            # recomputing it for the whole canvas after the warp has finished.
+            # A canvas of bool costs 1 byte per pixel; the recompute built two
+            # float64 Nx2 coordinate arrays, 32 bytes per pixel, to arrive at the
+            # same mask.
+            tiled_sample_mask = None
+            tiles_reporting_coverage = 0
+            if enforce_background_cval is not None:
+                tiled_sample_mask = np.zeros(tuple(int(v) for v in fixedImageShape), dtype=bool)
+
             for task in tasks:
                 result = task.wait_return()
                 if result is None:
                     raise RuntimeError(f"Multiprocess tile assembly failed for task {task.name}")
+                tile_mask = None
                 if isinstance(result, tuple):
+                    tile_mask = result[1]
                     result = result[0]
                 registered_tile = nornir_imageregistration.EnsureNumpyArray(
                     nornir_imageregistration.ImageParamToImageArray(result))
                 outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
+                if tiled_sample_mask is not None and tile_mask is not None:
+                    tiled_sample_mask[task.iY:task.end_iY, task.iX:task.end_iX] = \
+                        nornir_imageregistration.EnsureNumpyArray(tile_mask)
+                    tiles_reporting_coverage += 1
                 # No unlink_shared_memory here: tasks return plain ndarrays, so the
                 # call was a silent no-op left over from an earlier shared-memory
                 # return path. Dropping the tile reference is the actual release.
@@ -1068,12 +1093,20 @@ def TransformImage(transform: ITransform,
 
     outputImage = nornir_imageregistration.EnsureNumpyArray(outputImage, dtype=_assembly_output_dtype(warpedImage.dtype))
     if enforce_background_cval is not None:
-        sample_mask = assembly_source_sample_mask(
-            transform,
-            fixedImageShape,
-            warpedImage.shape[:2],
-            extrapolate=extrapolate_flag,
-        )
+        sample_mask = tiled_sample_mask
+        if sample_mask is not None and tiles_reporting_coverage != len(tasks):
+            # Partial coverage reports would leave un-reported tiles looking
+            # unmapped, so only trust the accumulated mask when every tile
+            # contributed one.
+            sample_mask = None
+        if sample_mask is None:
+            # Tiles did not report coverage; fall back to deriving it.
+            sample_mask = assembly_source_sample_mask(
+                transform,
+                fixedImageShape,
+                warpedImage.shape[:2],
+                extrapolate=extrapolate_flag,
+            )
         # No copy: outputImage is the locally allocated tile-assembly buffer.
         outputImage[~sample_mask] = enforce_background_cval
     return outputImage
