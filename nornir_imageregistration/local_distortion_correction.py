@@ -1091,24 +1091,28 @@ def _sample_source_rois_batched(source_image: NDArray,
 
     samples_per_cell = cell_h * cell_w
     chunk_cells = max(1, _batched_roi_sample_budget(cell_h, cell_w) // max(1, samples_per_cell))
-    outputs: list[NDArray] = []
+    # Write each chunk into the final stack instead of collecting chunks and
+    # concatenating, which held every chunk plus a full second copy of the result.
+    sampled_stack = xp.empty((num_cells, cell_h, cell_w), dtype=original_dtype)
     use_gpu = xp is not np
     lock = nornir_imageregistration.assemble._gpu_warp_lock if use_gpu else contextlib.nullcontext()
     src_h = int(source_image.shape[0])
     src_w = int(source_image.shape[1])
 
-    ones = xp.ones((samples_per_cell, 1), dtype=np.float64)
+    # The inverse maps are affine, so apply the 2x2 linear part and the translation
+    # column directly instead of expanding to homogeneous coordinates. Building the
+    # (n, HW, 3) float64 homogeneous array and taking a (n, HW, 3) matmul result to
+    # then discard its last column cost two of the largest allocations in this
+    # function; the coordinate machinery, not the ROI stacks, sets the peak here.
+    linear_t = xp.swapaxes(matrices_dev[:, :2, :2], -1, -2)
+    offset = matrices_dev[:, :2, 2]
     for start in range(0, num_cells, chunk_cells):
         stop = min(num_cells, start + chunk_cells)
         chunk_n = stop - start
         write = relative[None, :, :] + botlefts_dev[start:stop, None, :]  # (n, HW, 2)
-        homog = xp.concatenate(
-            (write.astype(np.float64, copy=False),
-             xp.broadcast_to(ones, (chunk_n, samples_per_cell, 1))),
-            axis=2)
-        # (n, HW, 3) @ (n, 3, 3)^T -> (n, HW, 3)
-        source_yx = xp.matmul(
-            homog, xp.swapaxes(matrices_dev[start:stop], -1, -2))[:, :, :2]
+        # (n, HW, 2) @ (n, 2, 2)^T + (n, 1, 2) -> (n, HW, 2)
+        source_yx = xp.matmul(write.astype(np.float64, copy=False), linear_t[start:stop])
+        source_yx += offset[start:stop][:, None, :]
         chunk_pure = pure_mask[start:stop]
         if np.all(chunk_pure):
             pass
@@ -1167,12 +1171,10 @@ def _sample_source_rois_batched(source_image: NDArray,
             sampled = xp.where(finite, clipped, sampled)
         else:
             xp.clip(sampled, a_min=min_val, a_max=max_val, out=sampled)
-        outputs.append(sampled)
-        del write, homog, source_yx, sample_coords, sampled
+        sampled_stack[start:stop] = sampled
+        del write, source_yx, sample_coords, sampled
 
-    if len(outputs) == 1:
-        return outputs[0]
-    return xp.concatenate(outputs, axis=0)
+    return sampled_stack
 
 
 def _crop_target_rois_batched(target_image: NDArray,
@@ -1185,17 +1187,25 @@ def _crop_target_rois_batched(target_image: NDArray,
 
     Accepts NumPy or CuPy images; ``CropImage`` origins are host-converted once.
     """
-    crops: list[NDArray] = []
     cval: float | int | str | None = False if target_image_stats is None else 'random'
     botlefts_host = nornir_imageregistration.EnsureNumpyArray(botlefts)
-    for i in range(botlefts_host.shape[0]):
+    num_cells = int(botlefts_host.shape[0])
+    # Each crop is copied into the stack and released immediately; collecting all of
+    # them first and then stacking kept the whole grid resident twice over.
+    if num_cells == 0:
+        return xp.empty((0, cell_h, cell_w), dtype=target_image.dtype)
+
+    stack: NDArray | None = None
+    for i in range(num_cells):
         yo = int(botlefts_host[i, 0])
         xo = int(botlefts_host[i, 1])
         crop = nornir_imageregistration.CropImage(
             target_image, xo, yo, cell_w, cell_h,
             cval=cval, image_stats=target_image_stats)
-        crops.append(xp.asarray(crop))
-    return xp.stack(crops, axis=0)
+        if stack is None:
+            stack = xp.empty((num_cells, cell_h, cell_w), dtype=crop.dtype)
+        stack[i] = xp.asarray(crop)
+    return stack
 
 
 def _apply_noise_mask_batched(source_stack: NDArray,
