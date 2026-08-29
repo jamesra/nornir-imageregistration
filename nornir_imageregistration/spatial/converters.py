@@ -45,9 +45,27 @@ def ArcAngle(origin: NDArray[numpy.floating], A: NDArray[numpy.floating], B: NDA
 def BoundsArrayFromPoints(points):
     '''
     :param ndarray points: (Z?,Y,X) 3xN or 2xN array of points
-    :return: (minZ, minY, minX, maxZ, maxY, maxX) or (minY, minX, maxY, maxX)'''
+    :return: (minZ, minY, minX, maxZ, maxY, maxX) or (minY, minX, maxY, maxX)
+    :raises ValueError: If any point is not finite.
+
+    Rejects non-finite input rather than letting min/max propagate it. NaN and Inf
+    both survive min/max silently -- ``np.seterr(invalid='raise')`` does not fire
+    on a reduction -- and the resulting bounds are worse than useless: a NaN axis
+    yields a Rectangle whose Area and Height are NaN and which SafeRound happily
+    preserves, failing much later as "cannot convert float NaN to integer", while
+    an Inf axis even satisfies IsValidBoundingBox, because ``0 < inf``. Failing
+    here names the real problem, which is the caller's point data.
+    '''
 
     points = nornir_imageregistration.EnsureNumpyArray(points)
+
+    finite = numpy.isfinite(points)
+    if not finite.all():
+        bad_rows = numpy.flatnonzero(~finite.all(axis=1))
+        raise ValueError(
+            f"Cannot compute bounds from non-finite points: {bad_rows.size} of "
+            f"{points.shape[0]} rows contain NaN or Inf, first at index "
+            f"{int(bad_rows[0])} ({points[bad_rows[0]]}).")
 
     min_point = numpy.min(points, 0)
     max_point = numpy.max(points, 0)
