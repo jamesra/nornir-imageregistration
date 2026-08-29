@@ -638,9 +638,9 @@ def _ReplaceFilesWithImages(listImages: list[str] | list[NDArray] | NDArray | st
 
 def FixedImageToWarpedSpace(transform: ITransform, DataToTransform, botleft=None, area=None, cval=None,
                             extrapolate=False):
-    warnings.warn("WarpedImageToFixedSpace should be replaced with SourceImageToTargetSpace", DeprecationWarning)
-    return TargetImageToSourceSpace(transform, DataToTransform, output_botleft=None, output_area=None, cval=None,
-                                    extrapolate=False)
+    warnings.warn("FixedImageToWarpedSpace should be replaced with TargetImageToSourceSpace", DeprecationWarning)
+    return TargetImageToSourceSpace(transform, DataToTransform, output_botleft=botleft, output_area=area, cval=cval,
+                                    extrapolate=extrapolate)
 
 
 def TargetImageToSourceSpace(transform: ITransform,
@@ -704,9 +704,9 @@ def TargetImageToSourceSpace(transform: ITransform,
 
 def WarpedImageToFixedSpace(transform: ITransform, DataToTransform, botleft=None, area=None, cval=None,
                             extrapolate=False):
-    warnings.warn("WarpedImageToFixedSpace should be replaced with TargetImageToSourceSpace", DeprecationWarning)
-    return SourceImageToTargetSpace(transform, DataToTransform, output_botleft=None, output_area=None, cval=None,
-                                    extrapolate=False)
+    warnings.warn("WarpedImageToFixedSpace should be replaced with SourceImageToTargetSpace", DeprecationWarning)
+    return SourceImageToTargetSpace(transform, DataToTransform, output_botleft=botleft, output_area=area, cval=cval,
+                                    extrapolate=extrapolate)
 
 
 def SourceImageToTargetSpace(transform: ITransform,
