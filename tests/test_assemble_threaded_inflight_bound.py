@@ -87,8 +87,14 @@ def _assemble(n_tiles: int, *, stall_first: bool = True):
 
 
 def _expected_bound() -> int:
-    """The window the implementation keeps in flight."""
-    return assemble_tiles._TRANSFORM_WORKERS * 2
+    """Ceiling on warped tiles alive at once.
+
+    The implementation keeps a window of ``2 * workers`` submitted. The tracker
+    can observe one more than that: a refill is submitted after popping a future
+    but before the popped tile is composited, so the tile awaiting compositing
+    and a full window can overlap for an instant.
+    """
+    return assemble_tiles._TRANSFORM_WORKERS * 2 + 1
 
 
 def test_in_flight_warps_are_bounded():

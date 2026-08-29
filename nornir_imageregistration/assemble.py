@@ -1024,6 +1024,15 @@ def TransformImage(transform: ITransform,
                     if end_iX > width:
                         end_iX = width
 
+                    # return_shared_memory must stay False here. Shared memory
+                    # works parent->worker (sharedwarpedimage_metadata above) but
+                    # not worker->parent: the segment is registered in the
+                    # creating process, so on Windows it is destroyed when the
+                    # worker task returns and the parent's attach fails with
+                    # FileNotFoundError. unlink_shared_memory would also no-op,
+                    # since it only unlinks names this process allocated.
+                    # Pickling the tile back costs ~1% of the tile's own warp
+                    # (5.5 ms transfer vs 569 ms warp for 2048x2048 float32).
                     task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
                                           sharedwarpedimage_metadata, output_botleft=[iY, iX],
                                           output_area=[end_iY - iY, end_iX - iX],
@@ -1049,7 +1058,10 @@ def TransformImage(transform: ITransform,
                 registered_tile = nornir_imageregistration.EnsureNumpyArray(
                     nornir_imageregistration.ImageParamToImageArray(result))
                 outputImage[task.iY:task.end_iY, task.iX:task.end_iX] = registered_tile
-                nornir_imageregistration.unlink_shared_memory(result)
+                # No unlink_shared_memory here: tasks return plain ndarrays, so the
+                # call was a silent no-op left over from an earlier shared-memory
+                # return path. Dropping the tile reference is the actual release.
+                del registered_tile, result
         finally:
             nornir_imageregistration.unlink_shared_memory(sharedwarpedimage_metadata)
             del sharedWarpedImage
