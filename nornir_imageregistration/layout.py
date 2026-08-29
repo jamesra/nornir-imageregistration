@@ -1439,7 +1439,8 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
 
         A_To_B_offset_measures = np.zeros((len(tile_offsets), 2))
 
-        for (iRow, offset_key) in enumerate(tile_offsets):
+        measured_count = 0
+        for offset_key in tile_offsets:
 
             # Using each tile offset key, average the offset between the disconnected layouts
             tile_offset = tile_offset_dict[offset_key]
@@ -1458,10 +1459,23 @@ def MergeDisconnectedLayoutsWithOffsets(layout_list, tile_offset_dict=None):
             # A_To_B = A_To_Layout + tile_offset + B_To_Layout
 
             # A_To_B_offset_measures[iRow, :] = A_To_B
-            A_To_B_offset_measures[iRow, :] = (B_Pos - A_Pos) - tile_offset
+            A_To_B_offset_measures[measured_count, :] = (B_Pos - A_Pos) - tile_offset
+            measured_count += 1
 
             # MergeLayoutsWithNodeOffset(ALayout, BLayout, offset_key[0], offset_key[1], tile_offset.offset, Weight=0)
             # print("Merged")
+
+        # Average only the rows actually measured. The skip above cannot fire today,
+        # because cross_layout_keys is built solely from keys whose layout indices
+        # differ (same-layout keys are deleted above, and insertion is guarded), and
+        # tile_to_layout is never updated as layouts merge, so this recomputes the
+        # same unequal indices. If a future change arms that guard, a leftover zero
+        # row would drag the merge offset toward the origin by measured/total --
+        # 0.6x for 2 skipped of 5 -- silently displacing every tile in the absorbed
+        # layout rather than failing.
+        assert measured_count > 0, \
+            f'No cross-layout offsets measured for layout pair {layout_pair}'
+        A_To_B_offset_measures = A_To_B_offset_measures[:measured_count]
 
         MergeLayoutsWithAbsoluteOffset(ALayout, BLayout, np.mean(A_To_B_offset_measures, axis=0))
 
