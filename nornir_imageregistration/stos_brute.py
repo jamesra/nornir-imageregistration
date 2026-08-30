@@ -958,18 +958,57 @@ def NarrowAngleSearchRangeWithResult(angle_range: NDArray[np.floating],
                                      target_angle: float) -> set[float]:
     """
     Given a range of angles, returns a smaller search range around an estimated correct angle
+
+    The returned range spans the two angles bracketing *target_angle* and holds only
+    interior points: the brackets themselves were scored on the previous pass, so
+    re-scoring them buys nothing. ``min_step_size`` is a *floor* on the resulting step,
+    since scoring angles finer than that is not informative.
+
+    Those two facts together mean the range legitimately collapses to just
+    *target_angle* when the incoming angles are already spaced at or below twice
+    ``min_step_size`` -- there is no angle left to try that is both new and coarser than
+    the floor. Callers get a single-element set and a refine pass that confirms the seed.
+    That is not a failure, but it does mean a refine pass over a range spaced 0.3 degrees
+    or finer (with the caller's ``min_step_size=0.25``) cannot improve on its seed.
+
     :param angle_range: The original search range of angles we want to narrow down
     :param min_step_size: Minimum difference between angles in the results
     :param target_angle: The angle previously estimated to be the best match
     :return: A narrower search range to refine the angle search in a future iteration
+    :raises ValueError: If *angle_range* holds fewer than two angles, if *min_step_size*
+        is not positive, or if *target_angle* lies outside *angle_range*.
     """
     if len(angle_range) < 2:
         raise ValueError("Angle search range must contain at least two angles to be refined")
 
-    sorted_angles = sorted(angle_range)
-    iMatch = sorted_angles.index(target_angle)
-    iBelow = iMatch - 1 if iMatch - 1 >= 0 else len(sorted_angles) - 1
-    iAbove = iMatch + 1 if iMatch + 1 < len(sorted_angles) else 0
+    if not min_step_size > 0:
+        raise ValueError(f"min_step_size must be positive, got {min_step_size}")
+
+    sorted_angles = sorted(float(a) for a in angle_range)
+
+    # Nearest match rather than list.index(). The caller passes an angle recovered from
+    # an AlignmentRecord produced by scoring this same range, so it is normally an exact
+    # member, but any arithmetic that rebuilds the range or narrows through float32
+    # leaves it a few ULP off and list.index() then raised "x not in list". Of a
+    # 19-angle 0.2-degree grid, 16 angles change value under a float32 round trip.
+    deltas = [abs(a - target_angle) for a in sorted_angles]
+    iMatch = deltas.index(min(deltas))
+
+    # Still reject an angle from a different range entirely, which is a caller bug worth
+    # hearing about rather than silently snapping to an endpoint. One full local step is
+    # the tolerance: anything closer is drift, anything further is the wrong range.
+    local_step = max(
+        abs(sorted_angles[min(iMatch + 1, len(sorted_angles) - 1)] - sorted_angles[iMatch]),
+        abs(sorted_angles[iMatch] - sorted_angles[max(iMatch - 1, 0)]))
+    if deltas[iMatch] > local_step:
+        raise ValueError(
+            f"target_angle {target_angle} is not within {local_step} of any angle in the "
+            f"search range [{sorted_angles[0]}, {sorted_angles[-1]}]")
+
+    # Snap to the matched member so the set added to below does not end up holding both
+    # the drifted value and its exact neighbour, which would score the same angle twice.
+    target_angle = sorted_angles[iMatch]
+
     below = sorted_angles[iMatch - 1] if iMatch - 1 >= 0 else sorted_angles[0] - np.abs(
         sorted_angles[1] - sorted_angles[0])
     above = sorted_angles[iMatch + 1] if iMatch + 1 < len(sorted_angles) else sorted_angles[
@@ -980,7 +1019,12 @@ def NarrowAngleSearchRangeWithResult(angle_range: NDArray[np.floating],
     stepsize = refine_search_range / nSteps
 
     if stepsize < min_step_size:
-        nSteps = int(refine_search_range / min_step_size)
+        # max(1, ...) because int() floors to 0 once the bracket is narrower than one
+        # step, and dividing by that raised FloatingPointError -- nornir runs numpy with
+        # divide='raise', so this was a hard crash rather than an inf. One step means the
+        # only interior point is the target itself, which is the right answer for a
+        # bracket with no room left in it.
+        nSteps = max(1, int(refine_search_range / min_step_size))
         stepsize = refine_search_range / nSteps
 
     refined_angle_search_range = {(x * stepsize) + below for x in range(1, nSteps)}
