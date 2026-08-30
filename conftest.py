@@ -16,3 +16,22 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("NORNIR_HEADLESS", "1")
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_padding_noise():
+    """Give every test the same padding noise, whatever order it runs in.
+
+    ``pad_image_for_phase_correlation`` fills padding with noise so phase
+    correlation has no hard edge to lock onto. That draw is now reproducible per
+    run, but the generator still advances between calls, so a test's noise would
+    otherwise depend on how many tests ran before it. Reseeding here makes a test
+    behave the same alone as in a suite -- the rotating failures in
+    ``test_SliceToSliceBrute`` were this.
+    """
+    import nornir_imageregistration
+
+    nornir_imageregistration.seed_random_data()
+    yield

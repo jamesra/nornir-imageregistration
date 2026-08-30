@@ -195,8 +195,11 @@ class ImageStats:
         if xp is None:
             xp = nornir_imageregistration.GetComputationModule()
         with nornir_imageregistration.IgnoreUnderAndOverflow():  # type: ignore[attr-defined]
-            # Use backend that passed startup probe (computational_lib); avoid cupy.random when curand is missing
-            rng = xp.random
+            # Shares the generator behind GenRandomData, so seeding one seeds both. This
+            # is the second noise source in a brute alignment -- padding fills the frame,
+            # this fills the corners a rotation leaves empty -- and seeding only the
+            # other one leaves the alignment as irreproducible as before.
+            rng = nornir_imageregistration.random_generator(xp)
             data = ((rng.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
 
         xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image

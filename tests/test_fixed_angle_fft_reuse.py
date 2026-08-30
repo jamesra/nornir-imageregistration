@@ -162,11 +162,11 @@ class TestPeakOffsetAndRankingParity(unittest.TestCase):
             padded_target = _pad_target_to_fixed(target, target_stats, fixed)
             fft_target = np.fft.fft2(padded_target - target_stats.mean)
 
-            np.random.seed(1000 + int(angle))
+            nornir_imageregistration.seed_random_data(1000 + int(angle))
             old = _score_one_angle_core(
                 target, source, shape, shape, angle, target_stats, source_stats,
                 target_image_prepadded=False, min_overlap=min_overlap, fixed_shape=None)
-            np.random.seed(2000 + int(angle))
+            nornir_imageregistration.seed_random_data(2000 + int(angle))
             new = _score_one_angle_core(
                 padded_target, source, shape, shape, angle, target_stats, source_stats,
                 target_image_prepadded=True, min_overlap=min_overlap,
@@ -227,7 +227,7 @@ class TestReusedFftMatchesFresh(unittest.TestCase):
         source_stats = nornir_imageregistration.ImageStats.CalcStats(source)
         padded_target = _pad_target_to_fixed(target, target_stats, fixed)
 
-        np.random.seed(123)
+        nornir_imageregistration.seed_random_data(123)
         rotated = pad_and_rotate_image(
             image=source,
             angle=angle,
@@ -245,12 +245,12 @@ class TestReusedFftMatchesFresh(unittest.TestCase):
         np.testing.assert_allclose(corr_reused, corr_fresh, rtol=0, atol=0)
 
         # Same fixed-size scoring path with identical pad noise: cached vs fresh FFT.
-        np.random.seed(99)
+        nornir_imageregistration.seed_random_data(99)
         with_cache = _score_one_angle_core(
             padded_target, source, shape, shape, angle, target_stats, source_stats,
             target_image_prepadded=True, min_overlap=min_overlap,
             fixed_shape=fixed, fft_target=fft_target)
-        np.random.seed(99)
+        nornir_imageregistration.seed_random_data(99)
         without_cache = _score_one_angle_core(
             padded_target, source, shape, shape, angle, target_stats, source_stats,
             target_image_prepadded=True, min_overlap=min_overlap,
@@ -281,7 +281,7 @@ class TestFixedSizeCupyParity(unittest.TestCase):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         padded_np = _pad_target_to_fixed(target, target_stats, fixed)
         fft_np = np.fft.fft2(padded_np - target_stats.mean)
-        np.random.seed(7)
+        nornir_imageregistration.seed_random_data(7)
         rec_np = _score_one_angle_core(
             padded_np, source, shape, shape, angle, target_stats, source_stats,
             target_image_prepadded=True, min_overlap=min_overlap,
@@ -293,7 +293,7 @@ class TestFixedSizeCupyParity(unittest.TestCase):
             source_cp = cp.asarray(source)
             padded_cp = cp.asarray(padded_np)
             fft_cp = cp.fft.fft2(padded_cp - target_stats.mean)
-            np.random.seed(7)
+            nornir_imageregistration.seed_random_data(7)
             rec_cp = _score_one_angle_core(
                 padded_cp, source_cp, shape, shape, angle, target_stats, source_stats,
                 target_image_prepadded=True, min_overlap=min_overlap,

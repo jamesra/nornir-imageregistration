@@ -2155,13 +2155,56 @@ def promote_dtype_for_value_range(
     return promote_dtype_for_value_range(np.dtype("float32"), min_val, max_val)
 
 
+DEFAULT_RANDOM_DATA_SEED = 0x6E6F726E  # 'norn'
+
+# One generator per array module, so a run is reproducible from its first call.
+# A fixed seed *per call* would be wrong: phase correlation pads both the target and
+# the source, and giving them the same noise would correlate the padding regions and
+# hand the correlation a peak that is not in the data. The generator therefore
+# advances between calls, and only its starting state is pinned.
+_random_generators: dict[str, typing.Any] = {}
+
+
+def seed_random_data(seed: int | None = DEFAULT_RANDOM_DATA_SEED) -> None:
+    """Reset the generators backing :func:`GenRandomData`.
+
+    Pass ``None`` to seed from entropy, restoring the old non-reproducible
+    behaviour for callers that genuinely want a fresh draw each run.
+    """
+    _random_generators.clear()
+    _random_generators['__seed__'] = seed
+
+
+def random_generator(xp: typing.Any | None = None) -> typing.Any:
+    """The generator backing every noise fill, so all of them seed together."""
+    if xp is None:
+        xp = nornir_imageregistration.GetComputationModule()
+    return _default_random_generator(xp)
+
+
+def _default_random_generator(xp: typing.Any) -> typing.Any:
+    key = 'cupy' if xp is not np else 'numpy'
+    generator = _random_generators.get(key)
+    if generator is not None:
+        return generator
+
+    seed = _random_generators.get('__seed__', DEFAULT_RANDOM_DATA_SEED)
+    generator = xp.random.default_rng(seed)
+    _random_generators[key] = generator
+    return generator
+
+
 def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_val: float, max_val: float,
                   dtype: DTypeLike | None = None,
-                  xp: typing.Any | None = None) -> NDArray[np.floating]:
+                  xp: typing.Any | None = None,
+                  rng: typing.Any | None = None) -> NDArray[np.floating]:
     """
     Generate random data of shape with the specified mean and standard deviation.
     If *xp* is None, uses ``GetComputationModule()``; otherwise uses that array module so
     output matches a caller-provided array (numpy vs cupy).
+
+    :param rng: Generator to draw from. Defaults to a module-level generator with a
+        fixed starting seed, so a given run reproduces. See :func:`seed_random_data`.
     """
     if xp is None:
         xp = nornir_imageregistration.GetComputationModule()
@@ -2171,7 +2214,10 @@ def GenRandomData(height: int, width: int, mean: float, standardDev: float, min_
     if not math.isfinite(mean) or not math.isfinite(standardDev):
         raise ValueError(f"mean and standardDev must be finite; got mean={mean!r} standardDev={standardDev!r}")
 
-    image = (xp.random.standard_normal((int(height), int(width))) * standardDev) + mean
+    if rng is None:
+        rng = _default_random_generator(xp)
+
+    image = (rng.standard_normal((int(height), int(width))) * standardDev) + mean
     xp.clip(image, a_min=min_val, a_max=max_val, out=image)
     # Benign underflow when casting float64 buffer to float16/float32; range already validated above.
     with np.errstate(under="ignore", invalid="ignore"):

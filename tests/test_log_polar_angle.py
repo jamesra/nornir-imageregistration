@@ -384,6 +384,7 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
 
         def _run(lib: nornir_imageregistration.ComputationLib, settings):
             np.random.seed(42)
+            nornir_imageregistration.seed_random_data(42)
             nornir_imageregistration.SetActiveComputationLib(
                 nornir_imageregistration.ComputationLib.numpy
             )
@@ -473,6 +474,7 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
         )
 
         np.random.seed(42)
+        nornir_imageregistration.seed_random_data(42)
         nornir_imageregistration.SetActiveComputationLib(
             nornir_imageregistration.ComputationLib.numpy
         )
