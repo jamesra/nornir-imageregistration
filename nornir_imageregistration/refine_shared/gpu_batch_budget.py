@@ -20,7 +20,22 @@ _REFINE_BATCH_VRAM_FRACTION: float = 0.40
 # Reserve headroom for full section images, overlap-mask cache, and driver overhead.
 _REFINE_BATCH_HEADROOM_BYTES: int = 512 * 1024 * 1024
 
-# Measured FFT workspace per 128×128 cell from Grid16 refine logs (~1 MiB/cell).
+# Measured FFT workspace per 128×128 cell from Grid16 refine logs (~1 MiB/cell). The
+# ``16`` is ``complex128``, so this models a float64 cell.
+#
+# Deliberately left float64-modelled even though #92 made the correlation run at the
+# caller's precision and callers pass float32. Making it precision-aware doubles the
+# chunk, and measurement on a 22 GiB card (8192 cells of 128px, float32, median of 7)
+# says larger chunks are *slower*, not faster:
+#
+#   chunk  256 (32 launches) 0.174s, peak  176 MiB
+#   chunk 2048 ( 4 launches) 0.241s, peak 1152 MiB
+#   chunk 8195 ( 1 launch  ) 0.282s, peak 4608 MiB
+#
+# Launch overhead is trivial next to the bandwidth cost of a larger working set, so the
+# over-estimate buys headroom for free rather than costing throughput. Chunk size does
+# not affect the measurements themselves, only time and peak memory. Raising this — or
+# scaling it down by precision — needs a fresh sweep first. See review issue #227.
 _FFT_PEAK_BYTES_PER_CELL_128: int = 128 * 128 * 16 * 4
 
 # Conservative bytes per map_coordinates sample (output + coord intermediates).
