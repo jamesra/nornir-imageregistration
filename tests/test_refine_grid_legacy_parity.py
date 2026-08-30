@@ -99,8 +99,12 @@ class TestRefineGridLegacyParity(unittest.TestCase):
                 "-sp", str(spacing),
                 "-it", str(iterations),
                 "-cell", str(cell_size),
-                "-mesh", str(mesh_size),
-                "-threshold", str(threshold),
+                # ir-refine-grid's -mesh takes rows *and* columns; passing one value
+                # makes it consume the following flag and fail with "bad -mesh cols".
+                "-mesh", str(mesh_size), str(mesh_size),
+                # The legacy tool spells this -displacement_threshold; -threshold is
+                # rejected as an unknown option.
+                "-displacement_threshold", str(threshold),
                 "-sh", "1",
             ]
             completed = subprocess.run(cmd, capture_output=True, text=True)
