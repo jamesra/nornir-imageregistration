@@ -582,18 +582,25 @@ def find_peak(image: NDArray[np.floating],
     # the values the old thresholded buffer produced.
     label_sums = sp.ndimage.sum_labels(masked_image, label_image, xp.array(range(1, num_labels + 1)))
 
-    if label_sums.sum() == 0:  # There are no peaks identified
-        del label_sums
+    # Find the label with the highest sum (strongest peak)
+    peak_value_index = label_sums.argmax()
+    peak_label_sum = float(label_sums[peak_value_index])
+    del label_sums
+
+    # center_of_mass normalises by the sum of the *selected* label, not by the total
+    # across every label. Testing the total is the same test only while the surface is
+    # non-negative, which is what the registration callers hand in. On a signed surface
+    # the strongest component can sum to zero while the total does not, and the division
+    # below then raised FloatingPointError instead of returning the degenerate result
+    # this function produces for every other unusable surface. numpy runs with
+    # divide='raise' here, so it is a hard error rather than a nan.
+    if peak_label_sum <= 0:
         del label_image
         del masked_image
 
-        return _no_peak_result('every labelled component sums to zero',
+        return _no_peak_result('the strongest labelled component does not sum above zero',
                                num_labels=num_labels, cutoff=cutoff_value,
                                image_shape=tuple(image.shape))
-
-    # Find the label with the highest sum (strongest peak)
-    peak_value_index = label_sums.argmax()
-    del label_sums
 
     # Calculate the center of mass for the strongest peak
     # Because we offset the sum_labels call by 1, we must do the same for the peak_value_index

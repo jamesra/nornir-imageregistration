@@ -99,7 +99,7 @@ class TestEachExitSaysWhichOneItIs(_CaptureFixture):
 
         self.assertEqual(result, _NO_PEAK)
         self.assertTrue(
-            any('every labelled component sums to zero' in m for m in messages),
+            any('does not sum above zero' in m for m in messages),
             messages)
 
     def test_the_three_reasons_are_all_different(self):
@@ -145,6 +145,107 @@ class TestTheReturnedRecordIsUnchanged(_CaptureFixture):
             result = find_peak(image.copy())
 
         self.assertGreater(result[1], 0, 'a clear peak should carry weight')
+
+
+class TestTheStrongestComponentIsTheOneTested(unittest.TestCase):
+    """``center_of_mass`` divides by the selected label's sum, so that is what to guard.
+
+    The old guard tested whether *every* label summed to zero. On a non-negative surface
+    those are the same test, which is why the registration path never saw it: both
+    ``_peak_from_correlation_image`` and ``_score_one_angle_core`` do
+    ``correlation_image -= correlation_image.min()`` first.
+
+    On a signed surface they diverge. ``argmax`` can select a component summing to zero
+    while other components are negative, so the total is non-zero, the guard passes, and
+    ``center_of_mass`` normalises by zero. Because nornir runs numpy with
+    ``divide='raise'``, that surfaced as an unhandled ``FloatingPointError`` rather than
+    the degenerate record every other unusable surface returns.
+
+    Reaching this needs a negative cutoff value. ``cutoff`` is a fraction mapped to a
+    percentile, so ``cutoff=0.0`` puts the threshold at the surface minimum; on signed
+    input that is negative, and negative pixels are then labelled. See review issue #226.
+    """
+
+    @staticmethod
+    def _surface_whose_strongest_component_sums_to_zero():
+        """Components summing to 0 and -5 and -2. Zeros separate them: the labelling
+        excludes exact zeros when the cutoff is <= 0."""
+        image = np.zeros((16, 16), dtype=np.float64)
+        image[2, 2], image[2, 3], image[3, 2] = 2.0, -1.0, -1.0   # sums to 0
+        image[10, 10], image[10, 11] = -4.0, -1.0                 # sums to -5
+        image[12, 2] = -2.0                                       # sums to -2
+        return image
+
+    def test_the_premise_holds_for_this_surface(self):
+        """Guard the fixture itself: total non-zero, strongest component exactly zero."""
+        import scipy as sp
+
+        image = self._surface_whose_strongest_component_sums_to_zero()
+        cutoff_value = float(np.percentile(image.ravel(), 0.0))
+        self.assertLess(cutoff_value, 0.0, 'need a negative cutoff to label negatives')
+
+        above = (image >= cutoff_value) & (image != 0)
+        labels, count = sp.ndimage.label(above)
+        sums = sp.ndimage.sum_labels(image, labels, np.arange(1, count + 1))
+
+        self.assertNotEqual(float(sums.sum()), 0.0, 'the old guard must let this pass')
+        self.assertEqual(float(sums[sums.argmax()]), 0.0, 'the divisor must be zero')
+
+    def test_a_zero_sum_strongest_component_does_not_raise(self):
+        result = find_peak(self._surface_whose_strongest_component_sums_to_zero(),
+                           cutoff=0.0)
+
+        self.assertEqual(_as_tuple(result), _NO_PEAK)
+
+    def test_it_reports_why_rather_than_failing_silently(self):
+        with self.assertLogs(_LOGGER_NAME, level=logging.DEBUG) as caught:
+            find_peak(self._surface_whose_strongest_component_sums_to_zero(), cutoff=0.0)
+
+        messages = [record.getMessage() for record in caught.records]
+        self.assertTrue(any('does not sum above zero' in m for m in messages), messages)
+
+    def test_smaller_signed_surfaces_are_handled_too(self):
+        cases = {
+            '1x5, components sum [0, -2]': np.array(
+                [[1.0, -1.0, 0.0, -1.0, -1.0]], dtype=np.float64),
+        }
+        eight = np.zeros((8, 8), dtype=np.float64)
+        eight[1, 1], eight[1, 2] = 3.0, -3.0
+        eight[5, 5], eight[5, 6] = -1.0, -2.0
+        cases['8x8, components sum [0, -3]'] = eight
+
+        for name, image in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(_as_tuple(find_peak(image, cutoff=0.0)), _NO_PEAK)
+
+    def test_an_all_negative_surface_reports_no_peak(self):
+        """No component can sum above zero, so there is nothing to centre on."""
+        image = np.zeros((16, 16), dtype=np.float64)
+        image[4, 4], image[4, 5] = -1.0, -2.0
+        image[9, 9] = -3.0
+
+        self.assertEqual(_as_tuple(find_peak(image, cutoff=0.0)), _NO_PEAK)
+
+    def test_a_genuine_peak_on_a_signed_surface_is_still_found(self):
+        """The guard must reject only unusable surfaces, not every signed one."""
+        image = np.zeros((16, 16), dtype=np.float64)
+        image[6, 7], image[6, 8] = 5.0, 4.0    # strongest, sums to +9
+        image[12, 2] = -3.0
+
+        result = find_peak(image, cutoff=0.0)
+
+        self.assertGreater(result[1], 0, 'a positive component should still win')
+
+    def test_the_non_negative_path_is_bit_for_bit_unchanged(self):
+        """While the surface is non-negative the new test equals the old one."""
+        rows = np.arange(_SIZE)
+        image = np.exp(-((rows[:, None] - 12.0) ** 2
+                         + (rows[None, :] - 20.0) ** 2) / 8.0)
+
+        result = _as_tuple(find_peak(image.copy()))
+
+        self.assertEqual(result[0], (4.0, -4.0))
+        self.assertGreater(result[1], 0)
 
 
 class TestNothingIsWrittenToStdout(_CaptureFixture):
