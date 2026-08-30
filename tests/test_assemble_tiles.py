@@ -193,14 +193,14 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
                                                                int(ScaledFixedRegion[2] - ScaledFixedRegion[0]))
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale(
-            [(result.image, cluster_delta), (tileImage, clustertileImage), (croppedWholeImage, wholeimage)],
+            [(result.image, cluster_delta), (tileImage, parallelTileImage), (croppedWholeImage, wholeimage)],
             title="image: %s\n%s" % (imageKey, str(transform.FixedBoundingBox)),
             image_titles=(
                 ("Transform Tile", "Cluster vs Single Thread Delta"), ("Assemble Image", "Multi-threaded Assemble"),
                 ("Cropped Mosaic", "Assemble Mosaic")), PassFail=True))
 
         # self.assertTrue(cluster_delta_sum < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
-        # self.assertTrue(np.array_equal(clustertileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
+        # self.assertTrue(np.array_equal(parallelTileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
 
     def CompareMosaicAsssembleAndTransformTile_GPU(self, mosaicFilePath: str, tilesDir: str, downsample: float):
         """
