@@ -5,6 +5,7 @@ Created on Apr 22, 2013
 """
 from __future__ import annotations
 
+import collections
 import contextlib
 import os
 import threading
@@ -966,8 +967,6 @@ def TransformImage(transform: ITransform,
 
     # print('\nConverting image to ' + str(self.NumCols) + "x" + str(self.NumRows) + ' grid of OpenGL textures')
 
-    tasks = []
-
     grid_shape = nornir_imageregistration.TileGridShape(warpedImage.shape, tilesize)  # type: ignore[arg-type]
     warp_kwargs: dict = {
         'extrapolate': extrapolate_flag,
@@ -1020,44 +1019,6 @@ def TransformImage(transform: ITransform,
         mpool = nornir_pools.GetGlobalLocalMachinePool()
 
         try:
-
-            for iY in range(0, height, int(tilesize[0])):
-
-                end_iY = iY + tilesize[0]
-                if end_iY > height:
-                    end_iY = height
-
-                for iX in range(0, width, int(tilesize[1])):
-
-                    end_iX = iX + tilesize[1]
-                    if end_iX > width:
-                        end_iX = width
-
-                    # return_shared_memory must stay False here. Shared memory
-                    # works parent->worker (sharedwarpedimage_metadata above) but
-                    # not worker->parent: the segment is registered in the
-                    # creating process, so on Windows it is destroyed when the
-                    # worker task returns and the parent's attach fails with
-                    # FileNotFoundError. unlink_shared_memory would also no-op,
-                    # since it only unlinks names this process allocated.
-                    # Pickling the tile back costs ~1% of the tile's own warp
-                    # (5.5 ms transfer vs 569 ms warp for 2048x2048 float32).
-                    task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
-                                          sharedwarpedimage_metadata, output_botleft=[iY, iX],
-                                          output_area=[end_iY - iY, end_iX - iX],
-                                          return_shared_memory=False,
-                                          **warp_kwargs)
-                    task.iY = iY  # type: ignore[attr-defined]
-                    task.end_iY = end_iY  # type: ignore[attr-defined]
-                    task.iX = iX  # type: ignore[attr-defined]
-                    task.end_iX = end_iX  # type: ignore[attr-defined]
-
-                    tasks.append(task)
-
-                    # registeredTile = WarpedImageToFixedSpace(transform, fixedImageShape, warpedImage, botleft=[iY, iX], area=[end_iY - iY, end_iX - iX])
-                    # outputImage[iY:end_iY, iX:end_iX] = registeredTile
-            mpool.wait_completion()
-
             # Accumulate the coverage each tile already reports, instead of
             # recomputing it for the whole canvas after the warp has finished.
             # A canvas of bool costs 1 byte per pixel; the recompute built two
@@ -1065,10 +1026,68 @@ def TransformImage(transform: ITransform,
             # same mask.
             tiled_sample_mask = None
             tiles_reporting_coverage = 0
+            tiles_submitted = 0
             if enforce_background_cval is not None:
                 tiled_sample_mask = np.zeros(tuple(int(v) for v in fixedImageShape), dtype=bool)
 
-            for task in tasks:
+            def _tile_regions():
+                for region_iY in range(0, height, int(tilesize[0])):
+                    region_end_iY = min(region_iY + int(tilesize[0]), height)
+                    for region_iX in range(0, width, int(tilesize[1])):
+                        region_end_iX = min(region_iX + int(tilesize[1]), width)
+                        yield region_iY, region_end_iY, region_iX, region_end_iX
+
+            def _submit_next() -> bool:
+                nonlocal tiles_submitted
+                region = next(tile_regions, None)
+                if region is None:
+                    return False
+
+                iY, end_iY, iX, end_iX = region
+                # return_shared_memory must stay False here. Shared memory
+                # works parent->worker (sharedwarpedimage_metadata above) but
+                # not worker->parent: the segment is registered in the
+                # creating process, so on Windows it is destroyed when the
+                # worker task returns and the parent's attach fails with
+                # FileNotFoundError. unlink_shared_memory would also no-op,
+                # since it only unlinks names this process allocated.
+                # Pickling the tile back costs ~1% of the tile's own warp
+                # (5.5 ms transfer vs 569 ms warp for 2048x2048 float32).
+                task = mpool.add_task(str(iX) + "x_" + str(iY) + "y", SourceImageToTargetSpace, transform,
+                                      sharedwarpedimage_metadata, output_botleft=[iY, iX],
+                                      output_area=[end_iY - iY, end_iX - iX],
+                                      return_shared_memory=False,
+                                      **warp_kwargs)
+                task.iY = iY  # type: ignore[attr-defined]
+                task.end_iY = end_iY  # type: ignore[attr-defined]
+                task.iX = iX  # type: ignore[attr-defined]
+                task.end_iX = end_iX  # type: ignore[attr-defined]
+                pending.append(task)
+                tiles_submitted += 1
+                return True
+
+            # Submit a bounded window rather than every tile up front. Waiting for
+            # the whole pool before reading the first result left every warped tile
+            # resident in the parent at once, so peak grew with the tile count
+            # instead of the worker count: 16 of 16 tiles alive on a 4x4 canvas, at
+            # ~16 MiB per 2048x2048 float32 tile. Each tile is pickled back as a
+            # plain array (shared memory cannot travel worker->parent, see above),
+            # so the parent's copy is the cost being bounded. Roughly one queued
+            # tile per worker still keeps the pool saturated, and collection stays
+            # in submission order, so the output is unchanged.
+            tile_regions = _tile_regions()
+            pool_workers = getattr(mpool, 'max_workers', None) or os.cpu_count() or 4
+            max_in_flight = max(2, int(pool_workers) * 2)
+            pending: collections.deque = collections.deque()
+
+            while len(pending) < max_in_flight and _submit_next():
+                pass
+
+            while pending:
+                task = pending.popleft()
+                # Refill before blocking, so a worker is never left idle while the
+                # parent waits on the oldest tile.
+                _submit_next()
                 result = task.wait_return()
                 if result is None:
                     raise RuntimeError(f"Multiprocess tile assembly failed for task {task.name}")
@@ -1094,7 +1113,7 @@ def TransformImage(transform: ITransform,
     outputImage = nornir_imageregistration.EnsureNumpyArray(outputImage, dtype=_assembly_output_dtype(warpedImage.dtype))
     if enforce_background_cval is not None:
         sample_mask = tiled_sample_mask
-        if sample_mask is not None and tiles_reporting_coverage != len(tasks):
+        if sample_mask is not None and tiles_reporting_coverage != tiles_submitted:
             # Partial coverage reports would leave un-reported tiles looking
             # unmapped, so only trust the accumulated mask when every tile
             # contributed one.
