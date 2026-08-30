@@ -11,12 +11,29 @@ class EMA:
     _num_samples_collected: int
 
     def __init__(self, num_samples: int, smooth: float = 2):
+        # A window of 0 leaves the instance permanently unusable rather than merely
+        # useless: add() saturates the sample count at num_samples, so with 0 the count
+        # never leaves 0 and ema_value raises however many samples arrive. Refusing the
+        # window here reports the mistake at construction instead of at a distant read.
+        if num_samples < 1:
+            raise ValueError(
+                f"num_samples must be at least 1 to average over; got {num_samples}")
+
         self._smooth_factor = smooth
         self._last_ema_value = None
         self._current_value = None
         self._current_ema_value = None
         self._num_samples = num_samples
         self._num_samples_collected = 0
+
+    @property
+    def has_samples(self) -> bool:
+        """Whether ema_value can be read yet.
+
+        Lets a diagnostic report "no average yet" instead of raising, so a log line
+        cannot abort the work it is describing.
+        """
+        return self._num_samples_collected > 0
 
     @property
     def ema_value(self) -> float:

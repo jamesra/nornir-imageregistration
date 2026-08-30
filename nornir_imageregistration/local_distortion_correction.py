@@ -3105,8 +3105,10 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     combined_records_this_pass: AlignmentRecordDict = {}
     role_result = None
 
-    finalize_ema = EMA(settings.num_iterations // 2, 2)  # Track the cutoff values over the last three passes
-    cutoff_ema = EMA(settings.num_iterations // 2, 2)
+    # num_iterations // 2 is 0 for a single-pass refine, which EMA cannot average over.
+    ema_window = max(1, settings.num_iterations // 2)
+    finalize_ema = EMA(ema_window, 2)  # Track the cutoff values over the last three passes
+    cutoff_ema = EMA(ema_window, 2)
     first_cutoff = None  # The first cutoff value, we use this to decide which points make it into the final transform
 
     _PHASE_TIMER.reset()
@@ -3366,7 +3368,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 f'Registration weight cutoff disabled; gating via travel + Role/ZNCC\n'
                 f'Diagnostic inflection (unused): {transform_cutoff_percentile}% -> '
                 f'{diagnostic_inflection_value}\n'
-                f'Exponential Moving Average diagnostic inflection: {cutoff_ema.ema_value}\n')
+                f'Exponential Moving Average diagnostic inflection: '
+                f'{cutoff_ema.ema_value if cutoff_ema.has_samples else "n/a"}\n')
 
             finalize_t0 = time.perf_counter()
             preserve_post_residual = False
