@@ -486,7 +486,34 @@ def get_last_hybrid_fallback_stats() -> HybridFallbackStats | None:
 
 
 def _correlation_peak_ratio(arr: NDArray) -> float:
-    """Host-only: top-2 partition on a 1-D host snapshot (scalar metric)."""
+    """Primary / second-highest value over the whole surface (scalar confidence metric).
+
+    Host-only: top-2 partition on a 1-D host snapshot.
+
+    Deliberately *not* ``peak_uniqueness.masked_peak_ratio``, which clears a radius-3
+    square around the primary first. With no exclusion the runner-up is normally the
+    pixel next to the maximum -- measured, 9 of 11 real correlation surfaces have their
+    second-highest pixel at Chebyshev distance 1 -- so this ratio falls as the peak
+    *widens*, not only as a rival peak rises. It therefore reports peak sharpness and
+    peak uniqueness together, whichever is worse, and is a lower bound on uniqueness
+    alone: excluding candidates can only lower the runner-up, so this value is <= the
+    masked one for any surface (verified over 400 random surfaces, 0 violations).
+
+    That conflation is a known cost, not an oversight. A unique but broad peak reads as
+    ambiguous: a lone Gaussian at sigma=6 scores 1.014 here against 1.249 masked, which
+    straddles the 1.2 gate below. The error is one-directional -- confidence is
+    understated, never overstated -- so the effect is extra fallback angle searching
+    rather than a wrong answer accepted. Genuine ambiguity is still caught exactly: two
+    equal peaks far apart score 1.0000 under both definitions.
+
+    Do not swap in the masked ratio without re-tuning. The four thresholds it feeds
+    (``ambiguous`` at 1.2 / 1.12 / 1.35, and ``_logpolar_confidence``'s 1.0-1.5 and
+    1.0-1.3 ramps) are calibrated against *this* definition, and ``ambiguous`` gates
+    whether the brute-force fallback search runs at all. Raising every ratio would skip
+    fallbacks that currently rescue bad alignments, so a change here needs the
+    >=100-tile sign-off from the serial/batched primitives skill. See review issue #88
+    and ``tests/test_correlation_peak_ratio_characterization.py``.
+    """
     arr_np = nornir_imageregistration.EnsureNumpyArray(arr)
     if np.iscomplexobj(arr_np):
         arr_np = np.abs(arr_np)
