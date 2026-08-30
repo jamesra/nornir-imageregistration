@@ -763,7 +763,12 @@ def pad_and_rotate_image(image: NDArray,
     :param image_stats:
     :param min_overlap:
     :param original_shape: If the input image has been previously padded, this is the original shape of the image
-    :param power_of_two: If True, the image will be padded to the nearest power of two.  This may be largest than the desired_shape
+    :param power_of_two: If True, *replace* desired_shape with the nearest power of two
+        at or above the rotated image's own shape. Note this overrides desired_shape
+        rather than rounding it up, so the result can be either larger or **smaller**
+        than what the caller asked for: a 64x64 source rotated 0 degrees yields 64x64
+        even when desired_shape is 128x128. Do not set this when the caller needs the
+        output to match a shape that was reconciled against another image.
     :return: The rotated image and the image stats, the original objects if rotation is 0 / image_stats was passed
     """
 
@@ -1867,6 +1872,14 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     #                                                                                               NewHeight=desired_height,
     #                                                                                               NewWidth=desired_width)
 
+    # power_of_two is deliberately NOT set here, unlike the 0 degree call above. It
+    # discards desired_shape and substitutes a power of two derived from this image
+    # alone, but by this point the shape has already been reconciled against
+    # padded_target. Rotating by t and t+180 gives the same bounding box, so the
+    # substituted value is the 0 degree shape from before that reconciliation, which is
+    # too small whenever the target drove the shared shape larger. Setting it produced
+    # 425 mismatches over a 1600-case sweep of shapes and angles, each one a ValueError
+    # out of the fft_phase_correlation below; leaving it off produced none.
     rotated_padded_source = pad_and_rotate_image(image=registration_source,
                                                  angle=recovered_angle + 180,
                                                  image_stats=source_stats,
