@@ -43,6 +43,37 @@ def _is_singular_matrix_error(err: BaseException) -> bool:
     return 'singular' in ' '.join(str(arg) for arg in err.args).lower()
 
 
+# How far the rigid shortcut may move a control point away from its target before it
+# stops being an acceptable stand-in for the full RBF evaluation.
+#
+# The shortcut used to be chosen by asking whether the deviation weights were close to
+# zero, which is not a safe test: those weights multiply the basis function r^2*log r,
+# which is about 1.15e11 at a 100k-pixel section extent, so a weight of 1e-9 -- "zero"
+# to allclose's default atol of 1e-8 -- still displaces a point by roughly 115 px. That
+# let genuinely non-rigid warps take the shortcut, and the larger the section the worse
+# it got: at a 100k extent a warp with a 10 px non-rigid component was accepted.
+#
+# Measuring the error in pixels instead separates the two cases with room to spare. A
+# genuinely rigid warp reproduces its own control points to under 0.008 px even at a
+# 100k extent, while every warp the weight test wrongly accepted was off by at least
+# 0.13 px. This bound sits in that gap, and errs toward doing the full RBF evaluation.
+_MAX_RIGID_EQUIVALENT_ERROR_PIXELS = 0.05
+
+
+def _rigid_transform_is_equivalent(candidate, source_points, target_points) -> bool:
+    """Whether *candidate* reproduces the control points closely enough to stand in.
+
+    Checked on the host: this runs once per weight solve over the control points only,
+    and the result is a single bool.
+    """
+    source = nornir_imageregistration.EnsureNumpyArray(source_points)
+    target = nornir_imageregistration.EnsureNumpyArray(target_points)
+    reproduced = nornir_imageregistration.EnsureNumpyArray(candidate.Transform(source))
+    max_error = float(np.max(np.abs(np.asarray(reproduced, dtype=np.float64)
+                                    - np.asarray(target, dtype=np.float64))))
+    return max_error <= _MAX_RIGID_EQUIVALENT_ERROR_PIXELS
+
+
 def _tps_beta_matrix(
         points: NDArray,
         basis_function: Callable[[NDArray[np.floating]], NDArray[np.floating]],
@@ -108,11 +139,15 @@ class OneWayRBFWithLinearCorrection(Triangulation):
             assert self.BasisFunction is not None
             self._weights, use_rigid_transform = self.CalculateRBFWeights(self.SourcePoints, self.TargetPoints,
                                                                           self.BasisFunction)
+            self._rigid_transform = None
             if use_rigid_transform:
-                self._rigid_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
+                candidate = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
                     self)
-            else:
-                self._rigid_transform = None
+                # Confirm the shortcut before adopting it; see
+                # _MAX_RIGID_EQUIVALENT_ERROR_PIXELS for why the weight test alone is not
+                # enough to establish rigid equivalence.
+                if _rigid_transform_is_equivalent(candidate, self.SourcePoints, self.TargetPoints):
+                    self._rigid_transform = candidate
 
         return self._weights
 
@@ -208,6 +243,12 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         #   return self._rigid_transform.Transform(Points)
 
         Points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(Points)
+
+        # The lazy weight solve is what decides whether the rigid shortcut applies, so it
+        # has to run before UseRigidTransform is read. Otherwise the first call on a fresh
+        # transform is served by the RBF branch and every later call by the rigid branch,
+        # which made Transform return a different answer for the same input array.
+        _ = self.Weights
 
         NumCtrlPts = len(self.TargetPoints)
 
@@ -454,11 +495,15 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
             assert self.BasisFunction is not None
             self._weights, use_rigid_transform = self.CalculateRBFWeights(self.SourcePoints, self.TargetPoints,
                                                                           self.BasisFunction)
+            self._rigid_transform = None
             if use_rigid_transform:
-                self._rigid_transform = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
+                candidate = nornir_imageregistration.transforms.converters.ConvertTransformToRigidTransform(
                     self)
-            else:
-                self._rigid_transform = None
+                # Confirm the shortcut before adopting it; see
+                # _MAX_RIGID_EQUIVALENT_ERROR_PIXELS for why the weight test alone is not
+                # enough to establish rigid equivalence.
+                if _rigid_transform_is_equivalent(candidate, self.SourcePoints, self.TargetPoints):
+                    self._rigid_transform = candidate
 
         return self._weights
 
@@ -556,6 +601,10 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         #   return self._rigid_transform.Transform(Points)
 
         Points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(Points)
+
+        # See the host mirror: the lazy weight solve decides whether the rigid shortcut
+        # applies, so it has to run before UseRigidTransform is read.
+        _ = self.Weights
 
         NumCtrlPts = len(self.TargetPoints)
 
