@@ -39,6 +39,14 @@ def _to_xp_array(arr, xp):
     return xp.asarray(arr)
 
 
+# Fitting a pure translation returns an angle of about -5.6e-17 rather than 0, so an
+# exact comparison sends a geometrically pure translation down the matmul branch and
+# past a device round trip. These bounds sit far below any pixel effect: at this angle
+# a point a million pixels from the centre of rotation moves less than 1e-6 of a pixel.
+_NEGLIGIBLE_ANGLE_RADIANS = 1e-12
+_NEGLIGIBLE_SCALE_DEVIATION = 1e-12
+
+
 def _flipped_rigid_to_affine_itk_string(transform: "Rigid") -> str:
     """Encode a flip_ud rigid/CS2D as FixedCenterOfRotationAffineTransform.
 
@@ -420,6 +428,31 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         self._flip_ud = flip_ud
         self._update_transform_matrix()
 
+    def _is_pure_translation(self) -> bool:
+        """Whether this transform reduces to a vector add.
+
+        Tolerant rather than exact: see ``_NEGLIGIBLE_ANGLE_RADIANS``.
+        """
+        return (abs(self.angle) < _NEGLIGIBLE_ANGLE_RADIANS
+                and abs(self.scalar - 1.0) < _NEGLIGIBLE_SCALE_DEVIATION
+                and not self.flip_ud)
+
+    def _matrices_for(self, xp):
+        """Forward and inverse matrices on the same backend as the caller's points.
+
+        Cached per backend. The matrices are built on whichever module
+        ``GetComputationModule`` reports, so a host-side caller working against a
+        device-resident matrix otherwise paid a device-to-host copy on every call.
+        Not part of ``__getstate__``, so the cache never travels to a pool worker.
+        """
+        want_host = xp is np
+        cached = self._matrix_cache.get(want_host)
+        if cached is None:
+            cached = (_to_xp_array(self.forward_matrix, xp),
+                      _to_xp_array(self.inverse_matrix, xp))
+            self._matrix_cache[want_host] = cached
+        return cached
+
     def _update_transform_matrix(self):
         """Update the forward and inverse matrices.
 
@@ -434,6 +467,8 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
                               self._forward_scale_matrix @ self._inverse_center_of_rotation_translation
         xp = cp.get_array_module(self.forward_matrix)
         self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
+        # Per-backend copies of the two matrices, keyed on "wants host".
+        self._matrix_cache: dict[bool, tuple] = {}
 
     def _pin_source_point_under_mutation(
             self,
@@ -465,13 +500,13 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
-        if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
+        if self._is_pure_translation():
             transformed = points + xp.asarray(self._target_offset)
             return transformed
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(_to_xp_array(self.forward_matrix, xp), xp.transpose(centered_points)))
+        output_points = xp.transpose(xp.matmul(self._matrices_for(xp)[0], xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
@@ -481,13 +516,13 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
         xp = cp.get_array_module(points)
         points = nornir_imageregistration.EnsurePointsAre2DArray(points)
 
-        if self.angle == 0 and self.scalar == 1 and not self.flip_ud:
+        if self._is_pure_translation():
             itransformed = points - xp.asarray(self._target_offset)
             return itransformed
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(_to_xp_array(self.inverse_matrix, xp), xp.transpose(centered_points)))
+        output_points = xp.transpose(xp.matmul(self._matrices_for(xp)[1], xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
