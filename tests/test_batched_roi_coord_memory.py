@@ -177,15 +177,18 @@ def test_chunked_sampling_does_not_concatenate(monkeypatch):
     assert not calls, 'chunk results were concatenated instead of written in place'
 
 
-def test_chunk_size_changes_sampled_values(monkeypatch):
-    """Document the pre-existing chunk-size dependence of sampled values.
+@pytest.mark.parametrize('cells_per_chunk', [1, 2, 3, 4, 5])
+def test_sampled_values_do_not_depend_on_chunk_size(monkeypatch, cells_per_chunk):
+    """Chunking is a memory knob and must not change a single sampled value.
 
-    The sample AABB crop and its cubic prefilter domain are computed per chunk, so
-    the same cell samples a different sub-image depending on how cells were grouped.
-    Verified to be byte-for-byte the same before and after the affine coordinate
-    rewrite, so it is latent behavior rather than something introduced here. If the
-    crop is ever made per-cell or prefilter-stable, this test should start failing
-    and be replaced with an equality assertion.
+    The sample AABB and its cubic prefilter used to be computed per chunk. With
+    ``order=3`` the prefilter's boundary conditions depend on the extent it runs over,
+    so a cell's values depended on which other cells shared its chunk -- measured at up
+    to 8e-02, roughly 8% of full intensity range, against a float32 epsilon of ~1e-07.
+    The crop and prefilter now run once over the union of all cells' samples.
+
+    Equality here is exact, not approximate: every chunking samples the same
+    prefiltered array, so the arithmetic is identical rather than merely close.
     """
     source = _source_image()
     count = 6
@@ -193,11 +196,85 @@ def test_chunk_size_changes_sampled_values(monkeypatch):
     matrices = _inverse_matrices(count, angle=0.1)
 
     single_chunk = _sample(source, matrices, botlefts)
-    monkeypatch.setattr(ldc, '_batched_roi_sample_budget', lambda h, w: 2 * h * w)
-    multi_chunk = _sample(source, matrices, botlefts)
+    monkeypatch.setattr(ldc, '_batched_roi_sample_budget',
+                        lambda h, w: cells_per_chunk * h * w)
+    chunked = _sample(source, matrices, botlefts)
 
-    assert not np.array_equal(single_chunk, multi_chunk, equal_nan=True), \
-        'chunk-size dependence appears to be fixed; update this test'
+    np.testing.assert_array_equal(chunked, single_chunk)
+
+
+def test_chunk_independence_holds_for_pure_translation(monkeypatch):
+    """Pure-translation cells skip the coordinate rounding, so cover them separately."""
+    source = _source_image()
+    count = 6
+    botlefts = _botlefts(count)
+    matrices = _inverse_matrices(count, angle=0.0)
+
+    single_chunk = _sample(source, matrices, botlefts)
+    monkeypatch.setattr(ldc, '_batched_roi_sample_budget', lambda h, w: 2 * h * w)
+    np.testing.assert_array_equal(_sample(source, matrices, botlefts), single_chunk)
+
+
+def test_union_bounds_cover_every_cell(monkeypatch):
+    """The corner-derived union AABB must not clip any cell's samples.
+
+    ``_global_sample_bounds`` takes the four corners of each cell's sample grid rather
+    than reducing over the full coordinate set, which is exact for an affine map but
+    would silently crop cells if the corner logic were wrong. Compare against bounds
+    reduced from every coordinate.
+    """
+    count = 6
+    botlefts = _botlefts(count)
+    for angle in (0.0, 0.1, -0.4):
+        matrices = _inverse_matrices(count, angle=angle)
+        coords = _affine_coords(botlefts, matrices).reshape(-1, 2)
+        expected_lo = np.floor(coords.min(axis=0)).astype(np.int64)
+        expected_hi = np.ceil(coords.max(axis=0)).astype(np.int64) + 1
+
+        relative = np.asarray(nornir_imageregistration.assemble.GetROICoords(
+            (0.0, 0.0), (CELL_H, CELL_W), xp=np), dtype=np.float32)
+        linear_t = np.swapaxes(matrices[:, :2, :2], -1, -2)
+        offset = matrices[:, :2, 2]
+        y0, x0, y1, x1 = ldc._global_sample_bounds(
+            relative, botlefts.astype(np.float32), linear_t, offset,
+            IMAGE_SIZE, IMAGE_SIZE, np)
+
+        assert (y0, x0) == (max(0, int(expected_lo[0])), max(0, int(expected_lo[1]))), angle
+        assert (y1, x1) == (min(IMAGE_SIZE, int(expected_hi[0])),
+                            min(IMAGE_SIZE, int(expected_hi[1]))), angle
+
+
+def test_all_cells_off_image_returns_fill():
+    """A lattice entirely outside the source yields the fill value, not a crash."""
+    source = _source_image()
+    count = 3
+    botlefts = np.full((count, 2), 10_000.0)
+    matrices = _inverse_matrices(count, angle=0.0)
+
+    sampled = _sample(source, matrices, botlefts, oob_cval=np.nan)
+    assert sampled.shape == (count, CELL_H, CELL_W)
+    assert np.all(np.isnan(sampled))
+
+
+def test_prefilter_runs_once_regardless_of_chunk_count(monkeypatch):
+    """One spline_filter for the whole batch, not one per chunk."""
+    source = _source_image()
+    count = 6
+    botlefts = _botlefts(count)
+    matrices = _inverse_matrices(count, angle=0.1)
+
+    calls: list[int] = []
+    real_filter = scipy.ndimage.spline_filter
+
+    def counting_filter(*args, **kwargs):
+        calls.append(1)
+        return real_filter(*args, **kwargs)
+
+    monkeypatch.setattr(scipy.ndimage, 'spline_filter', counting_filter)
+    monkeypatch.setattr(ldc, '_batched_roi_sample_budget', lambda h, w: h * w)
+    _sample(source, matrices, botlefts)
+
+    assert len(calls) == 1, f'expected a single prefilter, got {len(calls)}'
 
 
 def test_crop_stack_does_not_hold_every_crop():

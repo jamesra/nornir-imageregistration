@@ -1049,6 +1049,59 @@ def _rigid_inverse_matrices(rigid_transforms: Sequence[nornir_imageregistration.
             np.asarray(pure_flags, dtype=bool))
 
 
+def _global_sample_bounds(relative: NDArray,
+                          botlefts_dev: NDArray,
+                          linear_t: NDArray,
+                          offset: NDArray,
+                          src_h: int,
+                          src_w: int,
+                          xp) -> tuple[int, int, int, int]:
+    """Source-image AABB covering every cell's samples, as ``(y0, x0, y1, x1)``.
+
+    Taken from the four corners of each cell's sample grid rather than from the grid
+    itself: the maps are affine, so a rectangle's image is a parallelogram whose
+    extreme points are the images of its corners. That makes this exact while costing
+    an ``(n, 4, 2)`` array instead of the ``(n, H*W, 2)`` the full coordinate set needs
+    -- the whole reason the sampling is chunked in the first place.
+
+    Returns an empty box (``y1 <= y0``) when no cell produces a finite coordinate.
+    """
+    if int(botlefts_dev.shape[0]) == 0:
+        return 0, 0, 0, 0
+
+    rel_min = relative.min(axis=0)
+    rel_max = relative.max(axis=0)
+    corners = xp.stack((
+        xp.stack((rel_min[0], rel_min[1])),
+        xp.stack((rel_min[0], rel_max[1])),
+        xp.stack((rel_max[0], rel_min[1])),
+        xp.stack((rel_max[0], rel_max[1])),
+    ))                                                          # (4, 2)
+
+    write = corners[None, :, :] + botlefts_dev[:, None, :]      # (n, 4, 2)
+    mapped = xp.matmul(write.astype(np.float64, copy=False), linear_t)
+    mapped += offset[:, None, :]
+
+    finite = xp.where(xp.isfinite(mapped), mapped, xp.nan)
+    flat = finite.reshape(-1, 2)
+    mins_maxs = nornir_imageregistration.EnsureNumpyArray(xp.stack((
+        xp.nanmin(flat, axis=0),
+        xp.nanmax(flat, axis=0),
+    )))
+    if np.any(np.isnan(mins_maxs)):
+        return 0, 0, 0, 0
+
+    # Same floor/ceil widening the per-chunk crop used, so a single-chunk batch lands on
+    # exactly the box it used to. The rounding applied to non-pure-translation cells
+    # moves coordinates by well under the one pixel this already grants.
+    mins = np.floor(mins_maxs[0]).astype(np.int64)
+    maxs = np.ceil(mins_maxs[1]).astype(np.int64)
+    return (int(max(0, mins[0])),
+            int(max(0, mins[1])),
+            int(min(src_h, maxs[0] + 1)),
+            int(min(src_w, maxs[1] + 1)))
+
+
 def _sample_source_rois_batched(source_image: NDArray,
                                 inverse_matrices: NDArray,
                                 pure_translation_mask: NDArray[np.bool_],
@@ -1106,6 +1159,30 @@ def _sample_source_rois_batched(source_image: NDArray,
     # function; the coordinate machinery, not the ROI stacks, sets the peak here.
     linear_t = xp.swapaxes(matrices_dev[:, :2, :2], -1, -2)
     offset = matrices_dev[:, :2, 2]
+
+    # Crop and spline-prefilter ONCE over the union of every cell's samples, before the
+    # chunk loop, rather than per chunk. With order=3 the prefilter's boundary
+    # conditions depend on the extent it runs over, so a per-chunk crop made a cell's
+    # sampled values depend on which other cells happened to share its chunk -- up to
+    # 8% of full intensity range. chunk_cells is a memory-budget knob, so that let a
+    # tuning parameter change registration output. Production grids run in one chunk,
+    # where the union crop *is* the chunk crop, so those values are unchanged.
+    gy0, gx0, gy1, gx1 = _global_sample_bounds(
+        relative, botlefts_dev, linear_t, offset, src_h, src_w, xp)
+    if gy1 <= gy0 or gx1 <= gx0:
+        # No cell lands on the image; every sample is out of bounds.
+        return xp.full((num_cells, cell_h, cell_w), oob_cval_float, dtype=original_dtype)
+
+    sample_source = source_image[gy0:gy1, gx0:gx1]
+    if prefilter:
+        # scipy applies no prepadding for mode='constant' (_prepad_for_spline_filter
+        # returns npad=0), so filtering here and sampling with prefilter=False is
+        # equivalent to what map_coordinates did internally, only once and over a
+        # domain that no longer moves with the chunking.
+        sample_source = sp.ndimage.spline_filter(
+            sample_source, order=order, output=np.float64, mode='constant')
+    crop_origin = xp.asarray((gy0, gx0), dtype=np.float32)
+
     for start in range(0, num_cells, chunk_cells):
         stop = min(num_cells, start + chunk_cells)
         chunk_n = stop - start
@@ -1128,38 +1205,18 @@ def _sample_source_rois_batched(source_image: NDArray,
                 nornir_imageregistration.RoundingPrecision(source_yx.dtype))
         sample_coords = source_yx.reshape(chunk_n * samples_per_cell, 2).astype(np.float32, copy=False)
 
-        # Crop once to the sample AABB (same idea as _CropImageToFitCoords) so cubic
-        # prefilter domain matches the per-cell SourceImageToTargetSpace path closely
-        # enough for registration parity, while still using one map_coordinates launch.
-        # Bounds are reduced on-device; only four scalars sync to host.
-        coords_for_bounds = xp.where(xp.isfinite(sample_coords), sample_coords, xp.nan)
-        mins_maxs = nornir_imageregistration.EnsureNumpyArray(xp.stack((
-            xp.nanmin(coords_for_bounds, axis=0),
-            xp.nanmax(coords_for_bounds, axis=0),
-        )))
-        if np.any(np.isnan(mins_maxs)):
-            yo = xo = y1 = x1 = 0
-        else:
-            mins = np.floor(mins_maxs[0]).astype(np.int64)
-            maxs = np.ceil(mins_maxs[1]).astype(np.int64)
-            yo = int(max(0, mins[0]))
-            xo = int(max(0, mins[1]))
-            y1 = int(min(src_h, maxs[0] + 1))
-            x1 = int(min(src_w, maxs[1] + 1))
-        if y1 <= yo or x1 <= xo:
-            sampled = xp.full((chunk_n, cell_h, cell_w), oob_cval_float, dtype=original_dtype)
-        else:
-            sub = source_image[yo:y1, xo:x1]
-            local_coords = sample_coords - xp.asarray((yo, xo), dtype=sample_coords.dtype)
-            with lock:
-                sampled_flat = sp.ndimage.map_coordinates(
-                    sub,
-                    local_coords.transpose(),
-                    mode='constant',
-                    order=order,
-                    cval=oob_cval_float,
-                    prefilter=prefilter).astype(original_dtype, copy=False)
-            sampled = sampled_flat.reshape(chunk_n, cell_h, cell_w)
+        # Sample the shared prefiltered crop. No per-chunk bounds reduction, which also
+        # drops a four-scalar device-to-host sync per chunk.
+        local_coords = sample_coords - crop_origin
+        with lock:
+            sampled_flat = sp.ndimage.map_coordinates(
+                sample_source,
+                local_coords.transpose(),
+                mode='constant',
+                order=order,
+                cval=oob_cval_float,
+                prefilter=False).astype(original_dtype, copy=False)
+        sampled = sampled_flat.reshape(chunk_n, cell_h, cell_w)
         # Match _TransformImageUsingCoords clipping; preserve OOB sentinels when they
         # lie outside the source intensity range (NaN or explicit fill).
         if preserve_oob_sentinel:
