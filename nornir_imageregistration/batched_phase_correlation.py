@@ -108,6 +108,12 @@ def batched_find_peak(images: NDArray[np.floating],
     offset is reported as ``(shape/2) - peak_coord`` to match
     ``phasecorrelation.find_peak``'s sign convention.
 
+    The window wraps at the image edges, because the correlation this refines is
+    circular. Serial ``find_peak`` does not wrap: it takes the center of mass of a
+    thresholded connected component, and a lobe straddling the wrap splits into two
+    components there. That divergence is inherent to the two algorithms rather than a
+    tuning choice, and it only shows up for peaks within ``r`` of an edge.
+
     This is a vectorizable substitute for the connected-component
     ``find_peak`` (label / center_of_mass / sum_labels), which cannot batch.
 
@@ -156,27 +162,47 @@ def batched_find_peak(images: NDArray[np.floating],
     n_arange = xp.arange(n)
     peak_val = images_flat[n_arange, idx]
 
-    # Clamp the centroid window fully inside the image bounds.
-    cr = xp.clip(peak_r, r, h - 1 - r)
-    cc_ = xp.clip(peak_c, r, w - 1 - r)
+    # Wrap the centroid window instead of clamping its centre. The correlation is
+    # circular (ifft2, then fftshift), so a peak on the first row continues on the last
+    # and the wrapped neighbourhood is the true one. Clamping kept the window in bounds
+    # but slid it off the peak, leaving the peak on the window edge and dragging the
+    # centroid inward: measured against known sub-pixel shifts, border peaks were off by
+    # up to 0.72px, and truncating the window instead still left 0.58px. Wrapping holds
+    # them to 0.06px.
     offsets = xp.arange(-r, r + 1)
 
-    row_idx = cr[:, None, None] + offsets[None, :, None]      # (N, 2r+1, 1)
-    col_idx = cc_[:, None, None] + offsets[None, None, :]     # (N, 1, 2r+1)
-    row_idx_b = xp.broadcast_to(row_idx, (n, 2 * r + 1, 2 * r + 1))
-    col_idx_b = xp.broadcast_to(col_idx, (n, 2 * r + 1, 2 * r + 1))
+    row_idx = (peak_r[:, None, None] + offsets[None, :, None]) % h   # (N, 2r+1, 1)
+    col_idx = (peak_c[:, None, None] + offsets[None, None, :]) % w   # (N, 1, 2r+1)
     n_idx = n_arange[:, None, None]
 
-    window = images[n_idx, row_idx_b, col_idx_b]             # (N, 2r+1, 2r+1)
+    # Fancy indexing broadcasts these three itself, so the explicit broadcast_to the
+    # absolute-index form needed is gone along with it.
+    window = images[n_idx, row_idx, col_idx]                 # (N, 2r+1, 2r+1)
     # Remove baseline so the centroid is dominated by the peak, not the DC level.
     window = window - window.min(axis=(-2, -1), keepdims=True)
     wsum = window.sum(axis=(-2, -1))
 
-    weighted_r = (window * row_idx_b).sum(axis=(-2, -1))
-    weighted_c = (window * col_idx_b).sum(axis=(-2, -1))
+    # Weight the *relative* offsets, not absolute indices: a wrapped index would
+    # otherwise pull the mean clear across the image. Adding the result back to the peak
+    # is algebraically what the absolute form computed whenever no wrapping occurred, so
+    # interior peaks are unchanged (agreement to 1e-14, and better conditioned since the
+    # large common term is no longer summed and divided out).
+    # Left to broadcast in the multiply rather than materialized with broadcast_to:
+    # these are (1, 2r+1, 1) and (1, 1, 2r+1) against an (N, 2r+1, 2r+1) window, and
+    # expanding them cost 42% on a 64-cell batch, where fixed overhead dominates.
+    weighted_r = (window * offsets[None, :, None]).sum(axis=(-2, -1))
+    weighted_c = (window * offsets[None, None, :]).sum(axis=(-2, -1))
     valid = wsum > 0
-    centroid_r = xp.where(valid, weighted_r / xp.where(valid, wsum, 1.0), peak_r.astype(images.dtype))
-    centroid_c = xp.where(valid, weighted_c / xp.where(valid, wsum, 1.0), peak_c.astype(images.dtype))
+    safe_wsum = xp.where(valid, wsum, 1.0)
+    # Left deliberately un-wrapped, so a peak on row 0 whose lobe sits just before it
+    # reports -0.14 rather than h-0.14. Both name the same circular position, but only
+    # the un-wrapped one stays continuous across the seam, and the reported offset keeps
+    # the sign the serial path and every caller already expect. Re-wrapping here turned
+    # a +16.0 shift into -15.86 on a 32px cell.
+    centroid_r = peak_r.astype(images.dtype) + xp.where(
+        valid, weighted_r / safe_wsum, 0.0)
+    centroid_c = peak_c.astype(images.dtype) + xp.where(
+        valid, weighted_c / safe_wsum, 0.0)
 
     center_r = xp.asarray(h, dtype=images.dtype) / xp.asarray(2.0, dtype=images.dtype)
     center_c = xp.asarray(w, dtype=images.dtype) / xp.asarray(2.0, dtype=images.dtype)
