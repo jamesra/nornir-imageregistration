@@ -1446,7 +1446,13 @@ def _peak_from_correlation_image(
         try:
             correlation_image -= correlation_image.min()
         except FloatingPointError as e:
-            print(f"Floating point error: {e} for {correlation_image.min()} or {correlation_image.max()}")
+            # A zero-offset record with weight 0, same as the no-peak paths in
+            # phasecorrelation.find_peak, so warn rather than print: on a worker process
+            # stdout is not attached to the session log and this vanished entirely.
+            logging.getLogger(__name__).warning(
+                'Floating point error normalizing the correlation image for angle '
+                '%s; returning a zero offset. min=%s max=%s error=%s',
+                angle, correlation_image.min(), correlation_image.max(), e)
             return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
 
     overlap_mask = nornir_imageregistration.overlapmasking.GetOverlapMaskOnDevice(
@@ -1615,7 +1621,10 @@ def _score_one_angle_core(
     try:
         shifted -= shifted.min()
     except FloatingPointError as e:
-        print(f"Floating point error: {e} for {shifted.min()} or {shifted.max()}")
+        logging.getLogger(__name__).warning(
+            'Floating point error normalizing the shifted correlation image for angle '
+            '%s; returning a zero offset. min=%s max=%s error=%s',
+            angle, shifted.min(), shifted.max(), e)
         return nornir_imageregistration.AlignmentRecord((0, 0), 0, angle)
 
     return _peak_from_correlation_image(
@@ -1909,9 +1918,9 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     )
 
     if nornir_imageregistration.in_debug_mode():
-        print(
-            f'radial_fft scale_seed={scale_seed} peak_ratio={radial_peak_ratio} '
-            f'radius_radial={radius_radial} angle={recovered_angle:.4f}')
+        logging.getLogger(__name__).debug(
+            'radial_fft scale_seed=%s peak_ratio=%s radius_radial=%s angle=%.4f',
+            scale_seed, radial_peak_ratio, radius_radial, recovered_angle)
 
     # B1 scale is a seed only; do not pre-scale before angle / 180° disambiguation.
     registration_source = source_image.astype(np.float32)
@@ -2008,9 +2017,10 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
             rotated_180 = True
 
     if nornir_imageregistration.in_debug_mode():
-        print(
-            f'{original_peak.peak_strength} vs {rotated_peak.peak_strength} @ recovered angle {recovered_angle} '
-            f'scale_seed {scale_seed} {'rotated_180' if rotated_180 else ""}')
+        logging.getLogger(__name__).debug(
+            '%s vs %s @ recovered angle %s scale_seed %s %s',
+            original_peak.peak_strength, rotated_peak.peak_strength, recovered_angle,
+            scale_seed, 'rotated_180' if rotated_180 else '')
 
     strength_delta_ratio = abs(float(original_peak.peak_strength) - float(rotated_peak.peak_strength)) / max(
         max(float(original_peak.peak_strength), float(rotated_peak.peak_strength)), 1e-6
@@ -2039,13 +2049,13 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
             source_image, target_image, source_stats, target_stats,
             recovered_angle, scale_seed, min_overlap, wide_search=False)
         if nornir_imageregistration.in_debug_mode():
-            print(
-                f'B1 fixed-angle scale: seed={scale_seed:.6f} refined={shift_scale:.6f} '
-                f'angle={recovered_angle:.4f}')
+            logging.getLogger(__name__).debug(
+                'B1 fixed-angle scale: seed=%.6f refined=%.6f angle=%.4f',
+                scale_seed, shift_scale, recovered_angle)
     elif nornir_imageregistration.in_debug_mode():
-        print(
-            f'B1 scale seed={scale_seed:.6f} angle={recovered_angle:.4f} '
-            f'peak_ratio={radial_peak_ratio:.3f}')
+        logging.getLogger(__name__).debug(
+            'B1 scale seed=%.6f angle=%.4f peak_ratio=%.3f',
+            scale_seed, recovered_angle, radial_peak_ratio)
 
     _result = AngleScaleResult(
         angle=recovered_angle,

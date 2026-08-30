@@ -18,6 +18,7 @@ Key functions:
 This module supports both CPU (numpy) and GPU (cupy) computation, automatically selecting
 the appropriate backend based on availability.
 """
+import logging
 from typing import Any, NamedTuple, Optional, Tuple, Union, cast
 
 import numpy as np
@@ -65,6 +66,9 @@ def _coerce_array_to_module(array: NDArray[Any], xp) -> NDArray[Any]:
     return xp.asarray(array)
 
 
+_logger = logging.getLogger(__name__)
+
+
 def _no_peak_offset() -> tuple[float, float]:
     """Zero translation for a missing correlation peak.
 
@@ -74,6 +78,27 @@ def _no_peak_offset() -> tuple[float, float]:
     outside each other's bounding boxes.
     """
     return (0.0, 0.0)
+
+
+def _no_peak_result(reason: str, **context: Any) -> "FindPeakResult":
+    """The degenerate all-zero result, logged with which of the paths produced it.
+
+    ``find_peak`` reaches this from three unrelated conditions -- an overlap mask that
+    admits nothing, a correlation surface with nothing above the cutoff, and labelled
+    components that all sum to zero -- and every one of them returned a byte-identical
+    ``FindPeakResult((0, 0), 0, 0.0, 0.0, 0.0)``. A caller sees ``weight == 0`` and
+    cannot tell a misconfigured overlap window from a blank tile from a flat surface.
+    The result stays identical, since callers gate on the weight; only the reason is
+    now recoverable.
+
+    Logged at debug because a blank or featureless tile is ordinary in a large mosaic
+    and these would otherwise fire per tile.
+    """
+    if _logger.isEnabledFor(logging.DEBUG):
+        detail = ', '.join(f'{k}={v}' for k, v in context.items())
+        _logger.debug('find_peak found no usable peak (%s)%s',
+                      reason, f': {detail}' if detail else '')
+    return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
 
 
 def pad_image_for_phase_correlation(image: NDArray[np.floating],
@@ -464,7 +489,9 @@ def find_peak(image: NDArray[np.floating],
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
         if int(xp.count_nonzero(overlap_mask)) == 0:
-            return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
+            return _no_peak_result('the overlap mask admits no pixels',
+                                   mask_shape=tuple(overlap_mask.shape),
+                                   image_shape=tuple(image.shape))
 
     # Fuse copy + mask: one allocation (or in-place) instead of copy + logical_not temp.
     if overlap_mask is not None:
@@ -544,7 +571,9 @@ def find_peak(image: NDArray[np.floating],
 
     # If no labels were found, there are no peaks
     if num_labels == 0:
-        return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
+        return _no_peak_result('nothing survived the cutoff',
+                               cutoff=cutoff_value, percentile=cutoff_percent,
+                               image_shape=tuple(image.shape))
 
     # Calculate the sum of pixel values for each label
     # The first interesting label starts at 1, 0 is the background
@@ -558,7 +587,9 @@ def find_peak(image: NDArray[np.floating],
         del label_image
         del masked_image
 
-        return FindPeakResult(_no_peak_offset(), 0, 0.0, 0.0, 0.0)
+        return _no_peak_result('every labelled component sums to zero',
+                               num_labels=num_labels, cutoff=cutoff_value,
+                               image_shape=tuple(image.shape))
 
     # Find the label with the highest sum (strongest peak)
     peak_value_index = label_sums.argmax()
