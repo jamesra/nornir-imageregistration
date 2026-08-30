@@ -42,7 +42,7 @@ from nornir_imageregistration.distance import CreateDistanceImage
 
 distance_image_cache = WindowFilterCache('distance', CreateDistanceImage)
 
-_DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES = 16 * 1024 * 1024 * 1024
+_DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES = assemble._DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES
 
 # Tile prefetch tuning (network/NAS-optimised defaults for 2 GB/core systems).
 # _PREFETCH_WORKERS: threads that read tiles from disk/network concurrently.
@@ -67,30 +67,11 @@ _composite_lock = threading.Lock()
 _scaled_transform_assemble_cache: dict[tuple[int, float, float], nornir_imageregistration.ITransform] | None = None
 
 
-def _max_assemble_buffer_bytes() -> int:
-    """Return the maximum allowed assemble output buffer size in bytes."""
-    raw = os.environ.get('NORNIR_MAX_ASSEMBLE_BUFFER_BYTES')
-    if raw is not None and raw.strip() != '':
-        return int(raw)
-    return _DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES
-
-
-def _raise_if_assemble_buffer_too_large(height: int, width: int, dtype: DTypeLike) -> None:
-    """Fail fast before allocating an unreasonably large assemble canvas."""
-    if height <= 0 or width <= 0:
-        raise ValueError(f"Assemble output dimensions must be positive, got {height}x{width}")
-
-    image_bytes = int(height) * int(width) * int(np.dtype(dtype).itemsize)
-    zbuffer_bytes = int(height) * int(width) * int(np.dtype(np.float16).itemsize)
-    total_bytes = image_bytes + zbuffer_bytes
-    limit_bytes = _max_assemble_buffer_bytes()
-    if total_bytes > limit_bytes:
-        raise ValueError(
-            f"Refusing to allocate {total_bytes:,} bytes for assemble output "
-            f"({width}x{height}, image dtype={np.dtype(dtype)}, limit={limit_bytes:,} from "
-            "NORNIR_MAX_ASSEMBLE_BUFFER_BYTES). This usually indicates invalid mosaic transforms "
-            "with exploded target-space control points; regenerate the grid transform or inspect "
-            "per-tile target bounding boxes before assembling.")
+# Defined in assemble.py so TransformImage can apply the same ceiling; assemble_tiles
+# imports assemble, not the other way round. Re-exported here under the original names
+# because callers and tests already reach for them on this module.
+_max_assemble_buffer_bytes = assemble._max_assemble_buffer_bytes
+_raise_if_assemble_buffer_too_large = assemble._raise_if_assemble_buffer_too_large
 
 
 # TODO: Use atexit to delete the temporary files

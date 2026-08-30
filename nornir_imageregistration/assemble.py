@@ -27,7 +27,7 @@ except ImportError:
     import nornir_imageregistration.cupyx_thunk as cupyx
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
 import scipy
 
 import nornir_pools
@@ -41,6 +41,45 @@ from nornir_imageregistration.transforms.utils import InvalidIndices
 # during _TransformImageUsingCoords lets threads overlap disk I/O and CPU
 # coordinate transforms while GPU warps run one at a time.
 _gpu_warp_lock: threading.Lock = threading.Lock()
+
+# Ceiling on a single assemble output canvas. An exploded target-space transform asks
+# for a canvas orders of magnitude larger than any real section, and without a ceiling
+# the allocation either raises a bare MemoryError naming a number with no context or,
+# on a machine with enough swap, thrashes for a long time before failing.
+_DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES = 16 * 1024 * 1024 * 1024
+
+
+def _max_assemble_buffer_bytes() -> int:
+    """Return the maximum allowed assemble output buffer size in bytes."""
+    raw = os.environ.get('NORNIR_MAX_ASSEMBLE_BUFFER_BYTES')
+    if raw is not None and raw.strip() != '':
+        return int(raw)
+    return _DEFAULT_MAX_ASSEMBLE_BUFFER_BYTES
+
+
+def _raise_if_assemble_buffer_too_large(height: int, width: int, dtype: DTypeLike,
+                                        include_zbuffer: bool = True) -> None:
+    """Fail fast before allocating an unreasonably large assemble canvas.
+
+    ``include_zbuffer`` accounts for the companion float16 distance buffer that the
+    tile-compositing path allocates alongside the image. Callers that only allocate an
+    image, such as ``TransformImage``, pass False so the limit means what it says.
+    """
+    if height <= 0 or width <= 0:
+        raise ValueError(f"Assemble output dimensions must be positive, got {height}x{width}")
+
+    image_bytes = int(height) * int(width) * int(np.dtype(dtype).itemsize)
+    total_bytes = image_bytes
+    if include_zbuffer:
+        total_bytes += int(height) * int(width) * int(np.dtype(np.float16).itemsize)
+    limit_bytes = _max_assemble_buffer_bytes()
+    if total_bytes > limit_bytes:
+        raise ValueError(
+            f"Refusing to allocate {total_bytes:,} bytes for assemble output "
+            f"({width}x{height}, image dtype={np.dtype(dtype)}, limit={limit_bytes:,} from "
+            "NORNIR_MAX_ASSEMBLE_BUFFER_BYTES). This usually indicates invalid mosaic transforms "
+            "with exploded target-space control points; regenerate the grid transform or inspect "
+            "per-tile target bounding boxes before assembling.")
 
 
 def _ensure_on_array_module(array: NDArray, xp) -> NDArray:
@@ -964,6 +1003,13 @@ def TransformImage(transform: ITransform,
     fixedImageShape = fixedImageShape.astype(dtype=np.int64, copy=False)  # type: ignore[union-attr]
     height = int(fixedImageShape[0])
     width = int(fixedImageShape[1])
+
+    # Both branches below allocate the whole canvas, so check it once here. Without
+    # this an exploded transform reached np.zeros and surfaced as a bare MemoryError,
+    # while the tile-compositing path refused the same canvas with a diagnosis.
+    _raise_if_assemble_buffer_too_large(
+        height, width, _assembly_output_dtype(warpedImage.dtype) or warpedImage.dtype,
+        include_zbuffer=False)
 
     # print('\nConverting image to ' + str(self.NumCols) + "x" + str(self.NumRows) + ' grid of OpenGL textures')
 
