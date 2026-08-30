@@ -41,6 +41,23 @@ except (ModuleNotFoundError, ImportError):
 _DEFAULT_CORRELATION_COEFFICIENT = 0.65
 
 
+def _correlation_work_dtype(*dtypes) -> np.dtype:
+    """Precision the batched correlation runs in: the inputs', but at least float32.
+
+    Both FFT backends honour single precision -- ``numpy.fft`` and ``cupy.fft`` each
+    return ``complex64`` for a ``float32`` input -- so forcing ``float64`` doubled the
+    transform workspace for the ``float32`` stacks callers actually pass. The floor
+    keeps integer and ``float16`` inputs from running the transform at a precision that
+    would lose the correlation peak.
+
+    CuPy dtypes are NumPy dtypes, so this needs no array module.
+    """
+    result = np.dtype(np.float32)
+    for dtype in dtypes:
+        result = np.promote_types(result, dtype)
+    return result
+
+
 def batched_image_phase_correlation(targets: NDArray[np.floating],
                                     sources: NDArray[np.floating],
                                     correlation_coefficient: Optional[float] = None
@@ -55,9 +72,14 @@ def batched_image_phase_correlation(targets: NDArray[np.floating],
 
     :param targets: ``(N, h, w)`` target (fixed) images.
     :param sources: ``(N, h, w)`` source (moving) images, same shape.
+    Runs at the inputs' precision, floored at float32, so a float32 stack keeps a
+    complex64 transform instead of paying double the FFT workspace. The returned
+    correlation carries that same precision.
+
     :param correlation_coefficient: Cross-power normalization exponent in
         ``[0, 1]``; defaults to 0.65.
-    :return: ``(N, h, w)`` real correlation images on the same array module.
+    :return: ``(N, h, w)`` real correlation images on the same array module, in the
+        working precision (the inputs' dtype promoted to at least float32).
     """
     xp = cp.get_array_module(targets)
     if targets.shape != sources.shape:
@@ -70,8 +92,14 @@ def batched_image_phase_correlation(targets: NDArray[np.floating],
     if cc < 0 or cc > 1:
         raise ValueError("correlation_coefficient must be between 0 and 1")
 
-    targets = xp.asarray(targets, dtype=xp.float64)
-    sources = xp.asarray(sources, dtype=xp.float64)
+    # Work in the caller's precision, floored at float32, rather than forcing float64.
+    # Serial image_phase_correlation has always used the native dtype; this side
+    # unconditionally upcast, so a float32 cell stack paid double the FFT workspace and
+    # a conversion the serial path never made. The float32 floor keeps integer and
+    # float16 inputs off a lossy FFT.
+    work_dtype = _correlation_work_dtype(targets.dtype, sources.dtype)
+    targets = xp.asarray(targets, dtype=work_dtype)
+    sources = xp.asarray(sources, dtype=work_dtype)
 
     target_mean = targets.mean(axis=(-2, -1), keepdims=True)
     source_mean = sources.mean(axis=(-2, -1), keepdims=True)
@@ -86,7 +114,10 @@ def batched_image_phase_correlation(targets: NDArray[np.floating],
     abs_conj = xp.absolute(conj)
     # Only normalize entries above a small threshold (matches fft_phase_correlation);
     # below-threshold entries are divided by 1.0 (left unchanged).
-    denom = xp.where(abs_conj > 1e-5, xp.power(abs_conj, cc), xp.float64(1.0))
+    # The one literal must match the working precision: a float64 scalar here promoted
+    # denom back to float64 and undid the saving for a float32 stack.
+    denom = xp.where(abs_conj > 1e-5, xp.power(abs_conj, cc),
+                     xp.asarray(1.0, dtype=abs_conj.dtype))
     conj /= denom
     del abs_conj, denom
 
@@ -170,6 +201,10 @@ def batched_find_peak(images: NDArray[np.floating],
     # up to 0.72px, and truncating the window instead still left 0.58px. Wrapping holds
     # them to 0.06px.
     offsets = xp.arange(-r, r + 1)
+    # Separate float view for the centroid weighting below: the integer form is needed
+    # for the index arithmetic, but multiplying it into the window would promote a
+    # float32 correlation back to float64 and undo the single-precision workspace.
+    offsets_weight = offsets.astype(images.dtype)
 
     row_idx = (peak_r[:, None, None] + offsets[None, :, None]) % h   # (N, 2r+1, 1)
     col_idx = (peak_c[:, None, None] + offsets[None, None, :]) % w   # (N, 1, 2r+1)
@@ -190,8 +225,8 @@ def batched_find_peak(images: NDArray[np.floating],
     # Left to broadcast in the multiply rather than materialized with broadcast_to:
     # these are (1, 2r+1, 1) and (1, 1, 2r+1) against an (N, 2r+1, 2r+1) window, and
     # expanding them cost 42% on a 64-cell batch, where fixed overhead dominates.
-    weighted_r = (window * offsets[None, :, None]).sum(axis=(-2, -1))
-    weighted_c = (window * offsets[None, None, :]).sum(axis=(-2, -1))
+    weighted_r = (window * offsets_weight[None, :, None]).sum(axis=(-2, -1))
+    weighted_c = (window * offsets_weight[None, None, :]).sum(axis=(-2, -1))
     valid = wsum > 0
     safe_wsum = xp.where(valid, wsum, 1.0)
     # Left deliberately un-wrapped, so a peak on row 0 whose lobe sits just before it
@@ -267,8 +302,12 @@ def batched_find_offset(fixed_cells: NDArray[np.floating],
     if fixed_cells.ndim != 3:
         raise ValueError("cells must be (N, h, w) stacks")
 
-    fixed = xp.asarray(fixed_cells, dtype=xp.float64)
-    moving = xp.asarray(moving_cells, dtype=xp.float64)
+    # Match the caller's precision (floored at float32) rather than forcing float64;
+    # see _correlation_work_dtype. Everything downstream keys off ``.dtype``, so the
+    # normalize, correlate, and peak stages all follow.
+    work_dtype = _correlation_work_dtype(fixed_cells.dtype, moving_cells.dtype)
+    fixed = xp.asarray(fixed_cells, dtype=work_dtype)
+    moving = xp.asarray(moving_cells, dtype=work_dtype)
 
     # Imported lazily: refine_shared.cell_validity lives under a package whose
     # __init__ imports cell_measurement, which imports this module.
