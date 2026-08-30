@@ -299,6 +299,15 @@ def _estimate_scale_radial_fft(
     The magnitude spectrum must be DoG-filtered. A raw spectrum degenerates to a
     constant 1.0 here; see ``_logpolar_fft_magnitude``.
 
+    The returned scale is clamped to the supported band. Saturation means the pair is
+    outside the regime this seed is calibrated for, so it is logged at warning level
+    with the raw value: the clamped number alone cannot be told apart from a genuine
+    band-edge estimate, and ``peak_ratio`` does not fill that gap (a badly aliased
+    estimate can carry a *higher* ratio than a correct band-edge one). Callers should
+    treat a saturated seed as "unknown", not as a measurement. Do not use the raw
+    estimate directly: beyond roughly a 25% scale change the log-radius correlation
+    aliases and can invert, reporting ~2.5 for a true 0.40.
+
     Host-only: ``skimage.transform.warp_polar``.
     """
     target_magnitude = nornir_imageregistration.EnsureNumpyArray(target_magnitude)
@@ -328,7 +337,14 @@ def _estimate_scale_radial_fft(
     klog = output_shape[1] / float(np.log(max(max_radius, 2)))
     refined_col_offset = float(peak.scaled_offset[1])
     scale = float(np.exp(refined_col_offset / klog))
-    return float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX)), peak_ratio
+    clamped = float(np.clip(scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
+    if clamped != scale:
+        logging.getLogger(__name__).warning(
+            'radial scale seed %.4f outside supported band [%.2f, %.2f]; clamped to '
+            '%.4f (peak_ratio %.3f). The pair is likely outside the calibrated scale '
+            'regime; treat the seed as unknown rather than as a measurement.',
+            scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX, clamped, peak_ratio)
+    return clamped, peak_ratio
 
 
 def _scale_at_final_angle(
@@ -361,6 +377,15 @@ class LogPolarDiagnostics:
     strength_delta_ratio: float
     degrees_per_pixel: float
     peak_strength: float
+    # Radial scale seed provenance. Defaulted so callers that predate these fields, and
+    # the angle-only paths that never run the radial stage, keep working unchanged.
+    # Deliberately NOT folded into _logpolar_confidence: that value steers the fallback
+    # search geometry, and widening its inputs would change which angles get searched.
+    radial_peak_ratio: float = 0.0
+    # True when the radial estimate hit the edge of the supported band, i.e. the seed is
+    # "unknown" rather than measured. Derived from the returned value landing on a bound,
+    # since a genuine estimate lands strictly inside; see _estimate_scale_radial_fft.
+    scale_seed_saturated: bool = False
 
 
 def _logpolar_narrow_angle_range(
@@ -1931,6 +1956,9 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
         strength_delta_ratio=strength_delta_ratio,
         degrees_per_pixel=float(degrees_per_pixel),
         peak_strength=float(angle_scale_peak.peak_strength),
+        radial_peak_ratio=float(radial_peak_ratio),
+        scale_seed_saturated=bool(
+            scale_seed <= _SCALE_REFINE_MIN or scale_seed >= _SCALE_REFINE_MAX),
     )
 
     shift_scale = float(scale_seed)
