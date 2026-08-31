@@ -88,6 +88,29 @@ class TestGridFitting(unittest.TestCase):
                                   points: list[tuple[float, float]]):
         self.runFit(rangle, translate, scale, flip_ud, points, hypothesis_test=True)
 
+    # A cloud thinner than this fraction of its own length cannot support a stable rigid
+    # fit: recovering the components needs far better relative precision than that, and
+    # EstimateRigidComponentsFromControlPoints rejects such input as colinear.
+    colinear_condition_limit = 1e-6
+
+    @staticmethod
+    def is_numerically_colinear(points_array: NDArray[np.floating]) -> bool:
+        """True when the point cloud is collinear to within usable floating point precision.
+
+        ``calculate_point_relation`` only rejects exact collinearity, so Hypothesis can
+        generate sets that clear it while still being degenerate -- a 1e-10 Y deviation
+        across a 100-unit X span. The estimator also inspects the scaled target points,
+        whose cross products shrink with the scale factor, and reports those as colinear.
+
+        Uses the ratio of the smallest to largest singular value of the mean-centred
+        cloud, which is invariant under the uniform scaling applied to build the targets.
+        """
+        centered = points_array - points_array.mean(axis=0)
+        singular_values = np.linalg.svd(centered, compute_uv=False)
+        if singular_values[0] <= 0:
+            return True
+        return bool(singular_values[-1] / singular_values[0] < TestGridFitting.colinear_condition_limit)
+
     @staticmethod
     def build_output_points(rangle: float, translate: tuple[float, float], scale: float, flip_ud: bool,
                             points: list[tuple[float, float]], hypothesis_test: bool) -> NDArray[np.floating]:
@@ -158,6 +181,9 @@ class TestGridFitting(unittest.TestCase):
         if nornir_imageregistration.transforms.pointrelations.calculate_point_relation(
                 points_array) == nornir_imageregistration.transforms.pointrelations.ControlPointRelation.COLINEAR:
             flip_ud = False
+            return
+
+        if TestGridFitting.is_numerically_colinear(points_array):
             return
 
         output_points2D = TestGridFitting.build_output_points(rangle, translate, scale, flip_ud, points,

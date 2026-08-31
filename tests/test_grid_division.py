@@ -1,6 +1,6 @@
 import unittest
 
-from hypothesis import given, strategies
+from hypothesis import given, settings, strategies
 import numpy as np
 
 import nornir_imageregistration
@@ -30,6 +30,11 @@ class testITKGridDivision(unittest.TestCase):
 
         self.assertTrue(np.allclose(inverted_target_points, grid.SourcePoints))
 
+    # Grid construction cost scales as source_shape / grid_spacing, so the smallest
+    # generated spacing (1, 1) over a ~2048^2 source builds millions of points. That is
+    # a valid input, not a regression, and its wall-clock cost varies by machine, so a
+    # per-example deadline only produces spurious DeadlineExceeded failures here.
+    @settings(deadline=None)
     @given(grid_spacing=grid_spacing_strategy, cell_size=cell_size_strategy, source_shape=source_shape_strategy)
     def test_grid_spacing(self, grid_spacing: tuple[int, int], cell_size: tuple[int, int],
                           source_shape: tuple[int, int]):
@@ -90,6 +95,11 @@ class testCenteredGridDivision(unittest.TestCase):
 
         self.assertTrue(np.allclose(inverted_target_points, grid.SourcePoints))
 
+    # Grid construction cost scales as source_shape / grid_spacing, so the smallest
+    # generated spacing (1, 1) over a ~2048^2 source builds millions of points. That is
+    # a valid input, not a regression, and its wall-clock cost varies by machine, so a
+    # per-example deadline only produces spurious DeadlineExceeded failures here.
+    @settings(deadline=None)
     @given(grid_spacing=grid_spacing_strategy, cell_size=cell_size_strategy, source_shape=source_shape_strategy)
     def test_grid_spacing(self, grid_spacing: tuple[int, int], cell_size: tuple[int, int],
                           source_shape: tuple[int, int]):

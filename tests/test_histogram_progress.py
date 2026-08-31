@@ -27,10 +27,13 @@ class TestHistogramProgress(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertGreaterEqual(progress.call_count, 2)
-        progress.assert_any_call(
-            "import_idoc:histogram", 0, 2, name="Import histogram 1")
-        progress.assert_any_call(
-            "import_idoc:histogram", 2, 2, name="Import histogram 1")
+
+        # Compare on (positional args, name) only. publish_task_progress also takes
+        # optional dashboard metadata (element/path/section) that Histogram passes as
+        # None; matching the full kwarg set would break every time one is added.
+        published = [(call.args, call.kwargs.get("name")) for call in progress.call_args_list]
+        self.assertIn((("import_idoc:histogram", 0, 2), "Import histogram 1"), published)
+        self.assertIn((("import_idoc:histogram", 2, 2), "Import histogram 1"), published)
         complete.assert_called_once_with("import_idoc:histogram", 2)
 
     def test_histogram_skips_progress_without_task_key(self) -> None:

@@ -8,6 +8,7 @@ from unittest import mock
 import numpy as np
 import pytest
 import scipy.spatial
+from scipy.interpolate import LinearNDInterpolator
 
 import nornir_imageregistration
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
@@ -152,10 +153,8 @@ class TestLinearNDCuPyFallback(unittest.TestCase):
         np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-5)
         self.assertTrue(transform._scipy_inverse_interp)
 
-    def test_grid_inverse_uses_cpu_analytic_when_culinear_degenerate(self) -> None:
-        """Grid inverse uses CPU analytic when cuLinearND fails (degenerate triangulation)."""
-        from nornir_imageregistration.transforms.gridtransform import _GridTopologyLinearInterpolator
-
+    def test_grid_inverse_uses_scipy_qhull_when_culinear_degenerate(self) -> None:
+        """Grid inverse falls back to SciPy Qhull when cuLinearND rejects the mesh as degenerate."""
         transform = _sample_grid_transform()
         target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
         source_np = nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints)
@@ -168,7 +167,7 @@ class TestLinearNDCuPyFallback(unittest.TestCase):
             result = nornir_imageregistration.EnsureNumpyArray(transform.InverseTransform(query_points))
 
         self.assertTrue(transform._scipy_inverse_interp)
-        self.assertIsInstance(transform._InverseInterpolator, _GridTopologyLinearInterpolator)
+        self.assertIsInstance(transform._InverseInterpolator, LinearNDInterpolator)
         self.assertFalse(np.any(np.isnan(result)))
         np.testing.assert_allclose(result, source_np[:1], rtol=0, atol=1e-5)
 
@@ -192,14 +191,13 @@ class TestLinearNDCuPyFallback(unittest.TestCase):
             'InverseInterpolator should be cuLinearNDInterpolator (GPU), not CPU analytic path',
         )
 
-    def test_grid_inverse_gpu_matches_cpu_analytic(self) -> None:
-        """GPU cuLinearNDInterpolator inverse matches CPU _GridTopologyLinearInterpolator.
+    def test_grid_inverse_gpu_matches_scipy_qhull(self) -> None:
+        """GPU cuLinearNDInterpolator inverse matches the SciPy Qhull host reference.
 
-        Queries the full set of TargetPoints (known exact positions) plus a dense
-        interior grid so both the on-control-point and interpolated cases are covered.
+        Queries a dense interior grid so the interpolated case is covered on both
+        backends. This is the host/device parity guard for the grid inverse.
         """
         from nornir_imageregistration.transforms.gridtransform import (
-            _GridTopologyLinearInterpolator,
             _build_scipy_linear_nd_interpolator,
         )
 
@@ -207,8 +205,8 @@ class TestLinearNDCuPyFallback(unittest.TestCase):
         target_np = nornir_imageregistration.EnsureNumpyArray(gpu_transform.TargetPoints)
         source_np = nornir_imageregistration.EnsureNumpyArray(gpu_transform.SourcePoints)
 
-        # Build CPU reference directly.
-        cpu_interp = _GridTopologyLinearInterpolator(target_np, source_np, gpu_transform.grid_dims)
+        cpu_interp = _build_scipy_linear_nd_interpolator(target_np, source_np)
+        assert cpu_interp is not None, 'SciPy Qhull reference interpolator must build'
 
         # Dense interior query grid (avoids extrapolation which both paths handle as NaN).
         y_min, x_min = target_np.min(axis=0)
@@ -229,28 +227,31 @@ class TestLinearNDCuPyFallback(unittest.TestCase):
         np.testing.assert_allclose(
             gpu_result[valid], cpu_result[valid],
             rtol=0, atol=1e-3,
-            err_msg='GPU inverse does not match CPU analytic inverse within tolerance',
+            err_msg='GPU inverse does not match SciPy Qhull inverse within tolerance',
         )
 
 
-class TestCuGridTopologyInterpolator(unittest.TestCase):
-    """Tests for _CuGridTopologyInterpolator — GPU analytic barycentric grid lookup."""
+class TestScipyQhullInverseFallback(unittest.TestCase):
+    """Tests for the SciPy Qhull host interpolator used when cupyx Delaunay is degenerate.
+
+    The GPU analytic grid-topology interpolator these tests originally covered was
+    removed in 696479f8 because it regressed section assemble from ~9s to ~60s;
+    SciPy Qhull is now the only fallback, so the parity checks target it instead.
+    """
 
     def setUp(self) -> None:
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
 
     def _build_interpolators(self):
         from nornir_imageregistration.transforms.gridtransform import (
-            _CuGridTopologyInterpolator,
-            _GridTopologyLinearInterpolator,
+            _build_scipy_linear_nd_interpolator,
         )
         transform = _sample_grid_transform()
         target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
         source_np = nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints)
-        dims = transform.grid_dims
-        cpu = _GridTopologyLinearInterpolator(target_np, source_np, dims)
-        gpu = _CuGridTopologyInterpolator(target_np, source_np, dims)
-        return cpu, gpu, target_np, source_np
+        cpu = _build_scipy_linear_nd_interpolator(target_np, source_np)
+        assert cpu is not None, 'SciPy Qhull reference interpolator must build'
+        return cpu, target_np, source_np
 
     def _interior_query(self, target_np: np.ndarray, n: int = 30) -> np.ndarray:
         y_min, x_min = target_np.min(axis=0)
@@ -261,79 +262,36 @@ class TestCuGridTopologyInterpolator(unittest.TestCase):
         return np.column_stack([gy.ravel(), gx.ravel()]).astype(np.float64)
 
     @pytest.mark.skipif(not nornir_imageregistration.HasCupy(), reason='CuPy required')
-    def test_returns_cupy_array(self) -> None:
-        """_CuGridTopologyInterpolator returns a CuPy array."""
-        _, gpu, target_np, _ = self._build_interpolators()
-        query = cp.asarray(target_np[:3], dtype=cp.float64)
-        result = gpu(query)
+    def test_gpu_inverse_returns_cupy_array(self) -> None:
+        """The default (non-degenerate) GPU inverse keeps results on the device."""
+        transform = _sample_grid_transform()
+        target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
+        result = transform.InverseTransform(cp.asarray(target_np[:3], dtype=np.float64))
         self.assertIsInstance(result, cp.ndarray)
 
     @pytest.mark.skipif(not nornir_imageregistration.HasCupy(), reason='CuPy required')
     def test_control_points_exact(self) -> None:
-        """GPU interpolator returns source values at grid control points (on-vertex case)."""
-        cpu, gpu, target_np, source_np = self._build_interpolators()
-        query = cp.asarray(target_np, dtype=cp.float64)
-        gpu_result = nornir_imageregistration.EnsureNumpyArray(gpu(query))
-        valid = ~np.isnan(gpu_result).any(axis=1)
+        """SciPy Qhull fallback returns source values at grid control points (on-vertex case)."""
+        cpu, target_np, source_np = self._build_interpolators()
+        cpu_result = np.asarray(cpu(target_np))
+        valid = ~np.isnan(cpu_result).any(axis=1)
         self.assertGreater(valid.sum(), len(target_np) // 2)
         np.testing.assert_allclose(
-            gpu_result[valid], source_np[valid],
+            cpu_result[valid], source_np[valid],
             rtol=0, atol=1e-5,
-            err_msg='GPU interpolator does not return source values at control points',
+            err_msg='Fallback interpolator does not return source values at control points',
         )
 
     @pytest.mark.skipif(not nornir_imageregistration.HasCupy(), reason='CuPy required')
-    def test_matches_cpu_interior(self) -> None:
-        """GPU interpolator matches CPU analytic on a dense interior query grid."""
-        cpu, gpu, target_np, _ = self._build_interpolators()
-        query_np = self._interior_query(target_np)
-        cpu_result = cpu(query_np)
-        gpu_result = nornir_imageregistration.EnsureNumpyArray(
-            gpu(cp.asarray(query_np, dtype=cp.float64))
-        )
-        valid = ~np.isnan(cpu_result).any(axis=1) & ~np.isnan(gpu_result).any(axis=1)
-        self.assertGreater(valid.sum(), 200, 'Expected at least 200 valid interior points')
-        np.testing.assert_allclose(
-            gpu_result[valid], cpu_result[valid],
-            rtol=0, atol=1e-4,
-            err_msg='GPU analytic does not match CPU analytic within tolerance',
-        )
-
-    @pytest.mark.skipif(not nornir_imageregistration.HasCupy(), reason='CuPy required')
-    def test_used_as_inverse_interpolator_after_culinear_fails(self) -> None:
-        """After cuLinearNDInterpolator degeneracy, CPU analytic inverse is selected."""
-        from nornir_imageregistration.transforms.gridtransform import _GridTopologyLinearInterpolator
-
-        transform = _sample_grid_transform()
-        transform._InverseInterpolator = None
-        transform._scipy_inverse_interp = False
-
-        with mock.patch(
-                'nornir_imageregistration.transforms.gridtransform.cuLinearNDInterpolator',
-                side_effect=_CUPY_DEGENERATE_ERROR,
-        ):
-            _ = transform.InverseInterpolator
-
-        self.assertIsInstance(
-            transform._InverseInterpolator,
-            _GridTopologyLinearInterpolator,
-            'Expected CPU analytic inverse after cuLinearNDInterpolator failure',
-        )
-        self.assertTrue(
-            transform._scipy_inverse_interp,
-            '_scipy_inverse_interp should be True for CPU analytic path',
-        )
-
-    @pytest.mark.skipif(not nornir_imageregistration.HasCupy(), reason='CuPy required')
-    def test_end_to_end_inverse_transform_uses_cpu_analytic(self) -> None:
-        """Full InverseTransform via CPU analytic matches reference when cuLinearND fails."""
-        cpu, _, target_np, _ = self._build_interpolators()
+    def test_end_to_end_inverse_transform_uses_scipy_qhull(self) -> None:
+        """Full InverseTransform matches the SciPy reference when cuLinearND is degenerate."""
+        cpu, target_np, _ = self._build_interpolators()
         transform = _sample_grid_transform()
         transform._InverseInterpolator = None
         transform._scipy_inverse_interp = False
 
         query_np = self._interior_query(target_np)
-        cpu_result = cpu(query_np)
+        cpu_result = np.asarray(cpu(query_np))
 
         with mock.patch(
                 'nornir_imageregistration.transforms.gridtransform.cuLinearNDInterpolator',
@@ -348,7 +306,7 @@ class TestCuGridTopologyInterpolator(unittest.TestCase):
         np.testing.assert_allclose(
             gpu_result[valid], cpu_result[valid],
             rtol=0, atol=1e-4,
-            err_msg='End-to-end GPU analytic inverse does not match CPU reference',
+            err_msg='End-to-end inverse does not match the SciPy Qhull reference',
         )
 
 
