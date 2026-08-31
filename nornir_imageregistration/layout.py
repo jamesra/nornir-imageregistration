@@ -1041,25 +1041,45 @@ def NormalizeOffsetWeights(original_layout: Layout,
     Modifies nodes in original_layout in place. Isolated nodes are skipped.
 
     :param original_layout: Layout whose node offset weights to normalize.
-    :param min_allowed_weight: Minimum weight after scaling; default uses layout minimum.
-    :param max_allowed_weight: Maximum weight after scaling; default uses layout maximum.
+    :param min_allowed_weight: Minimum weight after scaling.  Defaults to 0.  Set equal to
+        max_allowed_weight to give every offset the same weight.
+    :param max_allowed_weight: Maximum weight after scaling.  Defaults to 1.
     :return: None.
     """
 
+    # These name the *output* range, matching the docstring above, the wording in
+    # TranslateSettings ("the minimum weight we will allow an offset measurement between two
+    # tiles to have"), and how ScaleOffsetWeightsByPopulationRank reads the same two
+    # parameters. They were previously assigned over minWeight/maxWeight, the *source* extrema,
+    # so the output was always [0, 1] and the configured floor never reached a weight. Worse
+    # than ignored: with min_allowed_weight=0.5 on weights 0.1-0.9, three of five links were
+    # driven to exactly zero, losing their pull in the relaxation entirely, when the caller had
+    # asked for nothing below 0.5 (#130).
+    #
+    # The defaults reproduce the old output for the default TranslateSettings, where both are
+    # None, so only a configuration that sets them changes.
+    min_allowed = 0.0 if min_allowed_weight is None else float(min_allowed_weight)
+    max_allowed = 1.0 if max_allowed_weight is None else float(max_allowed_weight)
+
+    if min_allowed > max_allowed:
+        raise ValueError(
+            f"min_allowed_weight ({min_allowed}) must not exceed max_allowed_weight "
+            f"({max_allowed})")
+
     (minWeight, maxWeight) = original_layout.GetOffsetWeightExtrema()
 
-    minWeight = min_allowed_weight if min_allowed_weight is not None else minWeight
-    maxWeight = max_allowed_weight if max_allowed_weight is not None else maxWeight
-
+    allowed_range = max_allowed - min_allowed
     weight_range = maxWeight - minWeight
 
-    # All the weights are equal... odd
-    if np.isclose(maxWeight, minWeight):
+    # Either the layout has nothing to spread, or the caller asked for a single weight by
+    # passing min == max. Equality is a documented TranslateSettings option, so it is honoured
+    # rather than rejected the way the population-rank helper rejects it.
+    if np.isclose(maxWeight, minWeight) or np.isclose(allowed_range, 0):
         for node in original_layout.nodes.values():
             if node.IsIsolated:
                 continue
 
-            node.Weights = 1.0
+            node.Weights = max_allowed
 
         return
 
@@ -1068,15 +1088,13 @@ def NormalizeOffsetWeights(original_layout: Layout,
         if node.IsIsolated:
             continue
 
-        # node.OffsetArray[:, LayoutPosition.iOffsetWeight] = node.OffsetArray[:,
-        #                                                    LayoutPosition.iOffsetWeight] / maxWeight
-        node.Weights = (node.Weights - minWeight) / weight_range
+        node.Weights = (((node.Weights - minWeight) / weight_range) * allowed_range) + min_allowed
 
         if nornir_imageregistration.in_debug_mode():
-            assert (np.all(node.Weights >= 0))
-            assert (np.all(node.Weights <= 1.0))
+            assert (np.all(node.Weights >= min_allowed))
+            assert (np.all(node.Weights <= max_allowed))
         else:
-            node.Weights = np.clip(node.Weights, 0, 1.0)
+            node.Weights = np.clip(node.Weights, min_allowed, max_allowed)
     return
 
 
@@ -1086,7 +1104,10 @@ def SetOffsetWeights(original_layout: Layout, weight_value: float) -> None:
         if node.IsIsolated:
             continue
 
-        node.OffsetArray[:, LayoutPosition.iOffsetWeight] = weight_value
+        # Through the Weights setter: OffsetArray hands back a read-only copy (it says
+        # "Read-only use please"), so assigning into it raised "ValueError: assignment
+        # destination is read-only" and this function could never run at all (#130).
+        node.Weights = weight_value
 
 
 def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
@@ -1113,7 +1134,7 @@ def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
             if node.IsIsolated:
                 continue
 
-            node.OffsetArray[:, LayoutPosition.iOffsetWeight] = max_allowed_weight
+            node.Weights = max_allowed_weight
         return
 
     # Workaround for all weights being pretty decent and therefore a weight is artificially considered bad
@@ -1126,10 +1147,9 @@ def ScaleOffsetWeightsByPopulationRank(original_layout: Layout,
         if node.IsIsolated:
             continue
 
-        node.OffsetArray[:, LayoutPosition.iOffsetWeight] = (node.OffsetArray[:,
-                                                             LayoutPosition.iOffsetWeight] - minWeight) / maxWeight
-        node.OffsetArray[:, LayoutPosition.iOffsetWeight] *= allowed_weight_range
-        node.OffsetArray[:, LayoutPosition.iOffsetWeight] += min_allowed_weight
+        # Through the Weights setter, for the read-only reason noted in SetOffsetWeights.
+        node.Weights = (((node.Weights - minWeight) / maxWeight) * allowed_weight_range) \
+            + min_allowed_weight
 
         if nornir_imageregistration.in_debug_mode():
             assert (np.all(node.Weights >= min_allowed_weight))
