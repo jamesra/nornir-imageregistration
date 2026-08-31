@@ -131,6 +131,10 @@ class LayoutPosition:
         """
         Read-only use please.
         Each row is [ID Y X Weight]
+
+        Returns a defensive snapshot, which costs a full copy plus a flag update -- about 20x a
+        direct read of the backing array.  Callers inside this module read ``_OffsetArray`` (or
+        ``Weights``) instead; this property is for code outside it.  (#132)
         """
         readonly_array = np.array(self._OffsetArray)
         readonly_array.setflags(write=False)
@@ -316,7 +320,7 @@ class LayoutPosition:
         position_difference = self.TensionVectors(connected_nodes)
         magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
         i_max_tension = magnitudes.argmax()
-        return ID_Value(self.OffsetArray[i_max_tension, self.iOffsetID], position_difference[i_max_tension, :])
+        return ID_Value(self._OffsetArray[i_max_tension, self.iOffsetID], position_difference[i_max_tension, :])
 
     def MinTensionVector(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
@@ -329,7 +333,7 @@ class LayoutPosition:
         position_difference = self.TensionVectors(connected_nodes)
         magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
         i_min_tension = magnitudes.argmin()
-        return ID_Value(self.OffsetArray[i_min_tension, self.iOffsetID], position_difference[i_min_tension, :])
+        return ID_Value(self._OffsetArray[i_min_tension, self.iOffsetID], position_difference[i_min_tension, :])
 
     def MaxTensionMagnitude(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
@@ -350,7 +354,7 @@ class LayoutPosition:
         # connected_nodes happens to be ordered like that array; the three sibling methods here
         # still index it directly and report the wrong ID for a reordered sequence. (#255)
         iRows = self.get_row_indices(connected_nodes)
-        return ID_Value(self.OffsetArray[iRows[i_max_tension], self.iOffsetID], magnitudes[i_max_tension])
+        return ID_Value(self._OffsetArray[iRows[i_max_tension], self.iOffsetID], magnitudes[i_max_tension])
 
     def MinTensionMagnitude(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
@@ -363,7 +367,7 @@ class LayoutPosition:
         position_difference = self.TensionVectors(connected_nodes)
         magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
         i_min_tension = magnitudes.argmin()
-        return ID_Value(self.OffsetArray[i_min_tension, self.iOffsetID], magnitudes[i_min_tension])
+        return ID_Value(self._OffsetArray[i_min_tension, self.iOffsetID], magnitudes[i_min_tension])
 
     def ScaleOffsetWeightsByPosition(self, connected_nodes: Sequence[LayoutPosition]):
         """
@@ -681,7 +685,9 @@ class Layout:
             if node.IsIsolated:
                 continue
 
-            weights = node.OffsetArray[:, LayoutPosition.iOffsetWeight]
+            # node.Weights is this same column off the backing array; the OffsetArray property
+            # copied every row to reach it, once per node. (#132)
+            weights = node.Weights
 
             if first:
                 first = False
@@ -1057,13 +1063,18 @@ def OffsetsSortedByWeight(layout: Layout) -> NDArray:
         if node.IsIsolated:
             continue
 
+        # Read the backing array rather than the OffsetArray property, which copied every row --
+        # twice per node here.  Both uses are read-only, and hstack below builds a new array, so
+        # nothing aliases the node's storage.  (#132)
+        offsets = node._OffsetArray
+
         # Prevent duplicates by skipping IDs less than the nodes
-        iNewRows = node.OffsetArray[:, 0] > node.ID
+        iNewRows = offsets[:, 0] > node.ID
         if not np.any(iNewRows):
             continue
 
         new_column = np.ones((int(np.sum(iNewRows)), 1)) * node.ID
-        new_rows = np.hstack((new_column, node.OffsetArray[iNewRows, :]))
+        new_rows = np.hstack((new_column, offsets[iNewRows, :]))
         ret_array = np.vstack((ret_array, new_rows))
 
     return _sort_array_on_column(ret_array, 4)
