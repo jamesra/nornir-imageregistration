@@ -8,6 +8,7 @@ A helper class to marshal large images using the file system instead of in-memor
 from __future__ import annotations
 
 import atexit
+import collections
 import logging
 import os
 import shutil
@@ -55,6 +56,11 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     # Serializes creation of the shared folder. Without it every thread that reached the
     # check before any of them set the flag created its own root. (#107)
     _temp_folder_lock = threading.Lock()
+
+    # Paths whose deletion failed because a memmap was still open, to retry later. (#108)
+    _pending_deletions: collections.deque[str] = collections.deque()
+    _pending_deletions_lock = threading.Lock()
+    _max_deletion_retries_per_call = 8
 
     tempfile_threshold = 64 * 64
 
@@ -208,6 +214,11 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
                 # local removes it rather than relying on scheduling. (#107)
                 atexit.register(shutil.rmtree, shared_temp_root, ignore_errors=True)
 
+                # Registered after the rmtree so it runs before it: atexit is LIFO, and a
+                # deferred file is worth one last individual attempt (and a warning) while the
+                # directory still exists. (#108)
+                atexit.register(TransformedImageDataViaTempFile._FlushPendingDeletions)
+
                 TransformedImageDataViaTempFile._sharedTempRoot = shared_temp_root
                 TransformedImageDataViaTempFile._temp_folder_created = True
 
@@ -292,24 +303,88 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             self._image_path = None
 
     @staticmethod
-    def _RemoveTempFiles(_centerDistanceImage_path, _image_path):
-        try:
-            if _centerDistanceImage_path is not None:
-                os.remove(_centerDistanceImage_path)
-        except FileNotFoundError:
-            pass
-        except IOError as E:
-            logging.warning("Could not delete temporary file {0}".format(_centerDistanceImage_path))
-            pass
+    def _TryRemoveTempFile(path: str | None) -> bool:
+        """Attempt to delete one temporary file.
+
+        :return: True if the path is gone (deleted, already absent, or None), False if it is
+            still held and should be retried.
+        """
+        if path is None:
+            return True
 
         try:
-            if _image_path is not None:
-                os.remove(_image_path)
+            os.remove(path)
+            return True
         except FileNotFoundError:
-            pass
-        except IOError as E:
-            logging.warning("Could not delete temporary file {0}".format(_image_path))
-            pass
+            return True
+        except OSError:
+            # On Windows an open memmap makes this a sharing violation. Caught as IOError
+            # before, which is the same exception -- IOError is an alias for OSError and
+            # PermissionError derives from it -- so the only thing that changes here is that
+            # the caller now learns it failed. (#108)
+            return False
+
+    @staticmethod
+    def _RemoveTempFiles(_centerDistanceImage_path, _image_path):
+        """Delete this instance's temporary files, and retry a bounded slice of earlier failures.
+
+        Deletion can legitimately fail: the arrays are handed out by the image and
+        centerDistanceImage properties as memmaps, and while a caller still holds one -- or a
+        view of one, which keeps it alive through .base -- the file cannot be removed. Clearing
+        the instance's own reference does not help in that case. Measured: the live assemble
+        path drops its arrays before calling Clear and deletes both files successfully, but a
+        retained reference or view leaves both behind.
+
+        Previously the failure was logged and dropped, so the file stayed for the lifetime of
+        the process even though it becomes deletable the moment the caller lets go -- confirmed
+        by retrying by hand. Failures are now re-queued and retried on subsequent calls.
+
+        Only a bounded number of pending paths are retried per call so that a run which
+        accumulates many undeletable files does not turn each Clear into a sweep of all of
+        them. Anything still pending is attempted once more at exit. (#108)
+        """
+        cls = TransformedImageDataViaTempFile
+
+        deferred = [path for path in (_centerDistanceImage_path, _image_path)
+                    if not cls._TryRemoveTempFile(path)]
+
+        with cls._pending_deletions_lock:
+            retry_count = min(len(cls._pending_deletions), cls._max_deletion_retries_per_call)
+            retries = [cls._pending_deletions.popleft() for _ in range(retry_count)]
+
+        deferred.extend(path for path in retries if not cls._TryRemoveTempFile(path))
+
+        if len(deferred) > 0:
+            with cls._pending_deletions_lock:
+                cls._pending_deletions.extend(deferred)
+
+            # Debug rather than warning: a first failure is expected whenever the consumer still
+            # holds the array, and it resolves itself. Residue that outlives the process is
+            # reported once by _FlushPendingDeletions instead of once per tile.
+            logging.getLogger(__name__).debug(
+                'Deferred deletion of %d temporary file(s); %d now pending',
+                len(deferred), len(cls._pending_deletions))
+
+    @staticmethod
+    def _FlushPendingDeletions():
+        """Final attempt at any deferred deletions, registered atexit.
+
+        Runs before the shared root's rmtree, which is registered earlier and so runs later.
+        The rmtree would remove these files anyway on a clean exit; the value here is the
+        warning, which is the only signal that something held memmaps for the whole run. (#108)
+        """
+        cls = TransformedImageDataViaTempFile
+        with cls._pending_deletions_lock:
+            pending = list(cls._pending_deletions)
+            cls._pending_deletions.clear()
+
+        still_held = [path for path in pending if not cls._TryRemoveTempFile(path)]
+
+        if len(still_held) > 0:
+            logging.getLogger(__name__).warning(
+                '%d temporary file(s) could not be deleted; a memmap was still open. '
+                'They are under %s and are removed with it. First: %s',
+                len(still_held), cls._sharedTempRoot, still_held[0])
 
     def __init__(self,
                  source_space_scale: float = 0.0,

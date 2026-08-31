@@ -96,8 +96,17 @@ class _RaceHarness:
         return wrapped
 
     @property
+    def cleanup_registrations(self):
+        """Only the rmtree registrations.
+
+        Folder creation also registers the deferred-deletion flush (#108), which is not a
+        per-root cleanup and would otherwise be counted as one.
+        """
+        return [(fn, path) for fn, path in self.registrations if fn is shutil.rmtree]
+
+    @property
     def registered_paths(self):
-        return [path for _, path in self.registrations]
+        return [path for _, path in self.cleanup_registrations]
 
     def __exit__(self, *exc):
         for patch in reversed(self._patches):
@@ -159,7 +168,7 @@ class TestCleanupCoversWhatWasCreated(unittest.TestCase):
     def test_one_registration(self):
         with _RaceHarness() as harness:
             harness.run(_ensure)
-            self.assertEqual(1, len(harness.registrations))
+            self.assertEqual(1, len(harness.cleanup_registrations))
 
     def test_the_registration_matches_the_created_root(self):
         """The original built this argument by re-reading the class attribute."""
@@ -170,7 +179,7 @@ class TestCleanupCoversWhatWasCreated(unittest.TestCase):
     def test_it_registers_rmtree(self):
         with _RaceHarness() as harness:
             harness.run(_ensure)
-            handler, path = harness.registrations[0]
+            handler, path = harness.cleanup_registrations[0]
             self.assertIs(shutil.rmtree, handler)
             self.assertEqual(TempFileData._sharedTempRoot, path)
 

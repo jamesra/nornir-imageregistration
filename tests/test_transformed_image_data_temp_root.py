@@ -141,10 +141,13 @@ class TestTheFolderIsCreatedOnce(unittest.TestCase):
                 TempFileData._EnsureSharedTempFolder()
                 TempFileData._EnsureSharedTempFolder()
             state.track(TempFileData._sharedTempRoot)
-            self.assertEqual(1, registered.call_count)
-            args = registered.call_args[0]
-            self.assertIs(shutil.rmtree, args[0])
-            self.assertEqual(TempFileData._sharedTempRoot, args[1])
+            # Folder creation also registers the deferred-deletion flush (#108), so count the
+            # rmtree registrations rather than every handler: the point is that three calls
+            # register the cleanup once, not once each.
+            rmtree_calls = [call[0] for call in registered.call_args_list
+                            if call[0][0] is shutil.rmtree]
+            self.assertEqual(1, len(rmtree_calls))
+            self.assertEqual(TempFileData._sharedTempRoot, rmtree_calls[0][1])
 
     def test_the_registered_handler_removes_the_folder(self):
         """The cleanup contract this whole arrangement exists to provide."""
