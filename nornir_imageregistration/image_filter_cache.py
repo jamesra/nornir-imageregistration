@@ -4,6 +4,7 @@ Implements a class that caches filter windows for use in image processing.  Exam
 """
 import shutil
 import multiprocessing
+import threading
 
 from skimage.filters import window
 import numpy as np
@@ -33,6 +34,7 @@ class WindowFilterCache:
     cache_dir: str
     _name: str
     _loaded_images: dict[ShapeLike, NDArray[np.floating]]
+    _lock: threading.RLock
 
     def __init__(self, name: str, creation_function: FilterWindowCreationFunction, dtype: DTypeLike | None = None):
         """
@@ -45,6 +47,13 @@ class WindowFilterCache:
         self._creation_function = creation_function
         self._dtype = dtype if dtype is not None else nornir_imageregistration.default_depth_image_dtype()
         self._loaded_images = dict()
+        # Callers reach this cache from worker threads, and the lookup-then-create sequence
+        # below is not atomic. Guarding it here rather than at the call sites because that is
+        # where the invariant lives: assemble_tiles held an external lock at one of its three
+        # call sites and not at the other two, and the unguarded one is the path
+        # TilesToImageParallel takes for every tile. Reentrant because _creation_function is
+        # supplied by the caller and nothing stops it consulting the cache. (#104)
+        self._lock = threading.RLock()
 
         os.makedirs(self.cache_dir, exist_ok=True)
 
@@ -102,9 +111,23 @@ class WindowFilterCache:
         if isinstance(image_shape, np.ndarray):
             image_shape = tuple(image_shape)
 
-        if image_shape in self._loaded_images:
-            return self._loaded_images[image_shape]
+        # Held across the whole lookup-load-create-save sequence, not just the dict access.
+        # Without it every thread that arrived before the first one finished missed the dict
+        # and built its own copy: measured at one build per worker thread for a single shape,
+        # 16 of 16 with 16 workers, so the cache deduplicated nothing under concurrency. Those
+        # threads also raced to np.save the same path. The duplicated work is cheap here
+        # (CreateDistanceImage is 1.8 ms at 1024x1024) and the burst is bounded by the worker
+        # count per distinct shape, so this is a correctness and tidiness fix rather than a
+        # throughput one. Creation is serialised across shapes too; a mosaic has one or two
+        # tile sizes, so that costs nothing worth the complexity of per-shape locks. (#104)
+        with self._lock:
+            if image_shape in self._loaded_images:
+                return self._loaded_images[image_shape]
 
+            return self.__LoadOrCreate(image_shape)
+
+    def __LoadOrCreate(self, image_shape: ShapeLike) -> NDArray[np.floating]:
+        """Load the cached image from disk, or build and persist it.  Caller holds _lock."""
         image_path = os.path.join(self.cache_dir, f'{image_shape[0]}x{image_shape[1]}.npy')
         output = None
 
@@ -137,6 +160,10 @@ class WindowFilterCache:
 
         if output is None:
             output = self._creation_function(image_shape, self._dtype)
+            # Marked read-only before publishing, not after saving. The class documents cache
+            # images as read-only, but the flag used to be cleared at the end of this branch,
+            # leaving a window in which the dict held a writeable array. (#104)
+            output.flags.writeable = False
             self._loaded_images[image_shape] = output
             try:
                 np.save(image_path, output)
@@ -150,8 +177,6 @@ class WindowFilterCache:
                     prettyoutput.LogErr(
                         f"Unable to save {self._name} cache image {image_path}: {retry_error}"
                     )
-
-            output.flags.writeable = False
 
         return output
 
