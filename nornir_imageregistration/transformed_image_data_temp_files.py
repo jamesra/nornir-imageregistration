@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 from typing import Any, Tuple
 
 import numpy as np
@@ -51,6 +52,9 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     # default applied to a name nothing referenced and the name that was referenced did not
     # exist until ConvertToTempFileIfLarge created it. (#106)
     _sharedTempRoot = None
+    # Serializes creation of the shared folder. Without it every thread that reached the
+    # check before any of them set the flag created its own root. (#107)
+    _temp_folder_lock = threading.Lock()
 
     tempfile_threshold = 64 * 64
 
@@ -175,20 +179,39 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         registered below, which covers this folder alone -- so a file written outside it would
         never be cleaned up.  (#106)
 
-        Note this check-then-set is not atomic; concurrent first calls can each mkdtemp and
-        leak all but the last.  That race predates this extraction and is tracked in #107.
+        Creation is serialized. The check and the set used to be separate, so every thread that
+        reached the check before any of them set the flag created its own root -- measured 8 of
+        8 with 8 threads, with 7 of 8 saved files landing in a root other than the one finally
+        published. Each root was registered for cleanup, so a clean exit still removed them
+        all; the costs were a directory per caller for the process lifetime, files scattered
+        across roots rather than in the shared one, and 8 roots instead of 1 left behind if the
+        process dies without running atexit handlers.
+
+        The lock is held for the whole function rather than double-checked outside it. It is
+        uncontended after the first call, and every caller goes on to write a .npy file, so the
+        acquire is not measurable here -- not worth reasoning about unsynchronized reads of the
+        two attributes, especially on a free-threaded build. (#107)
 
         :return: path of the shared temporary folder
         """
-        if not TransformedImageDataViaTempFile._temp_folder_created:
-            temp_dir = nornir_imageregistration.gettempdir()
-            TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(
-                prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
-            TransformedImageDataViaTempFile._temp_folder_created = True
-            atexit.register(shutil.rmtree, TransformedImageDataViaTempFile._sharedTempRoot,
-                            ignore_errors=True)
+        with TransformedImageDataViaTempFile._temp_folder_lock:
+            if not TransformedImageDataViaTempFile._temp_folder_created:
+                temp_dir = nornir_imageregistration.gettempdir()
+                shared_temp_root = tempfile.mkdtemp(
+                    prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
 
-        return TransformedImageDataViaTempFile._sharedTempRoot
+                # Registered against the local, not the class attribute. The original re-read
+                # the attribute to build this argument, so a thread preempted between
+                # publishing its path and evaluating the argument would have registered
+                # whichever path another thread published -- leaving its own unregistered and
+                # double-registering the other. Narrow enough that it never reproduced, but the
+                # local removes it rather than relying on scheduling. (#107)
+                atexit.register(shutil.rmtree, shared_temp_root, ignore_errors=True)
+
+                TransformedImageDataViaTempFile._sharedTempRoot = shared_temp_root
+                TransformedImageDataViaTempFile._temp_folder_created = True
+
+            return TransformedImageDataViaTempFile._sharedTempRoot
 
     @staticmethod
     def SaveArrayToTemporaryFile(name: str, image: NDArray) -> str:
