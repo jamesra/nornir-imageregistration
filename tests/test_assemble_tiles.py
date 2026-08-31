@@ -34,6 +34,90 @@ import setup_imagetest
 import nornir_pools
 
 
+# Tolerances for "two assemble paths produced the same tile", measured on the IDoc 004
+# fixture at 512x1024 (review #237). They replace a bound of 0.65 on the *sum* of absolute
+# differences, which was never asserted -- the assertion was commented out and the surviving
+# check only emitted a figure. The sum measured 1.59 and 1.61 on genuinely-agreeing pairs, so
+# the diagnostic fired on every passing run and captioned its artifact "Unexpected high
+# delta", which trains the reader to ignore it.
+#
+# A sum bound also scales with tile area, so it says nothing portable. What the data supports
+# is three independent statements, each with the measured value beside it:
+#
+#                                     serial vs parallel      CPU vs GPU
+#   fraction of pixels differing      6.3e-05 (33 px)         1.35e-04 (71 px)
+#   mean absolute difference          3.04e-06                3.06e-06
+#   largest single difference         0.14209                 0.14209
+#
+# The last one is worth understanding before trusting a tolerance here. These are **float16**
+# images on a [0, 1] range, so eps is 9.77e-04, and 0.142 is **145 eps** -- not rounding, as
+# was assumed when this issue was filed. The 33 serial-vs-parallel pixels trace a diagonal
+# line through the tile interior (y 406-510, x 783-1022) and none of them lie on the mask
+# boundary: it is an interior seam between two overlapping tiles, where the distance-weighted
+# blend picks a different contributor either side of a tie. CPU vs GPU adds scattered isolated
+# pixels whose median difference is 4.88e-04, exactly half an eps, i.e. genuine float16
+# rounding on top of the same seam.
+#
+# So a handful of seam pixels may differ substantially while everything else is identical or
+# within a quantum. Bounding count *and* magnitude *and* mean says that, and it is much
+# stronger than the sum ever was: any real divergence in AssembleImage moves a region rather
+# than a seam, which breaks the fraction and mean bounds by orders of magnitude.
+_ASSEMBLE_MAX_DIFFERING_FRACTION: float = 0.001  # measured 6.3e-05 / 1.35e-04 (7-16x margin)
+_ASSEMBLE_MAX_MEAN_ABS_DELTA: float = 1e-4       # measured 3.04e-06 / 3.06e-06 (33x margin)
+_ASSEMBLE_MAX_ABS_DELTA: float = 0.25            # measured 0.14209 both (1.8x margin)
+
+
+def AssertAssembledImagesAgree(test: unittest.TestCase,
+                               delta: np.ndarray,
+                               first: np.ndarray,
+                               second: np.ndarray,
+                               first_mask: np.ndarray,
+                               second_mask: np.ndarray,
+                               label: str,
+                               diagnostic_title: str) -> None:
+    """Assert two assemble paths produced the same tile, and show the delta only if not.
+
+    The masks are compared exactly, which measurement supports: both pairs agree on every
+    one of the 524288 pixels. That comparison was previously commented out alongside the
+    image one, so a path that assembled the right pixels into the wrong coverage would have
+    passed.
+    """
+    delta = nornir_imageregistration.EnsureNumpyArray(delta).astype(np.float64)
+    first_mask = nornir_imageregistration.EnsureNumpyArray(first_mask)
+    second_mask = nornir_imageregistration.EnsureNumpyArray(second_mask)
+
+    differing = int(np.count_nonzero(delta))
+    fraction = differing / delta.size
+    mean_abs = float(delta.mean())
+    max_abs = float(delta.max()) if delta.size else 0.0
+
+    failures = []
+    if fraction > _ASSEMBLE_MAX_DIFFERING_FRACTION:
+        failures.append(f'{differing} of {delta.size} pixels differ ({fraction:.3g}), '
+                        f'above {_ASSEMBLE_MAX_DIFFERING_FRACTION:.3g}')
+    if mean_abs > _ASSEMBLE_MAX_MEAN_ABS_DELTA:
+        failures.append(f'mean absolute difference {mean_abs:.3g} is above '
+                        f'{_ASSEMBLE_MAX_MEAN_ABS_DELTA:.3g}')
+    if max_abs > _ASSEMBLE_MAX_ABS_DELTA:
+        failures.append(f'largest difference {max_abs:.3g} is above '
+                        f'{_ASSEMBLE_MAX_ABS_DELTA:.3g}')
+
+    mask_diff = int(np.count_nonzero(first_mask != second_mask))
+    if mask_diff:
+        failures.append(f'{mask_diff} mask pixel(s) differ')
+
+    if failures:
+        # Only now, so a passing run leaves no artifact to dismiss.
+        nornir_imageregistration.ShowGrayscale(
+            [delta, delta > 0], title=diagnostic_title, PassFail=True)
+
+    test.assertEqual(
+        [], failures,
+        f'{label} assemble paths disagree: ' + '; '.join(failures) +
+        f' (differing={differing}, mean={mean_abs:.3g}, max={max_abs:.3g}, '
+        f'mask diff={mask_diff})')
+
+
 def _build_parallel_test_tileset(tmp_dir: str, n_tiles: int, tile_shape=(64, 64)):
     stride = float(tile_shape[1]) * 0.9
     transforms = []
@@ -167,11 +251,12 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         # self.assertEqual(parallelTileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         cluster_delta = np.abs(parallelTileImage - tileImage)
-        cluster_delta_sum = np.sum(cluster_delta.flat)
-        if cluster_delta_sum >= 0.65:
-            nornir_imageregistration.ShowGrayscale([cluster_delta, cluster_delta > 0],
-                                                   title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=True)
+        AssertAssembledImagesAgree(
+            self, cluster_delta, tileImage, parallelTileImage, tileMask, parallelTileMask,
+            label='Serial and parallel',
+            diagnostic_title=f"Serial and parallel assemble disagree: {imageKey}\n"
+                             f"{str(transform.FixedBoundingBox)}\n"
+                             f"Second image is a mask showing non-zero values.")
 
         # 10-13-2022: This test passes if the parallel composite produces the same result as serial assembly.
 
@@ -199,8 +284,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
                 ("Transform Tile", "Cluster vs Single Thread Delta"), ("Assemble Image", "Multi-threaded Assemble"),
                 ("Cropped Mosaic", "Assemble Mosaic")), PassFail=True))
 
-        # self.assertTrue(cluster_delta_sum < 0.65, "Tiles generated with cluster should be identical to single threaded implementation")
-        # self.assertTrue(np.array_equal(parallelTileMask, tileMask), "Tiles generated with cluster should be identical to single threaded implementation")
+        # The two assertions that used to sit here commented out are now live, ahead of the
+        # figure above, in AssertAssembledImagesAgree. See #237.
 
     def CompareMosaicAsssembleAndTransformTile_GPU(self, mosaicFilePath: str, tilesDir: str, downsample: float):
         """
@@ -276,11 +361,12 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
         # self.assertEqual(tileImage.shape, (ScaledFixedRegion[3], ScaledFixedRegion[2]))
 
         CPU_delta = np.abs(CPUtileImage - tileImage)
-        CPU_delta_sum = np.sum(CPU_delta.flat)
-        if CPU_delta_sum >= 0.65:
-            nornir_imageregistration.ShowGrayscale([CPU_delta, CPU_delta > 0],
-                                                   title=f"Unexpected high delta of image: {imageKey}\n{str(transform.FixedBoundingBox)}\nPlease double check they are identical (nearly all black).\nSecond image is a mask showing non-zero values.",
-                                                   PassFail=True)
+        AssertAssembledImagesAgree(
+            self, CPU_delta, tileImage, CPUtileImage, tileMask, CPUtileMask,
+            label='CPU and GPU',
+            diagnostic_title=f"CPU and GPU assemble disagree: {imageKey}\n"
+                             f"{str(transform.FixedBoundingBox)}\n"
+                             f"Second image is a mask showing non-zero values.")
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale(
             [(result.image, CPU_delta), (tileImage, CPUtileImage), (croppedWholeImage, wholeimage)],
@@ -289,8 +375,8 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
                 ("Transform Tile", "CPU vs GPU Delta"), ("GPU Assemble Image", "CPU Assemble"),
                 ("Cropped Mosaic", "Assemble Mosaic")), PassFail=True))
 
-        # self.assertTrue(CPU_delta_sum < 0.65, "Tiles generated with CPU should be identical to GPU implementation")
-        # self.assertTrue(np.array_equal(CPUtileMask, tileMask), "Tiles generated with CPU should be identical to GPU implementation")
+        # The two assertions that used to sit here commented out are now live, ahead of the
+        # figure above, in AssertAssembledImagesAgree. See #237.
 
     def CreateAssembleOptimizedTile(self, mosaicFilePath, TilesDir, downsample,
                                     SingleThread: bool = False):
