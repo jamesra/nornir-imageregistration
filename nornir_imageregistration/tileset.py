@@ -173,6 +173,14 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
         t = pool.add_task(imageFilename, __CorrectBrightfieldShadingOneImage, imagepath, outputFilename, imagescalar,
                           bpp=bpp)
         t.output_fullpath = outputFilename  # type: ignore[reportAttributeAccessIssue]
+        # The task was never collected, so the wait loop below could not run and the results
+        # were gathered from the submit loop instead. Harmless on the serial pool this uses --
+        # SerialPool.add_task calls the worker inline, so the file is written and any failure
+        # raises before add_task returns -- but it made the pool choice load bearing in a way
+        # nothing recorded: swapping in a thread or process pool would have returned before the
+        # files existed, and appending the task without also removing the submit-loop append
+        # would have returned every path twice. (#105)
+        tasks.append(t)
 
         # Shadeimage is the max of all tiles.  Figure out what the multiplier is for each pixel.
         # invertedimage = 1.0 - shadeimage
@@ -197,8 +205,7 @@ def __CorrectBrightfieldShading(imagepaths, shadeimage, outputpath, bpp=None):
         #         del image
         #         del correctedimage
 
-        outputPaths.append(outputFilename)
-
+    # Popped in submission order, so outputPaths keeps the order of imagepaths.
     while len(tasks) > 0:
         t = tasks.pop(0)
         t.wait()
