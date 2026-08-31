@@ -1124,6 +1124,16 @@ def _sample_source_rois_batched(source_image: NDArray,
     if source_image.dtype == np.float16:
         source_image = source_image.astype(np.float32, copy=False)
 
+    # These reductions repeat across calls -- a full refine pair calls this 17-24 times on
+    # the same array object -- but they are deliberately not cached (#99). Measured on the
+    # 6991x7213 RC2 784->782 pair: 3.0 ms/call on CuPy (1.4% of this function) and 25.7 ms/call
+    # on NumPy (0.7%), so caching buys under 1% while the entry would have to stay valid
+    # against in-place writes to the source buffer. Both results steer output rather than
+    # merely describing it: the NaN answer selects the interpolation order below, and
+    # min/max bound the clip that sets the returned pixel values, so a stale entry changes
+    # registration output silently. ImageStats cannot supply the NaN answer at all, and its
+    # min/max come from a float64 copy that is masked-array aware, which is not the range of
+    # the array actually being sampled here.
     any_nan_values = bool(xp.any(xp.isnan(source_image)))
     # Match _TransformImageUsingCoords: order 1 when source contains NaN (or bool).
     order = 1 if any_nan_values or source_image.dtype == bool else 3
