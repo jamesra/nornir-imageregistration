@@ -474,21 +474,58 @@ def _CalculateTileFeatures(image_path: str, list_overlap_tuples: list[TileOverla
     return ImageDataList
 
 
+def _is_scored(score: float | None) -> bool:
+    """True if a feature score carries a usable measurement.
+
+    ``TileOverlap`` initializes ``_feature_scores`` to ``(nan, nan)`` and ``ScoreTileOverlaps``
+    tests for ``None``, so both mean "not scored yet" rather than "scored as zero".
+    """
+    return score is not None and bool(np.isfinite(score))
+
+
 def NormalizeOverlapFeatureScores(tile_overlaps: Iterable[TileOverlap]):
     """
     Adds or updates a normalized_feature_score to all overlaps
-    :param list tile_overlaps: list of TileOverlap objects
+
+    Unscored entries (``None`` or non-finite) are passed through unchanged rather than
+    normalized, so they stay distinguishable from a genuine measurement downstream.
+
+    :param tile_overlaps: iterable of TileOverlap objects
     :return: The TileOverlap object list
     """
 
-    max_score = 0
+    # Materialized because both loops below need the same elements. The annotation says
+    # Iterable, and a generator silently produced no normalization at all: the first loop
+    # exhausted it and the second never ran, leaving every normalized_feature_scores at its
+    # previous value. The live caller passes a list, so this was latent. (#123)
+    tile_overlaps = list(tile_overlaps)
+
+    # max() over the raw tuples raised TypeError on the None scores ScoreTileOverlaps
+    # explicitly allows, because None does not order against float. Reducing over only the
+    # scored values also keeps a not-yet-scored (nan) overlap from participating, which
+    # previously depended on argument order -- max(0, nan) is 0 but max(nan, 0) is nan. (#123)
+    scored = [score for tile_overlap in tile_overlaps
+              for score in tile_overlap.feature_scores if _is_scored(score)]
+    max_score = max(scored) if len(scored) > 0 else 0.0
 
     for tile_overlap in tile_overlaps:
-        max_score = max(max_score, max(tile_overlap.feature_scores))
-
-    for tile_overlap in tile_overlaps:
-        tile_overlap.normalized_feature_scores = tile_overlap.feature_scores[0] / max_score, \
-                                                 tile_overlap.feature_scores[1] / max_score
+        if max_score > 0:
+            tile_overlap.normalized_feature_scores = tuple(  # type: ignore[assignment]
+                score / max_score if _is_scored(score) else score
+                for score in tile_overlap.feature_scores)
+        else:
+            # Every overlap reported no usable texture, so max_score is 0 and the old division
+            # raised ZeroDivisionError. There is no relative information to express here, and
+            # normalization only ever supplies a *relative* confidence: relaxation divides
+            # weights by their total, so scaling every overlap by the same constant changes
+            # nothing. Uniform 1.0 therefore makes this case a no-op. Uniform 0.0 would instead
+            # zero every weight, and relaxation's total_weight == 0 branch would then freeze the
+            # layout entirely -- a drastic silent outcome for what is only a missing tie-break.
+            # Rejecting featureless overlaps stays the job of feature_score_threshold, which
+            # compares raw scores and is unaffected by this. (#123)
+            tile_overlap.normalized_feature_scores = tuple(  # type: ignore[assignment]
+                1.0 if _is_scored(score) else score
+                for score in tile_overlap.feature_scores)
 
 
 # 
