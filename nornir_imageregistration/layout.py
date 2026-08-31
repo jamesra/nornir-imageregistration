@@ -362,17 +362,21 @@ class LayoutPosition:
         Reweight our set of weights based on how far from this expectation our offsets are.  THis is useful if we believe our initial positions are largely accurate but
         our calculated desired offsets may have errors.
         :param ndarray connected_nodes: The locations we believe our connected positions should be.
+        :raises NotImplementedError: Always.  This function has never been implemented; the
+            docstring above records the intended semantics for whoever finishes it.
         """
-        position_difference = self.TensionVectors(connected_nodes)
-        distance = np.sqrt(np.sum(position_difference ** 2, 1))
-        medianDistance = np.median(distance)
-
-        new_weight = distance / medianDistance
-
-        raise NotImplementedError("Update this to take LayoutPosition List as argument")
-        self._OffsetArray[:, LayoutPosition.iOffsetWeight] = new_weight
-
-        return
+        # The raise used to sit *after* the weight computation, so a caller saw whatever that
+        # computation did first rather than the author's message. Under this module's numpy
+        # error state (divide='raise', invalid='raise') a layout whose offsets agree with its
+        # positions has zero tension everywhere, so medianDistance is zero and distance /
+        # medianDistance is 0/0 -- surfacing as "FloatingPointError: invalid value encountered
+        # in divide", which reads like an arithmetic bug in a working function instead of an
+        # unfinished one. Raising first reports the actual state for every input. The
+        # unreachable computation and assignment that followed are gone; git history has them
+        # if the intended formula is wanted. (#250)
+        raise NotImplementedError(
+            "ScaleOffsetWeightsByPosition has never been implemented; it needs to accept a "
+            "LayoutPosition list as its argument. See #250 before relying on it.")
 
     def __init__(self,
                  ID: int,
@@ -1025,7 +1029,13 @@ def OffsetsSortedByWeight(layout: Layout) -> NDArray:
 
 
 def ScaleOffsetWeightsByPosition(original_layout):
-    """Scale each node's offset weights by the positions of linked nodes. Modifies layout in place; returns None."""
+    """Scale each node's offset weights by the positions of linked nodes.
+
+    :raises NotImplementedError: Always, for any layout with at least one node.  The per-node
+        method this delegates to was never implemented.  Unlike its three siblings in this
+        module it has no working behaviour to preserve, and its only call site in
+        arrange_mosaic is commented out.  See #250.
+    """
     for node in original_layout.nodes.values():
         linked_node_positions = original_layout.GetNodes(node.ConnectedIDs)
         node.ScaleOffsetWeightsByPosition(linked_node_positions)
