@@ -1,6 +1,7 @@
 from __future__ import annotations
 import collections
 import copy
+import logging
 import os
 import warnings
 from operator import itemgetter
@@ -228,8 +229,17 @@ class LayoutPosition:
             self._IDToIndex = None
             self._connected_id_cache = None
             self._irow_cache = None
-
-        Warning('Removing non-existent offset: {0}->{1}'.format(self.ID, ID))
+        else:
+            # `Warning(...)` built an exception instance and dropped it, so nothing was ever
+            # emitted, and it sat outside this branch so it also ran on success. Logging
+            # rather than warnings.warn: this is a runtime data condition, not API misuse,
+            # and warnings.warn shows once per call site by default, which would hide
+            # repeats. warnings.warn in this module is reserved for the deprecation at
+            # ToMosaic. Measured on healthy 4- and 9-tile mosaics this never fires, so it is
+            # a real signal rather than noise -- RemoveOverlap removes both directions, so a
+            # pair whose nodes exist without an offset logs once per direction (#129).
+            logging.getLogger(__name__).warning(
+                'Removing non-existent offset: %s->%s', self.ID, ID)
         return
 
     def get_row_indicies(self, connected_nodes: Sequence[LayoutPosition] | None = None) -> NDArray[np.integer]:
