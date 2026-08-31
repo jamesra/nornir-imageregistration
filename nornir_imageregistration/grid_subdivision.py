@@ -451,7 +451,17 @@ class CenteredGridDivision(GridDivisionBase):
         # Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
         overage = ((self._grid_dims * self._grid_spacing) - source_shape) / 2.0
         # Scale the overage amount according to cell position on the grid so the cells remain on the grid but have uniform additional overlap
-        overage_adjustment = overage * (self._coords / np.max(self._coords, 0))
+        # An axis with a single grid point has no spread to ramp the overage across: its
+        # coordinate max is zero and the ramp is 0/0, which raises under this package's numpy
+        # error state.  Such a point is coordinate 0, and coordinate 0 is left unadjusted on
+        # every axis that does have spread, so it gets no adjustment here either.  A lone cell
+        # can then overhang a smaller image, the same way the last cell of a multi-cell axis
+        # already does.  (#251)
+        # Clamping the divisor to 1 is exact rather than approximate: every coordinate on a
+        # single-point axis is 0, so 0/1 yields the 0 we want, and an axis with spread has a
+        # max of at least 1 already, so its ramp is untouched.
+        coord_max = np.maximum(np.max(self._coords, 0), 1)
+        overage_adjustment = overage * (self._coords / coord_max)
         self._SourcePoints -= overage_adjustment
         # self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
 
