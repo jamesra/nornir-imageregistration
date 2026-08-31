@@ -513,8 +513,11 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         if subroi_warpedImage.shape[0] == 0 or subroi_warpedImage.shape[1] == 0:
             # No points transformed into the requested area, return empty area
             if return_shared_memory:
-                output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(output_area,
-                                                                                                          dtype=original_dtype)
+                # output_area_shape, not output_area: under CuPy the latter is a device array,
+                # which cannot be used as a host buffer shape. (#102)
+                output_shared_mem_meta, outputImage = nornir_imageregistration.create_shared_memory_array(
+                    output_area_shape,
+                    dtype=original_dtype)
                 outputImage.fill(cval)
                 return output_shared_mem_meta
             else:

@@ -2073,14 +2073,26 @@ def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
     return output, shared_array
 
 
-def create_shared_memory_array(shape: NDArray[np.integer], dtype: DTypeLike, read_only: bool = True) -> tuple[
+def create_shared_memory_array(shape: nornir_imageregistration.ShapeLike, dtype: DTypeLike,
+                               read_only: bool = True) -> tuple[
     nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
     """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
     when it is no longer in use.
+
+    :param shape: Output shape.  Any shape-like is accepted: tuple, list, NumPy array or CuPy
+        array.  The backing buffer is always host memory, so a device-resident shape is brought
+        across here rather than at every call site.
     :return: The name of the shared memory and a shared memory array.  Used to reduce memory footprint when passing parameters to multiprocess pools
     """
+    # This used to require an ndarray, because it read shape.prod() and handed *shape* straight
+    # to np.ndarray. Both callers got it wrong in different ways -- one passed a tuple, which has
+    # no .prod(), and one passed a CuPy array, which np.ndarray will not interpret as a shape --
+    # so every branch of the return_shared_memory path raised. Normalising here fixes both and
+    # matches what the parameter name already promises. (#102)
+    shape = tuple(int(extent) for extent in np.ravel(nornir_imageregistration.EnsureNumpyArray(shape)))
+
     # shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
-    byte_size = shape.prod() * np.dtype(dtype).itemsize
+    byte_size = int(np.prod(shape)) * np.dtype(dtype).itemsize
     # shared_mem = shared_memory_manager.SharedMemory(size=int(byte_size))
     shared_mem = SharedMemory(size=int(byte_size), create=True)
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
