@@ -286,7 +286,11 @@ def ScoreImageWithPowerSpectralDensity(image: nornir_imageregistration.ImageLike
 
     Im_centered = image
 
-    fft = fftpack.fft2(Im_centered)
+    # Dispatch on the array for the same reason as the gaussian_filter call below: the
+    # module-level `fftpack` is bound to cupy.fft at import whenever CuPy is installed, so a
+    # host array reaching it raised "The input array a must be a cupy.ndarray" and took the
+    # whole feature-score path down with it. (#249)
+    fft = cp.get_array_module(Im_centered).fft.fft2(Im_centered)
     rfft = np.real(fft)  # type: ignore[call-overload]
     # fft = numpy.fft.fftshift(fft) 
     total_amp = numpy.sum(numpy.abs(rfft))
@@ -354,8 +358,18 @@ def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,  #
     #
     #     return numpy.std(finite_subset)
 
-    # Apply a basic gaussian smoothing to remove high frequency noise
-    Im = sp.ndimage.filters.gaussian_filter(Im.astype(np.float32), sigma=2.5, radius=5)
+    # Apply a basic gaussian smoothing to remove high frequency noise.
+    #
+    # Dispatch on the array instead of the module-level `sp`. That name is bound once at import
+    # -- cupyx.scipy when CuPy is installed, scipy otherwise -- so it ignores where this
+    # particular image actually lives. Two separate failures came out of that on a CuPy machine:
+    # `cupyx.scipy.ndimage` has no `filters` submodule (AttributeError), and once that is
+    # dropped, handing it the host array that ImageParamToImageArray returns raises TypeError.
+    # `.filters` is deprecated on scipy as well, slated for removal in SciPy 2.0. Filtered
+    # output agrees between the two backends to 1.2e-07, so feature_score_threshold keeps the
+    # same meaning either way. (#249)
+    sp_image = cupyx.scipy.get_array_module(Im)
+    Im = sp_image.ndimage.gaussian_filter(Im.astype(np.float32), sigma=2.5, radius=5)
 
     if cell_size is None:
         # cell_size = numpy.max(numpy.vstack((numpy.asarray(numpy.asarray(Im.shape) / 64, dtype=numpy.int32), numpy.asarray((64,64),dtype=numpy.int32))),0) 
@@ -392,9 +406,15 @@ def __CalculateFeatureScoreSciPy__(image: nornir_imageregistration.ImageLike,  #
     if len(score_list) == 0:
         return 0
     elif len(score_list) == 1:
-        return score_list[0]
+        return float(score_list[0])
     else:
-        val = numpy.percentile(score_list, q=feature_coverage_percent)
+        # score_list holds one scalar per grid cell, so the reduction stays on whichever backend
+        # produced the scores and only the returned scalar crosses to the host. numpy.percentile
+        # cannot be handed a list of CuPy scalars -- it calls asanyarray, which refuses the
+        # implicit transfer -- and this was the last step keeping a device image from scoring.
+        # (#249)
+        xp = cp.get_array_module(score_list[0])
+        val = xp.percentile(xp.asarray(score_list), q=feature_coverage_percent)
 
         # val = numpy.max(score_list)
         # val = numpy.mean(score_list) #Median was less reliable when using the range of intensity values as a measure
