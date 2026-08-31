@@ -253,10 +253,12 @@ class OneWayRBFWithLinearCorrection(Triangulation):
         NumCtrlPts = len(self.TargetPoints)
 
         if self.UseRigidTransform:
+            # The zero-the-weight-sums-and-fall-through alternative used to live here,
+            # commented out below this return, and the GPU mirror was still doing it. That
+            # evaluates the solved affine rather than the rigid transform, so the two
+            # mirrors computed different maps. Removed with the mirror fix (review #216) so
+            # the abandoned approach cannot be reinstated from a stale comment.
             return self._rigid_transform.Transform(Points)  # type: ignore[union-attr]
-            # NumPts = Points.shape[0]
-            # MatrixWeightSumX = np.zeros((1, NumPts))
-            # MatrixWeightSumY = np.zeros((1, NumPts))
         else:
             (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
 
@@ -609,9 +611,15 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
         NumCtrlPts = len(self.TargetPoints)
 
         if self.UseRigidTransform:
-            NumPts = Points.shape[0]
-            MatrixWeightSumX = cp.zeros((1, NumPts))
-            MatrixWeightSumY = cp.zeros((1, NumPts))
+            # Delegate, as the host mirror does. Zeroing the weight sums and falling
+            # through evaluates the *solved affine* instead, which is a different map from
+            # the rigid transform `_rigid_transform_is_equivalent` validated the shortcut
+            # against. Whenever the shortcut is adopted the two agree to solver noise
+            # (measured worst 4.4e-03 px, at 50x the control-point span), because the
+            # shortcut is only taken for warps that are exactly affine *and* reproducible
+            # by the rigid estimate -- so this is a mirror-consistency fix, not a numerical
+            # one. See review #216.
+            return self._rigid_transform.Transform(Points)  # type: ignore[union-attr]
         else:
             (MatrixWeightSumX, MatrixWeightSumY) = self._GetMatrixWeightSums(Points, self.SourcePoints)
 
