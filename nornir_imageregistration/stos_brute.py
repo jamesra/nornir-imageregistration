@@ -1683,6 +1683,196 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                             use_gpu=use_gpu)
 
 
+_COARSE_GRID_DIM_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_DIM'
+_COARSE_GRID_TOPK_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_TOPK'
+_COARSE_GRID_DEFAULT_TOPK = 3
+# Below this margin over the runner-up, the coarse ranking is inside the objective's own
+# 11-17% run-to-run spread (#95) and is not a ranking at all.
+_COARSE_GRID_MIN_PEAK_RATIO = 1.2
+
+
+def _coarse_grid_settings() -> tuple[int, int] | None:
+    """Largest dimension and top-K for the two-stage scale search, or None if disabled.
+
+    Opt-in, because the two-stage search changes registration output. See #234.
+    """
+    import os
+
+    raw = os.environ.get(_COARSE_GRID_DIM_VAR, '').strip()
+    if not raw:
+        return None
+    try:
+        dim = int(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning(
+            '%s=%r is not an integer; the two-stage scale search stays disabled',
+            _COARSE_GRID_DIM_VAR, raw)
+        return None
+    if dim <= 0:
+        return None
+
+    top_k = _COARSE_GRID_DEFAULT_TOPK
+    raw_k = os.environ.get(_COARSE_GRID_TOPK_VAR, '').strip()
+    if raw_k:
+        try:
+            top_k = max(1, int(raw_k))
+        except ValueError:
+            logging.getLogger(__name__).warning(
+                '%s=%r is not an integer; using %d', _COARSE_GRID_TOPK_VAR, raw_k, top_k)
+    return dim, top_k
+
+
+def _decimation_scale(target_shape: tuple[int, int],
+                      source_shape: tuple[int, int],
+                      largest_dimension: int) -> float:
+    largest = max(int(target_shape[0]), int(target_shape[1]),
+                  int(source_shape[0]), int(source_shape[1]))
+    return float(largest_dimension) / float(largest) if largest else 1.0
+
+
+def _find_best_angle_with_coarse_grid(source_image: NDArray[np.floating],
+                                      target_image: NDArray[np.floating],
+                                      source_stats: nornir_imageregistration.ImageStats,
+                                      target_stats: nornir_imageregistration.ImageStats,
+                                      angle_range: NDArray[np.floating] | Sequence[float],
+                                      min_overlap: float,
+                                      candidates: Sequence[float],
+                                      SingleThread: bool,
+                                      use_cluster: bool,
+                                      largest_dimension: int,
+                                      top_k: int,
+                                      cancel_event: threading.Event | None = None,
+                                      progress_callback: ProgressCallback | None = None,
+                                      *,
+                                      use_gpu: bool | None = None
+                                      ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+    """Score the whole angle x scale grid on decimated images, refine the best few at full size.
+
+    The grid stays **exhaustive**; only the resolution it is evaluated at changes. That is the
+    point: the cheap alternative the issue proposed (sweep at scale 1.0, then refine) routes
+    through ``_refine_scale_local``, which #95 measured as a ternary search on a stochastic
+    objective, so it is blocked. Evaluating the existing candidate set cheaply needs no such
+    search.
+
+    Measured on the ds32 pair (4183x4309, 6000px frame, numpy): the full-resolution winning
+    angle ranks 1 of 45 at every decimation level down to 512, where a sweep is 80.5x cheaper,
+    and the full-resolution best scale ranks 1 of 11 at 1024 (17.8x) and 512 (73.8x).
+
+    Two properties of that measurement shape this function:
+
+    - The coarse weight curves correlate with full resolution only +0.74 to +0.83, because off
+      the peak the objective is the #95 noise floor. So the coarse ordering *below rank 1*
+      carries no information, and *top_k* candidates are refined rather than just the winner.
+    - Rank 1 is reliable only because the true peak clears that floor. On a pair with a flat
+      objective -- the ``_LogPolar`` case in #235 measured 1.64-1.97 across every angle -- it
+      would not be, so a coarse pass that finds no clear peak falls back to the full search.
+    """
+    scale = _decimation_scale(target_image.shape, source_image.shape, largest_dimension)
+    if scale >= 1.0:
+        return _find_best_angle_exhaustive(
+            source_image, target_image, source_stats, target_stats, angle_range,
+            min_overlap, candidates, SingleThread, use_cluster,
+            cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
+
+    coarse_target = _scale_registration_image(target_image, scale)
+    coarse_source = _scale_registration_image(source_image, scale)
+    coarse_target_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_target)
+    coarse_source_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_source)
+
+    scored: list[tuple[float, float, float]] = []  # (weight, scale, angle)
+    for candidate in candidates:
+        check_cancelled(cancel_event)
+        match = _find_best_angle_at_scale(
+            coarse_source, coarse_target, coarse_source_stats, coarse_target_stats,
+            angle_range, min_overlap, candidate, SingleThread, use_cluster,
+            cancel_event=cancel_event, progress_callback=progress_callback,
+            use_gpu=use_gpu)
+        scored.append((float(match.weight), float(candidate), float(match.angle)))
+
+    scored.sort(key=lambda entry: -entry[0])
+
+    # A peak that does not clear the objective's own run-to-run spread is not a ranking, and
+    # refining the top few of a flat surface would just pick noise cheaply. Fall back.
+    if len(scored) > 1 and scored[0][0] <= scored[1][0] * _COARSE_GRID_MIN_PEAK_RATIO:
+        logging.getLogger(__name__).info(
+            'coarse grid at %dpx found no clear peak (best %.3f vs runner-up %.3f, '
+            'ratio %.3f <= %.2f); falling back to the full-resolution search over all '
+            '%d scales',
+            largest_dimension, scored[0][0], scored[1][0],
+            scored[0][0] / scored[1][0], _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
+        return _find_best_angle_exhaustive(
+            source_image, target_image, source_stats, target_stats, angle_range,
+            min_overlap, candidates, SingleThread, use_cluster,
+            cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
+
+    angle_list = [float(a) for a in angle_range]
+    best_match: nornir_imageregistration.AlignmentRecord | None = None
+    best_scale = 1.0
+    for _, candidate, coarse_angle in scored[:max(1, top_k)]:
+        check_cancelled(cancel_event)
+        refine_angles = _neighbouring_angles(angle_list, coarse_angle)
+        match = _find_best_angle_at_scale(
+            source_image, target_image, source_stats, target_stats,
+            refine_angles, min_overlap, candidate, SingleThread, use_cluster,
+            cancel_event=cancel_event, progress_callback=progress_callback,
+            use_gpu=use_gpu)
+        if best_match is None or match.weight > best_match.weight:
+            best_match = match
+            best_scale = candidate
+
+    assert best_match is not None
+    return best_match, best_scale
+
+
+def _neighbouring_angles(angle_list: Sequence[float], angle: float) -> list[float]:
+    """*angle* plus its immediate neighbours in the sweep.
+
+    Decimation can move the winner by a step, so the full-resolution refine covers the
+    coarse pick's neighbours rather than trusting it exactly.
+    """
+    if not angle_list:
+        return [float(angle)]
+    index = min(range(len(angle_list)), key=lambda i: abs(angle_list[i] - angle))
+    window = {float(angle_list[index])}
+    if index > 0:
+        window.add(float(angle_list[index - 1]))
+    if index + 1 < len(angle_list):
+        window.add(float(angle_list[index + 1]))
+    return sorted(window)
+
+
+def _find_best_angle_exhaustive(source_image: NDArray[np.floating],
+                                target_image: NDArray[np.floating],
+                                source_stats: nornir_imageregistration.ImageStats,
+                                target_stats: nornir_imageregistration.ImageStats,
+                                angle_range: NDArray[np.floating] | Sequence[float],
+                                min_overlap: float,
+                                candidates: Sequence[float],
+                                SingleThread: bool,
+                                use_cluster: bool,
+                                cancel_event: threading.Event | None = None,
+                                progress_callback: ProgressCallback | None = None,
+                                *,
+                                use_gpu: bool | None = None
+                                ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+    """A full angle sweep at every scale candidate, at full resolution. The default."""
+    best_match: nornir_imageregistration.AlignmentRecord | None = None
+    best_scale = 1.0
+    for candidate in candidates:
+        check_cancelled(cancel_event)
+        match = _find_best_angle_at_scale(source_image, target_image, source_stats, target_stats,
+                                          angle_range, min_overlap, candidate,
+                                          SingleThread, use_cluster,
+                                          cancel_event=cancel_event,
+                                          progress_callback=progress_callback,
+                                          use_gpu=use_gpu)
+        if best_match is None or match.weight > best_match.weight:
+            best_match = match
+            best_scale = candidate
+    assert best_match is not None
+    return best_match, best_scale
+
+
 def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                        target_image: NDArray[np.floating],
                                        source_stats: nornir_imageregistration.ImageStats,
@@ -1699,21 +1889,24 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                        progress_callback: ProgressCallback | None = None,
                                        use_gpu: bool | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
-    best_match: nornir_imageregistration.AlignmentRecord | None = None
-    best_scale = 1.0
-    for candidate in candidates:
-        check_cancelled(cancel_event)
-        match = _find_best_angle_at_scale(source_image, target_image, source_stats, target_stats,
-                                          angle_range, min_overlap, candidate,
-                                          SingleThread, use_cluster,
-                                          cancel_event=cancel_event,
-                                          progress_callback=progress_callback,
-                                          use_gpu=use_gpu)
-        if best_match is None or match.weight > best_match.weight:
-            best_match = match
-            best_scale = candidate
-    assert best_match is not None
-    return best_match, best_scale
+
+    # The angle x scale cross product is ~1980 full-resolution scores on the ds32 pair, about
+    # 186 min serial (#234). Evaluating the same grid on decimated images and refining only
+    # the best few is roughly an order of magnitude cheaper; opt-in because it changes output.
+    coarse = _coarse_grid_settings()
+    if coarse is not None and len(candidates) > 1 and len(angle_range) > 1:
+        largest_dimension, top_k = coarse
+        return _find_best_angle_with_coarse_grid(
+            source_image, target_image, source_stats, target_stats, angle_range,
+            min_overlap, candidates, SingleThread, use_cluster,
+            largest_dimension, top_k,
+            cancel_event=cancel_event, progress_callback=progress_callback,
+            use_gpu=use_gpu)
+
+    return _find_best_angle_exhaustive(
+        source_image, target_image, source_stats, target_stats, angle_range,
+        min_overlap, candidates, SingleThread, use_cluster,
+        cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
 
 
 def ScoreManyAnglesGpu(target_original: NDArray,
