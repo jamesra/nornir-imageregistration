@@ -2674,7 +2674,7 @@ def ImageToTilesGenerator(source_image: NDArray,
     :param tuple coord_offset: Add this amount to coordinates returned by this function, used if the image passed is part of a larger image
     :param object cval: Fill value for images that are padded.  Default is zero.  Use 'random' to generate random noise
     :param coverage_mask: When set, only yield tiles where this boolean mask has any True pixels in the tile ROI
-    :return: (iCol,iRow, tile_image)
+    :return: (iRow, iCol, tile_image)
     """
     source_image = ImageParamToImageArray(source_image)
 

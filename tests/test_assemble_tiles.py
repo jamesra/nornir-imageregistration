@@ -376,7 +376,43 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
             tiles[(nRows - 1) - iRow][iCol] = tile_image
 
-        self.assertTrue(np.all(tile_returned.flat))
+        # GenerateOptimizedTiles deliberately does not emit a tile for a grid cell with no
+        # coverage -- it passes the assembled mask to ImageToTilesGenerator as
+        # coverage_mask, documented as "only yield tiles where this boolean mask has any
+        # True pixels in the tile ROI". Demanding all 25 cells therefore asserted against
+        # the design, not a defect: this mosaic is rotated inside its axis-aligned bounding
+        # box, so the four grid corners fall outside the section entirely. Measured, they
+        # assemble to 0 covered pixels and 0 non-zero image pixels, while every interior
+        # cell runs 56-100% covered. See review #232.
+        #
+        # So verify what actually matters, which is stronger than the blanket check it
+        # replaces: nothing with real content was dropped. Only the missing cells are
+        # assembled, so this costs one extra assemble per empty corner.
+        missing = [(int(r), int(c)) for r, c in zip(*np.nonzero(~tile_returned))]
+        for (iRow, iCol) in missing:
+            origin = np.asarray((iRow, iCol), dtype=np.int64) * tile_dims
+            cell_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+                origin / expectedScale, tile_dims / expectedScale)
+            (_cell_image, cell_mask) = mosaicTileset.AssembleImage(
+                FixedRegion=cell_region, target_space_scale=expectedScale)
+            covered = int(np.count_nonzero(
+                nornir_imageregistration.EnsureNumpyArray(cell_mask)))
+            self.assertEqual(0, covered,
+                             f"Cell ({iRow},{iCol}) was not returned by the enumerator but "
+                             f"has {covered} covered pixels, so real content was dropped")
+
+        self.assertTrue(np.any(tile_returned.flat),
+                        "The enumerator returned no tiles at all")
+
+        # Empty cells leave a None in the display grid, which the montage cannot render.
+        empty_tile = None
+        for (iRow, iCol) in missing:
+            if empty_tile is None:
+                sample = next(t for row in tiles for t in row if t is not None)
+                empty_tile = np.zeros_like(
+                    nornir_imageregistration.EnsureNumpyArray(sample))
+            tiles[(nRows - 1) - iRow][iCol] = empty_tile
+
         title = ""
         if numColumnsPerPass is not None:
             title = "Generated {0} columns in a pass.\n".format(numColumnsPerPass)
