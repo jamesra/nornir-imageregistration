@@ -28,6 +28,10 @@ class StosBruteSettings(BaseModel):
     """Optional isotropic scale hint from log-polar on raw images (total scale; converted to residual internally)."""
     initial_scale_hint: float | None = None
     """Caller-provided total scale (e.g. current transform scalar) to seed scale search/refinement."""
+    search_scale: bool = True
+    """If False, register at scale 1.0: no log-polar scale probe, no scale search or refinement,
+    making the search a pure translation (plus the angle range) match.  Default True preserves
+    the scale-searching behaviour every existing caller relies on."""
     _method: SliceToSliceMethod
 
     @property
@@ -47,6 +51,7 @@ class StosBruteSettings(BaseModel):
                  try_flipped: bool = True,
                  estimated_scale_hint: float | None = None,
                  initial_scale_hint: float | None = None,
+                 search_scale: bool = True,
                  ):
         """
         :param angles: Angles to search for the best control point alignment or None if all angles should be searched
@@ -54,6 +59,7 @@ class StosBruteSettings(BaseModel):
         :param source_image_scale_factors:  Amount to scale the warped image before attempting registration, this handles cases where multiple scopes are used with slightly differnt magnification values
         :param larget_dimension: The input images should be scaled so the largest image dimension is equal to this value, default is 1024.  None means use the actual image size
         :param try_flipped: If True the algorithm will test the flipped version of the source image too
+        :param search_scale: If False, register at scale 1.0 with no scale probe, search or refinement
         """
         super().__init__()
         self._method = method  # type: ignore[assignment]
@@ -64,6 +70,7 @@ class StosBruteSettings(BaseModel):
         self.try_flipped = try_flipped
         self.estimated_scale_hint = estimated_scale_hint
         self.initial_scale_hint = initial_scale_hint
+        self.search_scale = search_scale
         self._method = SliceToSliceMethod.LogPolar if method is None else method
 
         self.source_image_scale_factors = source_image_scale_factors
