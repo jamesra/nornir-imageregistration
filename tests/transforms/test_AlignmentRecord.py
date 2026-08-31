@@ -62,7 +62,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         transform = record.ToImageTransform([10, 10], [10, 10])
@@ -82,7 +82,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         transform = record.ToImageTransform([10, 10], [10, 10])
@@ -112,7 +112,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((ydim, xdim), int))
-        self.assertTrue(np.isclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        self.assertTrue(np.isclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray).all())
 
         transform = record.ToImageTransform([ydim, xdim], [ydim,
@@ -151,7 +151,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((ydim, xdim), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         transform = record.ToImageTransform([ydim, xdim], [ydim,
@@ -191,7 +191,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         transform = record.ToSpatialTransform([10, 10], [10, 10])
@@ -220,7 +220,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         transform = record.ToImageTransform([10, 10], [10, 10])
@@ -241,7 +241,7 @@ class TestAlignmentRecord(unittest.TestCase):
         # predictedArray[:, [0, 1]] = predictedArray[:, [1, 0]]  # Swapped when GetTransformedCornerPoints switched to Y,X points
 
         Corners = record.GetTransformedCornerPoints(np.array((10, 10), int))
-        np.testing.assert_allclose(Corners.get() if nornir_imageregistration.UsingCupy() else Corners,
+        np.testing.assert_allclose(nornir_imageregistration.EnsureNumpyArray(Corners),
                                    predictedArray)
 
         record = nornir_imageregistration.AlignmentRecord((-2.5, 2.5), 100, -90)

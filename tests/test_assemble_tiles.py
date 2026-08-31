@@ -255,9 +255,13 @@ class TestMosaicAssemble(setup_imagetest.TransformTestBase):
 
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
-        tileImage = tileImage.get()
-        timeMask = tileMask.get()
-        croppedWholeImage = croppedWholeImage.get()
+        # EnsureNumpyArray rather than .get(): the assemble path can hand back host arrays
+        # even while the active lib is cupy, and .get() exists only on device arrays. Also
+        # fixes a `timeMask` typo that left tileMask unconverted -- inert only because the
+        # one use of it below is commented out. See review #231.
+        tileImage = nornir_imageregistration.EnsureNumpyArray(tileImage)
+        tileMask = nornir_imageregistration.EnsureNumpyArray(tileMask)
+        croppedWholeImage = nornir_imageregistration.EnsureNumpyArray(croppedWholeImage)
 
         # Need to create specific mosaicObj_CPU and mosaicTileset_CPU variables due to specific CPU transform
         mosaicObj_CPU = Mosaic.LoadFromMosaicFile(mosaicFilePath)

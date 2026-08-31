@@ -51,12 +51,15 @@ class TestTransformMetrics(setup_imagetest.TestBase):
         triangleTension = angledelta[:, 2] / maxdelta
 
         triColor = numpy.swapaxes(numpy.vstack((triangleTension, triangleTension, triangleTension)), 0, 1)
-        points = transform.SourcePoints
+        # matplotlib is a host-only consumer, so convert at the boundary. Under the cupy
+        # lib these are device arrays and tripcolor's implicit conversion raises. See #231.
+        points = nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints)
+        triangles = nornir_imageregistration.EnsureNumpyArray(transform.FixedTriangles)
 
         fig1, ax1 = plt.subplots()
         ax1.set_aspect('equal')
         # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:, 1], points[:, 0], transform.FixedTriangles, facecolors=triangleTension,
+        tpc = ax1.tripcolor(points[:, 1], points[:, 0], triangles, facecolors=triangleTension,
                             shading='flat')
         fig1.colorbar(tpc)
         # ax1.plot(points[:,1], points[:,0], 'o')
@@ -90,9 +93,11 @@ class TestTransformMetrics(setup_imagetest.TestBase):
         # triangleTension = angledelta[:,2] / maxdelta
 
         # triColor = numpy.swapaxes(numpy.vstack((triangleTension, triangleTension, triangleTension)),0,1)
-        points = transform.SourcePoints
+        # See test_TriangleAnglesAndView: matplotlib cannot take device arrays.
+        points = nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints)
+        triangles = nornir_imageregistration.EnsureNumpyArray(transform.FixedTriangles)
 
-        plotTriangulation = mtri.Triangulation(points[:, 1], points[:, 0], transform.FixedTriangles)
+        plotTriangulation = mtri.Triangulation(points[:, 1], points[:, 0], triangles)
 
         # interp_cubic_min_E = mtri.CubicTriInterpolator(plotTriangulation, measurement, kind='min_E')
         # zi_cubic_min_E = interp_cubic_min_E(xi, yi)
@@ -101,7 +106,7 @@ class TestTransformMetrics(setup_imagetest.TestBase):
         ax1 = axes[0]
         ax1.set_aspect('equal')
         # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:, 1], points[:, 0], transform.FixedTriangles, measurement, vmin=0, vmax=maxVal,
+        tpc = ax1.tripcolor(points[:, 1], points[:, 0], triangles, measurement, vmin=0, vmax=maxVal,
                             shading='gouraud')
 
         fig1.colorbar(tpc)
@@ -136,8 +141,10 @@ class TestTransformMetrics(setup_imagetest.TestBase):
 
         grid_x, grid_y = numpy.mgrid[0:int(dims[1]), 0:int(dims[0])]
 
-        img = scipy.interpolate.griddata(self.transform.SourcePoints, measurement, (grid_x, grid_y), method='cubic',
-                                         fill_value=0)
+        # scipy.interpolate is host-only; SourcePoints is a device array under the cupy lib.
+        img = scipy.interpolate.griddata(
+            nornir_imageregistration.EnsureNumpyArray(self.transform.SourcePoints),
+            measurement, (grid_x, grid_y), method='cubic', fill_value=0)
         img /= img.max()
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale((img), title='An image showing transform warp metric',
