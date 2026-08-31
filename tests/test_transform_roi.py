@@ -97,14 +97,19 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         arecord = AlignmentRecord(peak=offset, weight=100, angle=180.0)
         transform = arecord.ToImageTransform(targetShape, sourceShape)
 
-        (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
+        (source_coords, target_coords) = assemble.write_to_target_roi_coords(transform, offset, targetShape,
+                                                                            extrapolate=True)
 
         self.show_test_image(transform, sourceShape, targetShape, f"Rotate 180 degrees, offset by {offset}")
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 1, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5, delta=0.01)
+        # The target grid spans the full 9-pixel canvas. GetROICoords is an integer
+        # meshgrid, so the -0.5 X component of botleft truncates to 0; the half-pixel
+        # shift is carried by the transform (the AlignmentRecord peak), not by the
+        # write coordinates, which must stay on whole output pixels.
+        self.assertAlmostEqual(min(target_coords[:, spatial.iPoint.Y]), 0, delta=0.01)
+        self.assertAlmostEqual(max(target_coords[:, spatial.iPoint.Y]), targetShape[0] - 1, delta=0.01)
+        self.assertAlmostEqual(min(target_coords[:, spatial.iPoint.X]), 0, delta=0.01)
+        self.assertAlmostEqual(max(target_coords[:, spatial.iPoint.X]), targetShape[1] - 1, delta=0.01)
 
     def test_Rotate90(self):
 
@@ -173,15 +178,20 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
         transform = arecord.ToImageTransform(targetShape, sourceShape)
 
-        (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
+        (source_coords, target_coords) = assemble.write_to_target_roi_coords(transform, offset, targetShape,
+                                                                            extrapolate=True)
 
         self.show_test_image(transform, sourceShape, targetShape,
                              f"Rotate 90 degrees\nEven canvas dimensions, offset: {offset}")
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), sourceShape[1] - 1, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), 0, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 1, delta=0.01)
+        # Unlike the same-canvas tests above, the expanded-canvas cases assert the
+        # source-space extent the target grid reads from: that is what exposes the
+        # even/odd half-pixel sensitivity this pair was written to pin down. The
+        # extent must stay centred on the source pixel centre (1.0, 2.5).
+        self.assertAlmostEqual(min(source_coords[:, spatial.iPoint.Y]), -3.5, delta=0.01)
+        self.assertAlmostEqual(max(source_coords[:, spatial.iPoint.Y]), 5.5, delta=0.01)
+        self.assertAlmostEqual(min(source_coords[:, spatial.iPoint.X]), -1.0, delta=0.01)
+        self.assertAlmostEqual(max(source_coords[:, spatial.iPoint.X]), 6.0, delta=0.01)
 
     def test_Rotate90_expandedCanvas_odd(self):
         sourceShape = numpy.array((3, 6))
@@ -195,15 +205,18 @@ class TestTransformROI(setup_imagetest.ImageTestBase):
         arecord = AlignmentRecord(peak=offset, weight=100, angle=90.0)
         transform = arecord.ToImageTransform(targetShape, sourceShape)
 
-        (fixedpoints, points) = assemble.write_to_target_roi_coords(transform, offset, targetShape, extrapolate=True)
+        (source_coords, target_coords) = assemble.write_to_target_roi_coords(transform, offset, targetShape,
+                                                                            extrapolate=True)
 
         self.show_test_image(transform, sourceShape, targetShape,
                              f"Rotate 90 degrees\nOdd canvas dimensions, offset: {offset}")
 
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.Y]), -3, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.Y]), 5, delta=0.01)
-        self.assertAlmostEqual(min(points[:, spatial.iPoint.X]), -0.5, delta=0.01)
-        self.assertAlmostEqual(max(points[:, spatial.iPoint.X]), 5.5, delta=0.01)
+        # See the even-canvas variant above: these bounds are the source-space extent,
+        # centred on the source pixel centre (1.0, 2.5).
+        self.assertAlmostEqual(min(source_coords[:, spatial.iPoint.Y]), -3, delta=0.01)
+        self.assertAlmostEqual(max(source_coords[:, spatial.iPoint.Y]), 5, delta=0.01)
+        self.assertAlmostEqual(min(source_coords[:, spatial.iPoint.X]), -0.5, delta=0.01)
+        self.assertAlmostEqual(max(source_coords[:, spatial.iPoint.X]), 5.5, delta=0.01)
 
     def show_test_image(self,
                         transform: nornir_imageregistration.ITransform,

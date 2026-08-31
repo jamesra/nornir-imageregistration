@@ -123,8 +123,16 @@ def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, floa
         xp = nornir_imageregistration.GetComputationModule()
     use_cp = xp is not np
 
-    x_range = xp.arange(botleft[1], botleft[1] + area[1], dtype=np.int32)
-    y_range = xp.arange(botleft[0], botleft[0] + area[0], dtype=np.int32)
+    # Truncate the origin before calling arange instead of passing a float start with an
+    # integer dtype: the two backends disagree there. np.arange(-0.5, 8.5, dtype=int32)
+    # returns nine zeros (the step truncates to 0), collapsing every write coordinate to
+    # the same pixel, while cp.arange returns 0..8. Truncating first makes both backends
+    # agree and leaves whole-number origins, the common case, untouched.
+    start_y = int(botleft[0])
+    start_x = int(botleft[1])
+
+    x_range = xp.arange(start_x, start_x + int(area[1]), dtype=np.int32)
+    y_range = xp.arange(start_y, start_y + int(area[0]), dtype=np.int32)
 
     # Numpy arange sometimes accidentally adds an extra value to the array due to rounding error, remove the extra element if needed
     if len(x_range) > area[1]:
