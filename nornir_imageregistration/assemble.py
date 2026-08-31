@@ -541,10 +541,21 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # Rounding helped solve a problem with image shift when using the CloughTocher interpolator with an identity function
     # filtered_source_coords = np.around(filtered_source_coords, 3)
 
-    any_nan_values = bool(xp.any(xp.isnan(subroi_warpedImage)))
+    # Deferred: this is a full pass over the source plus a host sync, and several callers never
+    # need the answer -- a caller that names an interpolation_order and warps with a sentinel cval
+    # (the distance plane does both) used to pay for it and then discard it. Same lazy-stats
+    # treatment as _underflow_assemble_log_msg below. (#110)
+    _nan_answer: list[bool] = []
+
+    def _source_has_nan() -> bool:
+        if not _nan_answer:
+            _nan_answer.append(bool(xp.any(xp.isnan(subroi_warpedImage))))
+        return _nan_answer[0]
+
     if interpolation_order is None:
         # Any interpolation of NaN returns NaN so ensure we use order=1 when using NaN as a fill value.
-        order = 1 if any_nan_values or subroi_warpedImage.dtype == bool else 3
+        # dtype first so a bool source short-circuits before the isnan pass.
+        order = 1 if subroi_warpedImage.dtype == bool or _source_has_nan() else 3
     else:
         order = int(interpolation_order)
     prefilter = order > 1
@@ -593,11 +604,17 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     # Scipy's interpolation can infer values slightly outside the source data's range.
     cval_float = float(cval) if cval is not None else 0.0
     preserve_cval_sentinel = cval_float > 1.0
+    # Do not be tempted to skip this for order <= 1 on the grounds that linear and nearest
+    # interpolation cannot overshoot the source range. They cannot, but that is not all this
+    # clip does: with mode='constant' the samples near the source border blend toward cval, so
+    # they land outside the source range even at order 1. Gating on order changed the border
+    # pixels of every fractional-offset warp. (#110)
     if not preserve_cval_sentinel:
-        if any_nan_values:
+        if _source_has_nan():
             nan_mask = xp.logical_not(xp.isnan(subroi_warpedImage))
-            min_val = subroi_warpedImage[nan_mask].min()
-            max_val = subroi_warpedImage[nan_mask].max()
+            finite_source = subroi_warpedImage[nan_mask]
+            min_val = finite_source.min()
+            max_val = finite_source.max()
         else:
             min_val = subroi_warpedImage.min()
             max_val = subroi_warpedImage.max()
