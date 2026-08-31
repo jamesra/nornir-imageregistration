@@ -63,3 +63,10 @@ Issues = "https://github.com/jamesra/nornir-imageregistration/issues"
 [tool.pytest.ini_options]
 pythonpath = ["tests"]
 testpaths = ["tests"]
+# Declared here as well as in the umbrella pytest.ini: this section shadows that file when
+# pytest is invoked from inside the submodule, which is how the per-file verification runs
+# are done. Declaring it only upstream left `-m "not slow"` warning about an unknown mark
+# in exactly the runs that need it.
+markers = [
+    "slow: measured to need far longer than a routine-verification budget; deselect with -m \"not slow\". See tests/test_SliceToSliceBrute_budget.py and review #229.",
+]

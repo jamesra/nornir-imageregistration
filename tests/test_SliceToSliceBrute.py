@@ -22,6 +22,7 @@ except ImportError:
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
 
+import pytest
 import scipy
 from nornir_shared.tasktimer import TaskTimerContext
 
@@ -176,14 +177,22 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.WarpedImagePathFlipped = self.GetImagePath(
             "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
 
+    # The CPU sweep variants below are @slow from measurement, not suspicion. Each runs a
+    # full angle sweep at all 11 scale candidates on an 8192x8192 frame at ~10.5s per
+    # angle serially, so none finishes inside a routine budget. Their _GPU siblings cover
+    # the same registration behaviour in 62-128s and stay selected. See #229 and
+    # test_SliceToSliceBrute_budget.py.
+    @pytest.mark.slow
     def testStosBrute_SingleThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
+    @pytest.mark.slow
     def testStosBrute_MultiThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, FlipUD=False)
 
+    @pytest.mark.slow
     def testStosBrute_Cluster(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True,
@@ -195,14 +204,17 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
+    @pytest.mark.slow
     def testStosBruteWithFlip_SingleThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=True, FlipUD=True)
 
+    @pytest.mark.slow
     def testStosBruteWithFlip_MultiThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, FlipUD=True)
 
+    @pytest.mark.slow
     def testStosBruteWithFlip_Cluster(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePathFlipped, SingleThread=False, Cluster=True,
@@ -291,6 +303,7 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
+    @pytest.mark.slow
     def testStosBruteWithMask_MultiThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
@@ -380,6 +393,7 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName,
                          "Mask in .stos does not match mask used in alignment\n")
 
+    @pytest.mark.slow
     def testStosBruteScaleMismatchWithMask(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.runStosBruteScaleMismatchWithMask()
@@ -581,6 +595,7 @@ class TestStosBruteToSameImage(setup_imagetest.ImageTestBase):
     #                                            self.FixedImageMaskPath,
     #                                            SingleThread=True)
 
+    @pytest.mark.slow
     def testSameTEMImage_MultiThread(self):
         '''Make sure the same image aligns to itself with peak (0,0) and angle 0'''
 
