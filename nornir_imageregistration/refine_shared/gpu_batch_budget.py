@@ -38,6 +38,32 @@ _REFINE_BATCH_HEADROOM_BYTES: int = 512 * 1024 * 1024
 # scaling it down by precision — needs a fresh sweep first. See review issue #227.
 _FFT_PEAK_BYTES_PER_CELL_128: int = 128 * 128 * 16 * 4
 
+# Modelled FFT workspace per launch that measured fastest. The optimum is a *working-set
+# size*, not a cell count. Sweeping chunk size at three cell sizes on an RTX 4500 Ada
+# (float32, median of 7, results identical at every chunk) puts the best chunk at:
+#
+#   cell  64px -> chunk 1024   0.0353s  (worst 0.3001s, spread 8.50x)
+#   cell 128px -> chunk  256   0.1250s  (worst 0.2400s, spread 2.32x)
+#   cell 256px -> chunk   64   0.1326s  (worst 0.2614s, spread 1.97x)
+#
+# A 16x spread in cell count, but the same 16 MiB of cell input and the same 145 MiB peak
+# workspace every time -- so it is a cache/bandwidth effect, and a byte target is what has
+# any chance of transferring to other hardware. In the units ``_fft_peak_bytes_per_cell``
+# models, all three optima are 256 MiB, which is why the target is expressed that way
+# rather than as cells.
+#
+# This also corrects #228, which read the trend as monotonically favouring smaller chunks
+# because it only swept down to 256 at 128px, right at the optimum. There is an interior
+# optimum and undershooting is worse than overshooting: at 64px cells chunk 64 is 8.5x
+# slower than chunk 1024. A fixed *cell* ceiling would therefore be actively harmful --
+# the 256 that #228 suggested as a workaround is 4x too large at 256px cells and 4x too
+# small at 64px.
+#
+# One GPU, so the VRAM budget is deliberately kept as the upper bound rather than replaced:
+# this only ever lowers the chunk. Override with NORNIR_REFINE_BATCHED_FFT_CELLS. Re-sweep
+# before changing the constant. See review #228.
+_FFT_PREFERRED_WORKSPACE_BYTES: int = 256 * 1024 * 1024
+
 # Conservative bytes per map_coordinates sample (output + coord intermediates).
 _ROI_BYTES_PER_SAMPLE: int = 12
 
@@ -96,6 +122,10 @@ def batched_fft_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[
             0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
     if budget_bytes <= 0:
         return 1
+    # Throughput target first, VRAM as the ceiling it already was. Filling the batch to
+    # whatever fits measured 2.3-8.5x slower than the preferred working set, depending on
+    # cell size, so "as large as fits" was maximising the wrong quantity.
+    budget_bytes = min(budget_bytes, _FFT_PREFERRED_WORKSPACE_BYTES)
     chunk = max(1, budget_bytes // bytes_per_cell)
     return min(chunk, _MAX_FFT_CELL_CHUNK)
 

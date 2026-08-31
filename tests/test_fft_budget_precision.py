@@ -121,9 +121,12 @@ class TestChunkSizesStayBounded(unittest.TestCase):
     def setUp(self):
         os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
 
-    def test_the_cpu_baseline_is_1024_cells_at_128px(self):
+    def test_the_preferred_working_set_now_caps_the_cpu_baseline(self):
+        # Was 1024, the full _CPU_FFT_BUDGET_BYTES. #228's throughput target lowers it to
+        # the 256 MiB working set that measured fastest, which on the CPU path is also
+        # marginally quicker (2.4886s vs 2.5005s at 128px, 2048 cells).
         with mock.patch(_MEM, return_value=(None, None)):
-            self.assertEqual(batched_fft_cell_chunk_size((128, 128)), 1024)
+            self.assertEqual(batched_fft_cell_chunk_size((128, 128)), 256)
 
     def test_the_cpu_budget_tracks_the_calibrated_constant(self):
         self.assertEqual(_CPU_FFT_BUDGET_BYTES, 1024 * _FFT_PEAK_BYTES_PER_CELL_128)
