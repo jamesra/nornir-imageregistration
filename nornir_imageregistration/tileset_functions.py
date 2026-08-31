@@ -189,22 +189,31 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         BottomLeftBase = os.path.basename(BottomLeft)
         BottomRightBase = os.path.basename(BottomRight)
 
-        if input_temp_dir_exists:
-            temp_TopLeft = os.path.join(temp_level_input_dir, TopLeftBase)
-            temp_TopRight = os.path.join(temp_level_input_dir, TopRightBase)
-            temp_BottomLeft = os.path.join(temp_level_input_dir, BottomLeftBase)
-            temp_BottomRight = os.path.join(temp_level_input_dir, BottomRightBase)
-
-            use_temp_dir = input_temp_dir_exists and any(
-                os.path.exists(x) for x in [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
-        else:
-            use_temp_dir = False
-            temp_TopLeft = TopLeft
-            temp_TopRight = TopRight
-            temp_BottomLeft = BottomLeft
-            temp_BottomRight = BottomRight
-
         source_paths = (TopLeft, TopRight, BottomLeft, BottomRight)
+
+        use_temp_dir = False
+        if input_temp_dir_exists:
+            cached_paths = tuple(
+                os.path.join(temp_level_input_dir, base)
+                for base in (TopLeftBase, TopRightBase, BottomLeftBase, BottomRightBase))
+            use_temp_dir = any(os.path.exists(path) for path in cached_paths)
+
+        if use_temp_dir:
+            temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = cached_paths
+        else:
+            # Read straight from the source when the local cache holds none of this tile's
+            # inputs. The cache paths were previously left in place in that case -- they were
+            # only replaced by the source paths when the cache *directory* was absent -- so a
+            # tile whose inputs had not been cached was handed four paths that do not exist.
+            # Nothing could be assembled from them, so the function logged "Pyramid tile not
+            # written although source tiles exist" and returned, silently leaving a hole in the
+            # level even though every source tile was present on disk.
+            #
+            # The directory exists but is missing a tile's inputs whenever a level is rebuilt
+            # after an interrupted run: the previous run consumed and deleted the cached inputs
+            # it had already used, and the caller only falls back to None when the directory is
+            # gone entirely. (#256)
+            temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = source_paths
         any_source_exists = any(os.path.isfile(path) for path in source_paths)
 
         # Verify the contents of the temporary directory if they exist
