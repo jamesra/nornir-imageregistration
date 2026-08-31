@@ -2161,6 +2161,12 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     else:
         rotated_desired_height, rotated_desired_width = desired_shape
 
+    # xp is always numpy here: the images were brought to the host above and
+    # pad_image_for_phase_correlation preserves its input's array module rather than
+    # following the active lib, so these two coerces return the cached windows unchanged.
+    # Should the log-polar FFTs ever move to the device, the host-only HannWindowCache
+    # would upload a window per call at 2-4x the cost of the fft2 it feeds, and would need
+    # to be keyed on the array module instead. (#96, tests/test_hann_window_stays_host.py)
     xp = cp.get_array_module(padded_target)
     target_window = _coerce_to_source_module(target_window, xp)
     source_window = _coerce_to_source_module(source_window, xp)
