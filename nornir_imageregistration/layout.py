@@ -210,11 +210,23 @@ class LayoutPosition:
             # Update a row
             self._OffsetArray[iKnown] = new_row
         else:
-            # Insert a new row 
+            # Insert a new row, keeping the array sorted ascending by connected ID.
+            #
+            # The sort is load-bearing and cannot simply be dropped: row order is the summation
+            # order in WeightedNetTensionVector, and float addition is not associative, so a
+            # different order perturbs relaxation results.
+            #
+            # But it only has to run when the new ID does not already belong at the end. Offsets
+            # for a given node arrive in ascending ID order in practice -- a node is linked by
+            # its lower-ID neighbours before it links its own higher-ID ones -- so on a grid
+            # build this fast path takes every single insertion, measured 3968/3968. Appending
+            # to an already-sorted array leaves it sorted, so the result is identical either
+            # way. np.insert with a searchsorted position was also tried and is slower than
+            # vstack here; the cost is numpy call overhead, not the sort. (#133)
+            append_keeps_it_sorted = (self._OffsetArray.shape[0] == 0
+                                      or ID > self._OffsetArray[-1, LayoutPosition.iOffsetID])
             self._OffsetArray = np.vstack((self._OffsetArray, new_row))
-            if self._OffsetArray.ndim == 1:
-                self._OffsetArray = np.reshape(self._OffsetArray, (1, self._OffsetArray.shape[0]))
-            else:
+            if not append_keeps_it_sorted:
                 self._OffsetArray = _sort_array_on_column(self._OffsetArray, 0, ascending=True)
 
             self._IDToIndex = None
@@ -1058,7 +1070,12 @@ def OffsetsSortedByWeight(layout: Layout) -> NDArray:
     Return all of a layouts offsets sorted by weight.
     :return: An array [[TileA_ID, TileB_ID, OffsetY, OffsetX, Weight]] To prevent duplicates we only report offsets where TileA_ID < TileB_ID
     """
-    ret_array = np.empty((0, 5))
+    # Collected and concatenated once. This used to vstack onto an accumulator per node, which
+    # recopies everything gathered so far on every iteration -- quadratic in the number of rows.
+    # The constant is small enough to hide at typical sizes, but it takes over on a large
+    # section: 4096 nodes 42 ms -> 32 ms, 9216 nodes 125 ms -> 67 ms, 16384 nodes 937 ms -> 123
+    # ms. The pre-sort row order is unchanged, so the sorted result is identical. (#133)
+    chunks = []
     for node in layout.nodes.values():
         if node.IsIsolated:
             continue
@@ -1074,8 +1091,11 @@ def OffsetsSortedByWeight(layout: Layout) -> NDArray:
             continue
 
         new_column = np.ones((int(np.sum(iNewRows)), 1)) * node.ID
-        new_rows = np.hstack((new_column, offsets[iNewRows, :]))
-        ret_array = np.vstack((ret_array, new_rows))
+        chunks.append(np.hstack((new_column, offsets[iNewRows, :])))
+
+    # concatenate rejects an empty sequence, and a layout with no reportable offsets is normal
+    # (every node isolated, or a single node).
+    ret_array = np.concatenate(chunks, axis=0) if len(chunks) > 0 else np.empty((0, 5))
 
     return _sort_array_on_column(ret_array, 4)
 
