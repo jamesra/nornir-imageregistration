@@ -228,12 +228,18 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
 
         relaxed_layout = nornir_imageregistration.layout.MergeDisconnectedLayoutsWithOffsets(relaxed_layouts,
                                                                                              stage_reported_overlaps)
-        relaxed_layout.TranslateToZeroOrigin()  # type: ignore[union-attr]
-        relaxed_layout.UpdateTileTransforms(tileset)  # type: ignore[union-attr]
+        if relaxed_layout is None:
+            # Merge returns None for an empty layout_list, so an empty translated_final_layouts
+            # would have made the three dereferences below fail. Leave the loop and let the
+            # stage-position fallback answer instead.
+            break
+
+        relaxed_layout.TranslateToZeroOrigin()
+        relaxed_layout.UpdateTileTransforms(tileset)
         last_pass_overlaps = distinct_overlaps
 
         # Copy the relaxed layout positions back into the translated layout
-        for ID, node in relaxed_layout.nodes.items():  # type: ignore[union-attr]
+        for ID, node in relaxed_layout.nodes.items():
             tnode = translated_layout.nodes[ID]
             tnode.Position = node.Position
 
@@ -242,8 +248,31 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
 
     # final_layout = nornir_imageregistration.layout.BuildLayoutWithHighestWeightsFirst(offsets_collection)
 
+    if relaxed_layout is None:
+        # No pass ever produced a layout, because the very first GenerateTileOverlaps found
+        # nothing to align. Reaching the dereference below with None raised
+        # "AttributeError: 'NoneType' object has no attribute 'TranslateToZeroOrigin'", which
+        # said nothing about the tiles. Two tiles merely touching edge to edge is enough to
+        # get here -- adjacency is not overlap -- as are tiles whose stage positions are far
+        # apart, or a min_overlap set above what the mosaic actually has (#128).
+        #
+        # Fall back to the stage positions, matching what the single-tile branch above does
+        # with its one node. That is the best available answer when nothing could be measured,
+        # and it keeps a disconnected mosaic buildable instead of aborting the section. Tile
+        # transforms are deliberately left untouched: no alignment was measured, so there is
+        # nothing to write back.
+        nornir_shared.prettyoutput.LogErr(
+            f"No qualifying tile overlaps found among {len(tileset)} tiles -> Using stage "
+            f"coordinates. No alignment could be measured; check that the tiles overlap and "
+            f"that min_overlap ({config.min_overlap}) is not above the overlap the mosaic "
+            f"actually has.")
+
+        relaxed_layout = nornir_imageregistration.layout.Layout()
+        for tile in tileset.values():
+            relaxed_layout.CreateNode(tile.ID, tile.FixedBoundingBox.Center)
+
     # Create a mosaic file using the tile paths and transforms
-    relaxed_layout.TranslateToZeroOrigin()  # type: ignore[union-attr]
+    relaxed_layout.TranslateToZeroOrigin()
     return relaxed_layout, tileset
 
 
