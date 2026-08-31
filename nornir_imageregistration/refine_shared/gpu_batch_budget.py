@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 
 import numpy as np
 
@@ -64,6 +66,37 @@ _FFT_PEAK_BYTES_PER_CELL_128: int = 128 * 128 * 16 * 4
 # before changing the constant. See review #228.
 _FFT_PREFERRED_WORKSPACE_BYTES: int = 256 * 1024 * 1024
 
+# Floor applied when the VRAM budget goes non-positive, i.e. when
+# ``_REFINE_BATCH_VRAM_FRACTION`` of free memory is smaller than
+# ``_REFINE_BATCH_HEADROOM_BYTES`` -- below roughly 1.28 GiB free. That used to return a chunk
+# of 1, turning a batched FFT of N cells into N single-cell launches. Measured on 4096 cells
+# of 128px, float32, median of 3, with results byte-identical at every chunk:
+#
+#   chunk    1 (4096 launches) 9.4480s   142.50x
+#   chunk    8 ( 512 launches) 1.1619s    17.52x
+#   chunk   32 ( 128 launches) 0.3133s     4.73x
+#   chunk   64 (  64 launches) 0.1585s     2.39x
+#   chunk  128 (  32 launches) 0.0790s     1.19x
+#   chunk  256 (  16 launches) 0.0663s     1.00x
+#
+# So the cliff costs **142x**, and the floor's size matters: the 32 or 64 that #236 suggested
+# would still leave 4.7x or 2.4x on the table. Expressed in bytes rather than cells for the
+# reason #228 records -- a cell count does not transfer across cell sizes. Half the preferred
+# working set lands at half the measured-optimal chunk at every cell size swept (128 of 256 at
+# 128px, 512 of 1024 at 64px, 32 of 64 at 256px), and at 128px that costs only 1.19x.
+#
+# Returning 1 is only correct if a single cell genuinely will not fit, which is a different
+# question from the headroom reserve being exhausted: the reserve exists to protect *other*
+# allocations, so running it down should not also destroy throughput. The fallback still
+# respects ``_REFINE_BATCH_VRAM_FRACTION`` of free memory, so it cannot claim more than the
+# ordinary path would -- it just stops subtracting a reserve it has already lost. See #236.
+_FFT_MIN_WORKSPACE_BYTES: int = 128 * 1024 * 1024
+
+# Throttle for the exhausted-budget warning. This runs once per refine step, so an
+# unthrottled warning would be thousands of identical lines on a large grid.
+_LOW_VRAM_WARNING_INTERVAL_SECONDS: float = 60.0
+_last_low_vram_warning: float = 0.0
+
 # Conservative bytes per map_coordinates sample (output + coord intermediates).
 _ROI_BYTES_PER_SAMPLE: int = 12
 
@@ -100,6 +133,32 @@ def _fft_peak_bytes_per_cell(cell_h: int, cell_w: int) -> int:
     return max(1, int(_FFT_PEAK_BYTES_PER_CELL_128 * pixels / baseline_pixels))
 
 
+def _warn_low_vram_budget(free_bytes: int | None, cell_h: int, cell_w: int,
+                          chunk: int) -> None:
+    """Report that the headroom reserve is exhausted, at most once a minute.
+
+    Worth a warning rather than silence: a caller in this state has a memory problem, and the
+    previous behaviour hid it behind correct results that merely took 142x longer.
+    """
+    global _last_low_vram_warning
+
+    now = time.monotonic()
+    if now - _last_low_vram_warning < _LOW_VRAM_WARNING_INTERVAL_SECONDS:
+        return
+    _last_low_vram_warning = now
+
+    free_mib = (free_bytes or 0) / (1024 * 1024)
+    logging.getLogger(__name__).warning(
+        'Free VRAM is %.0f MiB, so %.0f%% of it is below the %.0f MiB reserved as headroom '
+        'and the batched FFT budget is exhausted. Falling back to %d cell(s) of %dx%d per '
+        'launch instead of the preferred %.0f MiB working set; throughput will suffer. Free '
+        'device memory or lower the grid size. Override with '
+        'NORNIR_REFINE_BATCHED_FFT_CELLS.',
+        free_mib, _REFINE_BATCH_VRAM_FRACTION * 100,
+        _REFINE_BATCH_HEADROOM_BYTES / (1024 * 1024), chunk, cell_h, cell_w,
+        _FFT_PREFERRED_WORKSPACE_BYTES / (1024 * 1024))
+
+
 def batched_fft_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[int]) -> int:
     """Max cells per batched FFT launch, tuned from free VRAM unless overridden."""
     raw = os.environ.get('NORNIR_REFINE_BATCHED_FFT_CELLS', '').strip()
@@ -120,12 +179,24 @@ def batched_fft_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[
     else:
         budget_bytes = max(
             0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
-    if budget_bytes <= 0:
-        return 1
     # Throughput target first, VRAM as the ceiling it already was. Filling the batch to
     # whatever fits measured 2.3-8.5x slower than the preferred working set, depending on
     # cell size, so "as large as fits" was maximising the wrong quantity.
     budget_bytes = min(budget_bytes, _FFT_PREFERRED_WORKSPACE_BYTES)
+
+    if free_bytes is not None:
+        # Apply the floor against the *budget*, not just the ``<= 0`` case #236 reported.
+        # There are two ways to reach a chunk of 1, and testing the boundary found the
+        # second: at 1281 MiB free the reserve leaves 0.4 MiB, which is positive but smaller
+        # than one 128px cell, so the ordinary path floor-divided to 0 and ``max(1, ...)``
+        # returned 1 just as silently. Flooring the budget covers both with one rule.
+        floor_bytes = min(_FFT_MIN_WORKSPACE_BYTES,
+                          int(free_bytes * _REFINE_BATCH_VRAM_FRACTION))
+        if budget_bytes < floor_bytes:
+            budget_bytes = floor_bytes
+            _warn_low_vram_budget(free_bytes, cell_h, cell_w,
+                                  max(1, budget_bytes // bytes_per_cell))
+
     chunk = max(1, budget_bytes // bytes_per_cell)
     return min(chunk, _MAX_FFT_CELL_CHUNK)
 

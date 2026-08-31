@@ -135,7 +135,15 @@ class TestRefineShared(unittest.TestCase):
             nornir_imageregistration.SetActiveComputationLib(previous)
 
     def test_batched_fft_chunk_size_scales_with_free_vram(self) -> None:
-        """FFT batch size grows with reported free VRAM on CuPy."""
+        """A card too small for the preferred working set gets a smaller chunk.
+
+        Rewritten under #236. The original asserted ``large_card > small_card`` at 2 GiB and
+        20 GiB free and expected the large card to exceed 6000 cells, which described the
+        pre-#228 "fill VRAM" policy. Since #228 the chunk targets a 256 MiB working set and
+        VRAM is only the ceiling, so both of those cards reach the same 256 -- the assertion
+        was stale, not failing. What is still true, and worth pinning, is that VRAM binds
+        once it falls below the target.
+        """
         from unittest import mock
 
         from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
@@ -143,14 +151,15 @@ class TestRefineShared(unittest.TestCase):
         os.environ.pop('NORNIR_REFINE_BATCHED_FFT_CELLS', None)
         with mock.patch(
                 'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
-                return_value=(2 * 1024 ** 3, 24 * 1024 ** 3)):
+                return_value=(1600 * 1024 ** 2, 24 * 1024 ** 3)):
             small_card = batched_fft_cell_chunk_size((128, 128))
         with mock.patch(
                 'nornir_imageregistration.refine_shared.gpu_batch_budget.cuda_memory_info',
                 return_value=(20 * 1024 ** 3, 24 * 1024 ** 3)):
             large_card = batched_fft_cell_chunk_size((128, 128))
         self.assertGreater(large_card, small_card)
-        self.assertGreaterEqual(large_card, 6000)
+        self.assertGreater(small_card, 1,
+                           'a tight card must still batch; see the #236 floor')
 
     def test_batched_fft_chunk_size_env_override(self) -> None:
         """Explicit env still overrides VRAM auto-tuning."""
@@ -173,7 +182,12 @@ class TestRefineShared(unittest.TestCase):
             os.environ.pop('NORNIR_REFINE_BATCHED_ROI_SAMPLES', None)
 
     def test_batched_fft_chunk_size_cpu_scales_with_cell_area(self) -> None:
-        """CPU FFT chunks shrink with cell area so 4096² cannot batch hundreds of cells."""
+        """CPU FFT chunks shrink with cell area so 4096² cannot batch hundreds of cells.
+
+        The 128px expectation was 1024, the full ``_CPU_FFT_BUDGET_BYTES``, before #228 capped
+        every path at the 256 MiB working set that measured fastest. Stale rather than broken;
+        ``test_fft_budget_precision.py`` records the CPU timings behind the new value.
+        """
         from unittest import mock
 
         from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
@@ -185,9 +199,13 @@ class TestRefineShared(unittest.TestCase):
             at_128 = batched_fft_cell_chunk_size((128, 128))
             at_1024 = batched_fft_cell_chunk_size((1024, 1024))
             at_4096 = batched_fft_cell_chunk_size((4096, 4096))
-        self.assertEqual(at_128, 1024)
-        self.assertEqual(at_1024, 16)
+        # 256 MiB working set: 256 cells of 128px at 1 MiB each, 4 of 1024px at 64 MiB,
+        # and a single 4096px cell already models 1 GiB so it cannot batch at all.
+        self.assertEqual(at_128, 256)
+        self.assertEqual(at_1024, 4)
         self.assertEqual(at_4096, 1)
+        self.assertGreater(at_128, at_1024)
+        self.assertGreater(at_1024, at_4096)
 
     def test_batched_fft_chunk_size_gpu_does_not_floor_large_cells(self) -> None:
         """VRAM budget must not force 256 huge cells when only a handful fit."""
