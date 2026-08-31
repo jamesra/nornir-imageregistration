@@ -14,6 +14,7 @@ otherwise the system temp directory.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -21,10 +22,15 @@ import uuid
 __all__ = [
     "is_headless",
     "artifact_png_path",
+    "figure_tag",
     "inspect_png_output",
     "save_figure_to_png_artifact",
     "save_current_pyplot_figure",
 ]
+
+# Keep derived tags short enough that the pid/uuid suffix stays readable and the
+# whole filename stays well inside path limits on Windows hosts.
+_TAG_MAX_LENGTH = 60
 
 
 def is_headless() -> bool:
@@ -51,6 +57,44 @@ def artifact_png_path(prefix: str = "nornir-ir") -> str:
     base = _headless_plot_artifact_base()
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, f"{prefix}-{os.getpid()}-{uuid.uuid4().hex}.png")
+
+
+def _slugify_tag(text: str) -> str:
+    """Reduce arbitrary figure text to a short, filesystem-safe tag."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+    if len(slug) <= _TAG_MAX_LENGTH:
+        return slug
+    return slug[:_TAG_MAX_LENGTH].rstrip("-")
+
+
+def figure_tag(fig, default: str = "fig") -> str:
+    """Derive an artifact tag from a figure's suptitle, or failing that its first axes title.
+
+    Post-run triage has to correlate each PNG back to the code that drew it. Callers
+    rarely pass an explicit tag, so without this every artifact from a given helper
+    lands under one identical prefix and the only distinguishing part of the filename
+    is a uuid.
+    """
+    try:
+        candidates = []
+        get_suptitle = getattr(fig, "get_suptitle", None)
+        if callable(get_suptitle):
+            candidates.append(get_suptitle())
+        else:
+            suptitle = getattr(fig, "_suptitle", None)
+            if suptitle is not None:
+                candidates.append(suptitle.get_text())
+        candidates.extend(ax.get_title() for ax in fig.axes)
+    except Exception:
+        return default
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        slug = _slugify_tag(candidate)
+        if slug:
+            return slug
+    return default
 
 
 def inspect_png_output(path: str) -> None:
