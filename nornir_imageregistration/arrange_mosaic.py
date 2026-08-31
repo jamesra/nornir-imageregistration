@@ -677,13 +677,26 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
             nornir_shared.prettyoutput.LogErr("FloatingPointError: %d -> %d = %s -> Using stage coordinates." % (
                 t.tile_overlap.A.ID, t.tile_overlap.B.ID, str(e)))
 
-            # Create an alignment record using only stage position and a weight of zero 
-            offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.scaled_offset, weight=0)
+            # Leave offset as None so the "if offset is not None" block below is skipped and
+            # the RemoveOverlap above stands. Both handlers used to build a stage-position
+            # AlignmentRecord with weight 0 here, which made that block run and call SetOffset,
+            # re-adding the very spring just removed. d73dd60 introduced RemoveOverlap and the
+            # None guard together -- the guard has no other way to be satisfied -- so the
+            # leftover assignment had defeated the intended behaviour since it was written.
+            # A surviving zero-weight spring is not inert: NormalizeOffsetWeights rescales every
+            # weight relative to the layout's weight extrema, so one zero drags the minimum to 0
+            # and shifts every other offset's weight, and BuildLayoutWithHighestWeightsFirst
+            # skips only NaN weights, so the failed pair was still welded into one component
+            # instead of being left for the stage-offset merge. Dropping the spring is what
+            # makes this branch's "Using stage coordinates" message true: the node becomes its
+            # own component and MergeDisconnectedLayoutsWithOffsets places it by stage
+            # offset. (#122)
+            offset = None
             layout.RemoveOverlap(tile_overlap)
         except ValueError as e:
             nornir_shared.prettyoutput.LogErr(
                 f"Could not find overlap between:\n\t{t.tile_overlap.A.ImagePath}\n\t{t.tile_overlap.B.ImagePath,}\nConsider using a feature threshold for this section if results are poor.  This message often caused by aligning blank tiles.\n{e}")
-            offset = nornir_imageregistration.AlignmentRecord(peak=t.tile_overlap.scaled_offset, weight=0)
+            offset = None
             layout.RemoveOverlap(tile_overlap)
 
         if offset is not None:
