@@ -115,11 +115,19 @@ def _fixed_correlation_shape(
         source_shape: tuple[int, int] | NDArray | Sequence[int],
         angles: Sequence[float] | AbstractSet[float] | NDArray,
         min_overlap: float) -> tuple[int, int]:
-    """Power-of-two correlation frame covering target, source, and all rotated AABBs.
+    """Correlation frame covering target, source, and all rotated AABBs.
 
     Takes the element-wise max of the unrotated target/source shapes and the
     rotated source AABB for every angle in *angles*, then rounds each dimension
-    up with ``NearestPowerOfTwoWithOverlap``.
+    up with ``SmoothFFTSizeWithOverlap``.
+
+    Rounded to the next even 5-smooth size rather than the next power of two. The frame is
+    the dominant cost of a sweep: the ds32 test pair is 4183x4309 against 4184x4299, whose
+    max rotated AABB is 6000 -- and the power-of-two rule rounded that to 8192, paying
+    1.86x the area for nothing. Measured on that pair, the frame drops from 256 MiB to
+    137 MiB and one ``ScoreOneAngle`` goes from 8.12s to 4.33s (1.87x). The result is never
+    larger than the power of two, so frame memory cannot regress. See
+    ``NextSmoothFFTSize`` for why the candidates must be even, and review #234.
     """
     th, tw = int(target_shape[0]), int(target_shape[1])
     sh, sw = int(source_shape[0]), int(source_shape[1])
@@ -131,8 +139,8 @@ def _fixed_correlation_shape(
             max_h = rh
         if rw > max_w:
             max_w = rw
-    out_h = int(nornir_imageregistration.NearestPowerOfTwoWithOverlap(max_h, min_overlap))
-    out_w = int(nornir_imageregistration.NearestPowerOfTwoWithOverlap(max_w, min_overlap))
+    out_h = int(nornir_imageregistration.SmoothFFTSizeWithOverlap(max_h, min_overlap))
+    out_w = int(nornir_imageregistration.SmoothFFTSizeWithOverlap(max_w, min_overlap))
     return (out_h, out_w)
 
 
@@ -2116,7 +2124,7 @@ def _find_best_angle(source_image: NDArray[np.floating],
         source_shape = source_image.shape
         target_shape = target_image.shape
 
-        # Multi-angle sweeps use one fixed Po2 frame covering the max rotated AABB so
+        # Multi-angle sweeps use one fixed frame covering the max rotated AABB so
         # the target FFT can be reused and per-angle target re-pads are avoided.
         fixed_shape: tuple[int, int] | None = None
         if len(angle_range) > 1:

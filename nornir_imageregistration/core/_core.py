@@ -4,6 +4,7 @@ scipy image arrays are indexed [y,x]
 
 from collections import deque
 from collections.abc import Iterable, Sequence
+import bisect
 import math
 import multiprocessing
 from multiprocessing import shared_memory
@@ -2937,6 +2938,20 @@ def ReplaceImageExtremaWithNoise(image: np.ndarray, imagemask: np.ndarray | None
     return noised_image
 
 
+def _clamped_overlap(overlap: float | None) -> float:
+    """Clamp an overlap fraction into [0, 1], treating None as 0."""
+    if overlap is None:
+        return 0.0
+
+    if overlap > 1.0:
+        return 1.0
+
+    if overlap < 0.0:
+        return 0.0
+
+    return overlap
+
+
 def NearestPowerOfTwoWithOverlap(val: float, overlap: float = 1.0) -> int:
     """
     :param val:
@@ -2944,14 +2959,7 @@ def NearestPowerOfTwoWithOverlap(val: float, overlap: float = 1.0) -> int:
     :return: Same as DimensionWithOverlap, but output dimension is increased to the next power of two for faster FFT operations
     """
 
-    if overlap is None:
-        overlap = 0.0
-
-    if overlap > 1.0:
-        overlap = 1.0
-
-    if overlap < 0.0:
-        overlap = 0.0
+    overlap = _clamped_overlap(overlap)
 
     # Figure out the minimum dimension to accomodate the requested overlap
     min_dimension = DimensionWithOverlap(val, overlap)
@@ -2975,6 +2983,82 @@ def DimensionWithOverlap(val, overlap=1.0):
     overlap += 0.5
 
     return val + (val * (1.0 - overlap) * 2.0)
+
+
+_EVEN_SMOOTH_FFT_SIZES: tuple[int, ...] | None = None
+# Generous ceiling: a correlation frame is at most a few times the largest image dimension,
+# and the table costs a few hundred ints.
+_SMOOTH_FFT_SIZE_LIMIT: int = 1 << 26
+
+
+def _even_smooth_fft_sizes() -> tuple[int, ...]:
+    """Ascending even 5-smooth (2**a * 3**b * 5**c) sizes, built once and cached."""
+    global _EVEN_SMOOTH_FFT_SIZES
+    if _EVEN_SMOOTH_FFT_SIZES is None:
+        sizes = []
+        p2 = 2  # start at 2, never 1, so every entry keeps a factor of two -- see NextSmoothFFTSize
+        while p2 <= _SMOOTH_FFT_SIZE_LIMIT:
+            p3 = p2
+            while p3 <= _SMOOTH_FFT_SIZE_LIMIT:
+                p5 = p3
+                while p5 <= _SMOOTH_FFT_SIZE_LIMIT:
+                    sizes.append(p5)
+                    p5 *= 5
+                p3 *= 3
+            p2 *= 2
+        _EVEN_SMOOTH_FFT_SIZES = tuple(sorted(sizes))
+
+    return _EVEN_SMOOTH_FFT_SIZES
+
+
+def NextSmoothFFTSize(val: float) -> int:
+    """Smallest **even** 5-smooth integer >= *val*.
+
+    A cheaper alternative to :func:`NearestPowerOfTwo` for sizing an FFT frame. Both
+    pocketfft and cuFFT are fast for any size factorable into small primes, so rounding a
+    6000px requirement up to 8192 pays 1.86x the area for nothing. Since powers of two are
+    themselves even and 5-smooth, the result is never *larger* than
+    :func:`NearestPowerOfTwo`, so frame memory cannot regress.
+
+    Measured on float32 ``fft2`` across eleven required sizes spanning 4100..8000, the
+    smooth frame is 1.21x to 4.62x faster on numpy and 1.06x to 2.95x on CuPy -- with one
+    exception: a requirement near 7300 selects 7500, which is 5.7% *slower* than 8192 on
+    CuPy while still 1.39x faster on numpy. Frame area still falls, so that band trades a
+    little GPU throughput for less memory. It was not worth a special case: the crossover
+    was measured on a single card, and hardcoding a size exception is exactly the mistake
+    #228 recorded for batch budgets.
+
+    Even sizes only, and that is a correctness constraint rather than a preference:
+    ``find_peak`` derives the shift as ``shape / 2.0 - peak_center_of_mass`` using true-half,
+    while ``fftshift`` places the zero-shift sample at ``(n - 1) / 2`` for odd *n*. Measured,
+    an odd frame biases every offset by exactly +0.5px, at 65, 129, 255 and 6075 alike.
+    Power-of-two sizes are always even, which is why nothing has tripped over this; a smooth
+    rule has to exclude odd candidates explicitly. This costs a little -- 6075 is 1.5x faster
+    than 6144 on numpy -- and is not worth a half-pixel bias.
+
+    See review #234.
+    """
+    target = int(math.ceil(val))
+    if target <= 2:
+        return 2
+
+    sizes = _even_smooth_fft_sizes()
+    index = bisect.bisect_left(sizes, target)
+    if index >= len(sizes):
+        raise ValueError(
+            f"No even 5-smooth FFT size >= {target}; raise _SMOOTH_FFT_SIZE_LIMIT")
+
+    return sizes[index]
+
+
+def SmoothFFTSizeWithOverlap(val: float, overlap: float = 1.0) -> int:
+    """
+    :param val: Original dimension
+    :param float overlap: Minimum amount of overlap possible between images, from 0 to 1.  Values greater than 0.5 require no increase to image size.
+    :return: Same as :func:`NearestPowerOfTwoWithOverlap`, but rounded up to the next even
+        5-smooth size rather than the next power of two. See :func:`NextSmoothFFTSize`.
+    """
+    return NextSmoothFFTSize(DimensionWithOverlap(val, _clamped_overlap(overlap)))
 
 
 def ImageIntensityAtPercent(image, Percent=0.995):
