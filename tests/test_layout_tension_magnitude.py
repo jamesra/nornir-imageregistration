@@ -113,23 +113,103 @@ class TestASingleLink(unittest.TestCase):
 
 
 class TestTheIdIsReadFromTheMatchingRow(unittest.TestCase):
-    """magnitudes is indexed by position in connected_nodes, the ID by offset-array row (#255)."""
+    """magnitudes is indexed by position in connected_nodes, the ID by offset-array row (#255).
 
-    def test_a_reordered_connected_sequence_still_names_the_right_node(self):
-        layout = _star()
-        node = layout.nodes[0]
-        connected = list(layout.GetNodes(node.ConnectedIDs))[::-1]
-        vectors = node.TensionVectors(connected)
-        i = int(np.sqrt(np.sum(vectors ** 2, 1)).argmax())
-        self.assertEqual(int(connected[i].ID), int(node.MaxTensionMagnitude(connected).ID))
+    All four accessors are covered, not just the magnitude pair.  Three of them read the ID with
+    the connected_nodes index while a fourth had been corrected, so the family disagreed with
+    itself: on a reversed sequence MaxTensionVector named node 1 and MinTensionVector named
+    node 3, exactly swapping the two answers, while the magnitudes stayed right.  A plausible
+    number attributed to the wrong link, with no error raised.
+    """
+
+    _MAXIMA = ('MaxTensionVector', 'MaxTensionMagnitude')
+    _MINIMA = ('MinTensionVector', 'MinTensionMagnitude')
+
+    def setUp(self):
+        self.layout = _star()
+        self.node = self.layout.nodes[0]
+        self.connected = list(self.layout.GetNodes(self.node.ConnectedIDs))[::-1]
+        magnitudes = np.sqrt(np.sum(self.node.TensionVectors(self.connected) ** 2, 1))
+        self.i_max = int(magnitudes.argmax())
+        self.i_min = int(magnitudes.argmin())
 
     def test_the_reordering_actually_permutes_the_rows(self):
-        """Without this the test above would pass trivially."""
-        layout = _star()
-        node = layout.nodes[0]
-        connected = list(layout.GetNodes(node.ConnectedIDs))[::-1]
-        iRows = node.get_row_indices(connected)
-        self.assertFalse(np.array_equal(iRows, np.arange(len(connected))))
+        """Without this the tests below would pass trivially."""
+        iRows = self.node.get_row_indices(self.connected)
+        self.assertFalse(np.array_equal(iRows, np.arange(len(self.connected))))
+
+    def test_a_reordered_sequence_still_names_the_node_holding_the_most_tension(self):
+        expected = int(self.connected[self.i_max].ID)
+        for name in self._MAXIMA:
+            with self.subTest(method=name):
+                self.assertEqual(expected, int(getattr(self.node, name)(self.connected).ID))
+
+    def test_a_reordered_sequence_still_names_the_node_holding_the_least_tension(self):
+        expected = int(self.connected[self.i_min].ID)
+        for name in self._MINIMA:
+            with self.subTest(method=name):
+                self.assertEqual(expected, int(getattr(self.node, name)(self.connected).ID))
+
+    def test_the_maximum_and_minimum_do_not_name_the_same_link(self):
+        """The specific way the bug presented: the two answers traded places."""
+        for maximum, minimum in zip(self._MAXIMA, self._MINIMA):
+            with self.subTest(methods=(maximum, minimum)):
+                self.assertNotEqual(int(getattr(self.node, maximum)(self.connected).ID),
+                                    int(getattr(self.node, minimum)(self.connected).ID))
+
+    def test_the_reported_id_does_not_depend_on_the_order_it_was_asked_in(self):
+        """The invariant behind all of the above: ordering is a caller's convenience."""
+        natural = list(self.layout.GetNodes(self.node.ConnectedIDs))
+        for name in self._MAXIMA + self._MINIMA:
+            with self.subTest(method=name):
+                self.assertEqual(int(getattr(self.node, name)(natural).ID),
+                                 int(getattr(self.node, name)(self.connected).ID))
+
+    def test_the_magnitude_was_never_the_part_that_was_wrong(self):
+        """Pins the diagnosis: only the ID moved, so a value-only test would have passed."""
+        natural = list(self.layout.GetNodes(self.node.ConnectedIDs))
+        for name in ('MaxTensionMagnitude', 'MinTensionMagnitude'):
+            with self.subTest(method=name):
+                self.assertAlmostEqual(float(getattr(self.node, name)(natural).Value),
+                                       float(getattr(self.node, name)(self.connected).Value))
+
+
+class TestTheVectorFormsAgreeWithTheMagnitudeForms(unittest.TestCase):
+    """The four accessors share one helper; they must not disagree on which link is extreme."""
+
+    def setUp(self):
+        self.layout = _star()
+        self.node = self.layout.nodes[0]
+
+    def _orders(self):
+        natural = list(self.layout.GetNodes(self.node.ConnectedIDs))
+        yield 'natural', natural
+        yield 'reversed', natural[::-1]
+
+    def test_the_vector_magnitude_equals_the_reported_magnitude(self):
+        for label, connected in self._orders():
+            for vector_name, magnitude_name in (('MaxTensionVector', 'MaxTensionMagnitude'),
+                                                ('MinTensionVector', 'MinTensionMagnitude')):
+                with self.subTest(order=label, methods=(vector_name, magnitude_name)):
+                    vector_form = getattr(self.node, vector_name)(connected)
+                    magnitude_form = getattr(self.node, magnitude_name)(connected)
+                    self.assertEqual(int(vector_form.ID), int(magnitude_form.ID))
+                    self.assertAlmostEqual(
+                        float(np.sqrt(np.sum(np.asarray(vector_form.Value) ** 2))),
+                        float(magnitude_form.Value))
+
+    def test_the_empty_guards_keep_their_distinct_sentinels(self):
+        """The vector forms return a (2,) zero, the magnitude forms a scalar 0; both keep it."""
+        for name in ('MaxTensionVector', 'MinTensionVector'):
+            with self.subTest(method=name):
+                result = getattr(self.node, name)([])
+                self.assertIsNone(result.ID)
+                np.testing.assert_array_equal(np.array((0, 0)), np.asarray(result.Value))
+        for name in ('MaxTensionMagnitude', 'MinTensionMagnitude'):
+            with self.subTest(method=name):
+                result = getattr(self.node, name)([])
+                self.assertIsNone(result.ID)
+                self.assertEqual(0, result.Value)
 
 
 class TestTheLayoutPropertyIsUnaffected(unittest.TestCase):
@@ -146,6 +226,29 @@ class TestTheLayoutPropertyIsUnaffected(unittest.TestCase):
         result = layout.MinTensionMagnitude
         self.assertAlmostEqual(0.0, float(result.Value))
         self.assertEqual((0, 1), tuple(result.ID))
+
+    def test_the_per_node_vector_tables_are_unchanged(self):
+        """The #255 fix must not move the live output.
+
+        Layout.MaxTensionVectors / MinTensionVectors pass GetNodes(ConnectedIDs), and
+        ConnectedIDs comes back in offset-array order, so the two index spaces coincided and
+        these tables were already correct.  Values captured from the pre-fix code.
+        """
+        layout = _star()
+
+        np.testing.assert_allclose(
+            np.array([[0.0, 3.0, -20.0, 0.0],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 2.0, 0.0, -10.0],
+                      [0.0, 3.0, 20.0, 0.0]]),
+            layout.MaxTensionVectors)
+
+        np.testing.assert_allclose(
+            np.array([[0.0, 1.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, 0.0],
+                      [0.0, 2.0, 0.0, -10.0],
+                      [0.0, 3.0, 20.0, 0.0]]),
+            layout.MinTensionVectors)
 
 
 if __name__ == '__main__':
