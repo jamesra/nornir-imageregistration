@@ -497,11 +497,28 @@ class Layout:
     @property
     def MaxWeightedNetTensionMagnitude(self) -> ID_Value:
         """Returns the (ID, Magnitude) of the node with the largest weighted net tension vector."""
-        net_tension_vectors = self.WeightedNetTensionVectors()
+        _, max_tension = Layout._max_weighted_net_tension(self)
+        return max_tension
+
+    @staticmethod
+    def _max_weighted_net_tension(layout_obj: Layout) -> tuple[NDArray[np.floating], ID_Value]:
+        """Evaluate every node's weighted net tension once, for both the maximum and reuse.
+
+        RelaxLayout needs the maximum to test convergence and RelaxNodes needs the same vectors
+        to order its movement pass, so returning both lets one evaluation serve both. (#131)
+
+        :return: (rows of (ID, Y, X), the (ID, magnitude) of the largest)
+        """
+        net_tension_vectors = layout_obj.WeightedNetTensionVectors()
         tension_magnitude = nornir_imageregistration.array_distance(net_tension_vectors[:, 1:])
         i_max = np.argmax(tension_magnitude)
-        return ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
-        # return np.max(nornir_imageregistration.array_distance(net_tension_vectors))
+        return net_tension_vectors, ID_Value(net_tension_vectors[i_max, 0], tension_magnitude[i_max])
+
+    @staticmethod
+    def _tension_vectors_by_id(net_tension_vectors: NDArray[np.floating]
+                               ) -> dict[int, NDArray[np.floating]]:
+        """Index the rows of WeightedNetTensionVectors output by node ID. (#131)"""
+        return {int(row[0]): row[1:] for row in net_tension_vectors}
 
     @property
     def MaxNetTensionMagnitude(self) -> ID_Value:
@@ -832,10 +849,15 @@ class Layout:
         self.nodes.update(layoutB.copy().nodes)
 
     @classmethod
-    def RelaxNodes(cls, layout_obj: Layout, vector_scalar: float | None = None):
+    def RelaxNodes(cls, layout_obj: Layout, vector_scalar: float | None = None,
+                   node_tension_vectors: dict[int, NDArray[np.floating]] | None = None):
         """Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
+        :param node_tension_vectors: Weighted net tension vector per node ID for the layout's
+            *current* positions, used only to order the movement pass.  RelaxLayout has already
+            evaluated these to test convergence, and nothing moves in between, so passing them
+            avoids recomputing every one.  None recomputes them.  See the ordering note below.
         :return: nx2 array of (node ID, sort weight), one row per *connected* node.
 
         Isolated nodes are omitted from the returned array rather than left as zero
@@ -866,7 +888,18 @@ class Layout:
             if node.NumConnections == 0:
                 continue
 
-            vector = layout_obj.WeightedNetTensionVector(node.ID)
+            # This pass only needs each vector's magnitude, to decide the order the movement
+            # loop below visits nodes in. The movement loop must still evaluate afresh, because
+            # it moves nodes as it goes and so changes the tension on the ones not yet visited.
+            # That second evaluation is inherent to the sequential update; this first one is not,
+            # because RelaxLayout evaluated the identical vectors to test convergence and nothing
+            # moves in between. The magnitude is still derived with vector.dot(vector) on the
+            # same float64 vector, so the sort keys -- and therefore the visit order and the
+            # final positions -- are bit-identical either way. (#131)
+            if node_tension_vectors is None:
+                vector = layout_obj.WeightedNetTensionVector(node.ID)
+            else:
+                vector = node_tension_vectors[node.ID]
 
             weights = node.Weights
             weight_sum = np.sum(weights) / node.NumConnections
@@ -1190,7 +1223,12 @@ def RelaxLayout(layout_obj: Layout, max_tension_cutoff=None, max_iter=None, vect
     :param float min_improvement: The max tension must decrease by at least this amount or the loop will exit
     """
 
-    max_tension = layout_obj.MaxWeightedNetTensionMagnitude[1]
+    # Kept as one evaluation whose vectors are handed to RelaxNodes below and then refreshed at
+    # the end of each pass. Previously RelaxNodes recomputed every node's weighted net tension
+    # to order its movement pass, immediately after this call had computed the identical values;
+    # nothing moves in between. (#131)
+    tension_vectors, max_tension_record = Layout._max_weighted_net_tension(layout_obj)
+    max_tension = max_tension_record[1]
 
     if max_tension_cutoff is None:
         max_tension_cutoff = 0.1
@@ -1238,8 +1276,10 @@ def RelaxLayout(layout_obj: Layout, max_tension_cutoff=None, max_iter=None, vect
         # sys.stdout.write(output_str)
         # sys.stdout.flush()
         # last_output = output_str
-        Layout.RelaxNodes(layout_obj, vector_scalar=vector_scale)
-        max_tension = layout_obj.MaxWeightedNetTensionMagnitude[1]
+        Layout.RelaxNodes(layout_obj, vector_scalar=vector_scale,
+                          node_tension_vectors=Layout._tension_vectors_by_id(tension_vectors))
+        tension_vectors, max_tension_record = Layout._max_weighted_net_tension(layout_obj)
+        max_tension = max_tension_record[1]
 
         if plotting_output_path is not None and (i % plotting_interval == 0 or i < plotting_interval):
             plotting_max_tension = max(min_plotting_tension, max_tension)
