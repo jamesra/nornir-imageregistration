@@ -676,9 +676,6 @@ def __get_overlapping_image(imageparam,
     if cval is None:
         cval = 'random'
 
-    if not np.issubdtype(dtype, np.floating) and np.isnan(cval):
-        raise ValueError("Cannot set cval to np.nan for non floating point dtypes")
-
     if excess_scalar > 3:
         excess_scalar = 3.0
 
@@ -695,6 +692,19 @@ def __get_overlapping_image(imageparam,
         dtype = image.dtype
     else:
         image = nornir_imageregistration.ImageParamToImageArray(imageparam, dtype=dtype)
+
+    # Checked here, not on entry, and only for numeric cval.
+    #
+    # On entry this read `not np.issubdtype(dtype, np.floating) and np.isnan(cval)`, which had
+    # two problems. np.isnan raises TypeError on the 'random' default, so any non-floating
+    # dtype crashed before doing any work rather than filling with noise. And it ran before
+    # the block above, so with the documented dtype=None it tested np.dtype(None) -- float64 --
+    # and passed, even when the image it went on to load was uint16. It was simultaneously too
+    # eager to reject and unable to catch the case it existed for (#127).
+    if not isinstance(cval, str) and np.isnan(cval) \
+            and not np.issubdtype(dtype, np.floating):
+        raise ValueError(
+            f"Cannot set cval to np.nan for non floating point dtype {np.dtype(dtype)}")
 
     # This is inefficient because we mask the entire image even though we only need a specific fragment.
     # However it is a pain right now to figure out how much more of the image is going to be grabbed by an expanded bounding
