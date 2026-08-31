@@ -339,10 +339,18 @@ class LayoutPosition:
         if len(connected_nodes) == 0:
             return ID_Value(None, 0)
 
-        position_difference = self.MaxTensionVector(connected_nodes)
-        magnitudes = np.sqrt(np.sum(position_difference.Value ** 2, 1))
+        # This called MaxTensionVector, whose ID_Value carries a single (2,) vector, then summed
+        # it over axis 1 -- so every non-empty input raised AxisError.  The body now mirrors
+        # MinTensionMagnitude below, which is the same computation with argmin. (#125)
+        position_difference = self.TensionVectors(connected_nodes)
+        magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
         i_max_tension = magnitudes.argmax()
-        return ID_Value(self.OffsetArray[i_max_tension, self.iOffsetID], magnitudes[i_max_tension])
+        # magnitudes is indexed by position within connected_nodes, but iOffsetID must be read
+        # from the matching row of the full offset array.  The two agree only while
+        # connected_nodes happens to be ordered like that array; the three sibling methods here
+        # still index it directly and report the wrong ID for a reordered sequence. (#255)
+        iRows = self.get_row_indices(connected_nodes)
+        return ID_Value(self.OffsetArray[iRows[i_max_tension], self.iOffsetID], magnitudes[i_max_tension])
 
     def MinTensionMagnitude(self, connected_nodes: Sequence[LayoutPosition]) -> ID_Value:
         """
