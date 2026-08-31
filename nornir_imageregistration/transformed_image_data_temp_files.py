@@ -47,7 +47,10 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     _rendered_target_space_origin: NDArray[np.float32]
 
     _temp_folder_created = False
-    sharedTempRoot = None
+    # Declared as sharedTempRoot while every read and write used _sharedTempRoot, so this
+    # default applied to a name nothing referenced and the name that was referenced did not
+    # exist until ConvertToTempFileIfLarge created it. (#106)
+    _sharedTempRoot = None
 
     tempfile_threshold = 64 * 64
 
@@ -164,6 +167,30 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         return o
 
     @staticmethod
+    def _EnsureSharedTempFolder() -> str:
+        """Create this process's shared temporary folder if it does not exist yet.
+
+        Extracted so SaveArrayToTemporaryFile can guarantee the folder before writing.  Every
+        file written here has delete=False and is reclaimed only by the atexit handler
+        registered below, which covers this folder alone -- so a file written outside it would
+        never be cleaned up.  (#106)
+
+        Note this check-then-set is not atomic; concurrent first calls can each mkdtemp and
+        leak all but the last.  That race predates this extraction and is tracked in #107.
+
+        :return: path of the shared temporary folder
+        """
+        if not TransformedImageDataViaTempFile._temp_folder_created:
+            temp_dir = nornir_imageregistration.gettempdir()
+            TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(
+                prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
+            TransformedImageDataViaTempFile._temp_folder_created = True
+            atexit.register(shutil.rmtree, TransformedImageDataViaTempFile._sharedTempRoot,
+                            ignore_errors=True)
+
+        return TransformedImageDataViaTempFile._sharedTempRoot
+
+    @staticmethod
     def SaveArrayToTemporaryFile(name: str, image: NDArray) -> str:
         """
         Save the image to a temporary file and return the name of the temporary file
@@ -174,7 +201,14 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
         if image is None:
             raise ValueError("image cannot be None")
 
-        with tempfile.NamedTemporaryFile(suffix=name + '.npy', dir=TransformedImageDataViaTempFile._sharedTempRoot,
+        # Called unconditionally rather than relying on ConvertToTempFileIfLarge having run
+        # first. This is a public staticmethod, and reaching it directly raised AttributeError
+        # on the missing _sharedTempRoot; with the declaration corrected it would instead fall
+        # back to dir=None, writing an undeleted file into the system temp dir that the atexit
+        # cleanup does not cover. (#106)
+        shared_temp_root = TransformedImageDataViaTempFile._EnsureSharedTempFolder()
+
+        with tempfile.NamedTemporaryFile(suffix=name + '.npy', dir=shared_temp_root,
                                          delete=False) as tfile:
             np.save(tfile, image)
             return tfile.name
@@ -193,13 +227,10 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             _image_path_task = None
             _centerDistanceImage_path_task = None
 
-            # Create the temporary directory if it doesn't exist
-            if not TransformedImageDataViaTempFile._temp_folder_created:
-                temp_dir = nornir_imageregistration.gettempdir()
-                TransformedImageDataViaTempFile._sharedTempRoot = tempfile.mkdtemp(
-                    prefix="nornir-imageregistration.transformed_image_data.", dir=temp_dir)
-                TransformedImageDataViaTempFile._temp_folder_created = True
-                atexit.register(shutil.rmtree, TransformedImageDataViaTempFile._sharedTempRoot, ignore_errors=True)
+            # Create the temporary directory if it doesn't exist.  Done here as well as inside
+            # SaveArrayToTemporaryFile so it happens once on this thread rather than racing
+            # between the two pool tasks submitted below.
+            TransformedImageDataViaTempFile._EnsureSharedTempFolder()
 
             # TODO: Replace with a task group once we are on Python 3.11
             pool = nornir_pools.GetGlobalThreadPool()
