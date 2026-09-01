@@ -122,7 +122,15 @@ class TestBase(unittest.TestCase, ABC):
 
     def tearDown(self):
 
-        nornir_pools.ClosePools()
+        # Bound the wait so a leaked pool becomes a failure of *this* test rather than
+        # hanging the whole suite. Production ClosePools still waits forever by default;
+        # that is intentional for pipelines, but catastrophic under pytest where one
+        # stuck worker (and the MQTT / logging threads it holds open) stops every later
+        # test. See .cursor/chunk0/CHUNK0-STATUS.md.
+        try:
+            nornir_pools.ClosePools(timeout=120)
+        except TimeoutError as exc:
+            self.fail(f"ClosePools timed out during tearDown: {exc}")
 
         if not self.profiler is None:
             self.profiler.dump_stats(self.TestProfilerOutputPath)
