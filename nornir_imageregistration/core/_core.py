@@ -606,17 +606,19 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
         reporter.complete()
 
     if bDeleteOriginal:
+        delete_tasks = []
         for (input_image, output_image) in ImagesToConvertDict.items():
             if input_image != output_image:
-                pool.add_task("Delete {0}".format(input_image), os.remove, input_image)
+                delete_tasks.append(
+                    pool.add_task("Delete {0}".format(input_image), os.remove, input_image))
 
-        while len(tasks) > 0:
-            t = tasks.pop(0)
+        # Conversion drained `tasks`; wait the delete list so OSError is logged (#208).
+        while delete_tasks:
+            t = delete_tasks.pop(0)
             try:
                 t.wait()
             except OSError as e:
                 prettyoutput.LogErr("Unable to delete {0}\n{1}".format(t.name, e))
-                pass
 
     if pool is not None:
         pool.wait_completion()
