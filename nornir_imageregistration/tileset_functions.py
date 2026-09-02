@@ -311,8 +311,12 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             Load a tile image and validate its size
             :param tile_path: Path to the tile image
             :param position: Description of tile position for error messages
-            :return: Loaded PIL Image or None if file is missing
+            :return: Loaded PIL Image or None if file is missing or unreadable
             """
+            # Absent quadrants are normal at mosaic edges; only warn when a path exists
+            # but cannot be decoded (handled after the parallel load).
+            if not os.path.isfile(tile_path):
+                return None
             try:
                 with Image.open(tile_path) as img:
                     if img.size[0] != TileSize[0] or img.size[1] != TileSize[1]:
@@ -321,7 +325,7 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
 
                     # Create a new PIL image from the array, ensuring it's in the right format
                     return Image.frombytes(img.mode, img.size, img.tobytes())
-            except IOError:
+            except OSError:
                 return None
 
         # Dictionary mapping tile positions to their coordinates in the composite
@@ -344,6 +348,12 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             quadrant = load_futures[future]
             loaded_tiles[quadrant] = future.result()
 
+        failed_existing = [
+            path
+            for quadrant, (_coords, path) in tile_positions.items()
+            if path in existing_sources and loaded_tiles.get(quadrant) is None
+        ]
+
         imComposite = None
         for quadrant, (coords, _path) in tile_positions.items():
             img = loaded_tiles.get(quadrant)
@@ -354,14 +364,23 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             imComposite.paste(img, box=coords)
             del img
 
-        if imComposite is None:
-            if existing_sources:
+        if failed_existing:
+            if imComposite is None:
                 logger.warning(
                     "Pyramid tile not written; %d source file(s) present but none loaded: output=%s paths=%s",
-                    len(existing_sources),
+                    len(failed_existing),
                     OutputFileFullPath,
-                    existing_sources,
+                    failed_existing,
                 )
+                return
+            logger.warning(
+                "Pyramid tile incomplete; %d of %d existing source(s) failed to load: output=%s paths=%s",
+                len(failed_existing),
+                len(existing_sources),
+                OutputFileFullPath,
+                failed_existing,
+            )
+        elif imComposite is None:
             return
 
         resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
