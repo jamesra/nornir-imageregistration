@@ -32,13 +32,28 @@ from nornir_imageregistration.computational_lib import HasCuVS, UsingCupy
 CUVS_NN_MIN_POINTS_DEFAULT: int = 4096
 _CUVS_NN_MIN_POINTS_ENV: str = "NORNIR_CUVS_NN_MIN_POINTS"
 
-# Optional CuVS import only when needed
+# Lazy CuVS import: import-time UsingCupy() may be False before the process selects
+# CuPy; binding only then left _cuvs_brute_force permanently None (#118).
 _cuvs_brute_force = None
-if UsingCupy() and HasCuVS():
+_cuvs_import_failed = False
+
+
+def _get_cuvs_brute_force():
+    """Return cuvs.neighbors.brute_force once CuPy is active, or None if unavailable."""
+    global _cuvs_brute_force, _cuvs_import_failed
+    if _cuvs_brute_force is not None:
+        return _cuvs_brute_force
+    if _cuvs_import_failed:
+        return None
+    if not (UsingCupy() and HasCuVS()):
+        return None
     try:
-        from cuvs.neighbors import brute_force as _cuvs_brute_force  # type: ignore[import-untyped]
+        from cuvs.neighbors import brute_force as bf  # type: ignore[import-untyped]
+        _cuvs_brute_force = bf
+        return _cuvs_brute_force
     except Exception:
-        pass
+        _cuvs_import_failed = True
+        return None
 
 
 def cuvs_nn_min_points() -> int:
@@ -119,15 +134,17 @@ class _CuVSNNIndex:
 
     def __init__(self, points):
         import cupy as cp
-        assert _cuvs_brute_force is not None
+        bf = _get_cuvs_brute_force()
+        assert bf is not None
         points = _ensure_cupy_float32(points)
-        self._index = _cuvs_brute_force.build(points, metric="sqeuclidean")
+        self._index = bf.build(points, metric="sqeuclidean")
         self._cp = cp
+        self._bf = bf
 
     def query(self, points, k: int = 1):
         cp = self._cp
         points = _ensure_cupy_float32(points)
-        distances, neighbors = _cuvs_brute_force.search(self._index, points, k)  # type: ignore[union-attr]
+        distances, neighbors = self._bf.search(self._index, points, k)
         distances = cp.asarray(distances)
         # CuVS uses sqeuclidean; convert to Euclidean to match scipy cKDTree
         distances = cp.sqrt(cp.maximum(distances, 0.0))
@@ -142,7 +159,7 @@ class _CuVSNNIndex:
 
 def _use_cuvs_nn(points: NDArray) -> bool:
     """True when CuVS brute-force NN is expected to beat a 2D cKDTree."""
-    if _cuvs_brute_force is None or not HasCuVS():
+    if _get_cuvs_brute_force() is None or not HasCuVS():
         return False
     if _n_points(points) < cuvs_nn_min_points():
         return False

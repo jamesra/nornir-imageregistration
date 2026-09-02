@@ -198,5 +198,42 @@ class TestEnsureCupyFloat32Contiguity(unittest.TestCase):
         np.testing.assert_allclose(_to_numpy(d_view), np.zeros(16), atol=1e-4)
 
 
+class TestLateCupyCuVSImport(unittest.TestCase):
+    """#118: CuVS bind must succeed after CuPy is selected post-import."""
+
+    def test_get_cuvs_retries_after_cupy_becomes_active(self):
+        from unittest.mock import MagicMock, patch
+
+        import nornir_imageregistration.nearest_neighbor as nn
+
+        saved_bf = nn._cuvs_brute_force
+        saved_failed = nn._cuvs_import_failed
+        self.addCleanup(setattr, nn, '_cuvs_brute_force', saved_bf)
+        self.addCleanup(setattr, nn, '_cuvs_import_failed', saved_failed)
+
+        nn._cuvs_brute_force = None
+        nn._cuvs_import_failed = False
+
+        with patch.object(nn, 'UsingCupy', return_value=False), \
+                patch.object(nn, 'HasCuVS', return_value=True):
+            self.assertIsNone(nn._get_cuvs_brute_force())
+            self.assertIsNone(nn._cuvs_brute_force)
+            self.assertFalse(nn._cuvs_import_failed)
+
+        mock_bf = MagicMock(name='brute_force')
+        mock_neighbors = MagicMock()
+        mock_neighbors.brute_force = mock_bf
+        with patch.object(nn, 'UsingCupy', return_value=True), \
+                patch.object(nn, 'HasCuVS', return_value=True), \
+                patch.dict('sys.modules', {
+                    'cuvs': MagicMock(),
+                    'cuvs.neighbors': mock_neighbors,
+                }):
+            got = nn._get_cuvs_brute_force()
+
+        self.assertIs(got, mock_bf)
+        self.assertIs(nn._cuvs_brute_force, mock_bf)
+
+
 if __name__ == "__main__":
     unittest.main()
