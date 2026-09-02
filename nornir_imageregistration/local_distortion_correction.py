@@ -3327,6 +3327,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         settings.num_iterations,
                         label=f"Refine pass {i}: residual translation")
                     _log_phase_breakdown(f'RefineTransform pass {i} (coherent residual)', pass_phase_baseline)
+                    # Remeasure this same pass index; do not burn an iteration.
                     continue
                 if lock_fraction < float(LOCK_FRAC_TRIGGER):
                     prettyoutput.Log(
@@ -3360,6 +3361,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                             _log_phase_breakdown(
                                 f'RefineTransform pass {i} (global FOV residual)',
                                 pass_phase_baseline)
+                            # Remeasure this same pass index; do not burn an iteration.
                             continue
                         prettyoutput.Log(
                             'Global FOV residual skipped: no usable peak')
