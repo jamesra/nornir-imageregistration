@@ -436,9 +436,7 @@ class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling,
             rotation_center = self.FixedBoundingBox.Center
 
         self._discrete_transform.RotateTargetPoints(rangle, rotation_center)
-        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
-        self._continuous_transform = twoway_ctor(self._discrete_transform.SourcePoints, self._discrete_transform.TargetPoints)
-
+        _defer_continuous_rbf(self)
         self.OnTransformChanged()
 
     def UpdateTargetPointsByIndex(
@@ -775,9 +773,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
             rotation_center = self.FixedBoundingBox.Center
 
         self._discrete_transform.RotateTargetPoints(rangle, rotation_center)
-        twoway_ctor = cast(Any, nornir_imageregistration.transforms.TwoWayRBFWithLinearCorrection)
-        self._continuous_transform = twoway_ctor(self._discrete_transform.SourcePoints, self._discrete_transform.TargetPoints)
-
+        _defer_continuous_rbf(self)
         self.OnTransformChanged()
 
     def UpdateTargetPointsByIndex(

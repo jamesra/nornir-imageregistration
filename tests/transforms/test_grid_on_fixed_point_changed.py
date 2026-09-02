@@ -94,6 +94,26 @@ class TestGridOnFixedPointChanged(unittest.TestCase):
         self.assertTrue(model._continuous_stale)
         self.assertIs(model._continuous_transform, continuous_before)
 
+    def test_rotate_target_points_defers_rbf_gpu(self) -> None:
+        """Interactive rotation must match TranslateFixed and defer RBF rebuild (#120)."""
+        model = GridWithRBFFallback_GPUComponent(_sample_grid_data())
+        continuous_before = model._continuous_transform
+        center = np.asarray(model.FixedBoundingBox.Center, dtype=np.float64)
+        model.RotateTargetPoints(0.1, center)
+        self.assertTrue(model._continuous_stale)
+        self.assertIs(model._continuous_transform, continuous_before)
+        model.InitializeDataStructures()
+        self.assertFalse(model._continuous_stale)
+        self.assertIsNot(model._continuous_transform, continuous_before)
+
+    def test_rotate_target_points_defers_rbf_host(self) -> None:
+        model = GridWithRBFFallback(_sample_grid_data())
+        continuous_before = model._continuous_transform
+        center = np.asarray(model.FixedBoundingBox.Center, dtype=np.float64)
+        model.RotateTargetPoints(0.1, center)
+        self.assertTrue(model._continuous_stale)
+        self.assertIs(model._continuous_transform, continuous_before)
+
 
 if __name__ == "__main__":
     unittest.main()
