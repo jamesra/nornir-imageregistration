@@ -137,6 +137,47 @@ class TestMeshRefreshedStructures(unittest.TestCase):
         self.assertEqual(copies_after_first, 1)
         self.assertEqual(mesh._host_target_copy_count, 1)
 
+    @unittest.skipUnless(HasCupy(), "requires CuPy")
+    def test_gpu_build_fans_host_structures_to_thread_pool(self) -> None:
+        """#192: host Delaunay work must overlap GPU RBF solves via the pool."""
+        from unittest.mock import MagicMock
+
+        import nornir_imageregistration.transforms.meshwithrbffallback as mesh_mod
+
+        mesh = MeshWithRBFFallback_GPUComponent(np.array(
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 32.0, 0.0, 32.0],
+                [32.0, 0.0, 32.0, 0.0],
+                [32.0, 32.0, 32.0, 32.0],
+            ],
+            dtype=np.float64,
+        ))
+        recorded: list[str] = []
+
+        def fake_get_pool():
+            pool = MagicMock()
+
+            def add_task(name, fn, *args, **kwargs):
+                recorded.append(str(name))
+                result = fn(*args, **kwargs)
+                task = MagicMock()
+                task.wait_return.return_value = result
+                return task
+
+            pool.add_task.side_effect = add_task
+            return pool
+
+        with patch.object(mesh_mod.nornir_pools, "GetGlobalThreadPool", side_effect=fake_get_pool):
+            bundle = mesh.build_refreshed_continuous()
+
+        self.assertTrue(
+            any("host" in name.lower() for name in recorded),
+            msg=f"expected host structure task, got {recorded!r}",
+        )
+        self.assertIsNotNone(bundle.forward_rbf)
+        self.assertIsNotNone(bundle.warpedtri)
+
     def test_remove_duplicates_false_skips_collapse(self) -> None:
         mesh = _identity_mesh()
         n_before = int(np.asarray(mesh.TargetPoints).shape[0])

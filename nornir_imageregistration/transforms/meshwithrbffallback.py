@@ -62,12 +62,39 @@ def _build_cpu_rbf_with_weights(source_points, target_points) -> OneWayRBFWithLi
     return instance
 
 
+def _build_gpu_rbf_with_weights(source_points, target_points) -> OneWayRBFWithLinearCorrection_GPUComponent:
+    """Construct a GPU RBF transform and force the weight solve on this thread."""
+    instance = OneWayRBFWithLinearCorrection_GPUComponent(source_points, target_points)
+    instance.PrecomputeWeights()
+    return instance
+
+
+def _build_host_mesh_refresh_structures(src: NDArray[np.floating], tgt: NDArray[np.floating]):
+    """Delaunay / interpolators / KD-trees for a host point snapshot (thread-pool safe)."""
+    from nornir_imageregistration.transforms.gridtransform import _build_linear_nd_interpolator
+
+    warpedtri = scipy.spatial.Delaunay(src, incremental=False)
+    fixedtri = scipy.spatial.Delaunay(tgt, incremental=False)
+    forward_interp, scipy_fwd = _build_linear_nd_interpolator(src, tgt)
+    inverse_interp, scipy_inv = _build_linear_nd_interpolator(tgt, src)
+    return (
+        warpedtri,
+        fixedtri,
+        forward_interp,
+        inverse_interp,
+        build_nearest_neighbor_index(src),
+        build_nearest_neighbor_index(tgt),
+        scipy_fwd,
+        scipy_inv,
+    )
+
+
 def GetTransformPrewarmPool():
     """Single sticky thread that drives transform RBF/mesh init off the UI.
 
     CPU meshes fan out Forward/Reverse weight solves to the global thread pool
     from this driver. GPU/CuPy weight solves run on this same thread for CUDA
-    context safety.
+    context safety; host Delaunay work is fanned to the global pool instead.
     """
     return nornir_pools.GetThreadPool("Transform prewarm", 1)
 
@@ -421,26 +448,40 @@ class MeshWithRBFFallback_GPUComponent(Triangulation_GPUComponent):
         """Build replacement Delaunay interpolators and RBF weights from a point snapshot.
 
         Runs on the sticky CUDA transform-init thread. Does not mutate this instance.
+        Host Delaunay/KD-tree/interpolator work is fanned to the global thread pool so
+        it overlaps the serial GPU RBF solves (CUDA stays on this thread). Both RBFs
+        share one device upload of the host snapshot.
         """
-        from nornir_imageregistration.transforms.gridtransform import _build_linear_nd_interpolator
-
         src = utils.host_copy_points(self.SourcePoints)
         tgt = utils.host_copy_points(self.TargetPoints)
-        warpedtri = scipy.spatial.Delaunay(src, incremental=False)
-        fixedtri = scipy.spatial.Delaunay(tgt, incremental=False)
-        forward_interp, scipy_fwd = _build_linear_nd_interpolator(src, tgt)
-        inverse_interp, scipy_inv = _build_linear_nd_interpolator(tgt, src)
-        forward_rbf = OneWayRBFWithLinearCorrection_GPUComponent(src, tgt)
-        forward_rbf.PrecomputeWeights()
-        reverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(tgt, src)
-        reverse_rbf.PrecomputeWeights()
+        pool = nornir_pools.GetGlobalThreadPool()
+        host_task = pool.add_task(
+            "Build mesh host structures",
+            _build_host_mesh_refresh_structures,
+            src,
+            tgt,
+        )
+        src_gpu = cp.asarray(src)
+        tgt_gpu = cp.asarray(tgt)
+        forward_rbf = _build_gpu_rbf_with_weights(src_gpu, tgt_gpu)
+        reverse_rbf = _build_gpu_rbf_with_weights(tgt_gpu, src_gpu)
+        (
+            warpedtri,
+            fixedtri,
+            forward_interp,
+            inverse_interp,
+            warped_kdtree,
+            fixed_kdtree,
+            scipy_fwd,
+            scipy_inv,
+        ) = host_task.wait_return()
         return MeshRefreshedStructures(
             warpedtri=warpedtri,
             fixedtri=fixedtri,
             forward_interpolator=forward_interp,
             inverse_interpolator=inverse_interp,
-            warped_kdtree=build_nearest_neighbor_index(src),
-            fixed_kdtree=build_nearest_neighbor_index(tgt),
+            warped_kdtree=warped_kdtree,
+            fixed_kdtree=fixed_kdtree,
             forward_rbf=forward_rbf,
             reverse_rbf=reverse_rbf,
             scipy_forward_interp=scipy_fwd,
