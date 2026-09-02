@@ -1438,38 +1438,34 @@ def MergeDisconnectedLayouts(layout_list: list[Layout]) -> Layout:
     if len(layout_list) == 1:
         return layout_list[0]
 
-    # Find the nearest two tiles from both layouts. 
-    # Create an artificial link between the tiles based on current coordinates
-    # Then merge the nodes
-
+    # Link each remaining component to the nearest already-merged node, then merge.
+    # Use a KD-tree so each merge is O(|B| log |A|) instead of a full pairwise cdist
+    # that grows to O(N²) over a section. Also take the true nearest pair (independent
+    # argmin on each axis can pick mismatched indices).
     merged_layout = layout_list[0].copy()
     A = [(n.ID, n.Position) for n in merged_layout.nodes.values()]
-    matrix_A = np.vstack([row[1] for row in A])
+    positions_A = np.asarray([row[1] for row in A], dtype=np.float64)
+    tree = scipy.spatial.cKDTree(positions_A)
 
-    for (i, other_layout) in enumerate(layout_list):
-        if i == 0:
-            continue
-
+    for other_layout in layout_list[1:]:
         B = [(n.ID, n.Position) for n in other_layout.nodes.values()]
+        positions_B = np.asarray([row[1] for row in B], dtype=np.float64)
 
-        matrix_B = np.vstack([row[1] for row in B])
-
-        # Tile-count pairwise (tens–hundreds), already NumPy. Not a CuVS path:
-        # N is layouts, not control points, and data is on the host.
-        distances = pairwise_cdist(matrix_A, matrix_B, metric='sqeuclidean')
-        A_min = np.min(distances, 1)
-        B_min = np.min(distances, 0)
-        iA = np.argmin(A_min)
-        iB = np.argmin(B_min)
+        dists, idxs_A = tree.query(positions_B, k=1)
+        dists = np.atleast_1d(np.asarray(dists, dtype=np.float64))
+        idxs_A = np.atleast_1d(np.asarray(idxs_A, dtype=np.int64))
+        iB = int(np.argmin(dists))
+        iA = int(idxs_A[iB])
         A_ID = A[iA][0]
         B_ID = B[iB][0]
 
-        offset = matrix_B[iB, :] - matrix_A[iA, :]
+        offset = positions_B[iB, :] - positions_A[iA, :]
         merged_layout.Merge(other_layout)
         merged_layout.SetOffset(A_ID, B_ID, offset, 1.0)
 
-        A.extend(B)  # Add the entries in B for the next loop
-        matrix_A = np.vstack((matrix_A, matrix_B))
+        A.extend(B)
+        positions_A = np.vstack((positions_A, positions_B))
+        tree = scipy.spatial.cKDTree(positions_A)
 
     return merged_layout
 
