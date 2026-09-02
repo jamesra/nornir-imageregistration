@@ -2010,7 +2010,13 @@ def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | m
             except KeyError:
                 pass
 
-            finalizer()
+            if finalizer is not None:
+                finalizer()
+            else:
+                try:
+                    shared_mem.close()
+                except Exception:
+                    pass
         else:
             prettyoutput.LogErr(f"Missing memory block, could not unlink {input.name}")
 
@@ -2067,11 +2073,12 @@ def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
     np.copyto(shared_array, host_arr)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype,
                                                           shape=shared_array.shape, readonly=read_only,
-                                                          shared_memory=None)
+                                                          shared_memory=shared_mem)
 
-    # Create a finalizer to close the shared memory when the array is garbage collected
-    finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)
-    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
+    # Keep the creating SharedMemory handle alive until unlink_shared_memory. A weakref
+    # finalizer on the array used to close() when the view was dropped, which on Windows
+    # made the name unopenable before a parent/sibling could attach (#257).
+    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, None)
     return output, shared_array
 
 
@@ -2100,12 +2107,10 @@ def create_shared_memory_array(shape: nornir_imageregistration.ShapeLike, dtype:
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
     output = nornir_imageregistration.Shared_Mem_Metadata(name=shared_mem.name, dtype=shared_array.dtype,
                                                           shape=shared_array.shape, readonly=read_only,
-                                                          shared_memory=None)
+                                                          shared_memory=shared_mem)
 
-    # Create a finalizer to close the shared memory when the array is garbage collected
-    finalizer = weakref.finalize(shared_array, close_shared_memory, shared_mem)
-    # finalizer = None
-    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, finalizer)
+    # Creating handle stays open until unlink_shared_memory; see npArrayToSharedArray (#257).
+    __known_shared_memory_allocations[shared_mem.name] = (shared_mem, None)
     return output, shared_array
 
 

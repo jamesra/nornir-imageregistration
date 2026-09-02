@@ -658,6 +658,12 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         outputImage[target_coords_flat] = outputValues
         outputImage = outputImage.reshape(start_shape)
     else:
+        # Shared-memory (and any host) output is NumPy while CuPy warps leave coords/values
+        # on device; stage both to host before flat scatter (#257).
+        if cp.get_array_module(target_coords_flat) is not np:
+            target_coords_flat = nornir_imageregistration.EnsureNumpyArray(target_coords_flat)
+        if cp.get_array_module(outputValues) is not np:
+            outputValues = nornir_imageregistration.EnsureNumpyArray(outputValues)
         outputImage.flat[target_coords_flat] = outputValues
     # outputImage[fixed_coords] = outputValues
 
