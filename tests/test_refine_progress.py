@@ -9,6 +9,7 @@ import numpy as np
 
 import nornir_imageregistration
 from nornir_imageregistration.computational_lib import HasCupy
+from nornir_imageregistration.local_distortion_correction import RefineTransform
 from nornir_imageregistration.refine_shared.progress import (
     RefineGridProgressReporter,
     count_initial_grid_points,
@@ -171,12 +172,38 @@ class TestPassTransformPreview(unittest.TestCase):
         """Multi-pass refine previews from the same RefineTransform call."""
         import inspect
 
-        from nornir_imageregistration.local_distortion_correction import RefineTransform
-
         source = inspect.getsource(RefineTransform)
         self.assertIn("report_pass_transform", source)
         self.assertIn("while i <= settings.num_iterations", source)
         self.assertGreater(source.count("report_pass_transform("), 1)
+
+    def test_refine_transform_rejects_non_positive_iterations(self) -> None:
+        """num_iterations < 1 raises ValueError before the loop (C03-B009 / #183).
+
+        Without the guard the loop never runs and post-loop code raises
+        UnboundLocalError on loop-local alignment_points.
+        """
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.numpy)
+        shape = (64, 64)
+        image = np.linspace(0.0, 1.0, shape[0] * shape[1], dtype=np.float32).reshape(shape)
+        stats = nornir_imageregistration.ImageStats.Create(image)
+        transform = nornir_imageregistration.transforms.rigid.RigidTranslation((0.0, 0.0))
+        for bad in (0, -1):
+            with self.subTest(num_iterations=bad):
+                settings = nornir_imageregistration.settings.GridRefinement(
+                    target_image=image,
+                    source_image=image.copy(),
+                    target_image_stats=stats,
+                    source_image_stats=stats,
+                    num_iterations=bad,
+                    cell_size=np.asarray((32, 32), dtype=np.int32),
+                    grid_spacing=np.asarray((32, 32), dtype=np.int32),
+                    single_thread_processing=True,
+                )
+                with self.assertRaises(ValueError) as ctx:
+                    RefineTransform(transform, settings)
+                self.assertIn("num_iterations", str(ctx.exception).lower())
 
 
 if __name__ == "__main__":

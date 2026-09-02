@@ -3126,6 +3126,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     if (SavePlots or SaveImages) and outputDir is None:
         raise ValueError("outputDir must be specified if SavePlots or SaveImages is true.")
 
+    if settings.num_iterations < 1:
+        raise ValueError("num_iterations must be >= 1")
+
     # Frozen input pose for ring linearization. Do not re-Kabsch from later meshes.
     ring_reference_pose = reference_pose_from_transform(stosTransform)
     # Same object as *stosTransform* until a mesh rebuild replaces it. TranslateFixed
