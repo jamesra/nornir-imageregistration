@@ -663,14 +663,14 @@ def _TransformImageUsingCoords(target_coords: NDArray,
 
     # Coverage of the warp is exactly the set of output pixels that received a
     # mapped sample (the scatter targets); derive it from the same flat indices
-    # instead of warping a separate ones-image.
+    # instead of warping a separate ones-image. The canvas is already filled with
+    # cval before scatter, so unmapped pixels need no second pass (#111).
     valid_mask = None
     if return_valid_mask:
         valid_mask = xp.zeros(int(np.prod(outputImage.shape)), dtype=bool)
         if target_coords_flat.shape[0] > 0:
             valid_mask[target_coords_flat] = True
         valid_mask = valid_mask.reshape(outputImage.shape)
-        outputImage = xp.where(valid_mask, outputImage, xp.asarray(cval, dtype=outputImage.dtype))
 
     # outputImage = outputImage.reshape(area)
 
