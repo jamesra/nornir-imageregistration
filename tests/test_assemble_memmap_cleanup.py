@@ -95,6 +95,41 @@ class TestCreateOutputBufferForAreaWithMemmap(unittest.TestCase):
             del full_image, z_buffer
 
 
+class TestCreateOutputBufferMemmapErrorPath(unittest.TestCase):
+    """#188: memmap open failure must not UnboundLocalError on the path name."""
+
+    def test_path_build_failure_does_not_unbound_local(self) -> None:
+        """If join fails inside the old try, LogErr referenced an unbound name."""
+        create = getattr(assemble_tiles, '__CreateOutputBufferForArea')
+
+        with mock.patch.object(assemble_tiles, '_use_memmap', return_value=True):
+            with mock.patch('os.path.join', side_effect=OSError('simulated join failure')):
+                with self.assertRaises(OSError) as raised:
+                    create(8, 8, np.float32)
+
+        self.assertIsInstance(raised.exception, OSError)
+        self.assertNotIsInstance(raised.exception, UnboundLocalError)
+
+    def test_memmap_failure_logs_bound_path(self) -> None:
+        create = getattr(assemble_tiles, '__CreateOutputBufferForArea')
+
+        with mock.patch.object(assemble_tiles, '_use_memmap', return_value=True):
+            with mock.patch.object(
+                    assemble_tiles.nornir_imageregistration, 'gettempdir',
+                    return_value=tempfile.gettempdir()):
+                with mock.patch.object(
+                        assemble_tiles, 'GetProcessAndThreadUniqueString',
+                        return_value='failpath'):
+                    with mock.patch(
+                            'numpy.memmap', side_effect=OSError('simulated memmap failure')):
+                        with mock.patch.object(assemble_tiles.prettyoutput, 'LogErr') as log_err:
+                            with self.assertRaises(OSError):
+                                create(8, 8, np.float32)
+
+        log_err.assert_called_once()
+        self.assertIn('image_8x8_failpath.npy', log_err.call_args[0][0])
+
+
 class TestExitSweeper(unittest.TestCase):
     """The sweeper retries deletions the per-buffer finalizers could not make."""
 

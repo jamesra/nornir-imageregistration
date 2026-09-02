@@ -74,9 +74,14 @@ _max_assemble_buffer_bytes = assemble._max_assemble_buffer_bytes
 _raise_if_assemble_buffer_too_large = assemble._raise_if_assemble_buffer_too_large
 
 
-# TODO: Use atexit to delete the temporary files
-# TODO: use_memmap does not work when assembling tiles on a cluster, disable for now.  Specific test is IDOCTests.test_AssembleTilesIDoc
 def _use_memmap() -> bool:
+    """Whether assemble buffers spill to ``np.memmap`` temp files.
+
+    Always False: the memmap path fails when assembling tiles on a cluster
+    (see ``IDOCTests.test_AssembleTilesIDoc``). Cleanup for the disabled path
+    (``weakref.finalize`` + ``atexit`` sweeper) stays in place so re-enabling
+    is not a second cleanup rewrite.
+    """
     return False
 
 
@@ -253,35 +258,6 @@ def EmptyDistanceBuffer(shape: ShapeLike, dtype: DTypeLike | None = None):
         return xp.full(shape, __MaxZBufferValue(dtype), dtype=dtype)
 
 
-#
-# def __CreateOutputBufferForTransforms(transforms, target_space_scale=None):
-#     '''Create output images using the passed rectangle
-#     :param tuple rectangle: (minY, minX, maxY, maxX)
-#     :return: (fullImage, ZBuffer)
-#     '''
-#     fullImage = None
-#     fixed_bounding_box = tutils.FixedBoundingBox(transforms)
-#     (maxY, maxX) = fixed_bounding_box.shape
-#     fullImage_shape = (int(np.ceil(target_space_scale * maxY)), int(np.ceil(target_space_scale * maxX)))
-# 
-#     if use_memmap:
-#         try:
-#             fullimage_array_path = os.path.join(tempfile.gettempdir(), 'image_%dx%d_%s.npy' % (fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
-#             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='w+', shape=fullImage_shape)
-#             fullImage[:] = 0
-#             fullImage.flush()
-#             del fullImage
-#             fullImage = np.memmap(fullimage_array_path, dtype=np.float16, mode='r+', shape=fullImage_shape)
-#         except: 
-#             prettyoutput.LogErr("Unable to open memory mapped file %s." % (fullimage_array_path))
-#             raise 
-#     else:
-#         fullImage = np.zeros(fullImage_shape, dtype=np.float16)
-# 
-#     fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape, dtype=fullImage.dtype)
-#     return (fullImage, fullImageZbuffer)
-
-
 def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
     """Create output images using the passed width and height."""
     _raise_if_assemble_buffer_too_large(int(Height), int(Width), dtype)
@@ -290,14 +266,15 @@ def __CreateOutputBufferForArea(Height: int, Width: int, dtype: DTypeLike):
     fullImage_shape = (int(Height), int(Width))
 
     if _use_memmap():  # use_memmap:
+        # Path before try so a failed join/open does not UnboundLocalError in except.
+        fullimage_array_path = os.path.join(nornir_imageregistration.gettempdir(), 'image_%dx%d_%s.npy' % (
+            fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
         try:
-            fullimage_array_path = os.path.join(nornir_imageregistration.gettempdir(), 'image_%dx%d_%s.npy' % (
-                fullImage_shape[0], fullImage_shape[1], GetProcessAndThreadUniqueString()))
             fullImage = np.memmap(fullimage_array_path, dtype=dtype, mode='w+', shape=fullImage_shape)
             fullImage.fill(0)
             _register_memmap_temp_file(fullimage_array_path)
             weakref.finalize(fullImage, _remove_memmap_backing_file, fullimage_array_path)
-        except:
+        except Exception:
             prettyoutput.LogErr("Unable to open memory mapped file %s." % fullimage_array_path)
             raise
         fullImageZbuffer = EmptyDistanceBuffer(fullImage.shape)
