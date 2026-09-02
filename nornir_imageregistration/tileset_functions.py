@@ -323,8 +323,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
                         raise ValueError(
                             f"Existing tile {tile_path} with size {img.size} does not match requested size {TileSize} at {position}")
 
-                    # Create a new PIL image from the array, ensuring it's in the right format
-                    return Image.frombytes(img.mode, img.size, img.tobytes())
+                    # Keep pixels after the file handle closes; copy() is one buffer,
+                    # unlike frombytes(tobytes()) which allocates bytes + a second image.
+                    return img.copy()
             except OSError:
                 return None
 
