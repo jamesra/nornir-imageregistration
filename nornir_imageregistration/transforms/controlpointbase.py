@@ -389,7 +389,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
         self.OnTransformChanged()
 
 
-class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, DefaultTransformChangeEvents,
+class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, ITransformFlip, DefaultTransformChangeEvents,
                                     metaclass=ABCMeta):
     def __init__(self, pointpairs: NDArray[np.floating]):
         super(ControlPointBase_GPUComponent, self).__init__()
