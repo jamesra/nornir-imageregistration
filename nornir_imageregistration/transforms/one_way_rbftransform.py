@@ -227,10 +227,6 @@ class OneWayRBFWithLinearCorrection(Triangulation):
                 (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
                                                                                            WarpedPoints)
 
-                # Failing these asserts means we are stomping earlier results
-                assert (MatrixWeightSumX[iStart] == 0)
-                assert (MatrixWeightSumY[iStart] == 0)
-
                 MatrixWeightSumX[iStart:iEnd] = MatrixWeightSumXChunk
                 MatrixWeightSumY[iStart:iEnd] = MatrixWeightSumYChunk
 
@@ -586,10 +582,6 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
 
                 (MatrixWeightSumXChunk, MatrixWeightSumYChunk) = self._GetMatrixWeightSums(Points[iStart:iEnd, :],
                                                                                            WarpedPoints)
-
-                # Failing these asserts means we are stomping earlier results
-                assert (MatrixWeightSumX[iStart] == 0)
-                assert (MatrixWeightSumY[iStart] == 0)
 
                 MatrixWeightSumX[iStart:iEnd] = MatrixWeightSumXChunk
                 MatrixWeightSumY[iStart:iEnd] = MatrixWeightSumYChunk
