@@ -31,6 +31,41 @@ def _host_yx_columns(points: NDArray[np.floating]) -> np.ndarray:
     return np.asarray(host[:, 0:2], dtype=np.float64, order="C")
 
 
+def _select_point_pairs_in_rect(
+        point_pairs: NDArray[np.floating],
+        query_yx: NDArray[np.floating],
+        bounds: nornir_imageregistration.Rectangle | NDArray[np.floating],
+) -> NDArray[np.floating] | None:
+    """Return rows of *point_pairs* whose *query_yx* lie inside *bounds*, or None.
+
+    Vectorized mask (no per-hit ``vstack``). Keeps the backend of *point_pairs*.
+    """
+    if query_yx is None or getattr(query_yx, "size", 0) == 0:
+        return None
+    rect = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds)
+    min_y = float(rect.MinY)
+    min_x = float(rect.MinX)
+    max_y = float(rect.MaxY)
+    max_x = float(rect.MaxX)
+
+    xp = cp.get_array_module(query_yx)
+    q = query_yx if query_yx.ndim > 1 else xp.reshape(query_yx, (1, -1))
+    y = q[:, 0]
+    x = q[:, 1]
+    mask = (y >= min_y) & (y <= max_y) & (x >= min_x) & (x <= max_x)
+
+    pairs_xp = cp.get_array_module(point_pairs)
+    if pairs_xp is not xp:
+        mask = array_to_numpy_host(mask) if pairs_xp is np else pairs_xp.asarray(mask)
+
+    selected = point_pairs[mask]
+    if selected.shape[0] == 0:
+        return None
+    if selected.ndim == 1:
+        selected = pairs_xp.reshape(selected, (1, -1))
+    return selected
+
+
 def _packed_rounded_yx_keys(yx: np.ndarray, decimals: int) -> np.ndarray:
     """Pack rounded host YX into 1-D int64 keys.
 
@@ -201,24 +236,7 @@ class ControlPointBase(IControlPoints, IDiscreteTransform, ITransformFlip, Defau
 
     def GetPointPairsInRect(self, points: NDArray[np.floating],
                             bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        OutputPoints = None
-
-        bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
-
-        for iPoint in range(0, points.shape[0]):
-            y, x = points[iPoint, :]
-            if nornir_imageregistration.Rectangle.contains(bounds, (y, x)):
-                PointPair = self._points[iPoint, :]
-                if OutputPoints is None:
-                    OutputPoints = PointPair
-                else:
-                    OutputPoints = np.vstack((OutputPoints, PointPair))
-
-        if OutputPoints is not None:
-            if OutputPoints.ndim == 1:
-                OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
-
-        return OutputPoints
+        return _select_point_pairs_in_rect(self._points, points, bounds)
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         """bounds = [bottom left top right]"""
@@ -462,24 +480,7 @@ class ControlPointBase_GPUComponent(IControlPoints, IDiscreteTransform, ITransfo
 
     def GetPointPairsInRect(self, points: NDArray[np.floating],
                             bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
-        OutputPoints = None
-
-        bounds = nornir_imageregistration.Rectangle.PrimitiveToRectangle(bounds).ToArray()
-
-        for iPoint in range(0, points.shape[0]):
-            y, x = points[iPoint, :]
-            if nornir_imageregistration.Rectangle.contains(bounds, (y, x)):
-                PointPair = self._points[iPoint, :]
-                if OutputPoints is None:
-                    OutputPoints = PointPair
-                else:
-                    OutputPoints = np.vstack((OutputPoints, PointPair))
-
-        if OutputPoints is not None:
-            if OutputPoints.ndim == 1:
-                OutputPoints = np.reshape(OutputPoints, (1, OutputPoints.shape[0]))
-
-        return OutputPoints
+        return _select_point_pairs_in_rect(self._points, points, bounds)
 
     def GetFixedPointsInRect(self, bounds: nornir_imageregistration.Rectangle | NDArray[np.floating]):
         """bounds = [bottom left top right]"""
