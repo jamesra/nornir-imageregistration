@@ -57,6 +57,14 @@ def _xp_1d_to_float_pair(values, xp) -> tuple[float, float]:
     return (float(flat[0].item()), float(flat[1].item()))
 
 
+def _scaled_offset_from_center_of_mass(image_shape, peak_center_of_mass, xp) -> tuple[float, float]:
+    """Peak offset from image center; float64 so large frames keep sub-pixel CoM digits."""
+    scaled_offset_arr = (
+        xp.asarray(image_shape, dtype=xp.float64) / xp.float64(2.0)
+    ) - xp.asarray(peak_center_of_mass, dtype=xp.float64)
+    return _xp_1d_to_float_pair(scaled_offset_arr, xp)
+
+
 def _coerce_array_to_module(array: NDArray[Any], xp) -> NDArray[Any]:
     """Return *array* on *xp* (NumPy or CuPy) without extra copies when already there."""
     if cp.get_array_module(array) is xp:
@@ -614,13 +622,10 @@ def find_peak(image: NDArray[np.floating],
     del masked_image
 
     signal_to_noise = float(peak_pixel) / mean_pixel if mean_pixel != 0.0 else 0.0
-    # Calculate the offset from the center of the image using the same array module as the input.
-    # This avoids implicit CuPy->NumPy conversions for 0-d cupy.ndarray center-of-mass components.
-    scaled_offset_arr = (
-        xp.asarray(image.shape, dtype=xp.float32) / xp.float32(2.0)
-    ) - xp.asarray(peak_center_of_mass, dtype=xp.float32)
-
-    scaled_offset = _xp_1d_to_float_pair(scaled_offset_arr, xp)
+    # Same array module as the input avoids implicit CuPy->NumPy conversions for
+    # 0-d cupy.ndarray center-of-mass components; float64 keeps sub-pixel digits
+    # on large frames (float32 loses ~4e-4 px near 16k).
+    scaled_offset = _scaled_offset_from_center_of_mass(image.shape, peak_center_of_mass, xp)
 
     # Uniqueness on the original (pre-threshold) correlation surface.
     com = xp.asarray(peak_center_of_mass, dtype=xp.float64)
