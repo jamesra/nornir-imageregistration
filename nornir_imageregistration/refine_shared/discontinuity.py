@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -20,24 +19,18 @@ def sharp_warps_enabled() -> bool:
 
 
 def discontinuity_travel_multiplier() -> float:
-    """Multiplier of ``max_travel`` for discontinuity neighbor disagreement."""
-    raw = os.environ.get('NORNIR_REFINE_DISCONTINUITY_K', '').strip()
-    if raw:
-        try:
-            return max(0.1, float(raw))
-        except ValueError:
-            pass
+    """Multiplier of ``max_travel`` for discontinuity neighbor disagreement.
+
+    Uses the cached ``RefineRuntimeConfig`` (same parse/clamp as ``from_env``).
+    """
     return float(get_runtime_config().discontinuity_k)
 
 
 def discontinuity_travel_relax() -> float:
-    """How much larger travel is allowed for stable discontinuity cells."""
-    raw = os.environ.get('NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT', '').strip()
-    if raw:
-        try:
-            return max(1.0, float(raw))
-        except ValueError:
-            pass
+    """How much larger travel is allowed for stable discontinuity cells.
+
+    Uses the cached ``RefineRuntimeConfig`` (same parse/clamp as ``from_env``).
+    """
     return float(get_runtime_config().discontinuity_travel_mult)
 
 

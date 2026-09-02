@@ -14,6 +14,8 @@ from nornir_imageregistration.refine_shared.anchor_smooth import (
     smooth_peaks_from_locked_anchors,
 )
 from nornir_imageregistration.refine_shared.discontinuity import (
+    discontinuity_travel_multiplier,
+    discontinuity_travel_relax,
     per_record_max_travel,
     tag_discontinuities,
 )
@@ -81,6 +83,28 @@ class TestTagDiscontinuities(unittest.TestCase):
             self.assertEqual(tag_discontinuities(records, max_travel=10.0), set())
         finally:
             os.environ.pop('NORNIR_REFINE_SHARP_WARPS', None)
+            get_runtime_config(refresh=True)
+
+    def test_discontinuity_accessors_match_cached_runtime_config(self) -> None:
+        """Env mid-flight must not diverge from RefineRuntimeConfig (#184 / C03-B010).
+
+        Accessors used to re-parse NORNIR_REFINE_DISCONTINUITY_* live, so a
+        change without refresh disagreed with get_runtime_config().
+        """
+        os.environ['NORNIR_REFINE_DISCONTINUITY_K'] = '3.0'
+        os.environ['NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT'] = '4.0'
+        get_runtime_config(refresh=True)
+        os.environ['NORNIR_REFINE_DISCONTINUITY_K'] = '5.0'
+        os.environ['NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT'] = '6.0'
+        try:
+            cfg = get_runtime_config()
+            self.assertEqual(discontinuity_travel_multiplier(), cfg.discontinuity_k)
+            self.assertEqual(discontinuity_travel_relax(), cfg.discontinuity_travel_mult)
+            self.assertEqual(cfg.discontinuity_k, 3.0)
+            self.assertEqual(cfg.discontinuity_travel_mult, 4.0)
+        finally:
+            os.environ.pop('NORNIR_REFINE_DISCONTINUITY_K', None)
+            os.environ.pop('NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT', None)
             get_runtime_config(refresh=True)
 
 
