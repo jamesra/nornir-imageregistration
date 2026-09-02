@@ -12,6 +12,10 @@ except ImportError:
 import nornir_imageregistration
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import distance, ITransform, IControlPoints, IGridTransform, IRigidTransform
+from nornir_imageregistration.transforms.rigid import (
+    _NEGLIGIBLE_ANGLE_RADIANS,
+    _NEGLIGIBLE_SCALE_DEVIATION,
+)
 
 
 def CentroidToVertexDistance(Centroids, TriangleVerts):
@@ -57,26 +61,61 @@ def AddTransforms(BToC_Unaltered_Transform: ITransform, AToB_mapped_Transform: I
             f'Unexpected transform types:\n A to B is {AToB_mapped_Transform.__class__}\n B to C is {BToC_Unaltered_Transform.__class__}')
 
 
+def _rigid_is_pure_translation(transform: IRigidTransform) -> bool:
+    """True when composition may add target_offset vectors without rotation/scale."""
+    angle = float(getattr(transform, 'angle', 0.0) or 0.0)
+    scalar = float(getattr(transform, 'scalar', 1.0))
+    flip = bool(getattr(transform, 'flip_ud', False))
+    return (abs(angle) < _NEGLIGIBLE_ANGLE_RADIANS
+            and abs(scalar - 1.0) < _NEGLIGIBLE_SCALE_DEVIATION
+            and not flip)
+
+
+def _compose_rigid_via_point_fit(BToC_Unaltered_Transform: ITransform,
+                                 AToB_mapped_Transform: IRigidTransform) -> ITransform:
+    """Build A→C by fitting a rigid/similarity to B→C ∘ A→B on a local point cloud."""
+    from nornir_imageregistration.transforms.converters import EstimateRigidComponentsFromControlPoints
+
+    center = np.asarray(
+        AToB_mapped_Transform.source_space_center_of_rotation, dtype=np.float64).ravel()[:2]
+    offsets = np.array(
+        [[0.0, 0.0], [25.0, 0.0], [0.0, 25.0], [25.0, 25.0],
+         [-20.0, 10.0], [10.0, -20.0], [15.0, -15.0], [-15.0, -10.0]],
+        dtype=np.float64)
+    source = center + offsets
+    target = BToC_Unaltered_Transform.Transform(AToB_mapped_Transform.Transform(source))
+    source_np = nornir_imageregistration.EnsureNumpyArray(source)
+    target_np = nornir_imageregistration.EnsureNumpyArray(target)
+    components = EstimateRigidComponentsFromControlPoints(target_np, source_np)
+
+    if components.reflected or not np.isclose(components.scale, 1.0):
+        return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+            target_offset=components.translation,
+            source_rotation_center=components.source_rotation_center,
+            angle=components.angle,
+            scalar=components.scale,
+            flip_ud=components.reflected)
+    if abs(components.angle) < _NEGLIGIBLE_ANGLE_RADIANS:
+        return nornir_imageregistration.transforms.RigidTranslation(
+            target_offset=components.translation,
+            source_rotation_center=components.source_rotation_center)
+    return nornir_imageregistration.transforms.Rigid(
+        target_offset=components.translation,
+        source_rotation_center=components.source_rotation_center,
+        angle=components.angle)
+
+
 def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
                         AToB_mapped_Transform: IRigidTransform):
     if isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.RigidTranslation):
-        target_offset = AToB_mapped_Transform.target_offset + BToC_Unaltered_Transform._target_offset
-        if BToC_Unaltered_Transform.angle == 0 and AToB_mapped_Transform.angle == 0:
-            return nornir_imageregistration.transforms.RigidTranslation(target_offset=target_offset,
-                                                                        source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation)
-        elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform) or \
-                isinstance(AToB_mapped_Transform, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
-            return nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+        if (_rigid_is_pure_translation(AToB_mapped_Transform)
+                and _rigid_is_pure_translation(BToC_Unaltered_Transform)):
+            target_offset = (np.asarray(AToB_mapped_Transform.target_offset, dtype=np.float64).ravel()[:2]
+                             + np.asarray(BToC_Unaltered_Transform.target_offset, dtype=np.float64).ravel()[:2])
+            return nornir_imageregistration.transforms.RigidTranslation(
                 target_offset=target_offset,
-                source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation,
-                angle=AToB_mapped_Transform.angle + BToC_Unaltered_Transform.angle,
-                scalar=AToB_mapped_Transform.scalar * BToC_Unaltered_Transform.scalar,
-            )
-        else:
-            return nornir_imageregistration.transforms.Rigid(
-                target_offset=target_offset,
-                source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation,
-                angle=AToB_mapped_Transform.angle + BToC_Unaltered_Transform.angle)
+                source_rotation_center=AToB_mapped_Transform.source_space_center_of_rotation)
+        return _compose_rigid_via_point_fit(BToC_Unaltered_Transform, AToB_mapped_Transform)
     elif isinstance(BToC_Unaltered_Transform, nornir_imageregistration.transforms.IGridTransform):
         old_grid = BToC_Unaltered_Transform.grid
         new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
