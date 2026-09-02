@@ -484,11 +484,13 @@ def find_peak(image: NDArray[np.floating],
     xp = cp.get_array_module(image)
     sp = cupyx.scipy.get_array_module(image)
 
+    n_valid: int | None = None
     if overlap_mask is not None:
         xp_mask = cp.get_array_module(overlap_mask)
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
-        if int(xp.count_nonzero(overlap_mask)) == 0:
+        n_valid = int(xp.count_nonzero(overlap_mask))
+        if n_valid == 0:
             return _no_peak_result('the overlap mask admits no pixels',
                                    mask_shape=tuple(overlap_mask.shape),
                                    image_shape=tuple(image.shape))
@@ -508,8 +510,8 @@ def find_peak(image: NDArray[np.floating],
     # Mean over valid pixels BEFORE cutoff thresholding. Uses mask-entry count so
     # in-mask zeros are retained (matches xp.mean(image[overlap_mask])).
     if overlap_mask is not None:
-        n_valid = int(xp.count_nonzero(overlap_mask))
-        mean_pixel = float(masked_image.sum(dtype=xp.float64) / n_valid) if n_valid > 0 else 0.0
+        # n_valid already counted above; early return guarantees it is > 0.
+        mean_pixel = float(masked_image.sum(dtype=xp.float64) / n_valid)  # type: ignore[operator]
     else:
         mean_pixel = float(masked_image.mean())
 
