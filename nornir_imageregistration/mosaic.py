@@ -158,9 +158,8 @@ class Mosaic(object):
         for (file, transform) in self.ImageToTransform.items():
 
             if transform.MappedBoundingBox is None:
-                if all_same_dims:
-                    mapped_bbox_shape = cached_tile_shape
-
+                # When all_same_dims is False, never reuse a prior tile's shape.
+                mapped_bbox_shape = cached_tile_shape if all_same_dims else None
                 if mapped_bbox_shape is None:
                     image_full_path = os.path.join(image_path, file)
                     mapped_bbox_shape = nornir_imageregistration.GetImageSize(image_full_path)
