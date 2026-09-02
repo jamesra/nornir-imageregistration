@@ -98,11 +98,9 @@ def _AddRigidTransforms(BToC_Unaltered_Transform: ITransform,
 
 def _AddGridTransforms(BToC_Unaltered_Transform: ITransform,
                        AToB_mapped_Transform: IGridTransform):
+    # Source stays A-space grid geometry; target is B→C(A→B targets).
     mappedControlPoints = AToB_mapped_Transform.TargetPoints  # type: ignore[attr-defined]
     txMappedControlPoints = BToC_Unaltered_Transform.Transform(mappedControlPoints)
-
-    xp = cp.get_array_module(txMappedControlPoints, AToB_mapped_Transform.SourcePoints)  # type: ignore[attr-defined]
-    AToC_pointPairs = xp.hstack((txMappedControlPoints, AToB_mapped_Transform.SourcePoints))  # type: ignore[attr-defined]
 
     old_grid = AToB_mapped_Transform.grid
     new_grid = nornir_imageregistration.ITKGridDivision(source_shape=old_grid.source_shape,
