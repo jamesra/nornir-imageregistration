@@ -5139,54 +5139,88 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                                                               target_points=target_controlpoint,  # type: ignore[arg-type]
                                                               cell_size=alignmentArea)  # type: ignore[arg-type]
 
-    try:
-        target_image_roi, source_image_roi = BuildAlignmentROIs(transform=rigid_transform[0],
-                                                                targetImage_param=targetImage,
-                                                                sourceImage_param=sourceImage,
-                                                                target_image_stats=target_image_stats,
-                                                                source_image_stats=source_image_stats,
-                                                                target_controlpoint=target_controlpoint,
-                                                                alignmentArea=alignmentArea,
-                                                                description='')
-    except ValueError:
+    _target_pt_np = np.asarray(nornir_imageregistration.EnsureNumpyArray(
+        np.asarray(target_controlpoint, dtype=np.float64))).reshape(2)
+
+    # Try the real (possibly non-rigid) transform first: it is the ground truth for how this
+    # region of the mesh actually maps source to target. Also try a local rigid approximation,
+    # which is more robust right after a point drag/edit when the mesh near this cell may be
+    # locally degenerate before the next remesh. Keep whichever registers with higher
+    # confidence, matching the dual-candidate approach used before local rigid-only
+    # approximation replaced it.
+    candidates: list[tuple[nornir_imageregistration.AlignmentRecord, NDArray, NDArray,
+                          nornir_imageregistration.ITransform]] = []
+    for candidate_transform in (transform, rigid_transform[0]):
+        try:
+            target_image_roi, source_image_roi = BuildAlignmentROIs(transform=candidate_transform,
+                                                                    targetImage_param=targetImage,
+                                                                    sourceImage_param=sourceImage,
+                                                                    target_image_stats=target_image_stats,
+                                                                    source_image_stats=source_image_stats,
+                                                                    target_controlpoint=target_controlpoint,
+                                                                    alignmentArea=alignmentArea,
+                                                                    description='')
+        except ValueError:
+            continue
+
+        # Just ignore pure color regions
+        if not is_alignable_cell(target_image_roi) or not is_alignable_cell(source_image_roi):
+            continue
+
+        try:
+            candidate_result = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
+                target_image=target_image_roi,
+                source_image=source_image_roi,
+                AngleSearchRange=anglesToSearch,  # type: ignore[arg-type]
+                MinOverlap=min_alignment_overlap,
+                SingleThread=True,
+                TestFlip=False,
+                method=SliceToSliceMethod.BruteForce,
+                estimate_angle=estimate_angle,
+                search_scale=search_scale,
+                use_gpu=use_gpu)
+        except ValueError:
+            # Empty / fully-extrema ROIs can fail ImagePermutationHelper stats; skip cell.
+            continue
+
+        candidates.append((candidate_result, target_image_roi, source_image_roi, candidate_transform))
+
+    if not candidates:
         return None
 
-    # Just ignore pure color regions
-    if not is_alignable_cell(target_image_roi):
-        return None
-    if not is_alignable_cell(source_image_roi):
-        return None
+    result, target_image_roi, source_image_roi, winning_transform = max(
+        candidates, key=lambda c: c[0].weight)
 
-    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
+    source_controlpoint = np.asarray(nornir_imageregistration.EnsureNumpyArray(
+        winning_transform.InverseTransform(_target_pt_np.reshape(1, 2))), dtype=np.float64).ravel()[:2]
 
-    # pool = Pools.GetGlobalMultithreadingPool()
-
-    # task = pool.add_task("AttemptAlignPoint", nornir_imageregistration.FindOffset, targetImageROI, sourceImageROI, MinOverlap = 0.2)
-    # apoint = task.wait_return()
-    # apoint = nornir_imageregistration.FindOffset(targetImageROI, sourceImageROI, MinOverlap=0.2)
-    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI], "Fixed <---> Warped")
-
-    # nornir_imageregistration.ShowGrayscale([targetImageROI, sourceImageROI])
-
-    try:
-        result = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration(
-            target_image=target_image_roi,
-            source_image=source_image_roi,
-            AngleSearchRange=anglesToSearch,  # type: ignore[arg-type]
-            MinOverlap=min_alignment_overlap,
-            SingleThread=True,
-            TestFlip=False,
-            method=SliceToSliceMethod.BruteForce,
-            estimate_angle=estimate_angle,
-            search_scale=search_scale,
-            use_gpu=use_gpu)
-    except ValueError:
-        # Empty / fully-extrema ROIs can fail ImagePermutationHelper stats; skip cell.
-        return None
+    logging.getLogger(__name__).info(
+        "AttemptAlignPoint: target=(y=%.1f, x=%.1f) source=(y=%.1f, x=%.1f) via %s transform "
+        "(%d candidate(s) tried), weight=%.4f peak=(dy=%.2f, dx=%.2f) "
+        "targetImage.shape=%s sourceImage.shape=%s",
+        _target_pt_np[0], _target_pt_np[1],
+        source_controlpoint[0], source_controlpoint[1],
+        "real" if winning_transform is transform else "rigid-approx",
+        len(candidates), result.weight, result.peak[0], result.peak[1],
+        nornir_imageregistration.ImageParamToImageArray(targetImage).shape,
+        nornir_imageregistration.ImageParamToImageArray(sourceImage).shape)
 
     if nornir_imageregistration.in_debug_mode():
+        _half_h = int(round(float(np.asarray(alignmentArea, dtype=np.float64).ravel()[0]) / 2.0))
+        _half_w = int(round(float(np.asarray(alignmentArea, dtype=np.float64).ravel()[1]) / 2.0))
         result.TargetROI = target_image_roi  # type: ignore[attr-defined]
         result.SourceROI = source_image_roi  # type: ignore[attr-defined]
+        # Raw (un-warped) crop of the source image centered at the mapped source coordinate,
+        # with no rotation applied.  Comparing this to the warped source ROI shows whether a
+        # coordinate mismatch or a rotation artefact is the root cause of a bad registration.
+        result.RawSourceROI = nornir_imageregistration.CropImage(  # type: ignore[attr-defined]
+            nornir_imageregistration.ImageParamToImageArray(sourceImage),
+            int(round(float(source_controlpoint[1]))) - _half_w,
+            int(round(float(source_controlpoint[0]))) - _half_h,
+            2 * _half_w, 2 * _half_h)
+        result.TargetControlPoint = _target_pt_np  # type: ignore[attr-defined]
+        result.SourceControlPoint = source_controlpoint  # type: ignore[attr-defined]
+        result.RigidAngleDeg = float(np.degrees(getattr(rigid_transform[0], 'angle', 0.0)))  # type: ignore[attr-defined]
 
     return result
 
