@@ -167,7 +167,7 @@ class ImageStats:
     def GenerateNoise(self, shape: int | np.integer | np.ndarray | Any, dtype: DTypeLike, *, xp: Any | None = None):
         """
         Generate random data of shape with the specified mean and standard deviation.  Returned values will not be less than min or greater than max
-        :param array shape: Shape of the returned array
+        :param array shape: Shape of the returned array (int, tuple/list of dims, or ndarray of dims)
         :param xp: Array module for output (``numpy`` or ``cupy``).  If ``None``, uses ``GetComputationModule()``.
         """
 
@@ -187,22 +187,36 @@ class ImageStats:
             width = shape[1] if not one_d_result else 1
             size = int(shape) if one_d_result else shape
         else:
+            # Sequence of dimensions (tuple/list). Do not use shape.shape (#248).
             one_d_result = len(shape) == 1
-            height = shape[0] if not one_d_result else int(shape)
-            width = shape[1] if not one_d_result else 1
-            size = int(shape) if one_d_result else shape.shape
+            if one_d_result:
+                size = int(shape[0])
+                height = size
+                width = 1
+            else:
+                size = tuple(int(d) for d in shape)
+                height = size[0]
+                width = size[1]
 
         if xp is None:
             xp = nornir_imageregistration.GetComputationModule()
+        resolved = np.dtype(dtype)
         with nornir_imageregistration.IgnoreUnderAndOverflow():  # type: ignore[attr-defined]
             # Shares the generator behind GenRandomData, so seeding one seeds both. This
             # is the second noise source in a brute alignment -- padding fills the frame,
             # this fills the corners a rotation leaves empty -- and seeding only the
             # other one leaves the alignment as irreproducible as before.
             rng = nornir_imageregistration.random_generator(xp)
-            data = ((rng.standard_normal(size) * self.std) + self.median).astype(dtype, copy=False)
+            data = (rng.standard_normal(size) * self.std) + self.median
 
-        xp.clip(data, self.min, self.max, out=data)  # Ensure random data doesn't change range of the image
+        # Float: cast then clip so float16 cannot round back outside [min, max].
+        # Integer: clip in float then rint-cast — clip(out=integer) fails against float bounds (#248).
+        if np.issubdtype(resolved, np.integer):
+            data = xp.clip(data, self.min, self.max)
+            data = xp.rint(data).astype(resolved, copy=False)
+        else:
+            data = data.astype(resolved, copy=False)
+            xp.clip(data, self.min, self.max, out=data)
 
         return data
 

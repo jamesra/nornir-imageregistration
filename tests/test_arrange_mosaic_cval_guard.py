@@ -100,30 +100,14 @@ class TestTheRandomDefaultNoLongerCrashes(unittest.TestCase):
                 cropped = _crop(dtype, cval='random', rect=outside)
                 self.assertEqual(np.dtype(dtype), cropped.dtype)
 
-    def test_an_integer_dtype_gets_as_far_as_the_noise_generator(self):
-        """The guard is out of the way; what stops an integer fill now is a separate defect.
-
-        ImageStats.GenerateNoise casts to the requested dtype and only then clips with the
-        float stats bounds, so ``out=`` is integer while the clip result is float64. Measured:
-        uint8, uint16 and int32 all raise UFuncTypeError there, while float16/32/64 succeed.
-        That is filed on its own; it is not the isnan guard.
-
-        What matters for #127 is that the failure is no longer a TypeError raised on entry
-        before any work, and that an in-bounds crop -- which never needs a fill -- now
-        succeeds where it used to be rejected outright.
-        """
+    def test_an_integer_dtype_random_fill_succeeds(self):
+        """#127 guard is clear; #248 made integer GenerateNoise work for off-edge crops."""
         outside = nornir_imageregistration.Rectangle.CreateFromPointAndArea((-8, -8), (12, 12))
         for dtype in _INTEGER_DTYPES:
             with self.subTest(dtype=np.dtype(dtype).name):
-                try:
-                    _crop(dtype, cval='random', rect=outside)
-                except Exception as error:
-                    # UFuncTypeError subclasses TypeError, so the ufunc name is what
-                    # separates "the fill ran and hit its own bug" from "isnan is back".
-                    self.assertNotIn("'isnan'", str(error),
-                                     'the guard evaluated isnan on the random default again')
-                    self.assertIn("'clip'", str(error),
-                                  'expected the GenerateNoise clip defect, not something new')
+                cropped = _crop(dtype, cval='random', rect=outside)
+                self.assertEqual(np.dtype(dtype), cropped.dtype)
+                self.assertEqual(cropped.shape, (12, 12))
 
 
 class TestNanIntoAnIntegerIsStillRejected(unittest.TestCase):
