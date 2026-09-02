@@ -420,6 +420,75 @@ def _logpolar_confidence(d: LogPolarDiagnostics) -> float:
     )
 
 
+def _logpolar_needs_narrow_angle_refine(d: LogPolarDiagnostics) -> bool:
+    """True when finalize should run a ScoreOneAngle sweep around the log-polar seed.
+
+    Mirrors the three soft inputs to ``_logpolar_confidence``, using the same numeric
+    gates as the ``ambiguous`` flag's per-channel thresholds (1.35 / 1.12 / 0.12).
+    The previous finalize path only keyed off ``angle_peak_ratio < 1.35``, so a sharp
+    but wrong angle peak with a barely-unique translation (ratio ~1.06) skipped the
+    refine entirely — see #259 / ``test_idoc_690_691_matches_stos_brute_reference``.
+    """
+    return bool(
+        d.angle_peak_ratio < 1.35
+        or d.translation_peak_ratio < 1.12
+        or d.strength_delta_ratio < 0.12
+    )
+
+
+def _find_best_angle_common_random(
+        source_image: NDArray[np.floating],
+        target_image: NDArray[np.floating],
+        source_stats: nornir_imageregistration.ImageStats,
+        target_stats: nornir_imageregistration.ImageStats,
+        angle_range: Sequence[float],
+        min_overlap: float,
+        *,
+        random_seed: int = 0,
+) -> nornir_imageregistration.AlignmentRecord:
+    """Score ``angle_range`` with identical pad/rotate noise on every probe.
+
+    ``ScoreOneAngle`` draws fill noise from the shared generator, so a sequential
+    sweep compares angles under different noise and is a random walk (#95). Reseeding
+    to the same value before each probe makes the comparison about angle. Used only
+    for the short finalize narrow-refine (not the full brute sweep), where that
+    distinction decides whether a ~2–3° log-polar miss is corrected (#259).
+
+    Scoring is forced onto the host: ``seed_random_data`` only reaches the NumPy
+    noise fills, so a CuPy refine would still compare angles under mismatched noise
+    and diverge from the NumPy result (measured: NumPy→0.10°, CuPy→window edge).
+    """
+    angles = [float(a) for a in angle_range]
+    if not angles:
+        raise ValueError('angle_range must not be empty')
+
+    # Host coerce — see docstring. Cheap relative to nine ScoreOneAngle calls.
+    source_image = nornir_imageregistration.EnsureNumpyArray(source_image)
+    target_image = nornir_imageregistration.EnsureNumpyArray(target_image)
+
+    best: nornir_imageregistration.AlignmentRecord | None = None
+    source_shape = tuple(int(s) for s in source_image.shape[:2])
+    target_shape = tuple(int(s) for s in target_image.shape[:2])
+    for angle in angles:
+        nornir_imageregistration.seed_random_data(random_seed)
+        record = ScoreOneAngle(
+            target_original=target_image,
+            source_original=source_image,
+            target_image_shape=target_shape,
+            source_image_shape=source_shape,
+            angle=angle,
+            target_stats=target_stats,
+            source_stats=source_stats,
+            target_image_prepadded=False,
+            min_overlap=min_overlap,
+            source_scale=1.0,
+        )
+        if best is None or float(record.weight) > float(best.weight):
+            best = record
+    assert best is not None
+    return best
+
+
 def _fallback_search_geometry(
         confidence: float,
         degrees_per_pixel: float,
@@ -1269,27 +1338,29 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         """Narrow-angle/scale refine + ScoreOneAngle for one LogPolar orientation."""
         detected = float(seed.scale)
         final_angle = float(seed.angle)
+        # Narrow refine when the log-polar seed looks soft on *any* of the three
+        # diagnostics that feed ``_logpolar_confidence`` — not only a weak angle
+        # peak. A sharp angle peak with a flat translation peak (ratio ~1.06) is
+        # exactly the 690→691 failure mode (#259): the refine was skipped, and
+        # when forced it still rejected the ScoreOneAngle winner because
+        # ``seed.weight`` is the log-polar peak strength, not a ScoreOneAngle
+        # weight. The seed angle is already in ``angle_range``, so take the
+        # refine result unconditionally.
         if (
             get_last_hybrid_fallback_stats() is None
             and seed.diagnostics is not None
-            and seed.diagnostics.angle_peak_ratio < 1.35
+            and _logpolar_needs_narrow_angle_refine(seed.diagnostics)
         ):
             angle_range = _logpolar_narrow_angle_range(final_angle, seed.diagnostics)
-            angle_refined = _find_best_angle(
+            angle_refined = _find_best_angle_common_random(
                 source_image=candidate_source,
                 target_image=target_image,
                 source_stats=source_stats,
                 target_stats=target_stats,
                 angle_range=angle_range,
                 min_overlap=settings.min_overlap,
-                SingleThread=SingleThread,
-                source_scale=1.0,
-                cancel_event=cancel_event,
-                progress_callback=progress_callback,
-                use_gpu=use_gpu,
             )
-            if float(angle_refined.weight) > float(seed.weight):
-                final_angle = float(angle_refined.angle)
+            final_angle = float(angle_refined.angle)
         refine_initial = _refine_scale_initial_center(
             settings, metadata_scale_iso, detected, resolved_scale_hint)
         detected = _refine_scale_local(

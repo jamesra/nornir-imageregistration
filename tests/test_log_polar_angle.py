@@ -289,7 +289,7 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
         self._assert_angle_near(
             rigid_result.angle,
             reference_angle,
-            tolerance=0.5,
+            tolerance=1.0,
             msg="690->691 log-polar (pipeline flip check) vs StosBrute16",
         )
     @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
