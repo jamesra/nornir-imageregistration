@@ -20,6 +20,8 @@ from nornir_imageregistration import Rectangle, ShapeLike
 __known_overlap_masks: OrderedDict[tuple, NDArray] = OrderedDict()
 # Host masks uploaded once per shape key when using CuPy (avoids cp.asarray per find_peak call).
 __known_overlap_masks_device: OrderedDict[tuple, NDArray] = OrderedDict()
+__known_overlap_masks_bytes: list[int] = [0]
+__known_overlap_masks_device_bytes: list[int] = [0]
 
 _DEFAULT_DEVICE_CACHE_MB = 256
 _DEFAULT_HOST_CACHE_MB = 512
@@ -52,35 +54,40 @@ def _lru_get(cache: OrderedDict[tuple, NDArray], key: tuple) -> NDArray | None:
 
 
 def _lru_put(cache: OrderedDict[tuple, NDArray], key: tuple, value: NDArray,
-             budget_bytes: int) -> None:
-    """Insert *value* and evict least-recently-used entries until under *budget_bytes*."""
+             budget_bytes: int, *, running_bytes: list[int]) -> None:
+    """Insert *value* and evict least-recently-used entries until under *budget_bytes*.
+
+    *running_bytes* is a one-element list holding the live byte total for *cache*
+    so each insert is O(1) instead of summing every entry.
+    """
+    new_bytes = _array_nbytes(value)
     if key in cache:
+        running_bytes[0] -= _array_nbytes(cache[key])
         cache.move_to_end(key)
         cache[key] = value
     else:
         cache[key] = value
+    running_bytes[0] += new_bytes
 
     if budget_bytes <= 0:
         cache.clear()
+        running_bytes[0] = 0
         return
 
-    total = sum(_array_nbytes(arr) for arr in cache.values())
-    while total > budget_bytes and cache:
+    while running_bytes[0] > budget_bytes and cache:
         _evicted_key, evicted = cache.popitem(last=False)
-        total -= _array_nbytes(evicted)
+        running_bytes[0] -= _array_nbytes(evicted)
 
 
 def overlap_mask_cache_stats() -> dict[str, Any]:
     """Return host/device cache sizes for diagnostics and tests."""
-    host_bytes = sum(_array_nbytes(arr) for arr in __known_overlap_masks.values())
-    device_bytes = sum(_array_nbytes(arr) for arr in __known_overlap_masks_device.values())
     return {
         "host_entries": len(__known_overlap_masks),
-        "host_bytes": host_bytes,
+        "host_bytes": __known_overlap_masks_bytes[0],
         "host_budget_bytes": _cache_budget_bytes("NORNIR_OVERLAP_MASK_HOST_CACHE_MB",
                                                  _DEFAULT_HOST_CACHE_MB),
         "device_entries": len(__known_overlap_masks_device),
-        "device_bytes": device_bytes,
+        "device_bytes": __known_overlap_masks_device_bytes[0],
         "device_budget_bytes": _cache_budget_bytes("NORNIR_OVERLAP_MASK_CACHE_MB",
                                                    _DEFAULT_DEVICE_CACHE_MB),
     }
@@ -134,7 +141,8 @@ def GetOverlapMask(target_image_shape: ShapeLike,
     mask = __CreateOverlapMaskBruteForce(target_image_shape, source_image_shape, correlation_image_size, MinOverlap,
                                          MaxOverlap)
     budget = _cache_budget_bytes("NORNIR_OVERLAP_MASK_HOST_CACHE_MB", _DEFAULT_HOST_CACHE_MB)
-    _lru_put(__known_overlap_masks, MaskIndex, mask, budget)
+    _lru_put(__known_overlap_masks, MaskIndex, mask, budget,
+             running_bytes=__known_overlap_masks_bytes)
 
     return mask
 
@@ -173,7 +181,8 @@ def GetOverlapMaskOnDevice(target_image_shape: ShapeLike,
 
     device_mask = xp.asarray(mask)
     budget = _cache_budget_bytes("NORNIR_OVERLAP_MASK_CACHE_MB", _DEFAULT_DEVICE_CACHE_MB)
-    _lru_put(__known_overlap_masks_device, mask_index, device_mask, budget)
+    _lru_put(__known_overlap_masks_device, mask_index, device_mask, budget,
+             running_bytes=__known_overlap_masks_device_bytes)
     return device_mask
 
 
@@ -182,6 +191,8 @@ def clear_overlap_mask_caches() -> None:
     global __known_overlap_masks, __known_overlap_masks_device
     __known_overlap_masks = OrderedDict()
     __known_overlap_masks_device = OrderedDict()
+    __known_overlap_masks_bytes[0] = 0
+    __known_overlap_masks_device_bytes[0] = 0
 
 
 def __CreateFullMaskFromQuadrant(Mask: NDArray[np.bool_],
