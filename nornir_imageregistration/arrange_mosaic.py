@@ -836,8 +836,8 @@ def __tile_offset_remote(A_Filename: str, B_Filename: str,
 
     MinOverlap = 0.25
     MaxOverlap = 1
-    excess_scalar = 2  # If excess_scalar > 1 and the image has bad regions we end up padding with nearly pure black or white.
-    # Instead I set excess_scalar to 1 and pad the image based on the min overlap
+    # Use the caller-supplied excess_scalar (TranslateSettings). Values above ~1 can
+    # pad into extrema-filled margins on TEM; the crop helper also clamps to 3.
     dtype = nornir_imageregistration.default_image_dtype()
 
     ShowImages = False
@@ -1017,6 +1017,8 @@ def __AlignmentScoreRemote(A_Filename, B_Filename, scaled_overlapping_source_rec
     """
 
     dtype = nornir_imageregistration.default_image_dtype()
+    OverlappingRegionA = None
+    OverlappingRegionB = None
     try:
         OverlappingRegionA, extrema_mask_OverlappingRegionA = __get_overlapping_image(  # type: ignore[assignment]
             nornir_imageregistration.ImageParamToImageArray(A_Filename,
