@@ -3042,15 +3042,14 @@ def NextSmoothFFTSize(val: float) -> int:
     was measured on a single card, and hardcoding a size exception is exactly the mistake
     #228 recorded for batch budgets.
 
-    Even sizes only, and that is a correctness constraint rather than a preference:
-    ``find_peak`` derives the shift as ``shape / 2.0 - peak_center_of_mass`` using true-half,
-    while ``fftshift`` places the zero-shift sample at ``(n - 1) / 2`` for odd *n*. Measured,
-    an odd frame biases every offset by exactly +0.5px, at 65, 129, 255 and 6075 alike.
-    Power-of-two sizes are always even, which is why nothing has tripped over this; a smooth
-    rule has to exclude odd candidates explicitly. This costs a little -- 6075 is 1.5x faster
-    than 6144 on numpy -- and is not worth a half-pixel bias.
+    Even sizes only, as a defense in depth with #238: ``find_peak`` now uses the
+    ``fftshift`` DC index ``n // 2`` (so odd frames are unbiased), but smooth sizing still
+    prefers even candidates so assessment scripts and older call sites that assumed
+    power-of-two parity keep matching production frames. Power-of-two sizes are always
+    even; a smooth rule has to exclude odd candidates explicitly. This costs a little --
+    6075 is 1.5x faster than 6144 on numpy -- and remains worthwhile for consistency.
 
-    See review #234.
+    See review #234 / #238.
     """
     target = int(math.ceil(val))
     if target <= 2:

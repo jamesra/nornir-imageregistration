@@ -136,8 +136,8 @@ def batched_find_peak(images: NDArray[np.floating],
     For each image: take the masked argmax, then refine to sub-pixel accuracy
     with an intensity-weighted center of mass over a ``(2r+1)`` window centered
     on the argmax (baseline removed by subtracting the window minimum). The
-    offset is reported as ``(shape/2) - peak_coord`` to match
-    ``phasecorrelation.find_peak``'s sign convention.
+    offset is reported as ``(n // 2) - peak_coord`` to match
+    ``phasecorrelation.find_peak``'s fftshift-compatible convention (#238).
 
     The window wraps at the image edges, because the correlation this refines is
     circular. Serial ``find_peak`` does not wrap: it takes the center of mass of a
@@ -239,8 +239,8 @@ def batched_find_peak(images: NDArray[np.floating],
     centroid_c = peak_c.astype(images.dtype) + xp.where(
         valid, weighted_c / safe_wsum, 0.0)
 
-    center_r = xp.asarray(h, dtype=images.dtype) / xp.asarray(2.0, dtype=images.dtype)
-    center_c = xp.asarray(w, dtype=images.dtype) / xp.asarray(2.0, dtype=images.dtype)
+    center_r = xp.asarray(h // 2, dtype=images.dtype)
+    center_c = xp.asarray(w // 2, dtype=images.dtype)
     offset_r = center_r - centroid_r
     offset_c = center_c - centroid_c
     peaks = xp.stack((offset_r, offset_c), axis=1)

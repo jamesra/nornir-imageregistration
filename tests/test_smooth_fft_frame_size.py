@@ -1,15 +1,14 @@
-"""Smooth FFT frame sizing -- review #234.
+"""Smooth FFT frame sizing -- review #234 / #238.
 
 The brute sweep used to round its correlation frame up to a power of two, which turned a
 6000px requirement into 8192 and paid 1.86x the area for nothing. It now rounds up to the
 nearest **even** 5-smooth size instead.
 
-Two properties carry the whole change and both are pinned here:
+Two properties carry the sizing change and both are pinned here:
 
 * the result is never larger than the power of two, so frame memory cannot regress;
-* the result is always **even**, which is a correctness constraint rather than a preference --
-  ``find_peak`` uses true-half centring while ``fftshift`` puts the zero-shift sample at
-  ``(n-1)/2`` for odd n, so an odd frame biases every measured offset by exactly +0.5px.
+* the result is always **even** (belt-and-suspenders with #238's ``find_peak`` fix: odd
+  frames used to bias offsets by +0.5px under true-half centring).
 """
 
 import numpy as np
@@ -40,7 +39,7 @@ class TestTheSizeRuleItself:
 
     @pytest.mark.parametrize('val', SIZES)
     def test_the_result_is_even(self, val):
-        """Odd frames carry a half-pixel offset bias; see TestWhyEven."""
+        """Even frames stay the production default; see TestWhyEven / #238."""
         assert nornir_imageregistration.NextSmoothFFTSize(val) % 2 == 0
 
     @pytest.mark.parametrize('val', SIZES)
@@ -110,12 +109,11 @@ class TestTheOverlapWrapper:
 
 
 class TestWhyEven:
-    """Pins the reason the size rule excludes odd candidates.
+    """Documented #238: odd frames used to bias find_peak by +0.5 until fftshift-matched.
 
-    ``find_peak`` computes ``shape / 2.0 - peak_center_of_mass``. ``fftshift`` puts the
-    zero-shift sample at ``n/2`` for even n but ``(n-1)/2`` for odd n, so the true-half
-    centring is off by exactly half a sample on an odd axis. Power-of-two frames are always
-    even, which is why this has never surfaced in production.
+    ``fftshift`` places the zero-shift sample at ``n // 2``. True-half ``n / 2.0`` only
+    matches that for even ``n``. Production frames stay even via :func:`NextSmoothFFTSize`;
+    ``find_peak`` itself is now parity-correct so odd assessment frames are safe too.
     """
 
     @staticmethod
@@ -130,17 +128,11 @@ class TestWhyEven:
         record = nornir_imageregistration.phasecorrelation.find_peak(corr)
         return tuple(float(v) for v in record.scaled_offset)
 
-    @pytest.mark.parametrize('n', [64, 128, 256])
+    @pytest.mark.parametrize('n', [64, 128, 256, 65, 129, 255])
     @pytest.mark.parametrize('shift', [(0, 0), (7, -5)])
-    def test_an_even_frame_recovers_the_shift_exactly(self, n, shift):
+    def test_find_peak_recovers_the_shift_for_even_and_odd_frames(self, n, shift):
         got = self._measure(n, shift)
         assert got == pytest.approx(shift, abs=1e-6)
-
-    @pytest.mark.parametrize('n', [65, 129, 255])
-    @pytest.mark.parametrize('shift', [(0, 0), (7, -5)])
-    def test_an_odd_frame_is_biased_by_exactly_half_a_pixel(self, n, shift):
-        got = self._measure(n, shift)
-        assert got == pytest.approx((shift[0] + 0.5, shift[1] + 0.5), abs=1e-6)
 
     def test_so_the_size_rule_never_produces_an_odd_frame(self):
         for val in range(2, 3000):

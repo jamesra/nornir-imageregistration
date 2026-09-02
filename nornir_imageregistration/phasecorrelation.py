@@ -58,10 +58,14 @@ def _xp_1d_to_float_pair(values, xp) -> tuple[float, float]:
 
 
 def _scaled_offset_from_center_of_mass(image_shape, peak_center_of_mass, xp) -> tuple[float, float]:
-    """Peak offset from image center; float64 so large frames keep sub-pixel CoM digits."""
-    scaled_offset_arr = (
-        xp.asarray(image_shape, dtype=xp.float64) / xp.float64(2.0)
-    ) - xp.asarray(peak_center_of_mass, dtype=xp.float64)
+    """Peak offset from the fftshift zero-shift sample; float64 keeps CoM digits.
+
+    ``fftshift`` places DC at ``n // 2`` for both even and odd ``n``. True-half
+    ``n / 2.0`` matches that only when ``n`` is even; on odd frames it biases every
+    offset by +0.5 px (#238). Integer half matches ``fftshift`` on both parities.
+    """
+    center = (xp.asarray(image_shape, dtype=xp.int64) // 2).astype(xp.float64)
+    scaled_offset_arr = center - xp.asarray(peak_center_of_mass, dtype=xp.float64)
     return _xp_1d_to_float_pair(scaled_offset_arr, xp)
 
 
@@ -80,8 +84,8 @@ _logger = logging.getLogger(__name__)
 def _no_peak_offset() -> tuple[float, float]:
     """Zero translation for a missing correlation peak.
 
-    A successful peak reports ``(shape / 2) - peak_com``. Returning the image
-    center coordinates instead (as if the peak were at array origin) applies a
+    A successful peak reports ``(n // 2) - peak_com`` (fftshift DC index). Returning the
+    image center coordinates instead (as if the peak were at array origin) applies a
     translation of half the padded FFT size and can place source and target
     outside each other's bounding boxes.
     """
