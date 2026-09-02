@@ -397,6 +397,21 @@ def _get_scaled_transform_for_tile(
     return _build_scaled_transform(tile.Transform, source_space_scale, target_space_scale)
 
 
+def _assemble_output_dtype(mosaic_tileset: nornir_imageregistration.MosaicTileset) -> DTypeLike:
+    """Dtype for the assembled canvas: first tile's image dtype.
+
+    Serial and threaded assembly already used ``tiles_list[0].Image.dtype``.
+    Parallel used ``default_image_dtype()``, so the same mosaic could assemble to
+    float16 via the pool path and float32 (or whatever the tile holds) via the
+    others when tiles carry in-memory arrays (#112). Path-loaded tiles already
+    load as ``default_image_dtype()``, so this stays a no-op for that case.
+    """
+    first_tile = next(iter(mosaic_tileset.values()), None)
+    if first_tile is None:
+        raise ValueError("Mosaic Tileset has no tiles.")
+    return first_tile.Image.dtype
+
+
 def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                  TargetRegion: nornir_imageregistration.Rectangle | List[float] | None = None,
                  target_space_scale: float | None = None,
@@ -445,7 +460,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     if not tiles_list:
         raise ValueError("Mosaic Tileset has no tiles.")
 
-    output_dtype = tiles_list[0].Image.dtype  # loads and caches tile[0].Image
+    output_dtype = _assemble_output_dtype(mosaic_tileset)
 
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
@@ -609,7 +624,7 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     if not tiles_list:
         raise ValueError("Mosaic Tileset has no tiles.")
 
-    output_dtype = tiles_list[0].Image.dtype
+    output_dtype = _assemble_output_dtype(mosaic_tileset)
 
     full_image, full_image_zbuffer = __CreateOutputBufferForArea(
         int(scaled_target_rect.Height), int(scaled_target_rect.Width), dtype=output_dtype)
@@ -733,11 +748,7 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)
     #    targetRect = original_fixed_rect_floats#nornir_imageregistration.Rectangle.scale_on_origin(scaled_targetRect, 1.0 / target_space_scale)
 
-    first_tile = next(iter(mosaic_tileset.values()))
-    if first_tile is None:
-        raise ValueError("Mosaic Tileset has no tiles.")
-
-    output_dtype = nornir_imageregistration.default_image_dtype()
+    output_dtype = _assemble_output_dtype(mosaic_tileset)
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
