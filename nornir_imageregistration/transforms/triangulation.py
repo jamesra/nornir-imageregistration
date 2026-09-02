@@ -572,7 +572,8 @@ class Triangulation(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def Scale(self, scalar: float):
         '''Scale both warped and control space by scalar'''
-        self._points *= scalar
+        # Rebind like the GPU twin / Landmark.Scale so aliases of `.points` are not mutated.
+        self._points = self._points * scalar
         self.OnTransformChanged()
 
     def ScaleWarped(self, scalar: float):
