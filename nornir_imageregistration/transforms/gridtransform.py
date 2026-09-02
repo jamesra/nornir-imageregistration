@@ -175,8 +175,7 @@ def _inverse_transform_with_linear_nd_fallback(
                 setattr(transform, private_attr, interp)
                 setattr(transform, scipy_flag_attr, uses_scipy)
                 continue
-        except Exception:
-            pass
+            # Non-retryable ValueError (e.g. Qhull): soft-fail below.
 
         log = logging.getLogger(str(transform.__class__))
         log.warning("Could not transform points: " + str(points))
@@ -229,8 +228,7 @@ def _forward_transform_with_linear_nd_fallback(
                 setattr(transform, private_attr, interp)
                 setattr(transform, scipy_flag_attr, uses_scipy)
                 continue
-        except Exception:
-            pass
+            # Non-retryable ValueError (e.g. Qhull): soft-fail below.
 
         log = logging.getLogger(str(transform.__class__))
         log.warning("Could not transform points: " + str(points))
