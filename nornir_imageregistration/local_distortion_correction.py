@@ -139,12 +139,22 @@ _PHASE_TIMER = get_phase_timer()
 
 
 def _use_batched_vertex_measurement() -> bool:
-    """Return True when the batched vertex-measurement path should be used.
+    """Return True when mosaic batched vertex-measurement should be used.
 
-    Delegates to ``RefineRuntimeConfig`` (``NORNIR_REFINE_BATCHED`` /
-    ``NORNIR_REFINE_BATCHED_GPU``). Default ON for both backends.
+    Reads ``NORNIR_REFINE_BATCHED`` / ``NORNIR_REFINE_BATCHED_GPU`` via
+    ``RefineRuntimeConfig``. Default ON. Does not gate STOS cell measurement
+    (see ``_use_batched_stos_cell_measurement``).
     """
     return get_runtime_config(refresh=True).batched_vertex_measurement
+
+
+def _use_batched_stos_cell_measurement() -> bool:
+    """Return True when STOS translation-only batched cell measurement is used.
+
+    Reads ``NORNIR_REFINE_BATCHED_STOS`` (default ON). Independent of the mosaic
+    ``NORNIR_REFINE_BATCHED`` gate so mosaic debug does not force STOS serial.
+    """
+    return get_runtime_config(refresh=True).batched_stos_cell_measurement
 
 
 def _log_phase_breakdown(label: str, baseline: dict[str, float]) -> None:
@@ -4259,7 +4269,7 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             ring_angle_max_degrees=settings.ring_angle_max_degrees,
             ring_allow_flip_change=settings.ring_allow_flip_change)
 
-    if (_use_batched_vertex_measurement()
+    if (_use_batched_stos_cell_measurement()
             and _angles_are_translation_only(settings.angles_to_search)
             and nPoints > 0):
         batched = _attempt_align_points_translation_batched(

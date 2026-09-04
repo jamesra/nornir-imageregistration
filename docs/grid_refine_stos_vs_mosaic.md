@@ -49,7 +49,7 @@ value.
 | Gap-fill for unmeasured vertices | Always | Locked-anchor mesh gap-fill when enough locks; early passes omit failed cells |
 | Dual stop (threshold + no improvement) | Always | Iteration / finalization based |
 | Atomic pass apply | Always | Rebuild is intentional |
-| Batched FFT measurement | Default on (`NORNIR_REFINE_BATCHED`) | Translation-only cells can use shared batched helper |
+| Batched FFT measurement | Default on (`NORNIR_REFINE_BATCHED`) | Default on (`NORNIR_REFINE_BATCHED_STOS`; independent of mosaic gate) |
 
 ## Overlap / validity thresholds
 

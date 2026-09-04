@@ -100,6 +100,47 @@ class TestRefineShared(unittest.TestCase):
             os.environ.pop('NORNIR_REFINE_MOSAIC_CUTOFF', None)
             os.environ.pop('NORNIR_REFINE_STOS_REGULARIZE', None)
 
+    def test_batched_mosaic_gate_does_not_disable_stos(self) -> None:
+        """NORNIR_REFINE_BATCHED=0 is mosaic-only; STOS stays batched (#98)."""
+        from nornir_imageregistration.local_distortion_correction import (
+            _use_batched_stos_cell_measurement,
+            _use_batched_vertex_measurement,
+        )
+        from nornir_imageregistration.refine_shared.runtime_config import get_runtime_config
+
+        os.environ['NORNIR_REFINE_BATCHED'] = '0'
+        os.environ.pop('NORNIR_REFINE_BATCHED_STOS', None)
+        os.environ.pop('NORNIR_REFINE_BATCHED_GPU', None)
+        get_runtime_config(refresh=True)
+        try:
+            self.assertFalse(_use_batched_vertex_measurement())
+            self.assertTrue(_use_batched_stos_cell_measurement())
+            cfg = get_runtime_config()
+            self.assertFalse(cfg.batched_vertex_measurement)
+            self.assertTrue(cfg.batched_stos_cell_measurement)
+        finally:
+            os.environ.pop('NORNIR_REFINE_BATCHED', None)
+            get_runtime_config(refresh=True)
+
+    def test_batched_stos_gate_can_disable_independently(self) -> None:
+        """NORNIR_REFINE_BATCHED_STOS=0 turns off STOS batched without mosaic."""
+        from nornir_imageregistration.local_distortion_correction import (
+            _use_batched_stos_cell_measurement,
+            _use_batched_vertex_measurement,
+        )
+        from nornir_imageregistration.refine_shared.runtime_config import get_runtime_config
+
+        os.environ.pop('NORNIR_REFINE_BATCHED', None)
+        os.environ.pop('NORNIR_REFINE_BATCHED_GPU', None)
+        os.environ['NORNIR_REFINE_BATCHED_STOS'] = '0'
+        get_runtime_config(refresh=True)
+        try:
+            self.assertTrue(_use_batched_vertex_measurement())
+            self.assertFalse(_use_batched_stos_cell_measurement())
+        finally:
+            os.environ.pop('NORNIR_REFINE_BATCHED_STOS', None)
+            get_runtime_config(refresh=True)
+
     def test_grid_refinement_uploads_images_once_under_cupy(self) -> None:
         """When CuPy is active, GridRefinement promotes full images to device once."""
         if not nornir_imageregistration.HasCupy() or cp is None:

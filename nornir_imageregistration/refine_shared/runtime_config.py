@@ -41,6 +41,7 @@ class RefineRuntimeConfig:
 
     phase_timing: bool
     batched_vertex_measurement: bool
+    batched_stos_cell_measurement: bool
     prewarp_mode: str
     tile_measure_parallel: bool
     gpu_transform: bool
@@ -62,8 +63,16 @@ class RefineRuntimeConfig:
         batched = _env_flag('NORNIR_REFINE_BATCHED', '')
         if batched == '':
             batched = _env_flag('NORNIR_REFINE_BATCHED_GPU', '')
-        # Default ON when unset (validated production default for mosaic).
+        # Mosaic vertex gate. Default ON when unset (validated production default).
         batched_on = True if batched == '' else not _is_falsey(batched)
+
+        # STOS cell gate is independent so mosaic debug (BATCHED=0) does not
+        # force STOS onto the serial path (#98 / C03-B007).
+        stos_batched = _env_flag('NORNIR_REFINE_BATCHED_STOS', '')
+        if stos_batched == '':
+            stos_batched_on = True
+        else:
+            stos_batched_on = not _is_falsey(stos_batched)
 
         tile_flag = _env_flag('NORNIR_REFINE_TILE_PARALLEL', '')
         if _is_falsey(tile_flag):
@@ -117,6 +126,7 @@ class RefineRuntimeConfig:
         return cls(
             phase_timing=not (_is_falsey(phase_flag) or phase_flag == ''),
             batched_vertex_measurement=batched_on,
+            batched_stos_cell_measurement=stos_batched_on,
             prewarp_mode=_env_flag('NORNIR_REFINE_PREWARP_MODE', ''),
             tile_measure_parallel=tile_parallel,
             gpu_transform=gpu_transform,
