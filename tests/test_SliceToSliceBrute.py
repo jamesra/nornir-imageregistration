@@ -177,22 +177,19 @@ class TestStosBrute(setup_imagetest.ImageTestBase):
         self.WarpedImagePathFlipped = self.GetImagePath(
             "0017_TEM_Leveled_image__feabinary_Cel64_Mes8_sp4_Mes8_FlippedUD.png")
 
-    # The CPU sweep variants below are @slow from measurement, not suspicion. Each runs a
-    # full angle sweep at all 11 scale candidates on an 8192x8192 frame at ~10.5s per
-    # angle serially, so none finishes inside a routine budget. Their _GPU siblings cover
-    # the same registration behaviour in 62-128s and stay selected. See #229 and
-    # test_SliceToSliceBrute_budget.py.
+    # CPU full-sweep variants: @slow from measurement (#229/#239), not suspicion.
+    # After #234's FFT frame shrink, MultiThread/Cluster finish under the 150s routine
+    # budget (~110s); SingleThread and all Flip variants still exceed 160s. GPU siblings
+    # stay unmarked. See test_SliceToSliceBrute_budget.py.
     @pytest.mark.slow
     def testStosBrute_SingleThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=True, FlipUD=False)
 
-    @pytest.mark.slow
     def testStosBrute_MultiThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, FlipUD=False)
 
-    @pytest.mark.slow
     def testStosBrute_Cluster(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         self.RunBasicBruteAlignment(self.FixedImagePath, self.WarpedImagePath, SingleThread=False, Cluster=True,
@@ -303,7 +300,6 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.WarpedImageMaskPath = self.GetImagePath("0017_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
         self.FixedImageMaskPath = self.GetImagePath("mini_TEM_Leveled_mask__feabinary_Cel64_Mes8_sp4_Mes8.png")
 
-    @pytest.mark.slow
     def testStosBruteWithMask_MultiThread(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
         AlignmentRecord = self.RunBasicBruteAlignmentWithMask(self.FixedImagePath, self.WarpedImagePath,
@@ -393,6 +389,8 @@ class TestStosBruteWithMask(setup_imagetest.ImageTestBase):
         self.assertEqual(loadedStosObj.MappedMaskName, warpedMaskName,
                          "Mask in .stos does not match mask used in alignment\n")
 
+    # Under the 150s budget (~110s after #234) but still failing peak tolerance (#235);
+    # keep slow so -m "not slow" does not import a known failure into routine runs.
     @pytest.mark.slow
     def testStosBruteScaleMismatchWithMask(self):
         nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)

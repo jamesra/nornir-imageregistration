@@ -8,9 +8,10 @@ runs a full angle sweep at each of 11 scale candidates, and the inputs pad to an
 8192x8192 float32 frame (256 MiB) at ~10.5s per angle serially -- hundreds of minutes of
 FFT for one test.
 
-Measuring all 33 tests individually (150s each) put 9 over budget and 24 under, with the
-24 totalling ~800s. So the wholesale exclusion was costing 24 usable tests to avoid 9,
-and the marker now carries that split explicitly.
+Measuring all 33 tests individually (150s each, #229) put 9 over budget and 24 under.
+After #234's FFT frame shrink, a 2026-09-04 re-measure (#239) dropped three of those
+nine under budget (~110–122s); six remain marked (five still over 160s, plus
+ScaleMismatch which is under budget but failing #235).
 
 These tests guard the two ways that split can rot:
 
@@ -30,26 +31,27 @@ import unittest
 
 import test_SliceToSliceBrute as brute
 
-# Measured on 2026-08-30, one subprocess per test, 150s budget each. Recorded here rather
-# than re-measured because re-measuring costs the very hours this marker exists to avoid.
+# Re-measured 2026-09-04 after #234 (160s cutoff per subprocess). Five still exceed the
+# cutoff; ScaleMismatch finishes ~110s but fails peak tolerance (#235) so it stays marked
+# until that fix — do not pull a known failure into ``-m "not slow"``. See #239.
 OVER_BUDGET = frozenset({
     'TestStosBrute::testStosBrute_SingleThread',
-    'TestStosBrute::testStosBrute_MultiThread',
-    'TestStosBrute::testStosBrute_Cluster',
     'TestStosBrute::testStosBruteWithFlip_SingleThread',
     'TestStosBrute::testStosBruteWithFlip_MultiThread',
     'TestStosBrute::testStosBruteWithFlip_Cluster',
-    'TestStosBruteWithMask::testStosBruteWithMask_MultiThread',
     'TestStosBruteWithMask::testStosBruteScaleMismatchWithMask',
     'TestStosBruteToSameImage::testSameTEMImage_MultiThread',
 })
 
 # Under budget and exercising numpy (not cupy) scoring, so ``-m "not slow"`` keeps real
-# CPU coverage of the brute path.
+# CPU coverage of the brute path. MultiThread/Cluster/WithMask_MultiThread joined after #239.
 CPU_COVERAGE_UNDER_BUDGET = frozenset({
+    'TestStosBrute::testStosBrute_MultiThread',
+    'TestStosBrute::testStosBrute_Cluster',
     'TestStosBruteToSameImage::testSameTEMImageFast_SingleThread',
     'TestStosBruteToSameImage::testSameTEMImageFast_MultiThread',
     'TestStosBruteWithMask::testStosBruteExecuteWithMask',
+    'TestStosBruteWithMask::testStosBruteWithMask_MultiThread',
 })
 
 
