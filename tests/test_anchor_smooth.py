@@ -94,6 +94,39 @@ class TestSmoothPeaksFromLockedAnchors(unittest.TestCase):
         self.assertEqual(len(smoothed), 1)
         np.testing.assert_allclose(smoothed[0].peak, (3.0, 5.0), rtol=0, atol=1e-5)
 
+    def test_emit_batches_transform_to_one_call(self) -> None:
+        """Emit loop must not call Transform once per record (#100 / C03-P006)."""
+
+        class _CountingTransform(_TranslateTransform):
+            def __init__(self) -> None:
+                super().__init__((0.0, 0.0))
+                self.calls = 0
+                self.batch_sizes: list[int] = []
+
+            def Transform(self, points: np.ndarray, **kwargs) -> np.ndarray:
+                self.calls += 1
+                pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+                self.batch_sizes.append(int(pts.shape[0]))
+                return super().Transform(pts, **kwargs)
+
+        transform = _CountingTransform()
+        finalized = {
+            (0, 0): _rec((0, 0), source=(0.0, 0.0), target=(0.0, 0.0)),
+            (0, 2): _rec((0, 2), source=(20.0, 0.0), target=(20.0, 0.0)),
+            (0, 4): _rec((0, 4), source=(40.0, 0.0), target=(40.0, 0.0)),
+        }
+        alignment_points = [
+            _rec((0, 1), source=(10.0, 0.0), peak=(1.0, 0.0)),
+            _rec((0, 3), source=(30.0, 0.0), peak=(1.0, 0.0)),
+        ]
+        settings = AnchorSmoothSettings(min_anchor_count=3, median_radius=1)
+        smoothed = smooth_peaks_from_locked_anchors(
+            finalized, alignment_points, transform, settings)
+        # One call seeds locks; one call emits all records.
+        self.assertEqual(transform.calls, 2)
+        self.assertEqual(transform.batch_sizes[-1], len(smoothed))
+        self.assertEqual(len(smoothed), 5)
+
 
 class TestShouldUseAnchorSmoothMesh(unittest.TestCase):
     """Threshold gating for anchor-smooth mesh path."""

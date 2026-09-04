@@ -177,17 +177,27 @@ def smooth_peaks_from_locked_anchors(
     for key, rec in finalized.items():
         record_by_id[(int(key[0]), int(key[1]))] = rec
 
+    sorted_keys = sorted(record_by_id.keys())
+    if not sorted_keys:
+        return []
+
+    source_points = np.asarray(
+        [np.asarray(record_by_id[key].SourcePoint, dtype=np.float64).reshape(2)
+         for key in sorted_keys],
+        dtype=np.float64)
+    # One mesh/RBF query for the whole emit set (was per-record Transform).
+    predicted_targets = _as_numpy_points(transform.Transform(source_points)).reshape(-1, 2)
+
     smoothed_records: list = []
-    for key in sorted(record_by_id.keys()):
+    for i, key in enumerate(sorted_keys):
         rec = record_by_id[key]
         row, col = int(key[0]), int(key[1])
         idx = row * mesh_cols + col
-        source_point = np.asarray(rec.SourcePoint, dtype=np.float64).reshape(2)
-        predicted_target = _as_numpy_points(transform.Transform(source_point.reshape(1, 2))).reshape(2)
+        source_point = source_points[i]
         peak = np.asarray(smoothed_shifts[idx, :], dtype=np.float32)
         smoothed_records.append(EnhancedAlignmentRecord(
             ID=key,
-            TargetPoint=predicted_target,
+            TargetPoint=predicted_targets[i],
             SourcePoint=source_point,
             peak=peak,
             weight=float(rec.weight),
