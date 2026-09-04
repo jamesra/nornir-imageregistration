@@ -890,7 +890,11 @@ def _regularize_displacements(
 
 def _grid_refine_neighbors(
         list_tiles: Sequence[nornir_imageregistration.Tile]) -> dict[int, list[nornir_imageregistration.Tile]]:
-    """Find overlapping neighbors per tile via target-space bounding-box intersection (legacy rule)."""
+    """Find overlapping neighbors per tile via target-space bounding-box intersection (legacy rule).
+
+    Recomputed each mosaic-refine pass because ``FixedBoundingBox`` moves with the
+    grid. Caching the pair graph across passes would miss new/lost overlaps (#185).
+    """
     neighbors: dict[int, list[nornir_imageregistration.Tile]] = {tile.ID: [] for tile in list_tiles}
     for i, tile_i in enumerate(list_tiles):
         for j, tile_j in enumerate(list_tiles):
