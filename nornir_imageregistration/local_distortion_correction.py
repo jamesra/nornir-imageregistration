@@ -1587,8 +1587,15 @@ def _log_refinement_gpu_memory(label: str) -> None:
         f'GPU mem [{label}]: used_bytes={used_bytes} total_bytes={total_label}')
 
 
-def _release_refinement_worker_memory() -> None:
-    """Drop transient warp allocations after an overlap refinement worker task."""
+def _release_refinement_worker_memory(*, reclaim_caches: bool = True) -> None:
+    """Drop transient warp allocations after refinement work.
+
+    When *reclaim_caches* is False (between mosaic refine passes that reuse the
+    same buffer shapes), skip ``gc.collect`` / CuPy ``free_all_blocks`` so the
+    allocator can reuse next-pass stacks (#186 / C03-P009).
+    """
+    if not reclaim_caches:
+        return
     gc.collect()
     if nornir_imageregistration.UsingCupy():
         free_all_blocks = getattr(cp, 'get_default_memory_pool', None)
@@ -2176,7 +2183,8 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
                     prewarp_revision_cache[tile.ID] = prewarp_revision_cache.get(tile.ID, 0) + 1
 
         del prewarped
-        _release_refinement_worker_memory()
+        # Keep device/host allocator caches warm for the next identically-shaped pass.
+        _release_refinement_worker_memory(reclaim_caches=False)
         _log_refinement_gpu_memory(f'_refine_tileset pass {pass_index + 1} after release')
         _log_phase_breakdown(f'_refine_tileset pass {pass_index + 1}', pass_phase_baseline)
 
