@@ -100,6 +100,23 @@ _last_low_vram_warning: float = 0.0
 # Conservative bytes per map_coordinates sample (output + coord intermediates).
 _ROI_BYTES_PER_SAMPLE: int = 12
 
+# Floor when the VRAM headroom reserve exhausts ``batched_roi_sample_budget``
+# (~1.28 GiB free). Without it the function returned one cell of samples and the
+# caller launched ``map_coordinates`` once per cell. Measured on CuPy
+# ``map_coordinates`` (order=3, prefiltered once, median of 3) with byte-identical
+# sampling:
+#
+#   cell  64px / 4096 cells: chunk 1 = 12.4x vs best chunk 256 (~12.5 MiB samples)
+#   cell 128px / 4096 cells: chunk 1 =  2.8x vs best chunk  64 (~12.5 MiB samples)
+#   cell 256px / 1024 cells: chunk 1 =  1.4x vs best chunk  32 (~25 MiB samples)
+#
+# Preferred working set matches the 64/128 optima (~12 MiB). Min floor is half of
+# that (FFT #236 pattern) so an exhausted reserve still batches. Apply the floor
+# against the budget, not only the ``<= 0`` branch, so the second cliff just above
+# the reserve boundary is covered. See #240.
+_ROI_PREFERRED_WORKSPACE_BYTES: int = 12 * 1024 * 1024
+_ROI_MIN_WORKSPACE_BYTES: int = 6 * 1024 * 1024
+
 _CPU_FFT_CELL_CHUNK: int = 1024
 # Same peak as 1024 cells of 128×128 (~1 GiB). Scale CPU chunks by cell area
 # from this budget so a 4096² stack cannot request 58 GiB in one fft2.
@@ -201,6 +218,28 @@ def batched_fft_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[
     return min(chunk, _MAX_FFT_CELL_CHUNK)
 
 
+def _warn_low_vram_roi_budget(free_bytes: int | None, cell_h: int, cell_w: int,
+                              sample_budget: int) -> None:
+    """Report ROI sample-budget exhaustion, throttled like the FFT warning."""
+    global _last_low_vram_warning
+
+    now = time.monotonic()
+    if now - _last_low_vram_warning < _LOW_VRAM_WARNING_INTERVAL_SECONDS:
+        return
+    _last_low_vram_warning = now
+
+    free_mib = (free_bytes or 0) / (1024 * 1024)
+    samples_per_cell = max(1, int(cell_h) * int(cell_w))
+    chunk_cells = max(1, int(sample_budget) // samples_per_cell)
+    logging.getLogger(__name__).warning(
+        'Free VRAM is %.0f MiB, so %.0f%% of it is below the %.0f MiB reserved as headroom '
+        'and the batched ROI sample budget is exhausted. Falling back to %d cell(s) of '
+        '%dx%d per map_coordinates launch; throughput will suffer. Free device memory or '
+        'lower the grid size. Override with NORNIR_REFINE_BATCHED_ROI_SAMPLES.',
+        free_mib, _REFINE_BATCH_VRAM_FRACTION * 100,
+        _REFINE_BATCH_HEADROOM_BYTES / (1024 * 1024), chunk_cells, cell_h, cell_w)
+
+
 def batched_roi_sample_budget(cell_h: int, cell_w: int) -> int:
     """Max ``cells * H * W`` samples per batched ROI ``map_coordinates`` launch."""
     raw = os.environ.get('NORNIR_REFINE_BATCHED_ROI_SAMPLES', '').strip()
@@ -215,8 +254,17 @@ def batched_roi_sample_budget(cell_h: int, cell_w: int) -> int:
     if free_bytes is None:
         return _CPU_ROI_SAMPLE_BUDGET
 
-    budget_bytes = max(0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
-    if budget_bytes <= 0:
-        return samples_per_cell
+    budget_bytes = max(
+        0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
+    budget_bytes = min(budget_bytes, _ROI_PREFERRED_WORKSPACE_BYTES)
+    # Same two-cliff pattern as ``batched_fft_cell_chunk_size`` (#236 / #240).
+    floor_bytes = min(_ROI_MIN_WORKSPACE_BYTES,
+                      int(free_bytes * _REFINE_BATCH_VRAM_FRACTION))
+    if budget_bytes < floor_bytes:
+        budget_bytes = floor_bytes
+        sample_budget = max(samples_per_cell, budget_bytes // _ROI_BYTES_PER_SAMPLE)
+        _warn_low_vram_roi_budget(free_bytes, cell_h, cell_w, sample_budget)
+        return min(sample_budget, _MAX_ROI_SAMPLE_BUDGET)
+
     sample_budget = max(samples_per_cell, budget_bytes // _ROI_BYTES_PER_SAMPLE)
     return min(sample_budget, _MAX_ROI_SAMPLE_BUDGET)
