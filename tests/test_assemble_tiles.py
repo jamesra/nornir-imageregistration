@@ -41,30 +41,20 @@ import nornir_pools
 # the diagnostic fired on every passing run and captioned its artifact "Unexpected high
 # delta", which trains the reader to ignore it.
 #
-# A sum bound also scales with tile area, so it says nothing portable. What the data supports
-# is three independent statements, each with the measured value beside it:
+# Before #241, serial vs parallel disagreed on ~33 interior seam pixels at max |delta| 0.142
+# (equal-z first-writer broken by completion-order compositing). After Parallel composites in
+# submission order, re-measured on the same fixture (float16, [0, 1]):
 #
-#                                     serial vs parallel      CPU vs GPU
-#   fraction of pixels differing      6.3e-05 (33 px)         1.35e-04 (71 px)
-#   mean absolute difference          3.04e-06                3.06e-06
-#   largest single difference         0.14209                 0.14209
+#                                  serial vs parallel      CPU vs GPU
+#   fraction of pixels differing  0                       ~7.2e-05 (38 px)
+#   mean |delta|                  0                       ~2.2e-08
+#   max |delta|                   0                       4.88e-04  (half float16 eps)
+#   mask pixels differing         0                       0
 #
-# The last one is worth understanding before trusting a tolerance here. These are **float16**
-# images on a [0, 1] range, so eps is 9.77e-04, and 0.142 is **145 eps** -- not rounding, as
-# was assumed when this issue was filed. The 33 serial-vs-parallel pixels trace a diagonal
-# line through the tile interior (y 406-510, x 783-1022) and none of them lie on the mask
-# boundary: it is an interior seam between two overlapping tiles, where the distance-weighted
-# blend picks a different contributor either side of a tie. CPU vs GPU adds scattered isolated
-# pixels whose median difference is 4.88e-04, exactly half an eps, i.e. genuine float16
-# rounding on top of the same seam.
-#
-# So a handful of seam pixels may differ substantially while everything else is identical or
-# within a quantum. Bounding count *and* magnitude *and* mean says that, and it is much
-# stronger than the sum ever was: any real divergence in AssembleImage moves a region rather
-# than a seam, which breaks the fraction and mean bounds by orders of magnitude.
-_ASSEMBLE_MAX_DIFFERING_FRACTION: float = 0.001  # measured 6.3e-05 / 1.35e-04 (7-16x margin)
-_ASSEMBLE_MAX_MEAN_ABS_DELTA: float = 1e-4       # measured 3.04e-06 / 3.06e-06 (33x margin)
-_ASSEMBLE_MAX_ABS_DELTA: float = 0.25            # measured 0.14209 both (1.8x margin)
+# Bounds keep margin above CPU/GPU float16 rounding while rejecting the old ~0.14 seam.
+_ASSEMBLE_MAX_DIFFERING_FRACTION: float = 0.0005  # measured ~7.2e-05 CPU/GPU (~7x margin)
+_ASSEMBLE_MAX_MEAN_ABS_DELTA: float = 1e-5        # measured ~2e-08 CPU/GPU
+_ASSEMBLE_MAX_ABS_DELTA: float = 0.002            # measured 4.88e-04 CPU/GPU (~4x margin)
 
 
 def AssertAssembledImagesAgree(test: unittest.TestCase,

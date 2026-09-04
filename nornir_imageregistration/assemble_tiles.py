@@ -14,7 +14,6 @@ import multiprocessing
 import os
 import tempfile
 import threading
-import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Deque, Iterable, List, Optional, Tuple
 import weakref
@@ -732,77 +731,45 @@ def TilesToImageParallel(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     timer.End('Prep')
     timer.Start('Task Queuing')
     timer.Start('Task Execution')
-    CheckTaskInterval = multiprocessing.cpu_count() * 2
-    tasks = []  # type: List[nornir_pools.Task]
-    # Ensure the shared memory manager has been created so child processes can
-    # access it
-    # shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
-    for i, tile in enumerate(mosaic_tileset.values()):
-        # original_transform_target_rect = nornir_imageregistration.Rectangle(transform.FixedBoundingBox)
-        original_transform_target_rect = tile.TargetSpaceBoundingBox
-        transform_target_rect = nornir_imageregistration.Rectangle.SafeRound(original_transform_target_rect)
-
+    max_in_flight = max(2, multiprocessing.cpu_count() * 2)
+    pending: Deque = deque()
+    work_items: List[Tuple[nornir_imageregistration.tile.Tile, nornir_imageregistration.Rectangle]] = []
+    for tile in mosaic_tileset.values():
         regionToRender = nornir_imageregistration.Rectangle.Intersect(targetRect, tile.TargetSpaceBoundingBox)
-        if regionToRender is None:
+        if regionToRender is None or regionToRender.Area == 0:
             continue
+        work_items.append((tile, regionToRender))
 
-        if regionToRender.Area == 0:
-            continue
+    next_work_item = 0
 
-        # Replaced by rendered_target_space_origin on TransformedImageData
-        # scaled_region_rendered = nornir_imageregistration.Rectangle.scale_on_origin(regionToRender, target_space_scale)
-        # scaled_region_rendered = nornir_imageregistration.Rectangle.SafeRound(scaled_region_rendered)
+    def _submit_next() -> None:
+        nonlocal next_work_item
+        tile, regionToRender = work_items[next_work_item]
+        task = pool.add_task(
+            f"TransformTile {tile.ImagePath}",
+            TransformTile, tile=tile,
+            distanceImage=None,
+            target_space_scale=target_space_scale, TargetRegion=regionToRender,
+            SingleThreadedInvoke=False)
+        pending.append(task)
+        next_work_item += 1
 
-        task = pool.add_task(f"TransformTile {tile.ImagePath}",
-                             TransformTile, tile=tile,
-                             distanceImage=None,
-                             target_space_scale=target_space_scale, TargetRegion=regionToRender,
-                             SingleThreadedInvoke=False)
-        task.transform = tile.Transform  # type: ignore[attr-defined]
-        task.regionToRender = regionToRender  # type: ignore[attr-defined]
-        # task.scaled_region_rendered = scaled_region_rendered
-        task.transform_fixed_rect = transform_target_rect  # type: ignore[attr-defined]
-        tasks.append(task)
-
-        if not i % CheckTaskInterval == 0:
-            continue
-
-        while len(tasks) > CheckTaskInterval:  # Don't bother cleaning completed tasks if we can still add to the queue
-            iTask = len(tasks) - 1
-            while iTask >= 0:
-                t = tasks[iTask]
-                if t.iscompleted:
-                    transformed_image_data = t.wait_return()
-                    __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
-                                                        scaled_targetRect)
-                    transformed_image_data.Clear()
-                    del transformed_image_data
-                    del tasks[iTask]
-
-                iTask -= 1
-
-            if len(tasks) > CheckTaskInterval:  # Sleep a while if we are still over the limit
-                time.sleep(0.1)
+    while next_work_item < len(work_items) and len(pending) < max_in_flight:
+        _submit_next()
     timer.End('Task Queuing')
     logger.info('All warps queued, integrating results into final image')
 
-    while len(tasks) > 0:
-        # Pass through the entire loop and eliminate completed tasks in case any finished out of order
-        iTask = len(tasks) - 1
-        while iTask >= 0:
-            t = tasks[iTask]
-            if t.iscompleted:
-                transformed_image_data = t.wait_return()
-                __AddTransformedTileTaskToComposite(t, transformed_image_data, fullImage, fullImageZbuffer,
-                                                    scaled_targetRect)
-                transformed_image_data.Clear()
-                del transformed_image_data
-                del tasks[iTask]
-
-            iTask -= 1
-
-        if len(tasks) > 0:
-            time.sleep(0.1)  # Give tasks some time to complete before we interrogate again
+    # Composite in submission order so z-buffer ties match serial TilesToImage
+    # (completion-order drain previously made seam pixels order-dependent; #241).
+    while pending:
+        task = pending.popleft()
+        transformed_image_data = task.wait_return()
+        if next_work_item < len(work_items):
+            _submit_next()
+        __AddTransformedTileTaskToComposite(
+            task, transformed_image_data, fullImage, fullImageZbuffer, scaled_targetRect)
+        transformed_image_data.Clear()
+        del transformed_image_data
 
     timer.End('Task Execution')
     logger.info('Final image complete, building mask')

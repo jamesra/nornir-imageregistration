@@ -7,18 +7,16 @@ only surviving assertion was `ShowGrayscale(..., PassFail=True)`, which under NO
 writes a PNG and returns success -- nothing compared the two paths numerically, while every
 passing run produced an artifact claiming something was wrong.
 
-Measured on the IDoc 004 fixture at 512x1024, both pairs genuinely agree:
+After #241 (Parallel composites in submission order), IDoc 004 at 512x1024 measures:
 
                                   serial vs parallel      CPU vs GPU
-    sum of |delta|                1.59363                 1.6051      <- both above 0.65
-    fraction of pixels differing  6.3e-05 (33 px)         1.35e-04 (71 px)
-    mean |delta|                  3.04e-06                3.06e-06
-    max |delta|                   0.14209                 0.14209
+    fraction of pixels differing  0                       ~7.2e-05 (38 px)
+    mean |delta|                  0                       ~2.2e-08
+    max |delta|                   0                       4.88e-04  (half float16 eps)
     mask pixels differing         0                       0
 
-These tests exercise `AssertAssembledImagesAgree` directly on synthetic arrays, so they run in
-milliseconds and do not need the fixture. They cover the three things the old code got wrong:
-it did not assert, it fired its diagnostic on agreement, and it ignored the masks entirely.
+The pre-#241 seam profile (33 px at max 0.142) must now fail the assert. These tests
+exercise `AssertAssembledImagesAgree` on synthetic arrays so they run in milliseconds.
 """
 
 from __future__ import annotations
@@ -39,18 +37,27 @@ _SHOW = 'nornir_imageregistration.ShowGrayscale'
 _SHAPE = (512, 1024)
 
 
-def _agreeing_pair(differing: int = 33, largest: float = 0.14209):
-    """Reproduce the measured real-world profile: a few seam pixels, everything else equal.
-
-    The differing pixels are placed on a diagonal because that is where they actually are --
-    an interior seam between two overlapping tiles, not the mask boundary.
-    """
+def _seam_pair(differing: int = 33, largest: float = 0.14209):
+    """Pre-#241 serial-vs-parallel seam profile (must fail tightened bounds)."""
     first = np.full(_SHAPE, 0.5, dtype=np.float16)
     second = first.copy()
     for i in range(differing):
         y = 406 + (i % 100)
         x = 1022 - (i * 7) % 240
         second[y, x] = np.float16(0.5 + largest if i == 0 else 0.5 + 0.042)
+    delta = np.abs(second.astype(np.float64) - first.astype(np.float64))
+    mask = np.ones(_SHAPE, dtype=bool)
+    return delta, first, second, mask, mask.copy()
+
+
+def _rounding_pair(differing: int = 38, quantum: float = 0.00048828125):
+    """Post-#241 CPU vs GPU float16 rounding profile (must still pass)."""
+    rng = np.random.default_rng(7)
+    first = np.full(_SHAPE, 0.5, dtype=np.float16)
+    second = first.copy()
+    idx = rng.choice(first.size, size=differing, replace=False)
+    flat = second.reshape(-1)
+    flat[idx] = np.float16(0.5 + quantum)
     delta = np.abs(second.astype(np.float64) - first.astype(np.float64))
     mask = np.ones(_SHAPE, dtype=bool)
     return delta, first, second, mask, mask.copy()
@@ -65,27 +72,20 @@ class TestAgreementPasses(unittest.TestCase):
         AssertAssembledImagesAgree(self, delta, image, image.copy(), mask, mask.copy(),
                                    label='identical', diagnostic_title='t')
 
-    def test_the_measured_real_world_delta_passes(self):
-        delta, a, b, ma, mb = _agreeing_pair()
+    def test_post_241_cpu_gpu_rounding_profile_passes(self):
+        delta, a, b, ma, mb = _rounding_pair()
         AssertAssembledImagesAgree(self, delta, a, b, ma, mb,
-                                   label='measured', diagnostic_title='t')
+                                   label='rounding', diagnostic_title='t')
 
-    def test_the_measured_delta_would_have_tripped_the_old_sum_bound(self):
-        """Pins the false positive: these agreeing pairs exceed 0.65 on the sum."""
-        delta, _, _, _, _ = _agreeing_pair()
+    def test_the_old_seam_sum_still_exceeds_065(self):
+        """Pins the #237 false positive: the old seam sum exceeds 0.65."""
+        delta, _, _, _, _ = _seam_pair()
         self.assertGreater(delta.sum(), 0.65)
 
     def test_single_quantum_float16_noise_everywhere_passes(self):
         """CPU vs GPU rounding: median difference was half an eps across scattered pixels."""
-        rng = np.random.default_rng(7)
-        first = np.full(_SHAPE, 0.5, dtype=np.float16)
-        second = first.copy()
-        idx = rng.choice(first.size, size=60, replace=False)
-        flat = second.reshape(-1)
-        flat[idx] = np.float16(0.5 + 0.00048828125)
-        delta = np.abs(second.astype(np.float64) - first.astype(np.float64))
-        mask = np.ones(_SHAPE, dtype=bool)
-        AssertAssembledImagesAgree(self, delta, first, second, mask, mask.copy(),
+        delta, a, b, ma, mb = _rounding_pair(differing=60)
+        AssertAssembledImagesAgree(self, delta, a, b, ma, mb,
                                    label='rounding', diagnostic_title='t')
 
 
@@ -99,6 +99,14 @@ class TestRealDivergenceNowFails(unittest.TestCase):
         patcher = mock.patch(_SHOW, return_value=True)
         self.show = patcher.start()
         self.addCleanup(patcher.stop)
+
+    def test_pre_241_seam_delta_now_fails(self):
+        """#241 tightened max |delta|; the old 0.142 seam profile must not pass."""
+        delta, a, b, ma, mb = _seam_pair()
+        with self.assertRaises(AssertionError) as caught:
+            AssertAssembledImagesAgree(self, delta, a, b, ma, mb,
+                                       label='old-seam', diagnostic_title='t')
+        self.assertIn('largest difference', str(caught.exception))
 
     def test_a_broad_small_shift_fails(self):
         """The case the old code could not catch: a slightly different picture everywhere."""
@@ -124,8 +132,8 @@ class TestRealDivergenceNowFails(unittest.TestCase):
                                        label='many', diagnostic_title='t')
 
     def test_one_pixel_far_out_of_range_fails(self):
-        delta, a, b, ma, mb = _agreeing_pair(differing=1,
-                                             largest=_ASSEMBLE_MAX_ABS_DELTA + 0.2)
+        delta, a, b, ma, mb = _seam_pair(differing=1,
+                                         largest=_ASSEMBLE_MAX_ABS_DELTA + 0.2)
         with self.assertRaises(AssertionError) as caught:
             AssertAssembledImagesAgree(self, delta, a, b, ma, mb,
                                        label='outlier', diagnostic_title='t')
@@ -161,7 +169,7 @@ class TestTheDiagnosticOnlyAppearsWhenSomethingIsWrong(unittest.TestCase):
     """The old branch fired on every run, so its artifact carried no information."""
 
     def test_an_agreeing_pair_produces_no_figure(self):
-        delta, a, b, ma, mb = _agreeing_pair()
+        delta, a, b, ma, mb = _rounding_pair()
         with mock.patch(_SHOW, return_value=True) as show:
             AssertAssembledImagesAgree(self, delta, a, b, ma, mb,
                                        label='quiet', diagnostic_title='t')
@@ -195,13 +203,16 @@ class TestTheTolerancesKeepTheirMeasuredMargins(unittest.TestCase):
     """If someone nudges a constant, say what measurement it has to be re-derived from."""
 
     def test_the_fraction_bound_keeps_at_least_5x_margin(self):
-        self.assertGreaterEqual(_ASSEMBLE_MAX_DIFFERING_FRACTION, 1.35e-04 * 5)
+        self.assertGreaterEqual(_ASSEMBLE_MAX_DIFFERING_FRACTION, 7.2e-05 * 5)
 
     def test_the_mean_bound_keeps_at_least_10x_margin(self):
-        self.assertGreaterEqual(_ASSEMBLE_MAX_MEAN_ABS_DELTA, 3.06e-06 * 10)
+        self.assertGreaterEqual(_ASSEMBLE_MAX_MEAN_ABS_DELTA, 2.2e-08 * 10)
 
-    def test_the_max_bound_clears_the_measured_seam_pixel(self):
-        self.assertGreater(_ASSEMBLE_MAX_ABS_DELTA, 0.14209)
+    def test_the_max_bound_clears_measured_float16_rounding(self):
+        self.assertGreater(_ASSEMBLE_MAX_ABS_DELTA, 4.88e-04)
+
+    def test_the_max_bound_rejects_the_old_seam(self):
+        self.assertLess(_ASSEMBLE_MAX_ABS_DELTA, 0.14209)
 
     def test_the_max_bound_is_still_a_fraction_of_full_range(self):
         """Images are on [0, 1]; a bound near 1 would assert nothing."""
