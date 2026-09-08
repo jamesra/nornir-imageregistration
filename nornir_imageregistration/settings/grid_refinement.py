@@ -22,6 +22,16 @@ try:
 except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
 
+# STOS cells are hundreds of pixels wide and the correlation peak of two sections a few
+# cuts apart is a broad hill, several pixels across, not a spike. The library default
+# ``peak_uniqueness.DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS`` (3 px, sized for mosaic tile
+# overlaps) leaves that hill's own shoulder as the "second peak", so the primary/secondary
+# ratio hovers near 1.0 and the ratio gate rejects well-registered cells. Measured on the
+# RC2 825-822 pair (512 px cells, dual-candidate ROIs): 219 of 254 cells rejected as
+# ambiguous at 3 px, so refine kept the prior transform; 87 at 10 px, and the refined
+# transform cut the residual misalignment from 7.2 px to 2.1 px median.
+STOS_PEAK_RATIO_EXCLUSION_RADIUS: int = 10
+
 
 class GridRefinement:
     """
@@ -47,6 +57,7 @@ class GridRefinement:
     anchor_smooth_median_radius: int
     min_alignment_overlap: float
     min_unmasked_area: float
+    peak_ratio_exclusion_radius: int
     ring_scale_fraction_max: float
     ring_angle_max_degrees: float
     ring_allow_flip_change: bool
@@ -123,7 +134,8 @@ class GridRefinement:
                  cupy_processing: bool | None = None,
                  ring_scale_fraction_max: float | None = None,
                  ring_angle_max_degrees: float | None = None,
-                 ring_allow_flip_change: bool | None = None):
+                 ring_allow_flip_change: bool | None = None,
+                 peak_ratio_exclusion_radius: int | None = None):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
@@ -155,6 +167,9 @@ class GridRefinement:
         :param float ring_scale_fraction_max: Max relative scale the 9-point ring may deviate from the input pose
         :param float ring_angle_max_degrees: Max geodesic angle (degrees) the ring may deviate from the input pose
         :param bool ring_allow_flip_change: When False, ring flip stays locked to the input pose
+        :param int peak_ratio_exclusion_radius: Half-width (px) cleared around a cell's primary
+            correlation peak before the second peak is measured for the peak-ratio gate.
+            Default ``STOS_PEAK_RATIO_EXCLUSION_RADIUS``.
         """
 
         self._cupy_processing = (
@@ -249,6 +264,9 @@ class GridRefinement:
         self.ring_allow_flip_change = (
             RING_ALLOW_FLIP_CHANGE if ring_allow_flip_change is None
             else bool(ring_allow_flip_change))
+        self.peak_ratio_exclusion_radius = (
+            STOS_PEAK_RATIO_EXCLUSION_RADIUS if peak_ratio_exclusion_radius is None
+            else int(peak_ratio_exclusion_radius))
 
     @staticmethod
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
@@ -273,7 +291,8 @@ class GridRefinement:
                                      cupy_processing: bool | None = None,
                                      ring_scale_fraction_max: float | None = None,
                                      ring_angle_max_degrees: float | None = None,
-                                     ring_allow_flip_change: bool | None = None) -> GridRefinement:
+                                     ring_allow_flip_change: bool | None = None,
+                                     peak_ratio_exclusion_radius: int | None = None) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
 
@@ -303,7 +322,8 @@ class GridRefinement:
                               cupy_processing=cupy_processing,
                               ring_scale_fraction_max=ring_scale_fraction_max,
                               ring_angle_max_degrees=ring_angle_max_degrees,
-                              ring_allow_flip_change=ring_allow_flip_change)
+                              ring_allow_flip_change=ring_allow_flip_change,
+                              peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
 
     @staticmethod
     def CreateWithUnproccessedImages(
@@ -332,7 +352,8 @@ class GridRefinement:
             cupy_processing: bool | None = None,
             ring_scale_fraction_max: float | None = None,
             ring_angle_max_degrees: float | None = None,
-            ring_allow_flip_change: bool | None = None) -> GridRefinement:
+            ring_allow_flip_change: bool | None = None,
+            peak_ratio_exclusion_radius: int | None = None) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
         target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
                                                                           extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
@@ -360,7 +381,8 @@ class GridRefinement:
                                                            cupy_processing=cupy_processing,
                                                            ring_scale_fraction_max=ring_scale_fraction_max,
                                                            ring_angle_max_degrees=ring_angle_max_degrees,
-                                                           ring_allow_flip_change=ring_allow_flip_change)
+                                                           ring_allow_flip_change=ring_allow_flip_change,
+                                                           peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
 
     @staticmethod
     def _as_cupy_array(image: NDArray) -> NDArray:

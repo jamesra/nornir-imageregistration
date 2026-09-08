@@ -21,7 +21,7 @@ import threading
 import contextlib
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence, cast
+from typing import Any, Callable, Iterable, Sequence, cast
 
 import numpy as np
 import scipy.ndimage
@@ -1126,12 +1126,134 @@ def _sample_source_rois_batched(source_image: NDArray,
                                 sp,
                                 oob_cval: float = np.nan) -> NDArray:
     """Inverse-map each cell's target grid through its rigid matrix and sample once (chunked)."""
+    matrices_dev = _ensure_on_array_module(inverse_matrices, xp).astype(np.float64, copy=False)
+    pure_mask = np.asarray(pure_translation_mask, dtype=bool).reshape(-1)
+
+    # The inverse maps are affine, so apply the 2x2 linear part and the translation
+    # column directly instead of expanding to homogeneous coordinates. Building the
+    # (n, HW, 3) float64 homogeneous array and taking a (n, HW, 3) matmul result to
+    # then discard its last column cost two of the largest allocations in this
+    # function; the coordinate machinery, not the ROI stacks, sets the peak here.
+    linear_t = xp.swapaxes(matrices_dev[:, :2, :2], -1, -2)
+    offset = matrices_dev[:, :2, 2]
+
+    def sample_bounds(relative: NDArray, botlefts_dev: NDArray, src_h: int, src_w: int) -> tuple[int, int, int, int]:
+        return _global_sample_bounds(relative, botlefts_dev, linear_t, offset, src_h, src_w, xp)
+
+    def map_chunk(start: int, stop: int, write: NDArray) -> NDArray:
+        # (n, HW, 2) @ (n, 2, 2)^T + (n, 1, 2) -> (n, HW, 2)
+        source_yx = xp.matmul(write.astype(np.float64, copy=False), linear_t[start:stop])
+        source_yx += offset[start:stop][:, None, :]
+        chunk_pure = pure_mask[start:stop]
+        if np.all(chunk_pure):
+            return source_yx
+        rounded = xp.around(source_yx, nornir_imageregistration.RoundingPrecision(source_yx.dtype))
+        if np.any(chunk_pure):
+            pure_dev = xp.asarray(chunk_pure)[:, None, None]
+            return xp.where(pure_dev, source_yx, rounded)
+        return rounded
+
+    return _sample_cells_from_mapped_coords(
+        source_image, botlefts, cell_h, cell_w, xp, sp, oob_cval,
+        sample_bounds=sample_bounds, map_chunk=map_chunk)
+
+
+def _transform_wants_device_points(transform: nornir_imageregistration.ITransform) -> bool:
+    """True when *transform* is a GPU-component implementation that accepts CuPy points."""
+    return type(transform).__name__.endswith('_GPUComponent')
+
+
+def _exact_sample_bounds(transform: nornir_imageregistration.ITransform,
+                         botlefts_dev: NDArray,
+                         cell_h: int,
+                         cell_w: int,
+                         src_h: int,
+                         src_w: int,
+                         xp) -> tuple[int, int, int, int]:
+    """Source-image AABB covering every cell's exact-transform samples, ``(y0, x0, y1, x1)``.
+
+    The transform is piecewise-linear at best, so a cell's image is not bounded by its
+    corners alone. A 5x5 lattice per cell is mapped and the box is padded by a quarter
+    cell; samples that still fall outside the crop read as out-of-bounds and are
+    noise-filled like any other OOB pixel rather than crashing the pass.
+    """
+    num_cells = int(botlefts_dev.shape[0])
+    if num_cells == 0:
+        return 0, 0, 0, 0
+    lattice_y, lattice_x = np.meshgrid(np.linspace(0.0, cell_h - 1, 5), np.linspace(0.0, cell_w - 1, 5), indexing='ij')
+    lattice = np.stack((lattice_y.ravel(), lattice_x.ravel()), axis=1)                   # (25, 2)
+    botlefts_host = nornir_imageregistration.EnsureNumpyArray(botlefts_dev).astype(np.float64)
+    probe = (lattice[None, :, :] + botlefts_host[:, None, :]).reshape(-1, 2)            # (n*25, 2)
+    if _transform_wants_device_points(transform):
+        probe = xp.asarray(probe)
+    mapped = nornir_imageregistration.EnsureNumpyArray(transform.InverseTransform(probe))
+    mapped = np.asarray(mapped, dtype=np.float64).reshape(-1, 2)
+    finite = mapped[np.all(np.isfinite(mapped), axis=1)]
+    if finite.shape[0] == 0:
+        return 0, 0, 0, 0
+    pad = np.array((cell_h, cell_w), dtype=np.float64) / 4.0
+    mins = np.floor(finite.min(axis=0) - pad).astype(np.int64)
+    maxs = np.ceil(finite.max(axis=0) + pad).astype(np.int64)
+    return (int(max(0, mins[0])),
+            int(max(0, mins[1])),
+            int(min(src_h, maxs[0] + 1)),
+            int(min(src_w, maxs[1] + 1)))
+
+
+def _sample_source_rois_batched_exact(source_image: NDArray,
+                                      transform: nornir_imageregistration.ITransform,
+                                      botlefts: NDArray,
+                                      cell_h: int,
+                                      cell_w: int,
+                                      xp,
+                                      sp,
+                                      oob_cval: float = np.nan) -> NDArray:
+    """Inverse-map each cell's target grid through the real (mesh/grid) transform and sample once.
+
+    Same sampling machinery as the rigid path; only the coordinate producer differs.
+    Coordinates outside the transform's domain (``extrapolate=False``) come back NaN and
+    are pushed far out of bounds so ``map_coordinates`` fills them with *oob_cval*, which
+    is what ``BuildAlignmentROIs`` → ``SourceImageToTargetSpace`` does per cell.
+    """
+    wants_device = _transform_wants_device_points(transform)
+
+    def sample_bounds(relative: NDArray, botlefts_dev: NDArray, src_h: int, src_w: int) -> tuple[int, int, int, int]:
+        return _exact_sample_bounds(transform, botlefts_dev, cell_h, cell_w, src_h, src_w, xp)
+
+    def map_chunk(start: int, stop: int, write: NDArray) -> NDArray:
+        flat = write.reshape(-1, 2)
+        if not wants_device:
+            flat = nornir_imageregistration.EnsureNumpyArray(flat)
+        mapped = transform.InverseTransform(flat, extrapolate=False)
+        mapped = _ensure_on_array_module(mapped, xp).astype(np.float64, copy=False)
+        mapped = xp.where(xp.isnan(mapped), xp.asarray(-1.0e9, dtype=np.float64), mapped)
+        return mapped.reshape(write.shape)
+
+    return _sample_cells_from_mapped_coords(
+        source_image, botlefts, cell_h, cell_w, xp, sp, oob_cval,
+        sample_bounds=sample_bounds, map_chunk=map_chunk)
+
+
+def _sample_cells_from_mapped_coords(source_image: NDArray,
+                                     botlefts: NDArray,
+                                     cell_h: int,
+                                     cell_w: int,
+                                     xp,
+                                     sp,
+                                     oob_cval: float,
+                                     *,
+                                     sample_bounds: Callable[[NDArray, NDArray, int, int], tuple[int, int, int, int]],
+                                     map_chunk: Callable[[int, int, NDArray], NDArray]) -> NDArray:
+    """Chunked ``map_coordinates`` over per-cell source coordinates produced by *map_chunk*.
+
+    ``sample_bounds(relative, botlefts_dev, src_h, src_w)`` returns the source crop covering
+    every sample; ``map_chunk(start, stop, write)`` maps the ``(n, HW, 2)`` target-space
+    pixel coordinates of cells ``start:stop`` to source space on *xp*.
+    """
     num_cells = int(botlefts.shape[0])
     relative = nornir_imageregistration.assemble.GetROICoords((0.0, 0.0), (cell_h, cell_w), xp=xp)
     relative = xp.asarray(relative, dtype=np.float32)
     botlefts_dev = _ensure_on_array_module(botlefts, xp).astype(np.float32, copy=False)
-    matrices_dev = _ensure_on_array_module(inverse_matrices, xp).astype(np.float64, copy=False)
-    pure_mask = np.asarray(pure_translation_mask, dtype=bool).reshape(-1)
 
     source_image = _ensure_on_array_module(source_image, xp)
     original_dtype = source_image.dtype
@@ -1176,14 +1298,6 @@ def _sample_source_rois_batched(source_image: NDArray,
     src_h = int(source_image.shape[0])
     src_w = int(source_image.shape[1])
 
-    # The inverse maps are affine, so apply the 2x2 linear part and the translation
-    # column directly instead of expanding to homogeneous coordinates. Building the
-    # (n, HW, 3) float64 homogeneous array and taking a (n, HW, 3) matmul result to
-    # then discard its last column cost two of the largest allocations in this
-    # function; the coordinate machinery, not the ROI stacks, sets the peak here.
-    linear_t = xp.swapaxes(matrices_dev[:, :2, :2], -1, -2)
-    offset = matrices_dev[:, :2, 2]
-
     # Crop and spline-prefilter ONCE over the union of every cell's samples, before the
     # chunk loop, rather than per chunk. With order=3 the prefilter's boundary
     # conditions depend on the extent it runs over, so a per-chunk crop made a cell's
@@ -1191,8 +1305,7 @@ def _sample_source_rois_batched(source_image: NDArray,
     # 8% of full intensity range. chunk_cells is a memory-budget knob, so that let a
     # tuning parameter change registration output. Production grids run in one chunk,
     # where the union crop *is* the chunk crop, so those values are unchanged.
-    gy0, gx0, gy1, gx1 = _global_sample_bounds(
-        relative, botlefts_dev, linear_t, offset, src_h, src_w, xp)
+    gy0, gx0, gy1, gx1 = sample_bounds(relative, botlefts_dev, src_h, src_w)
     if gy1 <= gy0 or gx1 <= gx0:
         # No cell lands on the image; every sample is out of bounds.
         return xp.full((num_cells, cell_h, cell_w), oob_cval_float, dtype=original_dtype)
@@ -1211,22 +1324,7 @@ def _sample_source_rois_batched(source_image: NDArray,
         stop = min(num_cells, start + chunk_cells)
         chunk_n = stop - start
         write = relative[None, :, :] + botlefts_dev[start:stop, None, :]  # (n, HW, 2)
-        # (n, HW, 2) @ (n, 2, 2)^T + (n, 1, 2) -> (n, HW, 2)
-        source_yx = xp.matmul(write.astype(np.float64, copy=False), linear_t[start:stop])
-        source_yx += offset[start:stop][:, None, :]
-        chunk_pure = pure_mask[start:stop]
-        if np.all(chunk_pure):
-            pass
-        elif np.any(chunk_pure):
-            rounded = xp.around(
-                source_yx,
-                nornir_imageregistration.RoundingPrecision(source_yx.dtype))
-            pure_dev = xp.asarray(chunk_pure)[:, None, None]
-            source_yx = xp.where(pure_dev, source_yx, rounded)
-        else:
-            source_yx = xp.around(
-                source_yx,
-                nornir_imageregistration.RoundingPrecision(source_yx.dtype))
+        source_yx = map_chunk(start, stop, write)
         sample_coords = source_yx.reshape(chunk_n * samples_per_cell, 2).astype(np.float32, copy=False)
 
         # Sample the shared prefiltered crop. No per-chunk bounds reduction, which also
@@ -1393,14 +1491,96 @@ def BuildAlignmentROIsBatched(
     return fixed_stack, moving_stack, nan_mask_stack
 
 
+def BuildExactMovingROIsBatched(
+        transform: nornir_imageregistration.ITransform,
+        source_image: NDArray,
+        source_image_stats: nornir_imageregistration.ImageStats | None,
+        target_points: NDArray,
+        alignment_area: NDArray | tuple[float, float],
+        xp,
+) -> tuple[NDArray, NDArray | None]:
+    """Source ROIs warped through the real (mesh/grid) transform, matching ``BuildAlignmentROIsBatched`` geometry.
+
+    Returns ``(moving_stack, nan_mask_stack)`` on *xp*. The target stack is identical to
+    the rigid path's and is not rebuilt.
+    """
+    area = np.asarray(alignment_area, dtype=np.int64).ravel()[:2]
+    cell_h = int(area[0])
+    cell_w = int(area[1])
+    source_image = _ensure_on_array_module(source_image, xp)
+    target_points = _ensure_on_array_module(target_points, xp)
+    sp = cupyx.scipy if xp is not np else scipy
+
+    botlefts = _alignment_roi_botlefts(target_points, alignment_area)
+    oob_cval: float = np.nan if source_image_stats is not None else 0.0
+    moving_stack = _sample_source_rois_batched_exact(
+        source_image, transform, botlefts, cell_h, cell_w, xp, sp, oob_cval=oob_cval)
+
+    nan_mask_stack: NDArray | None = None
+    if source_image_stats is not None:
+        nan_mask_stack = xp.isnan(moving_stack)
+        moving_stack = _apply_noise_mask_batched(
+            moving_stack, nan_mask_stack, source_image_stats, xp)
+    return moving_stack, nan_mask_stack
+
+
+def _cells_alignable_batched(fixed_stack: NDArray,
+                             moving_stack: NDArray,
+                             nan_mask_stack: NDArray | None,
+                             min_std: float) -> NDArray[np.bool_]:
+    """Host boolean per cell: both ROIs have content and the moving ROI is not entirely OOB."""
+    flat_fixed = fixed_stack.reshape(fixed_stack.shape[0], -1)
+    flat_moving = moving_stack.reshape(moving_stack.shape[0], -1)
+    alignable = ((flat_fixed.min(axis=1) != flat_fixed.max(axis=1)) & (flat_fixed.max(axis=1) != 0)
+                 & (flat_moving.min(axis=1) != flat_moving.max(axis=1)) & (flat_moving.max(axis=1) != 0)
+                 & (flat_fixed.std(axis=1) >= min_std) & (flat_moving.std(axis=1) >= min_std))
+    if nan_mask_stack is not None:
+        fully_oob = nan_mask_stack.reshape(nan_mask_stack.shape[0], -1).all(axis=1)
+        alignable = alignable & ~fully_oob
+    return nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)
+
+
+def _choose_translation_candidates(
+        rigid: tuple[np.ndarray, np.ndarray, np.ndarray],
+        exact: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Per-cell pick between the rigid-ROI and exact-ROI measurements.
+
+    Higher peak ratio wins because the downstream gates are ratio-based; weight breaks
+    ties. On a full tie the rigid candidate is kept: its ROI has an undistorted aspect
+    ratio and is the historical primary. Returns ``(peaks, weights, ratios, used_exact)``.
+    """
+    r_peaks, r_weights, r_ratios = rigid
+    e_peaks, e_weights, e_ratios = exact
+    exact_usable = (e_weights > 0) & np.all(np.isfinite(e_peaks), axis=1)
+    rigid_usable = (r_weights > 0) & np.all(np.isfinite(r_peaks), axis=1)
+    use_exact = exact_usable & (
+        ~rigid_usable
+        | (e_ratios > r_ratios)
+        | ((e_ratios == r_ratios) & (e_weights > r_weights)))
+    peaks = np.where(use_exact[:, None], e_peaks, r_peaks)
+    weights = np.where(use_exact, e_weights, r_weights)
+    ratios = np.where(use_exact, e_ratios, r_ratios)
+    return peaks, weights, ratios, use_exact
+
+
 def _attempt_align_points_translation_batched(
         keys: list[tuple[int, int]],
         source_points: np.ndarray,
         target_points: np.ndarray,
         rigid_transforms: Sequence[nornir_imageregistration.ITransform],
-        settings: nornir_imageregistration.settings.GridRefinement
+        settings: nornir_imageregistration.settings.GridRefinement,
+        exact_transform: nornir_imageregistration.ITransform | None = None,
 ) -> list[nornir_imageregistration.EnhancedAlignmentRecord] | None:
     """Measure translation-only STOS cells with the shared batched FFT helper.
+
+    Each cell is measured from a source ROI warped through its local rigid approximation
+    and, when *exact_transform* is a non-rigid transform, from a second ROI warped through
+    that transform itself; the candidate with the higher peak ratio is kept (see
+    ``_choose_translation_candidates``). The rigid ROI has an undistorted aspect ratio
+    but a single similarity cannot follow a mesh that is locally sheared or
+    anisotropically scaled, and on such pairs only the exact ROI still correlates.
+    This mirrors the dual-candidate ``AttemptAlignPoint`` used by the serial path.
 
     Returns ``None`` only when the batched path could not run: ROI extraction
     failed for too many cells, cell shapes disagree, or too few cells survive to
@@ -1417,6 +1597,9 @@ def _attempt_align_points_translation_batched(
     and the source/target lattices sync to host once each (same pattern as mosaic
     ``_measure_grid_vertex_displacements_batched``).
     """
+    if exact_transform is not None and isinstance(exact_transform, nornir_imageregistration.transforms.IRigidTransform):
+        exact_transform = None  # The rigid approximation already is the exact transform.
+
     with _PHASE_TIMER.section('cell_extract'):
         target_image, source_image = _stos_settings_images(settings)
 
@@ -1430,6 +1613,8 @@ def _attempt_align_points_translation_batched(
             alignment_area=settings.cell_size)
 
         kept_indices: list[int]
+        exact_moving_stack: NDArray | None = None
+        exact_nan_mask_stack: NDArray | None = None
         if batched is not None:
             fixed_stack, moving_stack, nan_mask_stack = batched
             kept_indices = list(range(len(keys)))
@@ -1438,6 +1623,16 @@ def _attempt_align_points_translation_batched(
                 fixed_stack = xp.asarray(fixed_stack, dtype=np.float64)
             if moving_stack.dtype != np.float64:
                 moving_stack = xp.asarray(moving_stack, dtype=np.float64)
+            if exact_transform is not None:
+                exact_moving_stack, exact_nan_mask_stack = BuildExactMovingROIsBatched(
+                    transform=exact_transform,
+                    source_image=source_image,
+                    source_image_stats=settings.source_image_stats,
+                    target_points=target_points,
+                    alignment_area=settings.cell_size,
+                    xp=xp)
+                if exact_moving_stack.dtype != np.float64:
+                    exact_moving_stack = xp.asarray(exact_moving_stack, dtype=np.float64)
         else:
             # Non-rigid / unsupported transforms: legacy per-cell extract with deferred OOB.
             fixed_cells: list[NDArray] = []
@@ -1490,22 +1685,14 @@ def _attempt_align_points_translation_batched(
         xp = cp.get_array_module(fixed_stack)
         cell_shape = np.asarray(fixed_stack.shape[1:], dtype=np.int64)
 
-        # Batched accept/reject: alignability + entirely-OOB, one host sync.
-        flat_fixed = fixed_stack.reshape(fixed_stack.shape[0], -1)
-        flat_moving = moving_stack.reshape(moving_stack.shape[0], -1)
+        # Batched accept/reject: alignability + entirely-OOB, one host sync. A cell stays
+        # when either candidate ROI is usable; a candidate that is not is scored with
+        # weight 0 by batched_find_offset and loses the per-cell pick.
         from nornir_imageregistration.refine_shared.cell_validity import low_content_std_min_threshold
         min_std = float(low_content_std_min_threshold())
-        std_fixed = flat_fixed.std(axis=1)
-        std_moving = flat_moving.std(axis=1)
-        alignable = ((flat_fixed.min(axis=1) != flat_fixed.max(axis=1)) & (flat_fixed.max(axis=1) != 0)
-                     & (flat_moving.min(axis=1) != flat_moving.max(axis=1)) & (flat_moving.max(axis=1) != 0)
-                     & (std_fixed >= min_std) & (std_moving >= min_std))
-
-        if nan_mask_stack is not None:
-            fully_oob = nan_mask_stack.reshape(nan_mask_stack.shape[0], -1).all(axis=1)
-            alignable = alignable & ~fully_oob
-
-        keep_mask = nornir_imageregistration.EnsureNumpyArray(alignable).astype(bool).reshape(-1)
+        keep_mask = _cells_alignable_batched(fixed_stack, moving_stack, nan_mask_stack, min_std)
+        if exact_moving_stack is not None:
+            keep_mask |= _cells_alignable_batched(fixed_stack, exact_moving_stack, exact_nan_mask_stack, min_std)
 
         if not np.any(keep_mask):
             # Decided, not unavailable: the serial path applies the same
@@ -1517,6 +1704,8 @@ def _attempt_align_points_translation_batched(
             keep_mask_dev = xp.asarray(keep_mask)
             fixed_stack = fixed_stack[keep_mask_dev]
             moving_stack = moving_stack[keep_mask_dev]
+            if exact_moving_stack is not None:
+                exact_moving_stack = exact_moving_stack[keep_mask_dev]
             kept_indices = [idx for idx, keep in zip(kept_indices, keep_mask) if keep]
 
         # Genuinely unavailable rather than empty: batching needs at least three
@@ -1525,21 +1714,31 @@ def _attempt_align_points_translation_batched(
         if len(kept_indices) < 3:
             return None
 
-    with _PHASE_TIMER.section('fft'):
-        peaks_dev, weights_dev, peak_ratios_dev = measure_translation_cells_batched(
-            fixed_stack,
-            moving_stack,
-            cell_shape,
-            min_overlap=float(settings.min_alignment_overlap),
-            max_overlap=1.0)
+    def _measure(moving: NDArray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        with _PHASE_TIMER.section('fft'):
+            peaks_dev, weights_dev, peak_ratios_dev = measure_translation_cells_batched(
+                fixed_stack,
+                moving,
+                cell_shape,
+                min_overlap=float(settings.min_alignment_overlap),
+                max_overlap=1.0,
+                peak_ratio_exclusion_radius=int(settings.peak_ratio_exclusion_radius))
+        with _PHASE_TIMER.section('host_sync'):
+            return (
+                np.asarray(nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2),
+                np.asarray(nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1),
+                np.asarray(nornir_imageregistration.EnsureNumpyArray(peak_ratios_dev), dtype=np.float64).reshape(-1))
 
-    with _PHASE_TIMER.section('host_sync'):
-        peaks = np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
-        weights = np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
-        peak_ratios = np.asarray(
-            nornir_imageregistration.EnsureNumpyArray(peak_ratios_dev), dtype=np.float64).reshape(-1)
+    rigid_result = _measure(moving_stack)
+    del moving_stack
+    if exact_moving_stack is not None:
+        exact_result = _measure(exact_moving_stack)
+        del exact_moving_stack
+        peaks, weights, peak_ratios, used_exact = _choose_translation_candidates(rigid_result, exact_result)
+        prettyoutput.Log(
+            f'Batched cells: exact-transform ROI preferred for {int(used_exact.sum())} of {len(kept_indices)} cells')
+    else:
+        peaks, weights, peak_ratios = rigid_result
 
     with _PHASE_TIMER.section('record_assemble'):
         records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
@@ -4289,7 +4488,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             source_points=sourcePoints,
             target_points=targetPoints,
             rigid_transforms=rigid_transforms,
-            settings=settings)
+            settings=settings,
+            exact_transform=transform)
         # None means the batched path could not run, so fall through and measure
         # serially. An empty list means it ran and found nothing alignable, which is
         # an answer: re-measuring with a different peak finder would make the
@@ -4311,7 +4511,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             sourcePoint = sourcePoints[i, :]
             key = keys[i]
             arecord = AttemptAlignPoint(
-                transform=rigid_transforms[i],
+                transform=transform,
+                rigid_transform=rigid_transforms[i],
                 targetImage=target_image,
                 sourceImage=source_image,
                 target_image_stats=settings.target_image_stats,
@@ -4365,7 +4566,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         # So the transform runs an inverse transform to obtain the source point, which may be slightly off.
         AlignTask = pool.add_task(f"Align {key}",
                                   AttemptAlignPoint,
-                                  transform=rigid_transforms[i],
+                                  transform=transform,
+                                  rigid_transform=rigid_transforms[i],
                                   targetImage=settings.target_image_meta,  # Send the shared file to the task
                                   sourceImage=settings.source_image_meta,  # Send the shared file to the task
                                   # settings.target_mask,
@@ -5149,7 +5351,9 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       *,
                       estimate_angle: bool = True,
                       search_scale: bool = True,
-                      use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord | None:
+                      use_gpu: bool | None = None,
+                      rigid_transform: nornir_imageregistration.ITransform | None = None,
+                      ) -> nornir_imageregistration.AlignmentRecord | None:
     """Run synchronous rigid-registration for one control point.
 
     :param estimate_angle: If True, a log-polar estimate appends an angle to
@@ -5158,26 +5362,36 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
     :param search_scale: If False, register at scale 1.0 with no scale probe or search.
     :param use_gpu: If False, score on the host even when the process backend is CuPy.
         None (default) follows ``GetActiveComputationLib``.
+    :param rigid_transform: Local rigid approximation of *transform* around the control
+        point. When None one is fitted here from a ring of points; grid refinement passes
+        the pose-clamped fit it already computed for the cell.
     """
     if anglesToSearch is None:
         anglesToSearch = np.linspace(-7.5, 7.5, 11)
 
-    rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
-                                                              target_points=target_controlpoint,  # type: ignore[arg-type]
-                                                              cell_size=alignmentArea)  # type: ignore[arg-type]
+    if rigid_transform is None:
+        rigid_transform = ApproximateRigidTransformByTargetPoints(input_transform=transform,
+                                                                  target_points=target_controlpoint,  # type: ignore[arg-type]
+                                                                  cell_size=alignmentArea)[0]  # type: ignore[arg-type]
 
     _target_pt_np = np.asarray(nornir_imageregistration.EnsureNumpyArray(
         np.asarray(target_controlpoint, dtype=np.float64))).reshape(2)
 
-    # Try the real (possibly non-rigid) transform first: it is the ground truth for how this
-    # region of the mesh actually maps source to target. Also try a local rigid approximation,
-    # which is more robust right after a point drag/edit when the mesh near this cell may be
-    # locally degenerate before the next remesh. Keep whichever registers with higher
-    # confidence, matching the dual-candidate approach used before local rigid-only
-    # approximation replaced it.
+    # Two candidate ROIs. The local rigid approximation gives an undistorted aspect ratio
+    # and is robust right after a point drag/edit when the mesh near this cell may be
+    # locally degenerate before the next remesh. The real (possibly non-rigid) transform is
+    # the ground truth for how this region of the mesh maps source to target and is the only
+    # candidate that still correlates where the mesh is locally sheared or anisotropically
+    # scaled. Keep whichever registers with higher confidence; ties go to the rigid ROI.
+    # This is the dual-candidate approach used before local rigid-only approximation
+    # replaced it. When *transform* is itself rigid the second candidate is redundant.
+    candidate_transforms: tuple[nornir_imageregistration.ITransform, ...] = (rigid_transform,)
+    if not isinstance(transform, nornir_imageregistration.transforms.IRigidTransform):
+        candidate_transforms = (rigid_transform, transform)
+
     candidates: list[tuple[nornir_imageregistration.AlignmentRecord, NDArray, NDArray,
                           nornir_imageregistration.ITransform]] = []
-    for candidate_transform in (transform, rigid_transform[0]):
+    for candidate_transform in candidate_transforms:
         try:
             target_image_roi, source_image_roi = BuildAlignmentROIs(transform=candidate_transform,
                                                                     targetImage_param=targetImage,
@@ -5227,7 +5441,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         "targetImage.shape=%s sourceImage.shape=%s",
         _target_pt_np[0], _target_pt_np[1],
         source_controlpoint[0], source_controlpoint[1],
-        "real" if winning_transform is transform else "rigid-approx",
+        "rigid-approx" if winning_transform is rigid_transform else "real",
         len(candidates), result.weight, result.peak[0], result.peak[1],
         nornir_imageregistration.ImageParamToImageArray(targetImage).shape,
         nornir_imageregistration.ImageParamToImageArray(sourceImage).shape)
@@ -5247,7 +5461,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
             2 * _half_w, 2 * _half_h)
         result.TargetControlPoint = _target_pt_np  # type: ignore[attr-defined]
         result.SourceControlPoint = source_controlpoint  # type: ignore[attr-defined]
-        result.RigidAngleDeg = float(np.degrees(getattr(rigid_transform[0], 'angle', 0.0)))  # type: ignore[attr-defined]
+        result.RigidAngleDeg = float(np.degrees(getattr(rigid_transform, 'angle', 0.0)))  # type: ignore[attr-defined]
 
     return result
 

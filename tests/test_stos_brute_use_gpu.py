@@ -53,9 +53,15 @@ class TestUseGpuScoringOverride(unittest.TestCase):
 
     def test_attempt_align_point_forwards_use_gpu(self) -> None:
         roi = np.ones((16, 16), dtype=np.float32)
+        # AttemptAlignPoint registers two candidate ROIs (local rigid fit and the real
+        # transform) and maps the control point back through the winner.
+        real_transform = MagicMock()
+        real_transform.InverseTransform.return_value = np.array([[8.0, 8.0]])
+        rigid_fit = MagicMock()
+        rigid_fit.InverseTransform.return_value = np.array([[8.0, 8.0]])
         with patch(
                 "nornir_imageregistration.local_distortion_correction.ApproximateRigidTransformByTargetPoints",
-                return_value=[MagicMock()],
+                return_value=[rigid_fit],
         ):
             with patch(
                     "nornir_imageregistration.local_distortion_correction.BuildAlignmentROIs",
@@ -70,7 +76,7 @@ class TestUseGpuScoringOverride(unittest.TestCase):
                             return_value=AlignmentRecord(peak=(0.0, 0.0), weight=1.0, angle=0.0),
                     ) as rigid:
                         local_distortion_correction.AttemptAlignPoint(
-                            transform=MagicMock(),
+                            transform=real_transform,
                             targetImage=np.ones((32, 32), dtype=np.float32),
                             sourceImage=np.ones((32, 32), dtype=np.float32),
                             target_image_stats=None,
@@ -80,8 +86,9 @@ class TestUseGpuScoringOverride(unittest.TestCase):
                             anglesToSearch=np.array([0.0]),
                             use_gpu=False,
                         )
-        rigid.assert_called_once()
-        self.assertIs(rigid.call_args.kwargs["use_gpu"], False)
+        self.assertEqual(rigid.call_count, 2, "one registration per candidate ROI")
+        for call in rigid.call_args_list:
+            self.assertIs(call.kwargs["use_gpu"], False)
 
     @unittest.skipUnless(nornir_imageregistration.HasCupy(), "requires CuPy")
     def test_find_best_angle_gpu_skips_shared_memory(self) -> None:

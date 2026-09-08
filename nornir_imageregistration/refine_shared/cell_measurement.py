@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 import nornir_imageregistration.batched_phase_correlation
 import nornir_imageregistration.phasecorrelation
+from nornir_imageregistration.peak_uniqueness import DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS
 from nornir_imageregistration.refine_shared.cell_validity import is_alignable_cell
 from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
 
@@ -75,7 +76,8 @@ def measure_translation_cells_batched(
         min_overlap: float = 0.25,
         max_overlap: float = 1.0,
         correlation_coefficient: Optional[float] = None,
-        centroid_radius: int = 1
+        centroid_radius: int = 1,
+        peak_ratio_exclusion_radius: int = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Batched translation measurement over ``(N, h, w)`` cell stacks.
 
@@ -83,6 +85,8 @@ def measure_translation_cells_batched(
     and STOS callers share one entry point. Large batches are chunked to cap GPU
     FFT workspace (see ``NORNIR_REFINE_BATCHED_FFT_CELLS``).
 
+    :param peak_ratio_exclusion_radius: Half-width cleared around the primary peak
+        before the second peak is measured; see ``batched_find_peak``.
     :return: ``(peaks, weights, peak_ratios)`` on the input array module.
     """
     num_cells = int(fixed_cells.shape[0])
@@ -95,7 +99,8 @@ def measure_translation_cells_batched(
             min_overlap=min_overlap,
             max_overlap=max_overlap,
             correlation_coefficient=correlation_coefficient,
-            centroid_radius=centroid_radius)
+            centroid_radius=centroid_radius,
+            peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
 
     xp = cp.get_array_module(fixed_cells)
     peak_chunks: list[NDArray[np.floating]] = []
@@ -110,7 +115,8 @@ def measure_translation_cells_batched(
             min_overlap=min_overlap,
             max_overlap=max_overlap,
             correlation_coefficient=correlation_coefficient,
-            centroid_radius=centroid_radius)
+            centroid_radius=centroid_radius,
+            peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
         peak_chunks.append(peaks)
         weight_chunks.append(weights)
         ratio_chunks.append(peak_ratios)
