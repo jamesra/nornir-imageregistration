@@ -10,9 +10,11 @@ import numpy as np
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 from nornir_imageregistration.refine_shared.cell_roles import (
     DEFAULT_IDENTITY_ZNCC_MIN,
+    DEFAULT_ZNCC_PROMINENCE_MIN,
     FieldMode,
     RejectReason,
     Role,
+    ZnccScore,
     classify_field,
     classify_roles,
     exclude_reject_mesh_records,
@@ -20,6 +22,7 @@ from nornir_imageregistration.refine_shared.cell_roles import (
     unique_large_travel_raw_preserve_ids,
     active_unique_field_is_hot,
     masked_zncc,
+    zncc_score_passes,
 )
 from nornir_imageregistration.refine_shared.cell_validity import (
     DEFAULT_LOW_CONTENT_STD_MIN,
@@ -188,6 +191,55 @@ class TestClassifyRoles(unittest.TestCase):
             else:
                 os.environ['NORNIR_REFINE_IDENTITY_ZNCC_MIN'] = old
             get_runtime_config(refresh=True)
+
+    def test_env_zncc_prominence_min_override(self) -> None:
+        old = os.environ.get('NORNIR_REFINE_ZNCC_PROMINENCE_MIN')
+        old_abs = os.environ.get('NORNIR_REFINE_IDENTITY_ZNCC_MIN')
+        try:
+            os.environ.pop('NORNIR_REFINE_IDENTITY_ZNCC_MIN', None)
+            os.environ['NORNIR_REFINE_ZNCC_PROMINENCE_MIN'] = '10.0'
+            get_runtime_config(refresh=True)
+            records = [_rec((0, 0), peak=(0.0, 0.0), weight=12.0, peak_ratio=1.5)]
+            # Bare float maps via from_peak_only to prom = DEFAULT+1 (~5), below 10.
+            result = classify_roles(
+                records,
+                transform_cutoff=10.0,
+                max_travel=2.0,
+                zncc_by_id={(0, 0): 0.9},
+            )
+            self.assertEqual(result.roles[0], Role.IDENTITY_SUSPECT)
+            self.assertAlmostEqual(result.zncc_prominence_min, 10.0)
+        finally:
+            if old is None:
+                os.environ.pop('NORNIR_REFINE_ZNCC_PROMINENCE_MIN', None)
+            else:
+                os.environ['NORNIR_REFINE_ZNCC_PROMINENCE_MIN'] = old
+            if old_abs is None:
+                os.environ.pop('NORNIR_REFINE_IDENTITY_ZNCC_MIN', None)
+            else:
+                os.environ['NORNIR_REFINE_IDENTITY_ZNCC_MIN'] = old_abs
+            get_runtime_config(refresh=True)
+
+    def test_zncc_score_object_gates_on_prominence(self) -> None:
+        records = [_rec((0, 0), peak=(0.0, 0.0), weight=12.0, peak_ratio=1.5)]
+        pass_score = ZnccScore(peak=0.12, decoy_med=0.05, decoy_max=0.08, prominence=5.0)
+        fail_score = ZnccScore(peak=0.12, decoy_med=0.05, decoy_max=0.08, prominence=1.0)
+        # identity_zncc_min=0.0 forces the optional absolute floor off for this call
+        # (passing None would re-read the env).
+        r_pass = classify_roles(
+            records, transform_cutoff=10.0, max_travel=2.0,
+            zncc_by_id={(0, 0): pass_score}, identity_zncc_min=0.0,
+            zncc_prominence_min=4.0)
+        r_fail = classify_roles(
+            records, transform_cutoff=10.0, max_travel=2.0,
+            zncc_by_id={(0, 0): fail_score}, identity_zncc_min=0.0,
+            zncc_prominence_min=4.0)
+        self.assertEqual(r_pass.roles[0], Role.LOCKABLE)
+        self.assertEqual(r_fail.roles[0], Role.IDENTITY_SUSPECT)
+        self.assertTrue(zncc_score_passes(
+            pass_score, prominence_min=DEFAULT_ZNCC_PROMINENCE_MIN))
+        self.assertFalse(zncc_score_passes(
+            fail_score, prominence_min=DEFAULT_ZNCC_PROMINENCE_MIN))
 
 
 class TestClassifyField(unittest.TestCase):

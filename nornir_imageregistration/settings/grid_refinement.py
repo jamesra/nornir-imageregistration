@@ -32,6 +32,12 @@ except (ModuleNotFoundError, ImportError):
 # transform cut the residual misalignment from 7.2 px to 2.1 px median.
 STOS_PEAK_RATIO_EXCLUSION_RADIUS: int = 10
 
+# Lock-candidate ZNCC prominence: (z_peak - median(decoys)) / sigma(decoys). Absolute
+# ZNCC is section-gap dependent (~0.1 for 3-apart pairs, ~0.75 for adjacent); prominence
+# is scale-free. Default 4.0 is a starting bar; calibrate via probe_zncc_prominence on
+# Grid16 Manual pairs before changing.
+STOS_ZNCC_PROMINENCE_MIN: float = 4.0
+
 
 class GridRefinement:
     """
@@ -58,6 +64,7 @@ class GridRefinement:
     min_alignment_overlap: float
     min_unmasked_area: float
     peak_ratio_exclusion_radius: int
+    zncc_prominence_min: float
     ring_scale_fraction_max: float
     ring_angle_max_degrees: float
     ring_allow_flip_change: bool
@@ -135,7 +142,8 @@ class GridRefinement:
                  ring_scale_fraction_max: float | None = None,
                  ring_angle_max_degrees: float | None = None,
                  ring_allow_flip_change: bool | None = None,
-                 peak_ratio_exclusion_radius: int | None = None):
+                 peak_ratio_exclusion_radius: int | None = None,
+                 zncc_prominence_min: float | None = None):
         """
         Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
         to ensure input images have been properly masked with random noise.  image_permutations_helper.py
@@ -169,7 +177,9 @@ class GridRefinement:
         :param bool ring_allow_flip_change: When False, ring flip stays locked to the input pose
         :param int peak_ratio_exclusion_radius: Half-width (px) cleared around a cell's primary
             correlation peak before the second peak is measured for the peak-ratio gate.
-            Default ``STOS_PEAK_RATIO_EXCLUSION_RADIUS``.
+            Default ``STOS_PEAK_RATIO_EXCLUSION_RADIUS``. Also used as the ZNCC decoy ring radius.
+        :param float zncc_prominence_min: Min ZNCC prominence (peak vs decoy shifts, in noise
+            units) for a lock candidate to become LOCKABLE. Default ``STOS_ZNCC_PROMINENCE_MIN``.
         """
 
         self._cupy_processing = (
@@ -267,6 +277,9 @@ class GridRefinement:
         self.peak_ratio_exclusion_radius = (
             STOS_PEAK_RATIO_EXCLUSION_RADIUS if peak_ratio_exclusion_radius is None
             else int(peak_ratio_exclusion_radius))
+        self.zncc_prominence_min = (
+            STOS_ZNCC_PROMINENCE_MIN if zncc_prominence_min is None
+            else float(zncc_prominence_min))
 
     @staticmethod
     def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
@@ -292,7 +305,8 @@ class GridRefinement:
                                      ring_scale_fraction_max: float | None = None,
                                      ring_angle_max_degrees: float | None = None,
                                      ring_allow_flip_change: bool | None = None,
-                                     peak_ratio_exclusion_radius: int | None = None) -> GridRefinement:
+                                     peak_ratio_exclusion_radius: int | None = None,
+                                     zncc_prominence_min: float | None = None) -> GridRefinement:
         '''Creates a settings object for imags that require no further processing.  For example
         masked areas and extrema regions have been filled with random noise.'''
 
@@ -323,7 +337,8 @@ class GridRefinement:
                               ring_scale_fraction_max=ring_scale_fraction_max,
                               ring_angle_max_degrees=ring_angle_max_degrees,
                               ring_allow_flip_change=ring_allow_flip_change,
-                              peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
+                              peak_ratio_exclusion_radius=peak_ratio_exclusion_radius,
+                              zncc_prominence_min=zncc_prominence_min)
 
     @staticmethod
     def CreateWithUnproccessedImages(
@@ -353,7 +368,8 @@ class GridRefinement:
             ring_scale_fraction_max: float | None = None,
             ring_angle_max_degrees: float | None = None,
             ring_allow_flip_change: bool | None = None,
-            peak_ratio_exclusion_radius: int | None = None) -> GridRefinement:
+            peak_ratio_exclusion_radius: int | None = None,
+            zncc_prominence_min: float | None = None) -> GridRefinement:
         '''Creates a settings objects and adds noise to images according to the provided masks'''
         target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
                                                                           extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
@@ -382,7 +398,8 @@ class GridRefinement:
                                                            ring_scale_fraction_max=ring_scale_fraction_max,
                                                            ring_angle_max_degrees=ring_angle_max_degrees,
                                                            ring_allow_flip_change=ring_allow_flip_change,
-                                                           peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
+                                                           peak_ratio_exclusion_radius=peak_ratio_exclusion_radius,
+                                                           zncc_prominence_min=zncc_prominence_min)
 
     @staticmethod
     def _as_cupy_array(image: NDArray) -> NDArray:

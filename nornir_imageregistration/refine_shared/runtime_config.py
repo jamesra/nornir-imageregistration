@@ -30,8 +30,11 @@ class RefineRuntimeConfig:
 
     Role / content tuning (see docs/grid16_stos_cell_role_theory.md):
 
-    - ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` — min masked ZNCC for lock-candidate
-      PC-pass cells. Below → ``IDENTITY_SUSPECT`` (never lock). Unset → 0.25.
+    - ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN`` — min ZNCC prominence (peak vs decoy
+      shifts, in noise units) for lock candidates. Below → ``IDENTITY_SUSPECT``.
+      Unset → ``STOS_ZNCC_PROMINENCE_MIN`` (4.0).
+    - ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` — optional absolute ZNCC floor (legacy).
+      Unset → disabled (None). When set, lock candidates must also clear this bar.
     - ``NORNIR_REFINE_LOW_CONTENT_STD_MIN`` — min ROI intensity std for alignable
       source content. Below → sticky measure-skip + ``REJECT(LOW_CONTENT)``.
       Unset → 1e-3.
@@ -53,7 +56,8 @@ class RefineRuntimeConfig:
     sharp_warps: bool
     discontinuity_k: float
     discontinuity_travel_mult: float
-    identity_zncc_min: float
+    identity_zncc_min: float | None
+    zncc_prominence_min: float
     low_content_std_min: float
 
     @classmethod
@@ -105,13 +109,22 @@ class RefineRuntimeConfig:
             except ValueError:
                 pass
 
-        # Defaults match cell_roles.DEFAULT_IDENTITY_ZNCC_MIN /
-        # cell_validity.DEFAULT_LOW_CONTENT_STD_MIN (avoid circular imports).
-        identity_zncc = 0.25
+        # Optional absolute floor (legacy). Unset → disabled.
+        identity_zncc: float | None = None
         raw_zncc = os.environ.get('NORNIR_REFINE_IDENTITY_ZNCC_MIN', '').strip()
         if raw_zncc:
             try:
                 identity_zncc = float(raw_zncc)
+            except ValueError:
+                pass
+
+        # Defaults match settings.grid_refinement.STOS_ZNCC_PROMINENCE_MIN
+        # (avoid circular imports).
+        prominence = 4.0
+        raw_prom = os.environ.get('NORNIR_REFINE_ZNCC_PROMINENCE_MIN', '').strip()
+        if raw_prom:
+            try:
+                prominence = float(raw_prom)
             except ValueError:
                 pass
 
@@ -139,6 +152,7 @@ class RefineRuntimeConfig:
             discontinuity_k=disc_k,
             discontinuity_travel_mult=disc_travel,
             identity_zncc_min=identity_zncc,
+            zncc_prominence_min=prominence,
             low_content_std_min=low_content_std,
         )
 

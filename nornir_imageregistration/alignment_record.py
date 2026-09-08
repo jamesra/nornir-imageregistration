@@ -339,6 +339,7 @@ class EnhancedAlignmentRecord(AlignmentRecord):
     _SourcePoint: NDArray[np.floating]
     _cutoff_percent: float | None
     _cutoff_value: float | None
+    _roi_candidate: str | None
 
     @property
     def ID(self):
@@ -376,6 +377,15 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         """The value below which pixels in the correlation image are considered to be below the cutoff"""
         return self._cutoff_value
 
+    @property
+    def roi_candidate(self) -> str | None:
+        """Which source ROI produced this peak: ``'rigid'``, ``'exact'``, or None."""
+        return self._roi_candidate
+
+    @roi_candidate.setter
+    def roi_candidate(self, value: str | None) -> None:
+        self._roi_candidate = None if value is None else str(value)
+
     def __init__(self,
                  ID,
                  TargetPoint: NDArray[np.floating],
@@ -386,7 +396,8 @@ class EnhancedAlignmentRecord(AlignmentRecord):
                  flipped_ud: bool = False,
                  cutoff_percent: float | None = None,
                  cutoff_value: float | None = None,
-                 peak_ratio: float | None = None):
+                 peak_ratio: float | None = None,
+                 roi_candidate: str | None = None):
         super(EnhancedAlignmentRecord, self).__init__(
             peak=peak, weight=weight, angle=angle, flipped_ud=flipped_ud, peak_ratio=peak_ratio)
         self._ID = ID
@@ -394,6 +405,7 @@ class EnhancedAlignmentRecord(AlignmentRecord):
         self._SourcePoint = SourcePoint
         self._cutoff_percent = cutoff_percent
         self._cutoff_value = cutoff_value
+        self._roi_candidate = None if roi_candidate is None else str(roi_candidate)
 
     def __repr__(self):
         return f'ID: {self._ID} {super(EnhancedAlignmentRecord, self).__repr__()}'

@@ -28,6 +28,9 @@ class CellPassHistoryStore:
     lock_candidate: list[bool] = field(default_factory=list)
     peak_ratio: list[float] = field(default_factory=list)
     zncc: list[float] = field(default_factory=list)
+    zncc_decoy_med: list[float] = field(default_factory=list)
+    zncc_prominence: list[float] = field(default_factory=list)
+    roi_candidate: list[str] = field(default_factory=list)
     source_x: list[float] = field(default_factory=list)
     source_y: list[float] = field(default_factory=list)
 
@@ -43,6 +46,9 @@ class CellPassHistoryStore:
             self.lock_candidate.append(bool(row.lock_candidate))
             self.peak_ratio.append(float(row.peak_ratio))
             self.zncc.append(float(row.zncc))
+            self.zncc_decoy_med.append(float(row.zncc_decoy_med))
+            self.zncc_prominence.append(float(row.zncc_prominence))
+            self.roi_candidate.append(str(row.roi_candidate))
             self.source_x.append(float(row.source_x))
             self.source_y.append(float(row.source_y))
 
@@ -58,6 +64,9 @@ class CellPassHistoryStore:
             'lock_candidate': np.asarray(self.lock_candidate, dtype=bool),
             'peak_ratio': np.asarray(self.peak_ratio, dtype=np.float64),
             'zncc': np.asarray(self.zncc, dtype=np.float64),
+            'zncc_decoy_med': np.asarray(self.zncc_decoy_med, dtype=np.float64),
+            'zncc_prominence': np.asarray(self.zncc_prominence, dtype=np.float64),
+            'roi_candidate': np.asarray(self.roi_candidate),
             'source_x': np.asarray(self.source_x, dtype=np.float64),
             'source_y': np.asarray(self.source_y, dtype=np.float64),
         }
@@ -137,8 +146,8 @@ def write_cell_history_plots(
 ) -> dict[str, str]:
     """Write half-aggregate and sample-cell polyline PNGs (SavePlots only).
 
-    Two-row layout: row A = travel vs pass; row B = peak_ratio / zncc at
-    synthetic X positions N+1 / N+2 (dual-scale honesty).
+    Two-row layout: row A = travel vs pass; row B = peak_ratio / zncc_prominence
+    at synthetic X positions N+1 / N+2 (dual-scale honesty).
     """
     import matplotlib
     matplotlib.use('Agg')
@@ -152,7 +161,8 @@ def write_cell_history_plots(
     max_pass = int(passes.max())
     pass_axis = np.arange(1, max_pass + 1, dtype=np.float64)
     score_x_pr = float(max_pass + 1)
-    score_x_zncc = float(max_pass + 2)
+    score_x_prom = float(max_pass + 2)
+    prom = arrays['zncc_prominence'] if 'zncc_prominence' in arrays else arrays.get('zncc')
 
     # --- Half aggregates ---
     mid = float(np.median(arrays['source_x']))
@@ -163,23 +173,23 @@ def write_cell_history_plots(
     ):
         med_travel = []
         med_pr = []
-        med_zncc = []
+        med_prom = []
         for p in pass_axis:
             m = (passes == int(p)) & mask_fn(arrays['source_x'])
             med_travel.append(float(np.nanmedian(arrays['travel'][m])) if np.any(m) else float('nan'))
             pr = arrays['peak_ratio'][m]
-            zn = arrays['zncc'][m]
+            pm = prom[m] if prom is not None else np.array([])
             med_pr.append(float(np.nanmedian(pr[np.isfinite(pr)])) if np.any(np.isfinite(pr)) else float('nan'))
-            med_zncc.append(float(np.nanmedian(zn[np.isfinite(zn)])) if np.any(np.isfinite(zn)) else float('nan'))
+            med_prom.append(float(np.nanmedian(pm[np.isfinite(pm)])) if np.any(np.isfinite(pm)) else float('nan'))
         ax_t.plot(pass_axis, med_travel, '-o', color=color, label=f'{name} travel med', markersize=4)
         pr_arr = np.asarray(med_pr, dtype=np.float64)
-        zn_arr = np.asarray(med_zncc, dtype=np.float64)
+        prom_arr = np.asarray(med_prom, dtype=np.float64)
         if np.any(np.isfinite(pr_arr)):
             ax_s.plot([score_x_pr], [float(np.nanmedian(pr_arr))], 's', color=color,
                       label=f'{name} peak_ratio')
-        if np.any(np.isfinite(zn_arr)):
-            ax_s.plot([score_x_zncc], [float(np.nanmedian(zn_arr))], '^', color=color,
-                      label=f'{name} zncc')
+        if np.any(np.isfinite(prom_arr)):
+            ax_s.plot([score_x_prom], [float(np.nanmedian(prom_arr))], '^', color=color,
+                      label=f'{name} zncc_prom')
 
     ax_t.set_ylabel('travel (px)')
     ax_t.set_title(f'{pair_label} half-aggregate cell history')
@@ -187,8 +197,8 @@ def write_cell_history_plots(
     ax_t.grid(True, alpha=0.3)
     ax_s.set_ylabel('score')
     ax_s.set_xlabel('pass')
-    ax_s.set_xticks(list(pass_axis) + [score_x_pr, score_x_zncc])
-    ax_s.set_xticklabels([str(int(p)) for p in pass_axis] + ['PC', 'ZNCC'])
+    ax_s.set_xticks(list(pass_axis) + [score_x_pr, score_x_prom])
+    ax_s.set_xticklabels([str(int(p)) for p in pass_axis] + ['PC', 'Prom'])
     ax_s.legend(loc='best', fontsize=8)
     ax_s.grid(True, alpha=0.3)
     half_path = os.path.join(output_dir, 'refine_cell_history_half_aggregates.png')
@@ -223,15 +233,15 @@ def write_cell_history_plots(
         ax_t.grid(True, alpha=0.25)
 
         pr = series['peak_ratio']
-        zn = series['zncc']
+        pm = series['zncc_prominence'] if 'zncc_prominence' in series else series['zncc']
         # Use last finite score across passes for the synthetic markers.
         pr_last = float(pr[np.isfinite(pr)][-1]) if np.any(np.isfinite(pr)) else float('nan')
-        zn_last = float(zn[np.isfinite(zn)][-1]) if np.any(np.isfinite(zn)) else float('nan')
+        pm_last = float(pm[np.isfinite(pm)][-1]) if np.any(np.isfinite(pm)) else float('nan')
         ax_s.plot([score_x_pr], [pr_last], 's', color='#1f77b4')
-        ax_s.plot([score_x_zncc], [zn_last], '^', color='#2ca02c')
-        ax_s.set_xlim(0.5, score_x_zncc + 0.5)
-        ax_s.set_xticks([score_x_pr, score_x_zncc])
-        ax_s.set_xticklabels(['PC', 'ZNCC'], fontsize=6)
+        ax_s.plot([score_x_prom], [pm_last], '^', color='#2ca02c')
+        ax_s.set_xlim(0.5, score_x_prom + 0.5)
+        ax_s.set_xticks([score_x_pr, score_x_prom])
+        ax_s.set_xticklabels(['PC', 'Prom'], fontsize=6)
         ax_s.set_ylabel('score', fontsize=7)
         ax_s.tick_params(labelsize=6)
         ax_s.grid(True, alpha=0.25)

@@ -6,10 +6,12 @@ Role decision (one pass)::
 
     REJECT  <- low content OR known peak_ratio < PEAK_RATIO_MIN
     FREE    <- PC-pass, not lock-candidate (ZNCC deferred)
-    LOCKABLE / IDENTITY_SUSPECT <- lock-candidate + (field suspect OR ZNCC)
+    LOCKABLE / IDENTITY_SUSPECT <- lock-candidate + (field suspect OR ZNCC prominence)
 
 Field consistency (cold-half under ASYMMETRIC, or active unique neighbor) brands
-``IDENTITY_SUSPECT`` even when ZNCC passes. Absolute ZNCC remains a secondary gate.
+``IDENTITY_SUSPECT`` even when ZNCC prominence passes. Absolute ZNCC is an optional
+legacy floor (``NORNIR_REFINE_IDENTITY_ZNCC_MIN``); the primary secondary gate is
+scale-free ZNCC prominence (peak vs decoy shifts).
 """
 
 from __future__ import annotations
@@ -42,10 +44,54 @@ try:
 except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
 
-# Default min masked ZNCC for lock-candidate PC-pass cells.
-# Override: NORNIR_REFINE_IDENTITY_ZNCC_MIN (unset = this default).
-# Below → IDENTITY_SUSPECT (never lock); at/above → may be LOCKABLE.
+# Legacy absolute ZNCC floor (optional; disabled when env unset).
+# Override: NORNIR_REFINE_IDENTITY_ZNCC_MIN.
 DEFAULT_IDENTITY_ZNCC_MIN: float = 0.25
+
+# Default min ZNCC prominence for lock-candidate PC-pass cells.
+# Override: NORNIR_REFINE_ZNCC_PROMINENCE_MIN (unset = this default).
+# Below → IDENTITY_SUSPECT (never lock); at/above → may be LOCKABLE.
+DEFAULT_ZNCC_PROMINENCE_MIN: float = 4.0
+
+
+@dataclass(frozen=True)
+class ZnccScore:
+    """Per-cell secondary ZNCC lock score.
+
+    ``peak`` is masked ZNCC at the claimed peak; ``decoy_med`` / ``decoy_max``
+    summarize ZNCC at decoy shifts; ``prominence`` is
+    ``(peak - decoy_med) / decoy_sigma`` in noise units.
+    """
+
+    peak: float
+    decoy_med: float
+    decoy_max: float
+    prominence: float
+
+    @classmethod
+    def from_peak_only(cls, peak: float) -> ZnccScore:
+        """Build a score from a bare peak value (tests / legacy callers).
+
+        Maps the old absolute bar onto prominence so unit tests that still pass
+        a float continue to mean "would the absolute gate have locked?".
+        """
+        p = float(peak)
+        if np.isfinite(p) and p >= DEFAULT_IDENTITY_ZNCC_MIN:
+            return cls(
+                peak=p, decoy_med=0.0, decoy_max=0.0,
+                prominence=DEFAULT_ZNCC_PROMINENCE_MIN + 1.0)
+        return cls(
+            peak=p, decoy_med=0.0, decoy_max=max(p, 0.0),
+            prominence=0.0)
+
+
+def coerce_zncc_score(value: ZnccScore | float | None) -> ZnccScore | None:
+    """Accept ``ZnccScore`` or a bare float peak (legacy / unit tests)."""
+    if value is None:
+        return None
+    if isinstance(value, ZnccScore):
+        return value
+    return ZnccScore.from_peak_only(float(value))
 
 
 class Role(enum.IntEnum):
@@ -88,6 +134,8 @@ class RoleClassificationResult:
     reject_reasons: list[RejectReason]
     lock_candidate: NDArray[np.bool_]
     zncc: NDArray[np.float64]
+    zncc_prominence: NDArray[np.float64]
+    zncc_decoy_med: NDArray[np.float64]
     field_mode: FieldMode
     n_reject: int = 0
     n_free: int = 0
@@ -99,32 +147,46 @@ class RoleClassificationResult:
     n_zncc_eval: int = 0
     n_zncc_pass: int = 0
     n_zncc_fail: int = 0
-    identity_zncc_min: float = DEFAULT_IDENTITY_ZNCC_MIN
+    identity_zncc_min: float | None = None
+    zncc_prominence_min: float = DEFAULT_ZNCC_PROMINENCE_MIN
     role_by_id: dict[tuple[int, int], Role] = field(default_factory=dict)
 
 
-def identity_zncc_min_threshold() -> float:
-    """Return the ZNCC lock bar (env ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` or default).
+def identity_zncc_min_threshold() -> float | None:
+    """Return the optional absolute ZNCC floor, or None when disabled.
 
-    Meaning
-        Minimum masked zero-mean normalized cross-correlation between fixed and
-        moving ROIs at the claimed peak offset for a lock-candidate cell that
-        already passed PhaseCorrelation (``peak_ratio >= PEAK_RATIO_MIN``).
-
-    Default
-        ``DEFAULT_IDENTITY_ZNCC_MIN`` (0.25) when the env is unset or invalid.
-
-    Valid values
-        Finite float. Typical useful range is roughly ``0.0``–``1.0``.
-
-    Effect
-        Score ``<`` threshold → ``Role.IDENTITY_SUSPECT`` (mesh OK, never lock).
-        Score ``>=`` threshold → eligible for ``Role.LOCKABLE`` (with stability).
-
-    Reads the cached config; refine entry points refresh once per pass. See
-    ``low_content_std_min_threshold`` for why ``refresh=True`` is not used here.
+    Env ``NORNIR_REFINE_IDENTITY_ZNCC_MIN``: unset → disabled (None). When set,
+    lock candidates must also clear this absolute bar in addition to prominence.
+    Legacy absolute-only gating; prefer prominence.
     """
-    return float(get_runtime_config().identity_zncc_min)
+    return get_runtime_config().identity_zncc_min
+
+
+def zncc_prominence_min_threshold() -> float:
+    """Return the ZNCC prominence lock bar.
+
+    Env ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN`` or ``DEFAULT_ZNCC_PROMINENCE_MIN``.
+    Score ``<`` threshold → ``Role.IDENTITY_SUSPECT``; at/above → may be LOCKABLE.
+    """
+    return float(get_runtime_config().zncc_prominence_min)
+
+
+def zncc_score_passes(
+        score: ZnccScore,
+        *,
+        prominence_min: float,
+        identity_zncc_min: float | None = None,
+) -> bool:
+    """True when *score* clears the prominence gate (and optional absolute floor)."""
+    if not np.isfinite(score.peak) or not np.isfinite(score.prominence):
+        return False
+    if score.peak <= score.decoy_max:
+        return False
+    if float(score.prominence) < float(prominence_min):
+        return False
+    if identity_zncc_min is not None and float(score.peak) < float(identity_zncc_min):
+        return False
+    return True
 
 
 def masked_zncc(
@@ -589,25 +651,34 @@ def classify_roles(
         per_record_max_travel: NDArray[np.floating] | None = None,
         soft_weight_cutoff: float | None = None,
         discontinuity_ids: set[tuple[int, int]] | None = None,
-        zncc_by_id: Mapping[tuple[int, int], float] | None = None,
+        zncc_by_id: Mapping[tuple[int, int], ZnccScore | float] | None = None,
         low_content_ids: set[tuple[int, int]] | None = None,
         field_mode: FieldMode = FieldMode.LOCAL,
         field_suspect_ids: set[tuple[int, int]] | None = None,
         identity_zncc_min: float | None = None,
+        zncc_prominence_min: float | None = None,
         peak_ratio_min: float = PEAK_RATIO_MIN,
         travel_eps: float = 0.5,
 ) -> RoleClassificationResult:
     """Classify each free record into a Role for this pass.
 
     Lock candidates are ``IDENTITY_SUSPECT`` when field consistency brands them
-    (cold-half / active neighbor) **or** secondary ZNCC fails / is missing.
+    (cold-half / active neighbor) **or** secondary ZNCC prominence fails / is missing.
     ``field_suspect_ids`` may be precomputed to skip ZNCC extract for those IDs.
+
+    ``zncc_by_id`` values may be ``ZnccScore`` or a bare float peak (legacy / tests).
+    ``identity_zncc_min``: pass a float to force an absolute floor; omit or pass
+    ``None`` to use the env override (itself None when unset).
     """
     n = len(records)
     zncc_by_id = zncc_by_id or {}
     low_content_ids = low_content_ids or set()
     discontinuity_ids = discontinuity_ids or set()
-    zncc_min = float(identity_zncc_min if identity_zncc_min is not None else identity_zncc_min_threshold())
+    # When the caller omits identity_zncc_min (None), read the optional env floor.
+    # Callers that pass a float (including tests) force that absolute bar.
+    zncc_min = identity_zncc_min if identity_zncc_min is not None else identity_zncc_min_threshold()
+    prom_min = float(
+        zncc_prominence_min if zncc_prominence_min is not None else zncc_prominence_min_threshold())
     if field_suspect_ids is None:
         field_suspect_ids = field_brand_identity_suspect_ids(
             records,
@@ -621,6 +692,8 @@ def classify_roles(
     reasons: list[RejectReason] = [RejectReason.NONE] * n
     lock_cand = np.zeros(n, dtype=bool)
     zncc_arr = np.full(n, np.nan, dtype=np.float64)
+    prom_arr = np.full(n, np.nan, dtype=np.float64)
+    decoy_arr = np.full(n, np.nan, dtype=np.float64)
 
     if n == 0:
         return RoleClassificationResult(
@@ -628,8 +701,11 @@ def classify_roles(
             reject_reasons=reasons,
             lock_candidate=lock_cand,
             zncc=zncc_arr,
+            zncc_prominence=prom_arr,
+            zncc_decoy_med=decoy_arr,
             field_mode=field_mode,
             identity_zncc_min=zncc_min,
+            zncc_prominence_min=prom_min,
         )
 
     if per_record_max_travel is not None:
@@ -686,26 +762,30 @@ def classify_roles(
             role_by_id[key] = Role.FREE
             continue
 
+        score = coerce_zncc_score(zncc_by_id.get(key))
+
         # Field consistency brands identity suspects without needing ZNCC.
         if key in field_suspect_ids:
             roles[i] = Role.IDENTITY_SUSPECT
             role_by_id[key] = Role.IDENTITY_SUSPECT
-            if key in zncc_by_id:
-                score = float(zncc_by_id[key])
-                zncc_arr[i] = score
+            if score is not None:
+                zncc_arr[i] = score.peak
+                prom_arr[i] = score.prominence
+                decoy_arr[i] = score.decoy_med
                 n_zncc_eval += 1
-                if np.isfinite(score) and score >= zncc_min:
+                if zncc_score_passes(score, prominence_min=prom_min, identity_zncc_min=zncc_min):
                     n_zncc_pass += 1
                 else:
                     n_zncc_fail += 1
             continue
 
-        # Secondary ZNCC at lock candidacy.
-        if key in zncc_by_id:
-            score = float(zncc_by_id[key])
-            zncc_arr[i] = score
+        # Secondary ZNCC prominence at lock candidacy.
+        if score is not None:
+            zncc_arr[i] = score.peak
+            prom_arr[i] = score.prominence
+            decoy_arr[i] = score.decoy_med
             n_zncc_eval += 1
-            if np.isfinite(score) and score >= zncc_min:
+            if zncc_score_passes(score, prominence_min=prom_min, identity_zncc_min=zncc_min):
                 roles[i] = Role.LOCKABLE
                 n_zncc_pass += 1
                 role_by_id[key] = Role.LOCKABLE
@@ -729,6 +809,8 @@ def classify_roles(
         reject_reasons=reasons,
         lock_candidate=lock_cand,
         zncc=zncc_arr,
+        zncc_prominence=prom_arr,
+        zncc_decoy_med=decoy_arr,
         field_mode=field_mode,
         n_reject=n_reject,
         n_free=n_free,
@@ -741,6 +823,7 @@ def classify_roles(
         n_zncc_pass=n_zncc_pass,
         n_zncc_fail=n_zncc_fail,
         identity_zncc_min=zncc_min,
+        zncc_prominence_min=prom_min,
         role_by_id=role_by_id,
     )
 
@@ -788,11 +871,16 @@ def exclude_reject_mesh_records(
 # Re-export constants used by callers / docs.
 __all__ = [
     'DEFAULT_IDENTITY_ZNCC_MIN',
+    'DEFAULT_ZNCC_PROMINENCE_MIN',
+    'ZnccScore',
+    'coerce_zncc_score',
+    'zncc_score_passes',
     'Role',
     'RejectReason',
     'FieldMode',
     'RoleClassificationResult',
     'identity_zncc_min_threshold',
+    'zncc_prominence_min_threshold',
     'masked_zncc',
     'free_peak_half_stats',
     'classify_field',

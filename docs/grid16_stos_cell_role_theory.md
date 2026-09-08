@@ -44,11 +44,18 @@ peak-ratio / low-content `REJECT`, field branding, and secondary masked ZNCC.
 **Absolute ZNCC alone cannot detect false identity locks** when ROIs already look
 correlated under a bad local prediction (241-242 med ZNCC ~0.75). Field consistency
 is the primary gate for that failure; ZNCC remains a useful secondary when intensity
-truly disagrees. Do not raise `IDENTITY_ZNCC_MIN` to paper over field failures.
+truly disagrees. Do not raise the legacy absolute floor to paper over field failures.
 
-Secondary **masked ZNCC** runs only for PC-pass lock candidates that field rules
-have not already branded suspect (skips redundant ROI re-extract). Threshold default
-in code; override with `NORNIR_REFINE_IDENTITY_ZNCC_MIN`.
+Secondary **ZNCC prominence** runs only for PC-pass lock candidates that field rules
+have not already branded suspect (skips redundant ROI re-extract). For each candidate,
+masked ZNCC is scored at the claimed peak and at ring decoy shifts (radius =
+`peak_ratio_exclusion_radius`, plus absolute identity when ``||peak||`` is at least
+that radius). Prominence is ``(z_peak - median(decoys)) / max(MAD-sigma, 1/sqrt(N))``.
+LOCKABLE requires ``prominence >= zncc_prominence_min`` and ``z_peak > max(decoys)``.
+Default ``STOS_ZNCC_PROMINENCE_MIN`` / ``DEFAULT_ZNCC_PROMINENCE_MIN`` is 4.0; override
+with ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN``. The legacy absolute floor
+``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` is optional (unset = disabled) and only adds an
+extra bar when set — it is not the primary lock gate.
 
 ### REJECT reasons
 
@@ -120,9 +127,10 @@ success (`n_unique` / `n_inliers` / coherence) or **skip reason**; global FOV
 recovery logs when attempted.
 
 **`NORNIR_REFINE_PASS_DIAGNOSTICS=1`:** NPZ/CSV columns `role`, `reject_reason`,
-`zncc`, `lock_candidate` (and optional `source_content`). Lifetime
-`refine_cell_history.npz` (travel / role / peak_ratio / zncc per cell per pass).
-Heatmaps and history polylines need `SavePlots`.
+`zncc`, `zncc_decoy_med`, `zncc_prominence`, `roi_candidate`, `lock_candidate`
+(and optional `source_content`). Lifetime `refine_cell_history.npz` (travel /
+role / peak_ratio / zncc / prominence per cell per pass). Heatmaps and history
+polylines need `SavePlots`.
 
 **`NORNIR_REFINE_PHASE_TIMING=1`:** buckets `classify`, `zncc_secondary`,
 `low_content_gate`, `approx_rigid` (logged at end of each pass so wall buckets
@@ -132,8 +140,10 @@ include Role/ZNCC work).
 
 | Env | Default | Effect |
 |-----|---------|--------|
-| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | code constant | Below → `IDENTITY_SUSPECT`; above → may `LOCKABLE` (when not field-suspect) |
+| `NORNIR_REFINE_ZNCC_PROMINENCE_MIN` | `4.0` | Prominence below → `IDENTITY_SUSPECT`; at/above (and peak > decoy max) → may `LOCKABLE` |
+| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | unset (off) | **Legacy** optional absolute ZNCC floor; when set, also required for LOCKABLE |
 | `NORNIR_REFINE_LOW_CONTENT_STD_MIN` | code constant | Source below → sticky measure-skip + `REJECT(LOW_CONTENT)` |
 
-Unset means use the code default. See Runtime configuration in
+Unset means use the code default (for the absolute floor, unset means disabled).
+See Runtime configuration in
 [`grid_refine_stos_vs_mosaic.md`](grid_refine_stos_vs_mosaic.md).

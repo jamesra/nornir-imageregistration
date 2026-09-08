@@ -71,6 +71,7 @@ from nornir_imageregistration.refine_shared import (
     coherent_discontinuity_raw_preserve_ids,
     masked_zncc,
     Role,
+    ZnccScore,
     SourceContentCache,
     crop_source_cell_std,
     crop_source_cell_stds_batched,
@@ -1739,6 +1740,7 @@ def _attempt_align_points_translation_batched(
             f'Batched cells: exact-transform ROI preferred for {int(used_exact.sum())} of {len(kept_indices)} cells')
     else:
         peaks, weights, peak_ratios = rigid_result
+        used_exact = np.zeros(len(kept_indices), dtype=bool)
 
     with _PHASE_TIMER.section('record_assemble'):
         records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
@@ -1756,7 +1758,8 @@ def _attempt_align_points_translation_batched(
                 weight=float(weights[batch_pos]),
                 angle=0.0,
                 flipped_ud=False,
-                peak_ratio=float(peak_ratios[batch_pos])))
+                peak_ratio=float(peak_ratios[batch_pos]),
+                roi_candidate='exact' if bool(used_exact[batch_pos]) else 'rigid'))
     # An empty list is returned as-is. The measurement ran; every peak was simply
     # unusable. Reporting None here re-ran the whole grid through the serial peak
     # finder, which can disagree, so the control points depended on whether the
@@ -2995,28 +2998,30 @@ def _zncc_at_claimed_peak(
         peak: NDArray[np.floating] | tuple[float, float],
         *,
         travel_eps: float = 0.5,
+        valid_mask: NDArray[np.bool_] | None = None,
 ) -> float:
     """Masked ZNCC of fixed vs moving after shifting moving by *peak*.
 
     Near-identity peaks (``‖peak‖ < travel_eps``) skip ``CropImage`` and compare
-    ROIs in place.
+    ROIs in place. Shifts use nearest-pixel ``round`` (not ``floor``).
     """
     peak_arr = np.asarray(peak, dtype=np.float64).reshape(2)
     if float(np.linalg.norm(peak_arr)) < float(travel_eps):
-        return masked_zncc(target_roi, source_roi)
+        return masked_zncc(target_roi, source_roi, mask=valid_mask)
 
     xp = cp.get_array_module(source_roi)
     h = int(source_roi.shape[0])
     w = int(source_roi.shape[1])
     med = float(xp.median(source_roi))
+    dy = int(np.round(-peak_arr[0]))
+    dx = int(np.round(-peak_arr[1]))
     shifted = nornir_imageregistration.CropImage(
-        source_roi,
-        int(np.floor(-peak_arr[1])),
-        int(np.floor(-peak_arr[0])),
-        w,
-        h,
-        cval=med)
-    return masked_zncc(target_roi, shifted)
+        source_roi, dx, dy, w, h, cval=med)
+    shifted_mask = None
+    if valid_mask is not None:
+        shifted_mask = nornir_imageregistration.CropImage(
+            valid_mask.astype(np.float32), dx, dy, w, h, cval=0.0) > 0.5
+    return masked_zncc(target_roi, shifted, mask=shifted_mask)
 
 
 def _shift_moving_stack_by_peaks(
@@ -3024,36 +3029,49 @@ def _shift_moving_stack_by_peaks(
         peaks: NDArray[np.floating],
         *,
         travel_eps: float = 0.5,
-) -> NDArray:
-    """Return a moving stack shifted by each peak; identity peaks are copied."""
+        valid_mask: NDArray[np.bool_] | None = None,
+) -> tuple[NDArray, NDArray[np.bool_] | None]:
+    """Return a moving stack (and optional mask) shifted by each peak; identity peaks are copied."""
     xp = cp.get_array_module(moving_stack)
     peaks_np = np.asarray(peaks, dtype=np.float64).reshape(-1, 2)
     n = int(moving_stack.shape[0])
     h = int(moving_stack.shape[1])
     w = int(moving_stack.shape[2])
     out = xp.empty_like(moving_stack)
+    out_mask: NDArray | None = None
+    if valid_mask is not None:
+        out_mask = xp.empty((n, h, w), dtype=bool)
+        valid_mask = _ensure_on_array_module(valid_mask, xp)
     meds = xp.median(moving_stack, axis=(1, 2))
     for i in range(n):
         peak = peaks_np[i]
         if float(np.linalg.norm(peak)) < float(travel_eps):
             out[i] = moving_stack[i]
+            if out_mask is not None:
+                out_mask[i] = valid_mask[i]
             continue
+        dy = int(np.round(-peak[0]))
+        dx = int(np.round(-peak[1]))
         out[i] = nornir_imageregistration.CropImage(
-            moving_stack[i],
-            int(np.floor(-peak[1])),
-            int(np.floor(-peak[0])),
-            w,
-            h,
-            cval=float(meds[i]))
-    return out
+            moving_stack[i], dx, dy, w, h, cval=float(meds[i]))
+        if out_mask is not None:
+            out_mask[i] = nornir_imageregistration.CropImage(
+                valid_mask[i].astype(np.float32), dx, dy, w, h, cval=0.0) > 0.5
+    return out, out_mask
 
 
-def _masked_zncc_stack(fixed_stack: NDArray, moving_stack: NDArray) -> NDArray[np.float64]:
+def _masked_zncc_stack(
+        fixed_stack: NDArray,
+        moving_stack: NDArray,
+        valid_mask: NDArray[np.bool_] | None = None,
+) -> NDArray[np.float64]:
     """Per-cell masked ZNCC for stacked ROIs; returns host float64 length N."""
     xp = cp.get_array_module(fixed_stack)
     a = xp.asarray(fixed_stack, dtype=xp.float64)
     b = xp.asarray(moving_stack, dtype=xp.float64)
     valid = xp.isfinite(a) & xp.isfinite(b)
+    if valid_mask is not None:
+        valid = valid & _ensure_on_array_module(valid_mask, xp).astype(bool)
     n_valid = xp.count_nonzero(valid, axis=(1, 2))
     a_z = xp.where(valid, a, 0)
     b_z = xp.where(valid, b, 0)
@@ -3070,6 +3088,83 @@ def _masked_zncc_stack(fixed_stack: NDArray, moving_stack: NDArray) -> NDArray[n
     return nornir_imageregistration.EnsureNumpyArray(scores).astype(np.float64, copy=False)
 
 
+def _decoy_peak_offsets(radius: float) -> NDArray[np.float64]:
+    """Eight ring offsets at *radius* (relative to the claimed peak)."""
+    angles = np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
+    return np.stack(
+        (radius * np.cos(angles), radius * np.sin(angles)), axis=1).astype(np.float64)
+
+
+def _zncc_prominence_stack(
+        fixed_stack: NDArray,
+        moving_stack: NDArray,
+        peaks: NDArray[np.floating],
+        *,
+        valid_mask: NDArray[np.bool_] | None = None,
+        decoy_radius: float = 10.0,
+        travel_eps: float = 0.5,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Batched ZNCC prominence: peak vs decoy shifts.
+
+    Decoys are eight ring offsets around the claimed peak, plus the absolute
+    zero shift when ``||peak|| >= decoy_radius`` (far enough that identity is
+    an independent rival, not a near-duplicate of the claimed peak).
+
+    Returns ``(z_peak, z_decoy_med, z_decoy_max, prominence)`` as host float64 arrays.
+    """
+    peaks_np = np.asarray(peaks, dtype=np.float64).reshape(-1, 2)
+    n = int(fixed_stack.shape[0])
+    if n == 0:
+        empty = np.zeros(0, dtype=np.float64)
+        return empty, empty, empty, empty
+
+    shifted_peak, mask_peak = _shift_moving_stack_by_peaks(
+        moving_stack, peaks_np, travel_eps=travel_eps, valid_mask=valid_mask)
+    z_peak = _masked_zncc_stack(fixed_stack, shifted_peak, valid_mask=mask_peak)
+
+    offsets = _decoy_peak_offsets(float(decoy_radius))
+    decoy_lists: list[NDArray[np.float64]] = []
+    for offset in offsets:
+        decoy_peaks = peaks_np + offset.reshape(1, 2)
+        shifted, mask = _shift_moving_stack_by_peaks(
+            moving_stack, decoy_peaks, travel_eps=travel_eps, valid_mask=valid_mask)
+        decoy_lists.append(_masked_zncc_stack(fixed_stack, shifted, valid_mask=mask))
+
+    # Absolute zero-shift decoy only when identity is outside the peak-ratio
+    # exclusion ring; otherwise it duplicates near-identity claimed peaks.
+    far_from_identity = np.linalg.norm(peaks_np, axis=1) >= float(decoy_radius)
+    if np.any(far_from_identity):
+        zero_peaks = np.zeros_like(peaks_np)
+        shifted0, mask0 = _shift_moving_stack_by_peaks(
+            moving_stack, zero_peaks, travel_eps=travel_eps, valid_mask=valid_mask)
+        z_zero = _masked_zncc_stack(fixed_stack, shifted0, valid_mask=mask0)
+        z_zero = np.where(far_from_identity, z_zero, np.nan)
+        decoy_lists.append(z_zero)
+
+    decoy_scores = np.column_stack(decoy_lists)
+    with np.errstate(all='ignore'):
+        z_decoy_med = np.nanmedian(decoy_scores, axis=1)
+        z_decoy_max = np.nanmax(decoy_scores, axis=1)
+        mad = np.nanmedian(np.abs(decoy_scores - z_decoy_med[:, None]), axis=1)
+    sigma = 1.4826 * mad
+    # Floor sigma by 1/sqrt(N_valid) so tiny decoy scatter on large cells cannot
+    # explode prominence.
+    cell_h = int(fixed_stack.shape[1])
+    cell_w = int(fixed_stack.shape[2])
+    if valid_mask is not None:
+        n_valid = nornir_imageregistration.EnsureNumpyArray(
+            valid_mask.reshape(n, -1).sum(axis=1)).astype(np.float64)
+    else:
+        n_valid = np.full(n, float(cell_h * cell_w), dtype=np.float64)
+    sigma_floor = 1.0 / np.sqrt(np.maximum(n_valid, 1.0))
+    sigma = np.maximum(sigma, sigma_floor)
+    prominence = (z_peak - z_decoy_med) / sigma
+    prominence = np.where(np.isfinite(prominence), prominence, 0.0)
+    z_decoy_med = np.where(np.isfinite(z_decoy_med), z_decoy_med, 0.0)
+    z_decoy_max = np.where(np.isfinite(z_decoy_max), z_decoy_max, 0.0)
+    return z_peak, z_decoy_med, z_decoy_max, prominence
+
+
 #: Per-candidate ZNCC failures reported individually before switching to a count.
 _ZNCC_FAILURE_LOG_LIMIT: int = 3
 
@@ -3082,14 +3177,14 @@ def _compute_zncc_for_candidates(
         *,
         travel_eps: float = 0.5,
         reference_pose: RingReferencePose | None = None,
-) -> dict[tuple[int, int], float]:
-    """Score masked ZNCC at each lock-candidate peak.
+) -> dict[tuple[int, int], ZnccScore]:
+    """Score ZNCC prominence at each lock-candidate peak.
 
-    Prefer one batched ``ApproximateRigidTransformBySourcePoints`` plus
-    ``BuildAlignmentROIsBatched``; fall back to per-candidate extract when the
-    batched path is unavailable.
+    Re-extracts ROIs through the same candidate that produced the peak
+    (``roi_candidate`` ``'rigid'`` / ``'exact'``). Falls back to per-candidate
+    extract when the batched path is unavailable.
     """
-    scores: dict[tuple[int, int], float] = {}
+    scores: dict[tuple[int, int], ZnccScore] = {}
     if not candidate_ids:
         return scores
 
@@ -3100,6 +3195,7 @@ def _compute_zncc_for_candidates(
     if not cand_recs:
         return scores
 
+    decoy_radius = float(settings.peak_ratio_exclusion_radius)
     keys = [(int(rec.ID[0]), int(rec.ID[1])) for rec in cand_recs]
     source_points = np.asarray(
         [np.asarray(rec.SourcePoint, dtype=np.float64).reshape(2) for rec in cand_recs],
@@ -3110,6 +3206,10 @@ def _compute_zncc_for_candidates(
     peaks = np.asarray(
         [np.asarray(rec.peak, dtype=np.float64).reshape(2) for rec in cand_recs],
         dtype=np.float64)
+    roi_kinds = [
+        getattr(rec, 'roi_candidate', None) or 'rigid'
+        for rec in cand_recs
+    ]
 
     try:
         rigid_transforms = ApproximateRigidTransformBySourcePoints(
@@ -3130,38 +3230,92 @@ def _compute_zncc_for_candidates(
             target_points=target_points,
             alignment_area=settings.cell_size)
         if batched is not None:
-            fixed_stack, moving_stack, _nan_mask = batched
-            shifted = _shift_moving_stack_by_peaks(
-                moving_stack, peaks, travel_eps=travel_eps)
-            cell_scores = _masked_zncc_stack(fixed_stack, shifted)
-            for key, score in zip(keys, cell_scores):
-                scores[key] = float(score)
-            return scores
+            fixed_stack, rigid_moving, rigid_nan = batched
+            xp = cp.get_array_module(fixed_stack)
+            exact_moving = None
+            exact_nan = None
+            needs_exact = any(k == 'exact' for k in roi_kinds)
+            if needs_exact and not isinstance(
+                    transform, nornir_imageregistration.transforms.IRigidTransform):
+                exact_moving, exact_nan = BuildExactMovingROIsBatched(
+                    transform=transform,
+                    source_image=source_image,
+                    source_image_stats=settings.source_image_stats,
+                    target_points=target_points,
+                    alignment_area=settings.cell_size,
+                    xp=xp)
+
+            for kind, moving, nan_mask in (
+                    ('rigid', rigid_moving, rigid_nan),
+                    ('exact', exact_moving, exact_nan),
+            ):
+                if moving is None:
+                    continue
+                idx = [i for i, k in enumerate(roi_kinds) if k == kind]
+                if not idx:
+                    continue
+                idx_arr = np.asarray(idx, dtype=np.int64)
+                keep_dev = xp.asarray(idx_arr)
+                sub_fixed = fixed_stack[keep_dev]
+                sub_moving = moving[keep_dev]
+                sub_mask = None if nan_mask is None else ~nan_mask[keep_dev]
+                z_peak, z_med, z_max, prom = _zncc_prominence_stack(
+                    sub_fixed, sub_moving, peaks[idx_arr],
+                    valid_mask=sub_mask,
+                    decoy_radius=decoy_radius,
+                    travel_eps=travel_eps)
+                for local_i, global_i in enumerate(idx):
+                    scores[keys[global_i]] = ZnccScore(
+                        peak=float(z_peak[local_i]),
+                        decoy_med=float(z_med[local_i]),
+                        decoy_max=float(z_max[local_i]),
+                        prominence=float(prom[local_i]))
+
+            missing = [i for i, k in enumerate(keys) if k not in scores]
+            if missing:
+                idx_arr = np.asarray(missing, dtype=np.int64)
+                keep_dev = xp.asarray(idx_arr)
+                sub_mask = None if rigid_nan is None else ~rigid_nan[keep_dev]
+                z_peak, z_med, z_max, prom = _zncc_prominence_stack(
+                    fixed_stack[keep_dev], rigid_moving[keep_dev], peaks[idx_arr],
+                    valid_mask=sub_mask,
+                    decoy_radius=decoy_radius,
+                    travel_eps=travel_eps)
+                for local_i, global_i in enumerate(missing):
+                    scores[keys[global_i]] = ZnccScore(
+                        peak=float(z_peak[local_i]),
+                        decoy_med=float(z_med[local_i]),
+                        decoy_max=float(z_max[local_i]),
+                        prominence=float(prom[local_i]))
+            if len(scores) == len(keys):
+                return scores
     except Exception as e:
-        # Recoverable: the per-candidate fallback below still produces scores. Logged
-        # because silence here made a genuine defect in the batched ZNCC path look
-        # like normal operation, permanently degraded to the slow path.
         prettyoutput.LogErr(
             f'Batched ZNCC failed for {len(keys)} lock candidates, '
             f'falling back to per-candidate scoring:\n{e}')
 
-    # Fallback: per-candidate extract (batched path unavailable or failed).
-    # A systematic failure fails every candidate, so report the first few in full
-    # and then a count. Grids run to thousands of cells.
     failed_keys: list[tuple[int, int]] = []
     for i, _rec in enumerate(cand_recs):
         key = keys[i]
+        if key in scores:
+            continue
         try:
-            rigid = ApproximateRigidTransformBySourcePoints(
-                input_transform=transform,
-                source_points=source_points[i:i + 1],
-                cell_size=settings.cell_size,
-                reference_pose=reference_pose,
-                ring_scale_fraction_max=settings.ring_scale_fraction_max,
-                ring_angle_max_degrees=settings.ring_angle_max_degrees,
-                ring_allow_flip_change=settings.ring_allow_flip_change)[0]
+            use_exact = (
+                roi_kinds[i] == 'exact'
+                and not isinstance(transform, nornir_imageregistration.transforms.IRigidTransform))
+            if use_exact:
+                candidate_transform = transform
+            else:
+                candidate_transform = ApproximateRigidTransformBySourcePoints(
+                    input_transform=transform,
+                    source_points=source_points[i:i + 1],
+                    cell_size=settings.cell_size,
+                    reference_pose=reference_pose,
+                    ring_scale_fraction_max=settings.ring_scale_fraction_max,
+                    ring_angle_max_degrees=settings.ring_angle_max_degrees,
+                    ring_allow_flip_change=settings.ring_allow_flip_change)[0]
             rois = BuildAlignmentROIs(
-                transform=rigid,
+                transform=candidate_transform,
                 targetImage_param=settings.target_image,
                 sourceImage_param=settings.source_image,
                 target_image_stats=settings.target_image_stats,
@@ -3169,15 +3323,24 @@ def _compute_zncc_for_candidates(
                 target_controlpoint=target_points[i],
                 alignmentArea=settings.cell_size,
                 defer_oob_check=False)
-            scores[key] = _zncc_at_claimed_peak(
-                rois[0], rois[1], peaks[i], travel_eps=travel_eps)
+            fixed_roi = rois[0]
+            moving_roi = rois[1]
+            nan_mask = rois[2] if len(rois) > 2 else None
+            valid = None if nan_mask is None else ~np.asarray(nan_mask, dtype=bool)
+            fixed_stack = np.asarray(fixed_roi)[None, ...]
+            moving_stack = np.asarray(moving_roi)[None, ...]
+            mask_stack = None if valid is None else np.asarray(valid)[None, ...]
+            z_peak, z_med, z_max, prom = _zncc_prominence_stack(
+                fixed_stack, moving_stack, peaks[i:i + 1],
+                valid_mask=mask_stack,
+                decoy_radius=decoy_radius,
+                travel_eps=travel_eps)
+            scores[key] = ZnccScore(
+                peak=float(z_peak[0]),
+                decoy_med=float(z_med[0]),
+                decoy_max=float(z_max[0]),
+                prominence=float(prom[0]))
         except Exception as e:
-            # Leave the key absent rather than storing 0.0. Zero is a legitimate
-            # ZNCC meaning "does not correlate", so recording it made an
-            # infrastructure failure indistinguishable from a measured verdict and
-            # wrote a score that was never measured into the pass diagnostics.
-            # classify_roles fails closed on a missing key (IDENTITY_SUSPECT, never
-            # locks) and pass_diagnostics already reports missing keys as NaN.
             failed_keys.append(key)
             if len(failed_keys) <= _ZNCC_FAILURE_LOG_LIMIT:
                 prettyoutput.LogErr(f'ZNCC scoring failed for lock candidate {key}:\n{e}')
@@ -3778,12 +3941,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         low_content_ids=source_content_cache.low_content_ids,
                         field_mode=field_mode,
                         field_suspect_ids=field_suspect_ids,
+                        zncc_prominence_min=float(settings.zncc_prominence_min),
                         travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
                     )
                 classify_s = time.perf_counter() - classify_t0
                 lockable_ids = {
                     key for key, role in role_result.role_by_id.items() if role == Role.LOCKABLE
                 }
+                prom_finite = role_result.zncc_prominence[np.isfinite(role_result.zncc_prominence)]
+                zncc_prom_med = float(np.median(prom_finite)) if prom_finite.size else float('nan')
                 prettyoutput.Log(
                     f'field_mode={field_mode.name} '
                     f'reject={role_result.n_reject} free={role_result.n_free} '
@@ -3795,6 +3961,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     f'zncc_eval={role_result.n_zncc_eval} '
                     f'zncc_pass={role_result.n_zncc_pass} '
                     f'zncc_fail={role_result.n_zncc_fail} '
+                    f'zncc_prom_med={zncc_prom_med:.2f} '
                     f'source_low_content_skip={len(source_content_cache.low_content_ids)} '
                     f'classify_s={classify_s:.3f} zncc_s={zncc_s:.3f}')
 
@@ -4532,7 +4699,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                 weight=arecord.weight,
                 angle=arecord.angle,
                 flipped_ud=arecord.flippedud,
-                peak_ratio=arecord.peak_ratio)
+                peak_ratio=arecord.peak_ratio,
+                roi_candidate=getattr(arecord, 'roi_candidate', None))
 
             if nornir_imageregistration.in_debug_mode():
                 erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
@@ -4541,8 +4709,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                 xp = cp.get_array_module(source_roi)
                 erec.TranslatedSourceROI = nornir_imageregistration.CropImage(
                     source_roi,
-                    int(np.floor(-erec.peak[1])),
-                    int(np.floor(-erec.peak[0])),
+                    int(np.round(-erec.peak[1])),
+                    int(np.round(-erec.peak[0])),
                     source_roi.shape[1],
                     source_roi.shape[0],
                     cval=float(xp.median(source_roi)))
@@ -4600,14 +4768,16 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         if arecord is None:
             continue
 
-        erec = nornir_imageregistration.EnhancedAlignmentRecord(ID=t.key,
-                                                                TargetPoint=targetPoints[t.ID, :],
-                                                                SourcePoint=sourcePoints[t.ID, :],
-                                                                peak=arecord.peak,
-                                                                weight=arecord.weight,
-                                                                angle=arecord.angle,
-                                                                flipped_ud=arecord.flippedud,
-                                                                peak_ratio=arecord.peak_ratio)
+        erec = nornir_imageregistration.EnhancedAlignmentRecord(
+            ID=t.key,
+            TargetPoint=targetPoints[t.ID, :],
+            SourcePoint=sourcePoints[t.ID, :],
+            peak=arecord.peak,
+            weight=arecord.weight,
+            angle=arecord.angle,
+            flipped_ud=arecord.flippedud,
+            peak_ratio=arecord.peak_ratio,
+            roi_candidate=getattr(arecord, 'roi_candidate', None))
 
         if nornir_imageregistration.in_debug_mode():
             erec.TargetROI = arecord.TargetROI  # type: ignore[attr-defined]
@@ -4616,8 +4786,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             xp = cp.get_array_module(source_roi)
             erec.TranslatedSourceROI = nornir_imageregistration.CropImage(
                 source_roi,
-                int(np.floor(-erec.peak[1])),
-                int(np.floor(-erec.peak[0])),
+                int(np.round(-erec.peak[1])),
+                int(np.round(-erec.peak[0])),
                 source_roi.shape[1],
                 source_roi.shape[0],
                 cval=float(xp.median(source_roi)))
@@ -5431,6 +5601,8 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
 
     result, target_image_roi, source_image_roi, winning_transform = max(
         candidates, key=lambda c: c[0].weight)
+    result.roi_candidate = (  # type: ignore[attr-defined]
+        'rigid' if winning_transform is rigid_transform else 'exact')
 
     source_controlpoint = np.asarray(nornir_imageregistration.EnsureNumpyArray(
         winning_transform.InverseTransform(_target_pt_np.reshape(1, 2))), dtype=np.float64).ravel()[:2]

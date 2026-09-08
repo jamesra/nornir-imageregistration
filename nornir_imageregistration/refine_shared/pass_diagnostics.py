@@ -43,6 +43,9 @@ class PassDiagnosticRow:
     role: int = -1
     reject_reason: int = 0
     zncc: float = float('nan')
+    zncc_decoy_med: float = float('nan')
+    zncc_prominence: float = float('nan')
+    roi_candidate: str = ''
     lock_candidate: bool = False
     source_content: float = float('nan')
 
@@ -70,11 +73,14 @@ def build_pass_diagnostic_rows(
         smoothed_by_id: Mapping[tuple[int, int], object] | None = None,
         role_by_id: Mapping[tuple[int, int], int] | None = None,
         reject_reason_by_id: Mapping[tuple[int, int], int] | None = None,
-        zncc_by_id: Mapping[tuple[int, int], float] | None = None,
+        zncc_by_id: Mapping[tuple[int, int], object] | None = None,
         lock_candidate_ids: set[tuple[int, int]] | None = None,
         source_content_by_id: Mapping[tuple[int, int], float] | None = None,
 ) -> list[PassDiagnosticRow]:
-    """Assemble per-cell diagnostic rows for one refine pass."""
+    """Assemble per-cell diagnostic rows for one refine pass.
+
+    ``zncc_by_id`` values may be ``ZnccScore`` or a bare float peak.
+    """
     discontinuity_ids = discontinuity_ids or set()
     smoothed_by_id = smoothed_by_id or {}
     finalize_candidates = finalize_candidates or {}
@@ -132,7 +138,20 @@ def build_pass_diagnostic_rows(
         stable = int(getattr(cand, 'consecutive_stable', 0)) if cand is not None else 0
         raw_ratio = getattr(rec, 'peak_ratio', None)
         peak_ratio = float(raw_ratio) if raw_ratio is not None else float('nan')
-        zncc_val = zncc_by_id.get(key, float('nan'))
+        zncc_raw = zncc_by_id.get(key)
+        if zncc_raw is None:
+            zncc_val = float('nan')
+            zncc_decoy = float('nan')
+            zncc_prom = float('nan')
+        elif hasattr(zncc_raw, 'peak'):
+            zncc_val = float(zncc_raw.peak)
+            zncc_decoy = float(zncc_raw.decoy_med)
+            zncc_prom = float(zncc_raw.prominence)
+        else:
+            zncc_val = float(zncc_raw)
+            zncc_decoy = float('nan')
+            zncc_prom = float('nan')
+        roi_cand = getattr(rec, 'roi_candidate', None) or ''
         src_content = source_content_by_id.get(key, float('nan'))
         rows.append(PassDiagnosticRow(
             grid_row=int(key[0]),
@@ -159,7 +178,10 @@ def build_pass_diagnostic_rows(
             peak_ratio=peak_ratio,
             role=int(role_by_id.get(key, -1)),
             reject_reason=int(reject_reason_by_id.get(key, 0)),
-            zncc=float(zncc_val) if zncc_val is not None else float('nan'),
+            zncc=zncc_val,
+            zncc_decoy_med=zncc_decoy,
+            zncc_prominence=zncc_prom,
+            roi_candidate=str(roi_cand),
             lock_candidate=key in lock_candidate_ids,
             source_content=float(src_content) if src_content is not None else float('nan'),
         ))
@@ -213,6 +235,9 @@ def write_pass_diagnostics(
         'role': np.asarray([r.role for r in rows], dtype=np.int64),
         'reject_reason': np.asarray([r.reject_reason for r in rows], dtype=np.int64),
         'zncc': np.asarray([r.zncc for r in rows], dtype=np.float64),
+        'zncc_decoy_med': np.asarray([r.zncc_decoy_med for r in rows], dtype=np.float64),
+        'zncc_prominence': np.asarray([r.zncc_prominence for r in rows], dtype=np.float64),
+        'roi_candidate': np.asarray([r.roi_candidate for r in rows]),
         'lock_candidate': np.asarray([r.lock_candidate for r in rows], dtype=bool),
         'source_content': np.asarray([r.source_content for r in rows], dtype=np.float64),
     }
@@ -271,10 +296,11 @@ def _write_heatmaps(
         'peak_ratio': np.asarray([r.peak_ratio for r in rows], dtype=np.float64),
         'role': np.asarray([float(r.role) for r in rows], dtype=np.float64),
         'zncc': np.asarray([r.zncc for r in rows], dtype=np.float64),
+        'zncc_prominence': np.asarray([r.zncc_prominence for r in rows], dtype=np.float64),
     }
     written: dict[str, str] = {}
     for name, values in maps.items():
-        if name in ('raw_vs_smooth_delta', 'peak_ratio', 'zncc') and not np.any(np.isfinite(values)):
+        if name in ('raw_vs_smooth_delta', 'peak_ratio', 'zncc', 'zncc_prominence') and not np.any(np.isfinite(values)):
             continue
         if name == 'role' and not np.any(values >= 0):
             continue

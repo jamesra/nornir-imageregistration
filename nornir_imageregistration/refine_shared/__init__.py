@@ -11,19 +11,24 @@ from nornir_imageregistration.refine_shared.anchor_smooth import (
 from nornir_imageregistration.refine_shared.cell_validity import is_alignable_cell
 from nornir_imageregistration.refine_shared.cell_roles import (
     DEFAULT_IDENTITY_ZNCC_MIN,
+    DEFAULT_ZNCC_PROMINENCE_MIN,
     FieldMode,
     RejectReason,
     Role,
     RoleClassificationResult,
+    ZnccScore,
     classify_field,
     classify_roles,
+    coerce_zncc_score,
     exclude_reject_mesh_records,
     field_brand_identity_suspect_ids,
     unique_large_travel_raw_preserve_ids,
     coherent_discontinuity_raw_preserve_ids,
     active_unique_field_is_hot,
     identity_zncc_min_threshold,
+    zncc_prominence_min_threshold,
     masked_zncc,
+    zncc_score_passes,
 )
 from nornir_imageregistration.refine_shared.cell_history import (
     CellPassHistoryStore,
