@@ -28,6 +28,7 @@ except ImportError:
 
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
+from PIL import Image as PILImage
 import scipy
 
 import nornir_pools
@@ -954,6 +955,102 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
                                            cmap='gray', bpp=8)
 
     return warpedImage
+
+
+def _grayscale_host_array(image: NDArray) -> NDArray:
+    """Host NumPy 2D grayscale array suitable for overlay/diff combine."""
+    host = nornir_imageregistration.EnsureNumpyArray(image)
+    if host.ndim > 2:
+        host = nornir_imageregistration.ForceGrayscale(host)
+    return np.asarray(host)
+
+
+def _resize_image_to_shape(image: NDArray, target_shape: tuple[int, int]) -> NDArray:
+    """Resize a 2D image to ``target_shape`` (height, width) when sizes differ."""
+    if tuple(image.shape[:2]) == tuple(target_shape):
+        return image
+    factors = (target_shape[0] / image.shape[0], target_shape[1] / image.shape[1])
+    return scipy.ndimage.zoom(image, factors, order=1)
+
+
+def _save_rgb_png(path: str, rgb: NDArray) -> None:
+    """Write an HxWx3 uint8 array as an RGB PNG."""
+    dirname = os.path.dirname(path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
+    im = PILImage.fromarray(np.asarray(rgb, dtype=np.uint8), mode='RGB')
+    try:
+        im.save(path)
+    finally:
+        im.close()
+
+
+def WriteStosPreviewImages(transformData,
+                           *,
+                           overlay_path: str | None = None,
+                           diff_path: str | None = None,
+                           warped_path: str | None = None,
+                           fixedImage=None,
+                           warpedImage=None,
+                           scalar: float = 1.0,
+                           CropUndefined: bool = False) -> NDArray:
+    """Warp mapped→control and optionally write overlay, difference, and warped PNGs.
+
+    Overlay uses Pyre ChannelDodge colors: mapped/source → magenta (R+B),
+    control/target → green (G). Diff is ``|control − warped|`` as grayscale.
+    Any of ``overlay_path``, ``diff_path``, or ``warped_path`` that is ``None``
+    skips that product. Performs a single warp regardless of how many outputs
+    are requested.
+
+    :returns: Host NumPy warped image array (control/target space).
+    """
+    _, stos = _ParameterToStosTransformAndFile(transformData)
+
+    control_param = fixedImage
+    if control_param is None:
+        if stos is None:
+            raise ValueError(
+                "fixedImage is required when transformData does not provide a .stos control path")
+        control_param = stos.ControlImageFullPath
+
+    warped = TransformStos(transformData,
+                           OutputFilename=None,
+                           fixedImage=fixedImage,
+                           warpedImage=warpedImage,
+                           scalar=scalar,
+                           CropUndefined=CropUndefined)
+    if warped is None:
+        raise ValueError(f"TransformStos produced no image for {transformData!r}")
+
+    warped_host = _grayscale_host_array(warped)
+    target_shape = (int(warped_host.shape[0]), int(warped_host.shape[1]))
+
+    need_control = overlay_path is not None or diff_path is not None
+    control_host: NDArray | None = None
+    if need_control:
+        control_host = _grayscale_host_array(
+            nornir_imageregistration.ImageParamToImageArray(control_param))
+        control_host = _resize_image_to_shape(control_host, target_shape)
+
+    if warped_path is not None:
+        nornir_imageregistration.SaveImage(warped_path, warped_host, cmap='gray', bpp=8)
+
+    if overlay_path is not None:
+        assert control_host is not None
+        warped_u8 = nornir_imageregistration.image_to_uint8(warped_host)
+        control_u8 = nornir_imageregistration.image_to_uint8(control_host)
+        # Mapped/source → magenta (R+B); control/target → green (G)
+        rgb = np.stack([warped_u8, control_u8, warped_u8], axis=-1)
+        _save_rgb_png(overlay_path, rgb)
+
+    if diff_path is not None:
+        assert control_host is not None
+        warped_u8 = nornir_imageregistration.image_to_uint8(warped_host).astype(np.float32)
+        control_u8 = nornir_imageregistration.image_to_uint8(control_host).astype(np.float32)
+        diff = np.abs(control_u8 - warped_u8).astype(np.uint8)
+        nornir_imageregistration.SaveImage(diff_path, diff, bpp=8)
+
+    return warped_host
 
 
 def _host_grid_division_from_grid(grid: nornir_imageregistration.ITKGridDivision,
