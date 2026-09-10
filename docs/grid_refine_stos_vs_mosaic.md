@@ -132,12 +132,29 @@ FieldMode semantics. Cross-link: `NORNIR_REFINE_PHASE_TIMING=1` adds
 
 | Env | Default | Meaning / effect |
 |-----|---------|------------------|
-| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | `0.25` | Min masked ZNCC for PC-pass lock candidates. Below → `IDENTITY_SUSPECT` (never lock). Above → may be `LOCKABLE`. |
+| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | unset (off) | **Legacy** optional absolute ZNCC floor; when set, also required for LOCKABLE. Not the primary lock gate. |
 | `NORNIR_REFINE_LOW_CONTENT_STD_MIN` | `1e-3` | Min source ROI intensity std. Below → sticky measure-skip + `REJECT(LOW_CONTENT)` for that grid ID for the rest of the refine. |
 
-Unset means use the code default. Read sites:
+Unset means use the code default for `LOW_CONTENT`; for `IDENTITY_ZNCC_MIN`, unset means the absolute floor is **disabled**. Read sites:
 `refine_shared/runtime_config.py`, `cell_roles.identity_zncc_min_threshold`,
 `cell_validity.low_content_std_min_threshold`.
+
+### Best-effort mode (sub-par pairs)
+
+When lock-candidates are mostly travel≈0 **and** a non-trivial fraction of cells
+still show large residual travel, refine enters **best-effort** mode
+(`refine_shared/best_effort.py`):
+
+- Travel≈0 locks must also clear a **pass-relative** prominence quantile (not
+  prominence-min alone).
+- Upper-ranked `PEAK_AMBIGUOUS` cells (by `peak_ratio` within that set) may become
+  `FREE` for mesh inclusion; they still do not finalize. `LOW_CONTENT` is never
+  promoted.
+- Healthy settles (identity locks without high-travel tension) leave best-effort off.
+
+ZNCC decoy rings scale with cell size relative to the 128 px reference so
+prominence geometry matches across CellArea 128/256/512. Decoy sigma uses a
+fixed ZNCC-unit floor (not `1/sqrt(N)`).
 
 ### Manual regression checklist
 

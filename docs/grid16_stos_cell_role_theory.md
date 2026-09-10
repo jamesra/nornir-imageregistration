@@ -147,3 +147,15 @@ include Role/ZNCC work).
 Unset means use the code default (for the absolute floor, unset means disabled).
 See Runtime configuration in
 [`grid_refine_stos_vs_mosaic.md`](grid_refine_stos_vs_mosaic.md).
+
+## Best-effort mode
+
+When lock-candidates are mostly travel≈0 while a non-trivial fraction of the
+pass still has large residual travel, `assess_best_effort_mode` activates:
+
+- Travel≈0 `LOCKABLE` also requires prominence at/above the pass lock-cand
+  prominence quantile (default 0.75).
+- Upper-ranked `PEAK_AMBIGUOUS` cells may be promoted to `FREE` for mesh only
+  (`LOW_CONTENT` never promoted).
+
+Healthy identity settles without high-travel tension leave the mode off.

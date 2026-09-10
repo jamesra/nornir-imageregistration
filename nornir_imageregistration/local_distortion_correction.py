@@ -119,9 +119,17 @@ from nornir_imageregistration.refine_shared.adaptive_cell_size import (
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 from nornir_imageregistration.refine_shared.peak_ratio_gates import finite_peak_ratio, PEAK_RATIO_MIN
+from nornir_imageregistration.refine_shared.best_effort import (
+    IDENTITY_PROMINENCE_QUANTILE,
+    apply_best_effort_ambiguous_mesh_promotion,
+    assess_best_effort_mode,
+    ranked_ambiguous_mesh_ids,
+)
+from nornir_imageregistration.refine_shared.cell_roles import RejectReason
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
+from dataclasses import replace
 
 try:
     import cupyx
@@ -3110,8 +3118,14 @@ def _zncc_prominence_stack(
     zero shift when ``||peak|| >= decoy_radius`` (far enough that identity is
     an independent rival, not a near-duplicate of the claimed peak).
 
+    Decoy MAD-sigma is floored by ``ZNCC_DECOY_SIGMA_FLOOR`` (absolute ZNCC
+    units) so prominence is comparable across cell sizes; the former
+    ``1/sqrt(N_valid)`` floor coupled units to ROI pixel count.
+
     Returns ``(z_peak, z_decoy_med, z_decoy_max, prominence)`` as host float64 arrays.
     """
+    from nornir_imageregistration.refine_shared.best_effort import ZNCC_DECOY_SIGMA_FLOOR
+
     peaks_np = np.asarray(peaks, dtype=np.float64).reshape(-1, 2)
     n = int(fixed_stack.shape[0])
     if n == 0:
@@ -3147,17 +3161,7 @@ def _zncc_prominence_stack(
         z_decoy_max = np.nanmax(decoy_scores, axis=1)
         mad = np.nanmedian(np.abs(decoy_scores - z_decoy_med[:, None]), axis=1)
     sigma = 1.4826 * mad
-    # Floor sigma by 1/sqrt(N_valid) so tiny decoy scatter on large cells cannot
-    # explode prominence.
-    cell_h = int(fixed_stack.shape[1])
-    cell_w = int(fixed_stack.shape[2])
-    if valid_mask is not None:
-        n_valid = nornir_imageregistration.EnsureNumpyArray(
-            valid_mask.reshape(n, -1).sum(axis=1)).astype(np.float64)
-    else:
-        n_valid = np.full(n, float(cell_h * cell_w), dtype=np.float64)
-    sigma_floor = 1.0 / np.sqrt(np.maximum(n_valid, 1.0))
-    sigma = np.maximum(sigma, sigma_floor)
+    sigma = np.maximum(sigma, float(ZNCC_DECOY_SIGMA_FLOOR))
     prominence = (z_peak - z_decoy_med) / sigma
     prominence = np.where(np.isfinite(prominence), prominence, 0.0)
     z_decoy_med = np.where(np.isfinite(z_decoy_med), z_decoy_med, 0.0)
@@ -3196,6 +3200,12 @@ def _compute_zncc_for_candidates(
         return scores
 
     decoy_radius = float(settings.peak_ratio_exclusion_radius)
+    cell_size = np.asarray(settings.cell_size, dtype=np.int64).reshape(-1)
+    if cell_size.shape[0] >= 2:
+        # settings.cell_size is (width, height); stack ROIs are (n, H, W).
+        from nornir_imageregistration.refine_shared.best_effort import zncc_decoy_radius_px
+        decoy_radius = zncc_decoy_radius_px(
+            int(cell_size[1]), int(cell_size[0]), base_radius=decoy_radius)
     keys = [(int(rec.ID[0]), int(rec.ID[1])) for rec in cand_recs]
     source_points = np.asarray(
         [np.asarray(rec.SourcePoint, dtype=np.float64).reshape(2) for rec in cand_recs],
@@ -3943,7 +3953,67 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         field_suspect_ids=field_suspect_ids,
                         zncc_prominence_min=float(settings.zncc_prominence_min),
                         travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                        best_effort_active=False,
                     )
+                    best_effort = assess_best_effort_mode(
+                        alignment_points,
+                        lock_candidate=role_result.lock_candidate,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                    )
+                    if best_effort.active:
+                        role_result = classify_roles(
+                            alignment_points,
+                            transform_cutoff=finalize_cutoff_preview,
+                            max_travel=float(settings.max_travel_for_finalization),
+                            per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                            soft_weight_cutoff=None,
+                            discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
+                            zncc_by_id=zncc_by_id,
+                            low_content_ids=source_content_cache.low_content_ids,
+                            field_mode=field_mode,
+                            field_suspect_ids=field_suspect_ids,
+                            zncc_prominence_min=float(settings.zncc_prominence_min),
+                            travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                            best_effort_active=True,
+                            identity_prominence_quantile=IDENTITY_PROMINENCE_QUANTILE,
+                        )
+                        promote_ids = ranked_ambiguous_mesh_ids(
+                            alignment_points,
+                            role_result.reject_reasons,
+                            max_travel=float(inclusion_travel),
+                            travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
+                        )
+                        promote_ids -= source_content_cache.low_content_ids
+                        if promote_ids:
+                            new_roles, new_reasons, new_by_id = (
+                                apply_best_effort_ambiguous_mesh_promotion(
+                                    list(role_result.roles),
+                                    list(role_result.reject_reasons),
+                                    alignment_points,
+                                    promote_ids,
+                                ))
+                            n_promoted = sum(
+                                1 for k in promote_ids if new_by_id.get(k) == Role.FREE)
+                            n_peak_amb = sum(
+                                1 for r in new_reasons if r == RejectReason.PEAK_AMBIGUOUS)
+                            n_low = sum(1 for r in new_reasons if r == RejectReason.LOW_CONTENT)
+                            role_result = replace(
+                                role_result,
+                                roles=new_roles,
+                                reject_reasons=new_reasons,
+                                role_by_id=new_by_id,
+                                n_peak_ambiguous=n_peak_amb,
+                                n_low_content=n_low,
+                                n_reject=n_peak_amb + n_low,
+                                n_free=sum(1 for r in new_roles if r == Role.FREE),
+                                n_lockable=sum(1 for r in new_roles if r == Role.LOCKABLE),
+                                n_identity_suspect=sum(
+                                    1 for r in new_roles if r == Role.IDENTITY_SUSPECT),
+                            )
+                            prettyoutput.Log(
+                                f'best_effort mesh promote_ambiguous={n_promoted} '
+                                f'(of {len(promote_ids)} ranked)')
                 classify_s = time.perf_counter() - classify_t0
                 lockable_ids = {
                     key for key, role in role_result.role_by_id.items() if role == Role.LOCKABLE
@@ -3952,6 +4022,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 zncc_prom_med = float(np.median(prom_finite)) if prom_finite.size else float('nan')
                 prettyoutput.Log(
                     f'field_mode={field_mode.name} '
+                    f'best_effort={int(best_effort.active)} '
+                    f'id_lc_frac={best_effort.identity_lock_cand_frac:.2f} '
+                    f'amb_mover_frac={best_effort.high_travel_frac:.3f} '
                     f'reject={role_result.n_reject} free={role_result.n_free} '
                     f'lockable={role_result.n_lockable} '
                     f'identity_suspect={role_result.n_identity_suspect} '

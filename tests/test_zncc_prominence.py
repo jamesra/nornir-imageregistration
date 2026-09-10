@@ -17,14 +17,16 @@ class TestZnccProminenceStack(unittest.TestCase):
 
     def test_shifted_copy_high_prominence_any_cell_size(self) -> None:
         rng = np.random.default_rng(0)
-        for cell in (32, 64, 128):
+        for cell in (32, 64, 128, 256):
             fixed = rng.normal(size=(cell, cell)).astype(np.float32)
             peak = np.array([3.0, -2.0], dtype=np.float64)
             # Moving is offset by +peak relative to fixed; scoring shifts by -peak.
             moving = np.roll(np.roll(fixed, -int(peak[0]), axis=0), -int(peak[1]), axis=1)
+            from nornir_imageregistration.refine_shared.best_effort import zncc_decoy_radius_px
+            radius = zncc_decoy_radius_px(cell, cell, base_radius=10.0)
             z_peak, _z_med, z_max, prom = ldc._zncc_prominence_stack(
                 fixed[None], moving[None], peak.reshape(1, 2),
-                decoy_radius=5.0, travel_eps=0.5)
+                decoy_radius=radius, travel_eps=0.5)
             self.assertGreater(float(z_peak[0]), float(z_max[0]), msg=f'cell={cell}')
             self.assertGreater(float(prom[0]), 4.0, msg=f'cell={cell} prom={prom[0]}')
             self.assertGreater(float(z_peak[0]), 0.9, msg=f'cell={cell}')

@@ -659,6 +659,8 @@ def classify_roles(
         zncc_prominence_min: float | None = None,
         peak_ratio_min: float = PEAK_RATIO_MIN,
         travel_eps: float = 0.5,
+        best_effort_active: bool = False,
+        identity_prominence_quantile: float = 0.75,
 ) -> RoleClassificationResult:
     """Classify each free record into a Role for this pass.
 
@@ -669,6 +671,11 @@ def classify_roles(
     ``zncc_by_id`` values may be ``ZnccScore`` or a bare float peak (legacy / tests).
     ``identity_zncc_min``: pass a float to force an absolute floor; omit or pass
     ``None`` to use the env override (itself None when unset).
+
+    When ``best_effort_active``, travel≈0 lock-candidates must also clear the
+    ``identity_prominence_quantile`` of lock-cand prominences on this pass
+    (relative bar); otherwise they become ``IDENTITY_SUSPECT`` even if the
+    absolute prominence min passes.
     """
     n = len(records)
     zncc_by_id = zncc_by_id or {}
@@ -732,6 +739,8 @@ def classify_roles(
     n_zncc_pass = 0
     n_zncc_fail = 0
     role_by_id: dict[tuple[int, int], Role] = {}
+    # (index, key, travel, score_or_None) for lock-cands needing ZNCC role assignment
+    pending_zncc: list[tuple[int, tuple[int, int], float, ZnccScore | None]] = []
 
     for i, record in enumerate(records):
         key = (int(record.ID[0]), int(record.ID[1]))  # type: ignore[arg-type]
@@ -763,15 +772,16 @@ def classify_roles(
             continue
 
         score = coerce_zncc_score(zncc_by_id.get(key))
+        if score is not None:
+            zncc_arr[i] = score.peak
+            prom_arr[i] = score.prominence
+            decoy_arr[i] = score.decoy_med
 
-        # Field consistency brands identity suspects without needing ZNCC.
+        # Field consistency brands identity suspects without needing ZNCC pass.
         if key in field_suspect_ids:
             roles[i] = Role.IDENTITY_SUSPECT
             role_by_id[key] = Role.IDENTITY_SUSPECT
             if score is not None:
-                zncc_arr[i] = score.peak
-                prom_arr[i] = score.prominence
-                decoy_arr[i] = score.decoy_med
                 n_zncc_eval += 1
                 if zncc_score_passes(score, prominence_min=prom_min, identity_zncc_min=zncc_min):
                     n_zncc_pass += 1
@@ -779,16 +789,34 @@ def classify_roles(
                     n_zncc_fail += 1
             continue
 
-        # Secondary ZNCC prominence at lock candidacy.
+        pending_zncc.append((i, key, travel, score))
+
+    id_prom_floor: float | None = None
+    identity_travel_bar = float(travel_eps)
+    if best_effort_active:
+        from nornir_imageregistration.refine_shared.best_effort import identity_prominence_floor
+        id_prom_floor = identity_prominence_floor(
+            prom_arr, lock_cand, quantile=float(identity_prominence_quantile))
+        identity_travel_bar = max(float(travel_eps), 0.25 * float(max_travel))
+
+    for i, key, travel, score in pending_zncc:
         if score is not None:
-            zncc_arr[i] = score.peak
-            prom_arr[i] = score.prominence
-            decoy_arr[i] = score.decoy_med
             n_zncc_eval += 1
             if zncc_score_passes(score, prominence_min=prom_min, identity_zncc_min=zncc_min):
-                roles[i] = Role.LOCKABLE
-                n_zncc_pass += 1
-                role_by_id[key] = Role.LOCKABLE
+                # Best-effort: near-settled locks need relative prominence rank too.
+                if (
+                        best_effort_active
+                        and travel <= identity_travel_bar
+                        and id_prom_floor is not None
+                        and float(score.prominence) < float(id_prom_floor)
+                ):
+                    roles[i] = Role.IDENTITY_SUSPECT
+                    n_zncc_fail += 1
+                    role_by_id[key] = Role.IDENTITY_SUSPECT
+                else:
+                    roles[i] = Role.LOCKABLE
+                    n_zncc_pass += 1
+                    role_by_id[key] = Role.LOCKABLE
             else:
                 roles[i] = Role.IDENTITY_SUSPECT
                 n_zncc_fail += 1
