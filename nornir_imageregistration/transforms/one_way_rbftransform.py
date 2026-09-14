@@ -82,21 +82,25 @@ def _tps_beta_matrix(
     """Build the thin-plate spline Beta matrix on *xp* (pairwise RBF plus linear terms)."""
     # Duplicate check is N control points (typically hundreds). CuPy unique on
     # that size is slower than a 2KB download plus NumPy unique.
-    if ControlPointsHaveDuplicatePositions(array_to_numpy_host(points)):
+    points_host = array_to_numpy_host(points)
+    if ControlPointsHaveDuplicatePositions(points_host):
         raise ValueError("Cannot have duplicate points in transform")
 
-    points = xp.asarray(points)
+    # Pairwise distances stay on the host. CuVS on GPU 2-D control-point views
+    # has returned a nonzero diagonal and off-diagonal zeros for distinct
+    # points, which makes r^2 log(r) NaN and the weight solve collapse.
+    distances_host = pairwise_cdist(points_host, points_host) if points_host.shape[0] >= 2 else None
+    points = xp.asarray(points_host)
     num_pts = int(points.shape[0])
     beta = xp.zeros((num_pts + 3, num_pts + 3), dtype=np.float32)
     if num_pts >= 2:
-        distances = pairwise_cdist(points, points)
-        if xp is cp and cp.get_array_module(distances) is np:
-            distances = cp.asarray(distances)
-        eye = xp.eye(num_pts, dtype=bool)
-        # r^2 log(r) is undefined at r=0; the old loop skipped the diagonal.
-        dist_safe = xp.where(eye, xp.asarray(1.0, dtype=distances.dtype), distances)
+        distances = xp.asarray(distances_host)
+        # φ(0) = 0 for the thin-plate kernel. Guard every r==0, not only the
+        # diagonal: near-duplicates or a bad device cdist must not NaN the solve.
+        zero = distances == 0
+        dist_safe = xp.where(zero, xp.asarray(1.0, dtype=distances.dtype), distances)
         values = basis_function(dist_safe)
-        values = xp.where(eye, xp.asarray(0.0, dtype=np.float32), values)
+        values = xp.where(zero, xp.asarray(0.0, dtype=np.float32), values)
         beta[3:, :num_pts] = values.astype(beta.dtype, copy=False)
     beta[3:, num_pts] = points[:, 1]
     beta[3:, num_pts + 1] = points[:, 0]
@@ -720,6 +724,13 @@ class OneWayRBFWithLinearCorrection_GPUComponent(Triangulation_GPUComponent):
             # WeightsY = np.linalg.solve(BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
             WeightsX = cp.linalg.solve(BetaMatrix, SolutionMatrix_X)
             WeightsY = cp.linalg.solve(BetaMatrix, SolutionMatrix_Y)
+            weights_ok = bool(cp.isfinite(WeightsX).all()) and bool(cp.isfinite(WeightsY).all())
+            if not weights_ok:
+                wp_np = array_to_numpy_host(WarpedPoints)
+                cc_np = array_to_numpy_host(ControlPoints)
+                host_weights, use_rigid_transform = OneWayRBFWithLinearCorrection.CalculateRBFWeights(
+                    wp_np, cc_np, OneWayRBFWithLinearCorrection.DefaultBasisFunction)
+                return cp.asarray(host_weights), use_rigid_transform
 
             # WeightsY = Y_Task.wait_return()
 

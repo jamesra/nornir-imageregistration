@@ -47,11 +47,30 @@ is the primary gate for that failure; ZNCC remains a useful secondary when inten
 truly disagrees. Do not raise the legacy absolute floor to paper over field failures.
 
 Secondary **ZNCC prominence** runs only for PC-pass lock candidates that field rules
-have not already branded suspect (skips redundant ROI re-extract). For each candidate,
-masked ZNCC is scored at the claimed peak and at ring decoy shifts (radius =
-`peak_ratio_exclusion_radius`, plus absolute identity when ``||peak||`` is at least
-that radius). Prominence is ``(z_peak - median(decoys)) / max(MAD-sigma, 1/sqrt(N))``.
-LOCKABLE requires ``prominence >= zncc_prominence_min`` and ``z_peak > max(decoys)``.
+have not already branded suspect. It scores the **ROIs the pass just measured**
+(`MeasuredRoiSink` hands the batched stacks, with the winning rigid/exact candidate per
+cell, from measurement to the gate) rather than re-warping each candidate. Per
+candidate, masked ZNCC is scored fresh at the claimed peak, plus the absolute identity
+shift as a rival when ``||peak||`` is at least the decoy radius
+(`peak_ratio_exclusion_radius` scaled by cell size).
+
+The **null** is the ZNCC of the cell's fixed ROI against the *unshifted moving ROIs of
+its measured 4-connected grid neighbors* (up to four). A neighbor's ROI sits one grid
+spacing away, so it is misaligned with this cell by construction yet carries the same
+local contrast and texture; a FOV-wide shuffle does not, and mis-estimates the null on
+pairs with regional contrast variation (dirt vs tissue, bubbles, L/R asymmetry). Cells
+with fewer than two measured neighbors, and the serial fallback, use four same-cell
+**cardinal** decoy shifts at the decoy radius instead. Prominence is
+``(z_peak - median(null)) / max(MAD-sigma(null), ZNCC_DECOY_SIGMA_FLOOR)``; LOCKABLE
+requires ``prominence >= zncc_prominence_min`` and ``z_peak > max(null ∪ {identity})``.
+Identity contributes to the max rival only, never to the median or sigma.
+
+Null statistics ``(median, max, sigma)`` are **cached per cell across passes**
+(`ZnccNullCache`): the neighborhood background changes slowly between remesh passes,
+whereas the peak and identity scores are the claim under test and are always fresh. The
+cache is emptied when the field moves under the cells — a `cell_size` grow or restore,
+and any residual `TranslateFixed` (or its revert).
+
 Default ``STOS_ZNCC_PROMINENCE_MIN`` / ``DEFAULT_ZNCC_PROMINENCE_MIN`` is 4.0; override
 with ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN``. The legacy absolute floor
 ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` is optional (unset = disabled) and only adds an

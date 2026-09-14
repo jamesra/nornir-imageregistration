@@ -14,6 +14,8 @@ from nornir_imageregistration.refine_shared.coherent_residual import (
     diagnose_coherent_residual_translation,
     estimate_coherent_residual_translation,
     estimate_global_fov_residual_translation,
+    global_fov_peak_is_unique,
+    residual_remeasure_should_revert,
     should_attempt_global_fov_recovery,
     should_preserve_post_residual_transform,
     should_keep_prior_sparse_mesh,
@@ -166,6 +168,50 @@ class TestGlobalFovResidual(unittest.TestCase):
         # Phase correlation peak sign follows find_offset convention; magnitude should match.
         self.assertLess(abs(abs(float(peak[0])) - abs(dy)), 2.0)
         self.assertLess(abs(abs(float(peak[1])) - abs(dx)), 2.0)
+
+    def test_returns_none_when_source_shares_nothing_with_target(self) -> None:
+        """Independent noise has no unique whole-FOV peak; Track B must not move the pose.
+
+        Grid16 1215-1214: the rigid manual pose was right along a center band only,
+        whole-FOV PC returned peak_ratio 0.95 at ~70% of the half-FOV, and
+        TranslateFixed threw the section ~2600-3500 px away.
+        """
+        rng = np.random.default_rng(1)
+        target = rng.normal(size=(256, 256))
+        source = rng.normal(size=(256, 256))
+        transform = RigidTranslation(target_offset=np.asarray((0.0, 0.0), dtype=np.float64))
+        peak = estimate_global_fov_residual_translation(
+            transform, target, source, max_dim=128)
+        self.assertIsNone(peak)
+
+    def test_peak_uniqueness_gate(self) -> None:
+        self.assertFalse(global_fov_peak_is_unique(_rec((0, 0), peak=(5.0, 5.0), peak_ratio=0.95)))
+        self.assertFalse(global_fov_peak_is_unique(_rec((0, 0), peak=(5.0, 5.0), peak_ratio=None)))
+        self.assertFalse(global_fov_peak_is_unique(
+            _rec((0, 0), peak=(5.0, 5.0), peak_ratio=2.0, weight=0.0)))
+        self.assertTrue(global_fov_peak_is_unique(_rec((0, 0), peak=(5.0, 5.0), peak_ratio=1.5)))
+
+
+class TestResidualRemeasureRevert(unittest.TestCase):
+    """Undo a residual TranslateFixed when the remeasure shows it buried the tissue."""
+
+    def test_reverts_when_records_exist_but_none_are_unique(self) -> None:
+        # 1215-1214: 46 records after the bogus shift, every peak_ratio in 1.00-1.10.
+        records = [_rec((0, i), peak=(3.0, -2.0), peak_ratio=1.0 + 0.002 * i) for i in range(46)]
+        self.assertTrue(residual_remeasure_should_revert(records, n_locks=0))
+
+    def test_reverts_on_fewer_than_three_records(self) -> None:
+        records = [_rec((0, 0), peak=(1.0, 1.0)), _rec((0, 1), peak=(1.0, 1.0))]
+        self.assertTrue(residual_remeasure_should_revert(records, n_locks=0))
+
+    def test_keeps_translation_when_unique_peaks_remain(self) -> None:
+        records = [_rec((0, i), peak=(1.0, 1.0), peak_ratio=1.5) for i in range(5)]
+        records += [_rec((1, i), peak=(1.0, 1.0), peak_ratio=1.05) for i in range(40)]
+        self.assertFalse(residual_remeasure_should_revert(records, n_locks=0))
+
+    def test_never_reverts_once_anything_locked(self) -> None:
+        records = [_rec((0, i), peak=(3.0, -2.0), peak_ratio=1.01) for i in range(10)]
+        self.assertFalse(residual_remeasure_should_revert(records, n_locks=1))
 
 
 class TestPreservePostResidualTransform(unittest.TestCase):

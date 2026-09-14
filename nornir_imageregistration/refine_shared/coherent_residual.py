@@ -253,6 +253,66 @@ def should_attempt_global_fov_recovery(
     return False
 
 
+def global_fov_peak_is_unique(
+        record: _AlignmentRecordLike,
+        *,
+        peak_ratio_min: float = PEAK_RATIO_MIN,
+) -> bool:
+    """True when a whole-FOV correlation peak is unique enough to move the pose.
+
+    Track B has no cell-level consensus behind it, so its single peak must clear the
+    same ``peak_ratio`` bar that makes a cell LOCKABLE. A missing or non-finite ratio
+    counts as not unique.
+    """
+    ratio = finite_peak_ratio(record)
+    if ratio is None:
+        return False
+    weight = getattr(record, 'weight', None)
+    if weight is not None:
+        try:
+            if not np.isfinite(float(weight)) or float(weight) <= 0.0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return float(ratio) >= float(peak_ratio_min)
+
+
+def count_unique_peaks(
+        records: Sequence[_AlignmentRecordLike],
+        *,
+        peak_ratio_min: float = PEAK_RATIO_MIN,
+) -> int:
+    """Number of records whose ``peak_ratio`` clears *peak_ratio_min* (travel ignored)."""
+    n = 0
+    for record in records:
+        ratio = finite_peak_ratio(record)
+        if ratio is not None and float(ratio) >= float(peak_ratio_min):
+            n += 1
+    return n
+
+
+def residual_remeasure_should_revert(
+        records: Sequence[_AlignmentRecordLike],
+        *,
+        n_locks: int,
+        min_records: int = 3,
+        min_unique: int = 3,
+        peak_ratio_min: float = PEAK_RATIO_MIN,
+) -> bool:
+    """True when the remeasure after a residual TranslateFixed shows the move was wrong.
+
+    A correct residual leaves plenty of unique peaks behind. When the translated
+    grid still returns records but none of them is unique (every cell ambiguous),
+    the shift buried the tissue rather than aligning it, and counting records alone
+    misses that (Grid16 1215-1214: 46 records, 0 unique, no revert).
+    """
+    if int(n_locks) > 0:
+        return False
+    if len(records) < int(min_records):
+        return True
+    return count_unique_peaks(records, peak_ratio_min=peak_ratio_min) < int(min_unique)
+
+
 def _sparse_mesh_floor(
         n_grid: int,
         *,
@@ -405,6 +465,11 @@ def estimate_global_fov_residual_translation(
         record = find_offset(target_ds, warped)
         peak = np.asarray(nornir_imageregistration.EnsureNumpyArray(record.peak), dtype=np.float64).reshape(2)
         if not np.all(np.isfinite(peak)):
+            return None
+        # A whole-FOV correlation with no unique peak is noise, not a pose. Grid16
+        # 1215-1214 returned peak_ratio 0.95 at ~70% of the half-FOV and TranslateFixed
+        # threw the whole section off; hold Track B to the same uniqueness bar as cells.
+        if not global_fov_peak_is_unique(record):
             return None
         # Peak is in downsampled pixels; convert to full-resolution offset.
         return (peak / float(scalar)).astype(np.float64, copy=False)

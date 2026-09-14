@@ -33,6 +33,33 @@ def _cpu_mesh_from_points(points: object) -> "nornir_imageregistration.transform
     return MeshWithRBFFallback(np.array(host_points, dtype=np.float64, copy=True))
 
 
+def _cpu_grid_from_transform(
+        transform: "nornir_imageregistration.transforms.ITransform",
+) -> "nornir_imageregistration.transforms.ITransform | None":
+    """Host-clone a GRID transform without demoting it to a mesh."""
+    import copy
+
+    import nornir_imageregistration
+    from nornir_imageregistration.transforms.gridwithrbffallback import GridWithRBFFallback
+    from nornir_imageregistration.transforms.transform_type import TransformType
+
+    if getattr(transform, 'type', None) != TransformType.GRID:
+        return None
+    grid = getattr(transform, 'grid', None)
+    if grid is None:
+        return None
+    try:
+        host_grid = copy.deepcopy(grid)
+        # Force host arrays on the lattice so paintGL never sees device memory.
+        for attr in ('SourcePoints', 'TargetPoints', '_SourcePoints', '_TargetPoints'):
+            value = getattr(host_grid, attr, None)
+            if value is not None and _points_are_cupy(value):
+                setattr(host_grid, attr, nornir_imageregistration.EnsureNumpyArray(value))
+        return GridWithRBFFallback(host_grid)
+    except Exception:
+        return None
+
+
 def snapshot_transform_for_preview(
         transform: "nornir_imageregistration.transforms.ITransform | None",
 ) -> "nornir_imageregistration.transforms.ITransform | None":
@@ -44,9 +71,28 @@ def snapshot_transform_for_preview(
     Worker CuPy meshes cannot be deepcopied onto the GUI thread: the copy still
     owns device memory allocated on the worker, and ``paintGL`` then hits
     ``cudaErrorIllegalAddress``. Convert to a CPU mesh on this thread instead.
+
+    GRID transforms stay GRID (never demoted to ``MeshWithRBFFallback``).
     """
     if transform is None:
         return None
+
+    from nornir_imageregistration.transforms.transform_type import TransformType
+
+    if getattr(transform, 'type', None) == TransformType.GRID:
+        grid_snapshot = _cpu_grid_from_transform(transform)
+        if grid_snapshot is not None:
+            return grid_snapshot
+        try:
+            snapshot = copy.deepcopy(transform)
+            if snapshot is not transform and getattr(snapshot, 'type', None) == TransformType.GRID:
+                return snapshot
+        except Exception:
+            pass
+        # Fall through only if we cannot preserve GRID; still avoid inventing a mesh
+        # from lattice points without grid_dims (would look like a triangulation).
+        return None
+
     points = getattr(transform, "points", None)
     n_points = int(getattr(points, "shape", (0,))[0]) if points is not None else 0
     if n_points >= 3 and _points_are_cupy(points):
