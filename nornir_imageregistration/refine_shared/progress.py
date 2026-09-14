@@ -208,20 +208,27 @@ class RefineGridProgressReporter:
         self._last_active_count = 0
         self._last_pass_index = 0
 
-    def on_pass_start(self, pass_index: int) -> None:
-        """Publish refine-pass progress at the start of a pass."""
+    def on_pass_start(self, pass_index: int, todo_count: int | None = None) -> None:
+        """Publish refine-pass progress at the start of a pass.
+
+        *todo_count*, when given (trusted-mesh path), is included in the label so
+        a pass measuring a subset of cells does not look stalled.
+        """
         if self._num_iterations <= 0:
             return
         from nornir_shared import prettyoutput
 
         self._last_pass_index = int(pass_index)
+        label = "Refine passes"
+        if todo_count is not None:
+            label = f"Refine passes (todo={int(todo_count)})"
         prettyoutput.publish_run_event(
             "iterate_progress",
             current=pass_index,
             total=self._num_iterations,
             depth=self._depth_base,
             track_id=_TRACK_PASSES,
-            label="Refine passes",
+            label=label,
         )
 
     def on_pass_locked(self, pass_index: int, locked_count: int, active_count: int) -> None:

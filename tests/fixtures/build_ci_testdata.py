@@ -115,7 +115,16 @@ Hard limit: {budget_mb} MB uncompressed.
 - Full DS1 image stacks.
 - The full INPUT_NORNIR_DATA repro corpus.
 - CuPy / GPU-specific test data (those tests skip when CuPy is unavailable).
+- Full Grid16 FOV pairs — use strain-crop mini-stos under ``refine_fixtures/`` when
+  those fixtures are added to the pack (see docs/refine_assessment_corpus.md).
 """.format(budget_mb=BUDGET_MB)
+
+# Optional refine assessment crops (add relative paths under TESTINPUTPATH when
+# certified mini-stos fit the 200 MB budget). Example:
+# REFINE_FIXTURES: list[tuple[str, bool]] = [
+#     ("refine_fixtures/synthetic_healthy/input.stos", True),
+# ]
+REFINE_FIXTURES: list[tuple[str, bool]] = []
 
 
 def _copy_file(src: Path, dst: Path, missing_ok: bool = False) -> int:
@@ -187,6 +196,20 @@ def build(testinput: Path, out_zip: Path) -> None:
                 testinput / "Transforms" / subdir,
                 tfm_stage / subdir,
             )
+
+        if REFINE_FIXTURES:
+            print("\n=== Staging refine_fixtures/ ===")
+            seen_dirs: set[Path] = set()
+            for rel, missing_ok in REFINE_FIXTURES:
+                src = testinput / rel
+                parent = src.parent if src.suffix else src
+                if parent in seen_dirs:
+                    continue
+                seen_dirs.add(parent)
+                if parent.is_dir():
+                    total_bytes += _copy_tree(parent, stage / parent.relative_to(testinput))
+                else:
+                    total_bytes += _copy_file(src, stage / rel, missing_ok=missing_ok)
 
         (stage / "README.md").write_text(_README_TEXT, encoding="utf-8")
 

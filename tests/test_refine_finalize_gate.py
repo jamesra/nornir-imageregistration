@@ -29,7 +29,7 @@ def _rec(
         weight: float = 10.0,
         source: tuple[float, float] = (10.0, 10.0),
         target: tuple[float, float] | None = None,
-        peak_ratio: float | None = None) -> EnhancedAlignmentRecord:
+        peak_ratio: float | None = 1.4) -> EnhancedAlignmentRecord:
     src = np.asarray(source, dtype=np.float64)
     tgt = np.asarray(target if target is not None else source, dtype=np.float64)
     return EnhancedAlignmentRecord(
@@ -201,7 +201,7 @@ class TestPeakRatioFinalizeGates(unittest.TestCase):
         self.assertFalse(bool(np.any(result.lock_mask)))
         self.assertEqual(result.rejected_ambiguous_count, 3)
 
-    def test_missing_ratio_does_not_hard_reject(self) -> None:
+    def test_missing_ratio_is_non_lockable(self) -> None:
         records = [
             _rec((0, 0), peak=(0.1, 0.1), weight=12.0, peak_ratio=None),
             _rec((0, 1), peak=(0.1, 0.1), weight=12.0, peak_ratio=None),
@@ -215,8 +215,8 @@ class TestPeakRatioFinalizeGates(unittest.TestCase):
         result = evaluate_finalize_candidates(
             records, transform_cutoff=10.0, settings=self.settings, pass_index=3,
             prior_candidates=prior)
-        self.assertTrue(bool(np.all(result.lock_mask)))
-        self.assertEqual(result.rejected_ambiguous_count, 0)
+        self.assertFalse(bool(np.any(result.lock_mask)))
+        self.assertEqual(result.rejected_ambiguous_count, 3)
 
     def test_high_ratio_early_locks_with_stability_one(self) -> None:
         records = [

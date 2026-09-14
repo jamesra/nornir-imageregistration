@@ -125,6 +125,17 @@ from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     PEAK_RATIO_EARLY,
     PEAK_RATIO_MIN,
 )
+from nornir_imageregistration.refine_shared.trust_tiers import (
+    TrustTier,
+    assign_trust_tiers,
+    demote_disagreeing,
+    mesh_records_from_tiers,
+    trusted_set_snapshot,
+)
+from nornir_imageregistration.refine_shared.measure_schedule import (
+    cells_whose_prior_moved,
+    update_last_prior,
+)
 from nornir_imageregistration.refine_shared.best_effort import (
     IDENTITY_PROMINENCE_QUANTILE,
     apply_best_effort_ambiguous_mesh_promotion,
@@ -3114,13 +3125,15 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
             min_unmasked_area=min_unmasked_area,  # type: ignore[arg-type]
             single_thread_processing=False) as settings:
 
+        quality_flag_holder: list[bool] = []
         try:
             output_transform = RefineTransform(stosTransform,
                                                settings,
                                                SaveImages=SaveImages,
                                                SavePlots=SavePlots,
                                                outputDir=outputDir,
-                                               progress_depth_base=progress_depth_base)
+                                               progress_depth_base=progress_depth_base,
+                                               quality_flag_out=quality_flag_holder)
         finally:
             _release_refinement_worker_memory()
 
@@ -3131,6 +3144,13 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
             grid_spacing=settings.grid_spacing,
             prefer_gpu=False)
         InputStos.Save(OutputStosPath)
+
+        quality_marker = os.path.splitext(OutputStosPath)[0] + '.quality_flag'
+        if quality_flag_holder and quality_flag_holder[0]:
+            with open(quality_marker, 'w', encoding='utf-8') as handle:
+                handle.write('1\n')
+        elif os.path.isfile(quality_marker):
+            os.remove(quality_marker)
 
 
 def _zncc_at_claimed_peak(
@@ -3943,7 +3963,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     outputDir: str | None = None,
                     progress_depth_base: int = 0,
                     cancel_event: threading.Event | None = None,
-                    progress_callback: ProgressCallback | None = None) -> nornir_imageregistration.ITransform:
+                    progress_callback: ProgressCallback | None = None,
+                    quality_flag_out: list[bool] | None = None) -> nornir_imageregistration.ITransform:
     """
     Iteratively refine a source-to-target transform from local alignment points.
 
@@ -3965,6 +3986,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     FREE/LOCKABLE registrations, remaining iterations return to the original
     requested cell size. Grid spacing is unchanged. The caller's ``cell_size``
     is restored on exit.
+
+    When *quality_flag_out* is provided, it is cleared and receives a single
+    ``True`` if the final lock fraction is below ``LOCK_FRAC_TRIGGER``.
     """
 
     if (SavePlots or SaveImages) and outputDir is None:
@@ -4003,6 +4027,20 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     if legacy_finalize:
         prettyoutput.Log(
             'NORNIR_REFINE_FINALIZE_LEGACY=1: using distance-primary finalize with 2% weight floor')
+
+    trusted_mesh_mode = bool(get_runtime_config().trusted_mesh)
+    if trusted_mesh_mode:
+        prettyoutput.Log(
+            'NORNIR_REFINE_TRUSTED_MESH=1: mesh from trusted cells only '
+            '(skip Track A/B, best-effort, anchor-smooth)')
+
+    # Trusted-mesh scheduling / stop-on-unchanged-set state.
+    trusted_last_prior: dict[tuple[int, int], NDArray[np.float64]] = {}
+    trusted_source_points: dict[tuple[int, int], NDArray[np.float64]] = {}
+    trusted_all_cell_ids: list[tuple[int, int]] = []
+    prev_trusted_snap: frozenset[tuple[tuple[int, int], int]] = frozenset()
+    trusted_mesh_seed_grown = False
+    last_grid_n_for_quality = 1
 
     CutoffPercentilePerIteration = 10.0
 
@@ -4058,6 +4096,40 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 final_pass = True
 
             measure_t0 = time.perf_counter()
+            measure_cell_ids: set[tuple[int, int]] | None = None
+            todo_count: int | None = None
+            if trusted_mesh_mode and trusted_all_cell_ids:
+                locked_ids = set(finalized_points.keys())
+                priors: dict[tuple[int, int], NDArray[np.float64]] = {}
+                for key in trusted_all_cell_ids:
+                    if key in locked_ids:
+                        continue
+                    src = trusted_source_points.get(key)
+                    if src is None:
+                        continue
+                    mapped = np.asarray(
+                        stosTransform.Transform(np.asarray(src, dtype=np.float64).reshape(1, 2)),
+                        dtype=np.float64).reshape(2)
+                    priors[key] = mapped
+                todo = cells_whose_prior_moved(
+                    trusted_all_cell_ids,
+                    priors,
+                    trusted_last_prior,
+                    eps=float(finalize_settings.finalize_stability_epsilon_px),
+                    pass_index=i - 1,
+                    locked_ids=locked_ids,
+                )
+                todo_count = len(todo)
+                if todo_count == 0 and i > 1:
+                    prettyoutput.Log(
+                        f'Pass {i}: trusted-mesh todo empty; finishing with '
+                        f'{len(finalized_points)} locked points')
+                    break
+                measure_cell_ids = set(todo)
+                prettyoutput.Log(
+                    f'Pass {i}: trusted-mesh measuring {todo_count}/'
+                    f'{len(trusted_all_cell_ids)} unlocked cells')
+
             alignment_points = _RefineGridPointsForTwoImages(
                 stosTransform,
                 settings=settings,
@@ -4066,7 +4138,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
                 reference_pose=ring_reference_pose,
-                roi_sink=roi_sink)
+                roi_sink=roi_sink,
+                measure_cell_ids=measure_cell_ids)
             measure_s = time.perf_counter() - measure_t0
 
             if len(alignment_points) == 0:
@@ -4093,6 +4166,24 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
 
             prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
+
+            if trusted_mesh_mode and alignment_points:
+                for rec in alignment_points:
+                    key = (int(rec.ID[0]), int(rec.ID[1]))
+                    if key not in trusted_all_cell_ids:
+                        trusted_all_cell_ids.append(key)
+                    trusted_source_points[key] = np.asarray(
+                        rec.SourcePoint, dtype=np.float64).reshape(2).copy()
+                measured_priors = {
+                    (int(rec.ID[0]), int(rec.ID[1])): np.asarray(
+                        rec.TargetPoint, dtype=np.float64).reshape(2)
+                    for rec in alignment_points
+                }
+                update_last_prior(
+                    trusted_last_prior,
+                    list(measured_priors.keys()),
+                    measured_priors,
+                )
 
             # FOV / coherent residual can leave almost no cells registering. Undo once
             # so a bad TranslateFixed does not starve mesh construction.
@@ -4154,7 +4245,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             # coherent_residual_checked gates the attempt; coherent_residual_translated
             # is True only when TranslateFixed ran (preserve must not treat "checked"
             # as "translated" or sparse meshes discard a non-existent residual).
-            if not coherent_residual_checked:
+            # Trusted-mesh path never applies whole-FOV TranslateFixed seeding.
+            if not coherent_residual_checked and not trusted_mesh_mode:
                 grid_n = max(1, len(alignment_points) + len(finalized_points))
                 lock_fraction = float(len(finalized_points)) / float(grid_n)
                 diagnosis = diagnose_coherent_residual_translation(
@@ -4231,8 +4323,10 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 else:
                     # Locks already healthy — no residual recovery needed.
                     coherent_residual_checked = True
+            elif trusted_mesh_mode and not coherent_residual_checked:
+                coherent_residual_checked = True
 
-            progress_reporter.on_pass_start(i)
+            progress_reporter.on_pass_start(i, todo_count=todo_count)
             report_progress(
                 progress_callback,
                 i,
@@ -4301,8 +4395,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
             finalize_t0 = time.perf_counter()
             preserve_post_residual = False
+            trusted_seed_retry = False
             with _PHASE_TIMER.section_wall('finalize'):
-                anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+                anchor_smooth_active = (
+                    False if trusted_mesh_mode
+                    else should_use_anchor_smooth_mesh(finalized_points, settings))
                 n_travel_dropped = 0
                 inclusion_travel = float(settings.max_travel_for_finalization) * float(
                     getattr(settings, 'inclusion_travel_multiplier', 1.0))
@@ -4427,7 +4524,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         max_travel=float(settings.max_travel_for_finalization),
                         travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
                     )
-                    if best_effort.active:
+                    if best_effort.active and not trusted_mesh_mode:
                         role_result = classify_roles(
                             alignment_points,
                             transform_cutoff=finalize_cutoff_preview,
@@ -4524,6 +4621,84 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                             prior_transform=stosTransform,
                             fixed_points=None,
                         ))
+                elif trusted_mesh_mode:
+                    cell_half = float(np.min(np.asarray(settings.cell_size, dtype=np.float64))) * 0.5
+                    zncc_pass_ids = {
+                        key for key, role in role_result.role_by_id.items()
+                        if role == Role.LOCKABLE
+                    }
+                    converged_ids = {
+                        (int(rec.ID[0]), int(rec.ID[1]))
+                        for rec, ok in zip(alignment_points, role_result.lock_candidate)
+                        if bool(ok)
+                    }
+                    tier_records = list(alignment_points) + list(finalized_points.values())
+                    trust_tiers = assign_trust_tiers(
+                        tier_records,
+                        locked_ids=set(finalized_points.keys()),
+                        zncc_pass_ids=zncc_pass_ids,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        cell_half_size=cell_half,
+                        converged_ids=converged_ids,
+                    )
+                    trust_tiers = demote_disagreeing(
+                        trust_tiers,
+                        tier_records,
+                        max_travel=float(settings.max_travel_for_finalization),
+                        cell_half_size=cell_half,
+                    )
+                    snap = trusted_set_snapshot(trust_tiers)
+                    n_locked_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.LOCKED)
+                    n_prov_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.PROVISIONAL)
+                    prettyoutput.Log(
+                        f'trusted-mesh tiers: locked={n_locked_tier} '
+                        f'provisional={n_prov_tier} untrusted='
+                        f'{len(trust_tiers) - n_locked_tier - n_prov_tier}')
+                    if i > 1 and snap == prev_trusted_snap:
+                        if (n_locked_tier + n_prov_tier) == 0 and not trusted_mesh_seed_grown:
+                            grew = _grow_refine_cell_size_after_failure(
+                                settings,
+                                source_content_cache,
+                                pass_index=i,
+                                final_pass=final_pass,
+                                zncc_null_cache=zncc_null_cache)
+                            if grew:
+                                trusted_mesh_seed_grown = True
+                                trusted_all_cell_ids.clear()
+                                trusted_last_prior.clear()
+                                trusted_source_points.clear()
+                                prev_trusted_snap = frozenset()
+                                trusted_seed_retry = True
+                                prettyoutput.Log(
+                                    'trusted-mesh: zero trusted; grew cell size once for seeding')
+                        if not trusted_seed_retry:
+                            prettyoutput.Log(
+                                'trusted-mesh: trusted set unchanged; stopping early')
+                            final_pass = True
+                    if not trusted_seed_retry:
+                        prev_trusted_snap = snap
+
+                    locked_recs, provisional_recs = mesh_records_from_tiers(
+                        alignment_points, trust_tiers)
+                    # Already-finalized cells are fixed anchors even if not remeasured.
+                    fixed_locked = list(finalized_points.values()) + locked_recs
+                    mesh_alignment_points = list(provisional_recs)
+                    n_travel_dropped = 0
+                    if trusted_seed_retry:
+                        updatedTransform = stosTransform
+                        included_alignment_records = []
+                        weight_distance_composite_scores = np.zeros((0, 3), dtype=np.float64)
+                        preserve_post_residual = False
+                    else:
+                        (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                            _build_mesh_transform_or_keep(
+                                mesh_alignment_points,
+                                prior_transform=stosTransform,
+                                fixed_points=AlignRecordsToControlPoints(fixed_locked)
+                                if fixed_locked else None,
+                            ))
+                        # Untrusted cells never enter the mesh; skip sparse/raw-preserve gates.
+                        preserve_post_residual = False
                 else:
                     # Exclude free points whose residual travel exceeds the inclusion travel bar.
                     # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
@@ -4568,22 +4743,23 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
                 # Sparse inclusion (reject/travel soup, or post-residual wrap peaks)
                 # must not replace a usable prior pose with a 3-point triangulation.
-                preserve_post_residual = should_keep_prior_sparse_mesh(
-                    residual_applied=coherent_residual_translated,
-                    n_mesh=len(included_alignment_records),
-                    n_grid=grid_n,
-                    n_locks=len(finalized_points),
-                    n_prior_points=_control_point_count(stosTransform),
-                )
-                if preserve_post_residual:
-                    min_mesh = max(
-                        int(MIN_MESH_ABS_AFTER_RESIDUAL),
-                        int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(grid_n)),
+                if not trusted_mesh_mode:
+                    preserve_post_residual = should_keep_prior_sparse_mesh(
+                        residual_applied=coherent_residual_translated,
+                        n_mesh=len(included_alignment_records),
+                        n_grid=grid_n,
+                        n_locks=len(finalized_points),
+                        n_prior_points=_control_point_count(stosTransform),
                     )
-                    prettyoutput.Log(
-                        f'Keeping prior transform; mesh only has '
-                        f'{len(included_alignment_records)} points (min {min_mesh})')
-                    updatedTransform = stosTransform
+                    if preserve_post_residual:
+                        min_mesh = max(
+                            int(MIN_MESH_ABS_AFTER_RESIDUAL),
+                            int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(grid_n)),
+                        )
+                        prettyoutput.Log(
+                            f'Keeping prior transform; mesh only has '
+                            f'{len(included_alignment_records)} points (min {min_mesh})')
+                        updatedTransform = stosTransform
 
                 prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
@@ -4597,11 +4773,17 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
                 # Unlock stale locks that disagree with the updated mesh before adding new locks.
                 unlocked_keys: list[tuple[int, int]] = []
-                if updatedTransform is not None and len(finalized_points) > 0 and not legacy_finalize:
+                if trusted_seed_retry:
+                    new_finalized_points = np.zeros(len(alignment_points), dtype=bool)
+                    deferred_stability = 0
+                    finalize_cutoff = float(transform_cutoff_value)
+                elif updatedTransform is not None and len(finalized_points) > 0 and not legacy_finalize:
                     finalized_points, unlocked_keys = unlock_stale_finalized(
                         finalized_points, updatedTransform, finalize_settings)
 
-                if legacy_finalize:
+                if trusted_seed_retry:
+                    pass
+                elif legacy_finalize:
                     finalize_cutoff = float(np.percentile(polyfit_weights, 2.0))
                     new_finalized_points = legacy_finalize_mask(
                         alignment_points,
@@ -4639,6 +4821,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         f'identity_suspect={eval_result.rejected_identity_suspect_count} '
                         f'deferred_stability={deferred_stability}\n#####\n')
             finalize_s = time.perf_counter() - finalize_t0
+
+            if trusted_seed_retry:
+                _log_phase_breakdown(
+                    f'RefineTransform pass {i} (trusted-mesh seed grow)',
+                    pass_phase_baseline)
+                i += 1
+                stosTransform = updatedTransform
+                continue
 
             new_finalized_alignments_list = list(
                 filter(lambda index_item: new_finalized_points[index_item[0]], enumerate(alignment_points)))
@@ -4809,12 +4999,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             if len(combined_records_this_pass) > 2:
                 # Recompute preserve against current locks/mesh in case finalize
                 # path already kept stosTransform — still skip sparse rebuild.
-                preserve_end = should_keep_prior_sparse_mesh(
-                    residual_applied=coherent_residual_translated,
-                    n_mesh=len(combined_records_this_pass),
-                    n_grid=max(1, len(alignment_points) + len(finalized_points)),
-                    n_locks=len(finalized_points),
-                    n_prior_points=_control_point_count(stosTransform),
+                preserve_end = (
+                    False if trusted_mesh_mode
+                    else should_keep_prior_sparse_mesh(
+                        residual_applied=coherent_residual_translated,
+                        n_mesh=len(combined_records_this_pass),
+                        n_grid=max(1, len(alignment_points) + len(finalized_points)),
+                        n_locks=len(finalized_points),
+                        n_prior_points=_control_point_count(stosTransform),
+                    )
                 )
                 if preserve_post_residual or preserve_end:
                     prettyoutput.Log(
@@ -4855,6 +5048,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                               os.path.join(outputDir, f'image_pass{i}.png'), np.copy(warpedToFixedImage), bpp=8)  # type: ignore[call-overload, arg-type]
 
             i += 1
+            last_grid_n_for_quality = max(1, len(alignment_points) + len(finalized_points))
 
             if final_pass:
                 break
@@ -4913,7 +5107,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         #     final_transform = updatedTransform
         final_transform = stosTransform
 
-        final_anchor_smooth_active = should_use_anchor_smooth_mesh(finalized_points, settings)
+        final_anchor_smooth_active = (
+            False if trusted_mesh_mode
+            else should_use_anchor_smooth_mesh(finalized_points, settings))
         if final_anchor_smooth_active:
             final_disc_ids: set[tuple[int, int]] = set()
             final_soft_disc_ids: set[tuple[int, int]] = set()
@@ -4963,23 +5159,26 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         # sparse set would discard TranslateFixed. Use last-pass FOV grid size for
         # lock_frac / min_mesh (not len(final_control_records) — that is ~12 when
         # preserve already kept a sparse combined set and falsely raises lock_frac).
-        final_grid_n = max(1, len(alignment_points) + len(finalized_points))
+        final_grid_n = max(1, last_grid_n_for_quality, len(alignment_points) + len(finalized_points))
         n_nudged = len(nudged_final_points)
         n_stos_pts = _control_point_count(stosTransform)
         n_input_pts = _control_point_count(refine_input_transform)
-        preserve_final = should_keep_prior_sparse_mesh(
-            residual_applied=coherent_residual_translated,
-            n_mesh=n_nudged,
-            n_grid=final_grid_n,
-            n_locks=len(finalized_points),
-            n_prior_points=n_stos_pts,
+        preserve_final = (
+            False if trusted_mesh_mode
+            else should_keep_prior_sparse_mesh(
+                residual_applied=coherent_residual_translated,
+                n_mesh=n_nudged,
+                n_grid=final_grid_n,
+                n_locks=len(finalized_points),
+                n_prior_points=n_stos_pts,
+            )
         )
         if preserve_final:
             prettyoutput.Log(
                 f'Keeping prior transform as final; control set only has '
                 f'{n_nudged} points')
             final_transform = stosTransform
-        elif should_keep_prior_sparse_mesh(
+        elif (not trusted_mesh_mode) and should_keep_prior_sparse_mesh(
                 residual_applied=coherent_residual_translated,
                 n_mesh=n_nudged,
                 n_grid=final_grid_n,
@@ -5016,6 +5215,18 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         prettyoutput.Log(f'RefineTransform pair_wall_s={pair_wall_s:.2f}')
         _log_phase_breakdown('RefineTransform total', {})
 
+        quality_flag = float(len(finalized_points)) / float(max(1, final_grid_n)) < float(
+            LOCK_FRAC_TRIGGER)
+        if quality_flag:
+            prettyoutput.Log(
+                f'QUALITY FLAG: final lock_frac='
+                f'{float(len(finalized_points)) / float(max(1, final_grid_n)):.4f} '
+                f'< LOCK_FRAC_TRIGGER={float(LOCK_FRAC_TRIGGER):.4f} '
+                f'(locks={len(finalized_points)} grid_n={final_grid_n})')
+        if quality_flag_out is not None:
+            quality_flag_out.clear()
+            quality_flag_out.append(bool(quality_flag))
+
         if outputDir is not None and cell_history.pass_index:
             hist_path = cell_history.write_npz(outputDir)
             if hist_path is not None:
@@ -5043,12 +5254,15 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                                   cancel_event: threading.Event | None = None,
                                   progress_callback: ProgressCallback | None = None,
                                   reference_pose: RingReferencePose | None = None,
-                                  roi_sink: MeasuredRoiSink | None = None) -> list[
+                                  roi_sink: MeasuredRoiSink | None = None,
+                                  measure_cell_ids: set[tuple[int, int]] | None = None) -> list[
     nornir_imageregistration.EnhancedAlignmentRecord]:
     """
     Build a refinement grid, remove masked/finalized cells, and align remaining cells.
 
     *roi_sink*, when given, receives the measured ROI stacks for the ZNCC lock gate.
+    *measure_cell_ids*, when given, restricts measurement to that subset of grid IDs
+    (trusted-mesh schedule). Finalized cells are still excluded.
     """
     if roi_sink is not None:
         roi_sink.clear()
@@ -5076,6 +5290,20 @@ def _RefineGridPointsForTwoImages(transform: nornir_imageregistration.transforms
                     context=f"excluding {len(finalized)} already-finalized points") == 0:
                 prettyoutput.Log(
                     f"All grid points already finalized ({len(finalized)}); nothing left to measure")
+                return []
+
+        if measure_cell_ids is not None and grid_data.num_points > 0:
+            id_ok = np.array(
+                [tuple(int(v) for v in grid_data.coords[i, :]) in measure_cell_ids
+                 for i in range(grid_data.num_points)],
+                dtype=bool)
+            if grid_data.RemoveMaskedPoints(
+                    id_ok,
+                    allow_empty=True,
+                    context=f"trusted-mesh measure subset ({len(measure_cell_ids)} ids)") == 0:
+                prettyoutput.Log(
+                    f"Trusted-mesh measure subset empty after grid filter "
+                    f"(todo={len(measure_cell_ids)}, locked={len(finalized) if finalized else 0})")
                 return []
 
         grid_data.FilterOutofBoundsSourcePoints(settings.source_image.shape, allow_empty=allow_empty)
@@ -6153,8 +6381,21 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
     if not candidates:
         return None
 
+    def _candidate_key(item: tuple) -> tuple[float, float]:
+        record = item[0]
+        ratio = getattr(record, 'peak_ratio', None)
+        try:
+            ratio_f = float(ratio) if ratio is not None else float('-inf')
+        except (TypeError, ValueError):
+            ratio_f = float('-inf')
+        if not np.isfinite(ratio_f):
+            ratio_f = float('-inf')
+        return (ratio_f, float(record.weight))
+
+    # Match batched ``_choose_translation_candidates``: higher peak_ratio wins;
+    # weight breaks ties. On a full tie the first (rigid) candidate is kept.
     result, target_image_roi, source_image_roi, winning_transform = max(
-        candidates, key=lambda c: c[0].weight)
+        candidates, key=_candidate_key)
     result.roi_candidate = (  # type: ignore[attr-defined]
         'rigid' if winning_transform is rigid_transform else 'exact')
 

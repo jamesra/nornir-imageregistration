@@ -118,6 +118,7 @@ def evaluate_finalize_candidates(
     - peak is stable for ``finalize_stability_passes`` consecutive passes
       (or 1 when early-lock ratio is met)
     - known ``peak_ratio`` is not below ``PEAK_RATIO_MIN``
+    - ``peak_ratio`` is present (missing ratio is non-lockable)
     - when ``lockable_ids`` is provided (Role theory), the cell ID must be in
       that set (``Role.LOCKABLE`` only — ``IDENTITY_SUSPECT`` never locks)
     """
@@ -150,7 +151,8 @@ def evaluate_finalize_candidates(
         ratios[i] = np.nan if value is None else float(value)
 
     known = np.isfinite(ratios)
-    ambiguous = known & (ratios < float(PEAK_RATIO_MIN))
+    # Missing peak_ratio cannot lock (plan item 11 / trusted-mesh gate).
+    ambiguous = (~known) | (known & (ratios < float(PEAK_RATIO_MIN)))
     early_ratio_ok = known & (ratios >= float(PEAK_RATIO_EARLY))
 
     # transform_cutoff is the STOS inflection / mesh-inclusion bar computed on the

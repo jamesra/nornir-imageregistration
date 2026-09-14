@@ -142,6 +142,22 @@ from nornir_imageregistration.refine_shared.ring_pose_limits import (
     shortest_signed_angle_delta,
     target_offset_pinning_source_to_target,
 )
+from nornir_imageregistration.refine_shared.trust_tiers import (
+    CLUSTER_MIN_SIZE,
+    CLUSTER_TRAVEL_FACTOR,
+    TrustTier,
+    agreement_tolerance,
+    assign_trust_tiers,
+    demote_disagreeing,
+    find_unique_clusters,
+    is_unique_peak,
+    mesh_records_from_tiers,
+    trusted_set_snapshot,
+)
+from nornir_imageregistration.refine_shared.measure_schedule import (
+    cells_whose_prior_moved,
+    update_last_prior,
+)
 
 __all__ = [
     'RefineRuntimeConfig',
@@ -251,4 +267,16 @@ __all__ = [
     'reference_pose_from_transform',
     'shortest_signed_angle_delta',
     'target_offset_pinning_source_to_target',
+    'CLUSTER_MIN_SIZE',
+    'CLUSTER_TRAVEL_FACTOR',
+    'TrustTier',
+    'agreement_tolerance',
+    'assign_trust_tiers',
+    'demote_disagreeing',
+    'find_unique_clusters',
+    'is_unique_peak',
+    'mesh_records_from_tiers',
+    'trusted_set_snapshot',
+    'cells_whose_prior_moved',
+    'update_last_prior',
 ]
