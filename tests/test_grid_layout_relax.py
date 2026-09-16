@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 from hypothesis import given, settings as hyp_settings, strategies as st
 
+import nornir_imageregistration
 from nornir_imageregistration.grid_subdivision import (
     cell_unmasked_fractions,
     classify_fixed_grid_points,
@@ -21,6 +22,42 @@ from nornir_imageregistration.layout import Layout
 
 
 class TestCellUnmaskedFractions(unittest.TestCase):
+    @hyp_settings(max_examples=100, deadline=None)
+    @given(
+        height=st.integers(min_value=1, max_value=64),
+        width=st.integers(min_value=1, max_value=64),
+        cell_h=st.integers(min_value=1, max_value=32),
+        cell_w=st.integers(min_value=1, max_value=32),
+        center_y=st.floats(min_value=-32, max_value=96, allow_nan=False, allow_infinity=False),
+        center_x=st.floats(min_value=-32, max_value=96, allow_nan=False, allow_infinity=False),
+        seed=st.integers(min_value=0, max_value=2**32 - 1),
+    )
+    def test_direct_counts_match_crop_image(
+            self,
+            height: int,
+            width: int,
+            cell_h: int,
+            cell_w: int,
+            center_y: float,
+            center_x: float,
+            seed: int,
+    ) -> None:
+        mask = np.random.default_rng(seed).random((height, width)) >= 0.5
+        point = np.array([[center_y, center_x]], dtype=np.float64)
+        actual = cell_unmasked_fractions(mask, point, (cell_h, cell_w))[0]
+        origin = point[0] - (np.asarray((cell_h, cell_w), dtype=np.float64) / 2.0)
+        cropped = nornir_imageregistration.CropImage(
+            mask,
+            int(origin[1]),
+            int(origin[0]),
+            cell_w,
+            cell_h,
+            cval=False,
+        )
+        assert cropped is not None
+        expected = float(np.count_nonzero(cropped)) / float(cell_h * cell_w)
+        self.assertEqual(actual, expected)
+
     def test_full_and_empty_cells(self) -> None:
         mask = np.zeros((64, 64), dtype=bool)
         mask[16:48, 16:48] = True

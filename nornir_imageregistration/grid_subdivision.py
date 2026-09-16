@@ -62,11 +62,23 @@ def cell_unmasked_fractions(
     fractions = np.zeros(points_host.shape[0], dtype=np.float64)
     cell_h = int(cell_size_arr[0])
     cell_w = int(cell_size_arr[1])
+    if cell_h < 0 or cell_w < 0:
+        raise ValueError("Negative dimensions are not allowed")
+    mask_h, mask_w = mask_host.shape[:2]
     for i_row in range(points_host.shape[0]):
         o = origins[i_row, :]
-        cell = nornir_imageregistration.CropImage(
-            mask_host, int(o[1]), int(o[0]), cell_w, cell_h, cval=False)
-        fractions[i_row] = float(np.count_nonzero(cell)) / cell_area
+        y_origin = int(o[0])
+        x_origin = int(o[1])
+        y_start = max(0, y_origin)
+        x_start = max(0, x_origin)
+        y_stop = min(mask_h, y_origin + cell_h)
+        x_stop = min(mask_w, x_origin + cell_w)
+        if y_stop <= y_start or x_stop <= x_start:
+            continue
+        fractions[i_row] = (
+            float(np.count_nonzero(mask_host[y_start:y_stop, x_start:x_stop]))
+            / cell_area
+        )
     return fractions
 
 
