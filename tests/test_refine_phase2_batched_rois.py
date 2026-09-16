@@ -8,6 +8,7 @@ translation-only STOS grid-refine path.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import numpy as np
 from hypothesis import example, given, settings
@@ -54,6 +55,26 @@ class TestBuildAlignmentROIsBatchedParity(unittest.TestCase):
             moving.append(np.asarray(source_roi, dtype=np.float64))
             masks.append(np.asarray(nan_mask))
         return np.stack(fixed), np.stack(moving), np.stack(masks)
+
+    def test_target_crop_slices_in_bounds_and_falls_back_for_oob(self) -> None:
+        from nornir_imageregistration.local_distortion_correction import _crop_target_rois_batched
+
+        botlefts = np.array([[8, 12], [-2, 12]], dtype=np.int64)
+        with mock.patch.object(
+                nornir_imageregistration,
+                "CropImage",
+                wraps=nornir_imageregistration.CropImage) as crop_image:
+            stack = _crop_target_rois_batched(
+                self.target_image,
+                botlefts,
+                cell_h=8,
+                cell_w=8,
+                target_image_stats=self.target_stats,
+                xp=np)
+
+        self.assertEqual(crop_image.call_count, 1)
+        np.testing.assert_array_equal(stack[0], self.target_image[8:16, 12:20])
+        self.assertEqual(stack.shape, (2, 8, 8))
 
     def test_identity_translation_parity(self):
         identity = nornir_imageregistration.transforms.RigidTranslation(

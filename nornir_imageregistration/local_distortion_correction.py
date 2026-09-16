@@ -1364,7 +1364,7 @@ def _crop_target_rois_batched(target_image: NDArray,
                               cell_w: int,
                               target_image_stats: nornir_imageregistration.ImageStats | None,
                               xp) -> NDArray:
-    """Crop target-space cells into a ``(N, H, W)`` stack (still one CropImage per cell).
+    """Crop target-space cells into a ``(N, H, W)`` stack.
 
     Accepts NumPy or CuPy images; ``CropImage`` origins are host-converted once.
     """
@@ -1376,16 +1376,18 @@ def _crop_target_rois_batched(target_image: NDArray,
     if num_cells == 0:
         return xp.empty((0, cell_h, cell_w), dtype=target_image.dtype)
 
-    stack: NDArray | None = None
+    image_h, image_w = int(target_image.shape[0]), int(target_image.shape[1])
+    stack = xp.empty((num_cells, cell_h, cell_w), dtype=target_image.dtype)
     for i in range(num_cells):
         yo = int(botlefts_host[i, 0])
         xo = int(botlefts_host[i, 1])
-        crop = nornir_imageregistration.CropImage(
-            target_image, xo, yo, cell_w, cell_h,
-            cval=cval, image_stats=target_image_stats)
-        if stack is None:
-            stack = xp.empty((num_cells, cell_h, cell_w), dtype=crop.dtype)
-        stack[i] = xp.asarray(crop)
+        if yo >= 0 and xo >= 0 and yo + cell_h <= image_h and xo + cell_w <= image_w:
+            stack[i] = target_image[yo:yo + cell_h, xo:xo + cell_w]
+        else:
+            crop = nornir_imageregistration.CropImage(
+                target_image, xo, yo, cell_w, cell_h,
+                cval=cval, image_stats=target_image_stats)
+            stack[i] = xp.asarray(crop)
     return stack
 
 
