@@ -277,6 +277,10 @@ def demote_disagreeing(
     by_id = {_record_id(rec): rec for rec in records}
     locked = {k for k, t in tiers.items() if t == TrustTier.LOCKED}
     out = dict(tiers)
+    if not locked:
+        # No-lock provisionals are coherent cluster seeds; neighbour demotion
+        # becomes meaningful only after a LOCKED reference exists.
+        return out
     for key, tier in list(tiers.items()):
         if tier != TrustTier.PROVISIONAL or key not in by_id:
             continue

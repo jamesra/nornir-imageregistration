@@ -61,6 +61,27 @@ class TestTrustTiers(unittest.TestCase):
         self.assertEqual(tiers[(0, 2)], TrustTier.PROVISIONAL)
         self.assertEqual(tiers[(5, 5)], TrustTier.UNTRUSTED)
 
+    def test_cluster_seed_survives_demotion_without_locks(self) -> None:
+        records = [
+            _rec((0, 0), peak=(10.0, 0.0)),
+            _rec((0, 1), peak=(11.0, 0.5)),
+            _rec((0, 2), peak=(9.5, -0.2)),
+        ]
+        tiers = assign_trust_tiers(
+            records,
+            zncc_pass_ids={(0, 0), (0, 1), (0, 2)},
+            max_travel=12.0,
+            cell_half_size=64.0,
+        )
+        tiers = demote_disagreeing(
+            tiers,
+            records,
+            max_travel=12.0,
+            cell_half_size=64.0,
+        )
+        self.assertTrue(
+            all(tier == TrustTier.PROVISIONAL for tier in tiers.values()))
+
     def test_locked_requires_unique_and_zncc(self) -> None:
         records = [
             _rec((0, 0), peak=(0.2, 0.0), peak_ratio=2.0),

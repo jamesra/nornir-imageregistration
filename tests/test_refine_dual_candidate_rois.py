@@ -53,6 +53,19 @@ class TestChooseTranslationCandidates(unittest.TestCase):
         self.assertFalse(self._pick(rigid=(1.0, 1.1), exact=(0.0, 9.0))[0])
         self.assertTrue(self._pick(rigid=(0.0, 9.0), exact=(1.0, 1.1))[0])
 
+    def test_nonfinite_ratio_loses_to_finite_ratio(self) -> None:
+        for nonfinite in (np.nan, np.inf, -np.inf):
+            with self.subTest(nonfinite=nonfinite, candidate="rigid"):
+                self.assertTrue(
+                    self._pick(rigid=(2.0, nonfinite), exact=(1.0, 1.1))[0])
+            with self.subTest(nonfinite=nonfinite, candidate="exact"):
+                self.assertFalse(
+                    self._pick(rigid=(1.0, 1.1), exact=(2.0, nonfinite))[0])
+
+    def test_nonfinite_ratio_tie_uses_weight(self) -> None:
+        self.assertTrue(
+            self._pick(rigid=(1.0, np.nan), exact=(2.0, np.inf))[0])
+
 
 class TestExactMovingROIs(unittest.TestCase):
 

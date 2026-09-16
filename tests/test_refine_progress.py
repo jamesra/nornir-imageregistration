@@ -188,6 +188,7 @@ class TestPassTransformPreview(unittest.TestCase):
 
         source = inspect.getsource(RefineTransform)
         self.assertIn('pass_label += f" (todo={todo_count})"', source)
+        self.assertIn('scoring_label += f" (todo={todo_count})"', source)
 
     def test_refine_transform_rejects_non_positive_iterations(self) -> None:
         """num_iterations < 1 raises ValueError before the loop (C03-B009 / #183).

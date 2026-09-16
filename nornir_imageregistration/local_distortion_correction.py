@@ -1546,10 +1546,12 @@ def _choose_translation_candidates(
     e_peaks, e_weights, e_ratios = exact
     exact_usable = (e_weights > 0) & np.all(np.isfinite(e_peaks), axis=1)
     rigid_usable = (r_weights > 0) & np.all(np.isfinite(r_peaks), axis=1)
+    r_compare = np.where(np.isfinite(r_ratios), r_ratios, -np.inf)
+    e_compare = np.where(np.isfinite(e_ratios), e_ratios, -np.inf)
     use_exact = exact_usable & (
         ~rigid_usable
-        | (e_ratios > r_ratios)
-        | ((e_ratios == r_ratios) & (e_weights > r_weights)))
+        | (e_compare > r_compare)
+        | ((e_compare == r_compare) & (e_weights > r_weights)))
     peaks = np.where(use_exact[:, None], e_peaks, r_peaks)
     weights = np.where(use_exact, e_weights, r_weights)
     ratios = np.where(use_exact, e_ratios, r_ratios)
@@ -4147,11 +4149,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     measured_priors,
                 )
 
+            scoring_label = f"Refine pass {i}: scoring / finalize"
+            if todo_count is not None:
+                scoring_label += f" (todo={todo_count})"
             report_progress(
                 progress_callback,
                 i,
                 settings.num_iterations,
-                f"Refine pass {i}: scoring / finalize")
+                scoring_label)
 
             updated_and_finalized_alignment_points = alignment_points + list(finalized_points.values())
             updated_and_finalized_weights_distance = _alignment_records_to_composite_scores(
