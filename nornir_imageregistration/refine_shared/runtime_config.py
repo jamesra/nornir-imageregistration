@@ -59,6 +59,7 @@ class RefineRuntimeConfig:
     identity_zncc_min: float | None
     zncc_prominence_min: float
     low_content_std_min: float
+    finalized_recheck_mode: str
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -136,6 +137,10 @@ class RefineRuntimeConfig:
             except ValueError:
                 pass
 
+        finalized_recheck_mode = _env_flag('NORNIR_REFINE_FINALIZED_RECHECK_MODE', 'all')
+        if finalized_recheck_mode not in ('all', 'shadow', 'local'):
+            finalized_recheck_mode = 'all'
+
         return cls(
             phase_timing=not (_is_falsey(phase_flag) or phase_flag == ''),
             batched_vertex_measurement=batched_on,
@@ -154,6 +159,7 @@ class RefineRuntimeConfig:
             identity_zncc_min=identity_zncc,
             zncc_prominence_min=prominence,
             low_content_std_min=low_content_std,
+            finalized_recheck_mode=finalized_recheck_mode,
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:

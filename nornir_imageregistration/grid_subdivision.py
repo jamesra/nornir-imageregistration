@@ -35,6 +35,93 @@ def build_coords_array(grid_dims: NDArray[np.integer]) -> NDArray[np.integer]:
     return coords
 
 
+def cell_unmasked_fractions(
+        mask: NDArray[np.bool_],
+        points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+) -> NDArray[np.floating]:
+    """Return the unmasked fraction of a cell-sized window around each point.
+
+    :param mask: Boolean mask image (True = unmasked / tissue).
+    :param points: Nx2 cell centers in the same space as *mask* (Y, X).
+    :param cell_size: (height, width) of the crop window around each center.
+    :return: Length-N float array of unmasked area / cell area in ``[0, 1]``.
+    """
+    points_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
+    mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
+    if points_host.shape[0] == 0:
+        raise ValueError("points must have non-zero length")
+
+    cell_size_arr = np.asarray(cell_size, dtype=np.float64)
+    half_cell = cell_size_arr / 2.0
+    cell_area = float(np.prod(cell_size_arr))
+    if cell_area <= 0:
+        raise ValueError("cell_size must have positive area")
+
+    origins = points_host - half_cell
+    fractions = np.zeros(points_host.shape[0], dtype=np.float64)
+    cell_h = int(cell_size_arr[0])
+    cell_w = int(cell_size_arr[1])
+    for i_row in range(points_host.shape[0]):
+        o = origins[i_row, :]
+        cell = nornir_imageregistration.CropImage(
+            mask_host, int(o[1]), int(o[0]), cell_w, cell_h, cval=False)
+        fractions[i_row] = float(np.count_nonzero(cell)) / cell_area
+    return fractions
+
+
+def classify_fixed_grid_points(
+        source_points: NDArray[np.floating],
+        target_points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+        min_unmasked: float,
+        source_mask: NDArray[np.bool_] | None = None,
+        target_mask: NDArray[np.bool_] | None = None,
+        source_ok: NDArray[np.bool_] | None = None,
+) -> NDArray[np.bool_]:
+    """Return True for points with enough unmasked area in both source and target.
+
+    A missing mask on either side is treated as fully unmasked (fraction 1.0).
+    A point is fixed only when both sides meet *min_unmasked*.
+
+    :param source_ok: Optional precomputed source-side pass mask. Grid SourcePoints
+        are lattice-fixed, so callers may cache this until cell size, source mask,
+        threshold, or the grid itself changes.
+    """
+    n = int(source_points.shape[0])
+    if target_points.shape[0] != n:
+        raise ValueError("source_points and target_points must have the same length")
+
+    if source_ok is not None:
+        source_pass = np.asarray(source_ok, dtype=bool)
+        if source_pass.shape[0] != n:
+            raise ValueError("source_ok length must match source_points")
+    elif source_mask is None:
+        source_pass = np.ones(n, dtype=bool)
+    else:
+        source_pass = cell_unmasked_fractions(source_mask, source_points, cell_size) >= float(min_unmasked)
+
+    if target_mask is None:
+        target_pass = np.ones(n, dtype=bool)
+    else:
+        target_pass = cell_unmasked_fractions(target_mask, target_points, cell_size) >= float(min_unmasked)
+
+    return source_pass & target_pass
+
+
+def source_ok_for_grid_points(
+        source_points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+        min_unmasked: float,
+        source_mask: NDArray[np.bool_] | None = None,
+) -> NDArray[np.bool_]:
+    """Return True where the source cell meets *min_unmasked* (or True if no mask)."""
+    n = int(np.asarray(source_points).shape[0])
+    if source_mask is None:
+        return np.ones(n, dtype=bool)
+    return cell_unmasked_fractions(source_mask, source_points, cell_size) >= float(min_unmasked)
+
+
 class GridDivisionBase(IGrid):
     """Abstract class for structures that divide images into grids of possibly overlapping cells"""
 
@@ -208,35 +295,10 @@ class GridDivisionBase(IGrid):
         :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
         :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
         """
-        # Mask cell crops and overlap tests stay on the host: points are small and
-        # CropImage / count_nonzero need a shared array module with the keep-mask.
-        points_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
-        mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
-
-        if points_host.shape[0] == 0:
-            raise ValueError("points must have non-zero length")
-
         if min_unmasked_area is None:
             min_unmasked_area = 0
-
-        cell_true_count = np.zeros(points_host.shape[0], dtype=np.float64)
-        half_cell = np.asarray(self._cell_size, dtype=np.float64) / 2.0
-        cell_area = float(np.prod(self._cell_size))
-
-        origins = points_host - half_cell
-
-        for iRow in range(0, points_host.shape[0]):
-            o = origins[iRow, :]
-
-            cell = nornir_imageregistration.CropImage(mask_host,
-                                                      int(o[1]), int(o[0]),
-                                                      int(self._cell_size[1]), int(self._cell_size[0]),
-                                                      cval=False)
-            cell_true_count[iRow] = float(np.count_nonzero(cell))
-
-        overlaps = cell_true_count / cell_area
-        valid = overlaps > min_unmasked_area
-        return valid
+        overlaps = cell_unmasked_fractions(mask, points, self._cell_size)
+        return overlaps > min_unmasked_area
 
     def RemoveCellsUsingTargetImageMask(self, target_mask: NDArray[np.bool_], min_unmasked_area: float,
                                         *, allow_empty: bool = False) -> int:

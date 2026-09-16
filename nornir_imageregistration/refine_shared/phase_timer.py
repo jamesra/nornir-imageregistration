@@ -6,6 +6,7 @@ import contextlib
 import threading
 import time
 from collections import defaultdict
+from typing import Any
 
 import nornir_imageregistration
 from nornir_imageregistration.refine_shared.runtime_config import _cached_config
@@ -24,6 +25,7 @@ class RefinePhaseTimer:
     """
 
     PHASES = (
+        'main_measurement', 'finalized_recheck', 'mesh_build_1', 'mesh_build_2',
         'prewarp', 'grid_build', 'approx_rigid', 'cell_extract', 'fft', 'host_sync',
         'record_assemble', 'regularize', 'apply',
         'low_content_gate', 'classify', 'zncc_secondary',
@@ -34,6 +36,8 @@ class RefinePhaseTimer:
         self._enabled_override: bool | None = None if enabled is None else bool(enabled)
         self.totals: dict[str, float] = defaultdict(float)
         self.counts: dict[str, int] = defaultdict(int)
+        self.work_counts: dict[str, int] = defaultdict(int)
+        self.pass_summaries: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
     @property
@@ -66,6 +70,8 @@ class RefinePhaseTimer:
         with self._lock:
             self.totals = defaultdict(float)
             self.counts = defaultdict(int)
+            self.work_counts = defaultdict(int)
+            self.pass_summaries = []
 
     def snapshot(self) -> dict[str, float]:
         """Return a copy of the current cumulative per-phase totals."""
@@ -78,6 +84,18 @@ class RefinePhaseTimer:
         with self._lock:
             self.totals[name] += float(elapsed)
             self.counts[name] += 1
+
+    def add_work(self, name: str, amount: int) -> None:
+        """Accumulate a non-timing work count such as rechecked cells."""
+        if amount < 0:
+            return
+        with self._lock:
+            self.work_counts[name] += int(amount)
+
+    def record_pass(self, summary: dict[str, Any]) -> None:
+        """Retain a JSON-safe coarse summary for one completed refine pass."""
+        with self._lock:
+            self.pass_summaries.append(dict(summary))
 
     @contextlib.contextmanager
     def section(self, name: str):

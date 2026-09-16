@@ -414,7 +414,20 @@ from nornir_imageregistration.views import ShowWithPassFail
 from nornir_imageregistration.views.display_images import ShowGrayscale
 from nornir_imageregistration.files.stosfile import StosFile, AddStosTransforms
 
-from nornir_imageregistration.grid_subdivision import CenteredGridDivision, ITKGridDivision
+from nornir_imageregistration.grid_subdivision import (
+    CenteredGridDivision,
+    ITKGridDivision,
+    cell_unmasked_fractions,
+    classify_fixed_grid_points,
+    source_ok_for_grid_points,
+)
+
+from nornir_imageregistration.grid_layout_relax import (
+    build_fixed_mask_for_grid,
+    create_grid_spacing_layout,
+    propagate_masked_grid_positions,
+    set_local_similarity_rest_offsets,
+)
 
 import nornir_imageregistration.pillow_helpers
 from nornir_imageregistration.pillow_helpers import get_image_file_dtype, dtype_for_pillow_image

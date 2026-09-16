@@ -11,16 +11,20 @@ import nornir_imageregistration.core as core
 from nornir_imageregistration.files.stosfile import StosFile
 from nornir_imageregistration.refine_shared.cell_roles import Role
 from nornir_imageregistration.stos_quality import (
+    CellZnccRecord,
     QualityCache,
     attach_scores_to_paths,
     build_quality_histogram,
     cache_key_for_stos,
+    compare_cell_zncc,
+    compute_cell_zncc,
     compute_pair_zncc,
     entry_is_stale,
     load_quality_cache,
     merge_entry,
     refine_summary_from_diagnostics,
     save_quality_cache,
+    score_cell_zncc_arrays,
     score_stos_into_cache,
 )
 from nornir_imageregistration.transforms import factory
@@ -70,6 +74,71 @@ def test_compute_pair_zncc_identity_near_one(tmp_path: Path) -> None:
     assert result.pair_zncc > 0.95
     assert result.stos_checksum
     assert result.stos_mtime_ns > 0
+
+
+def test_compute_cell_zncc_identity_has_deterministic_aggregates(tmp_path: Path) -> None:
+    """Fixed-lattice identity scores retain stable IDs and near-perfect aggregates."""
+    stos_path = _write_identity_stos(tmp_path)
+    result = compute_cell_zncc(
+        str(stos_path),
+        cell_size=8,
+        grid_spacing=8,
+        min_valid_fraction=0.5,
+        max_side=64,
+    )
+    assert result.finite_count == 16
+    assert result.median_zncc is not None and result.median_zncc > 0.95
+    assert result.min_zncc is not None and result.min_zncc > 0.95
+    assert result.max_zncc is not None and result.max_zncc <= 1.0 + 1e-12
+    assert [(cell.grid_row, cell.grid_col) for cell in result.cells] == [
+        (row, col) for row in range(4) for col in range(4)
+    ]
+
+
+def test_score_cell_zncc_arrays_excludes_masked_cells() -> None:
+    """Cells below the valid-pixel threshold remain present with an exclusion reason."""
+    control = np.arange(64, dtype=np.float64).reshape(8, 8)
+    valid = np.ones((8, 8), dtype=bool)
+    valid[:4, :4] = False
+    records = score_cell_zncc_arrays(
+        control,
+        control.copy(),
+        valid,
+        cell_size=4,
+        grid_spacing=4,
+        min_valid_fraction=0.5,
+    )
+    by_id = {(cell.grid_row, cell.grid_col): cell for cell in records}
+    assert by_id[(0, 0)].zncc is None
+    assert by_id[(0, 0)].exclusion_reason == 'insufficient_valid_pixels'
+    assert by_id[(0, 0)].valid_pixel_count == 0
+    assert by_id[(1, 1)].zncc == pytest.approx(1.0)
+
+
+def test_compare_cell_zncc_classifies_and_aggregates_deltas() -> None:
+    """Paired cells use the configured tolerance and deterministic quantiles."""
+    def record(row: int, score: float | None) -> CellZnccRecord:
+        return CellZnccRecord(
+            grid_row=row,
+            grid_col=0,
+            center_y=float(row),
+            center_x=0.0,
+            valid_pixel_count=4,
+            total_pixel_count=4,
+            exclusion_reason=None if score is not None else 'invalid',
+            zncc=score,
+        )
+
+    reference = [record(0, 0.1), record(1, 0.2), record(2, 0.3), record(3, None)]
+    candidate = [record(0, 0.11), record(1, 0.19), record(2, 0.30005), record(3, 0.8)]
+    result = compare_cell_zncc(reference, candidate, tolerance=1e-4)
+    assert result.improved_count == 1
+    assert result.worse_count == 1
+    assert result.unchanged_count == 1
+    assert result.excluded_count == 1
+    assert result.delta_min == pytest.approx(-0.01)
+    assert result.delta_max == pytest.approx(0.01)
+    assert result.delta_median == pytest.approx(0.00005)
 
 
 def test_quality_cache_round_trip_and_stale(tmp_path: Path) -> None:

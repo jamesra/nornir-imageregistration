@@ -100,6 +100,24 @@ class TestRefineShared(unittest.TestCase):
             os.environ.pop('NORNIR_REFINE_MOSAIC_CUTOFF', None)
             os.environ.pop('NORNIR_REFINE_STOS_REGULARIZE', None)
 
+    def test_runtime_config_finalized_recheck_modes(self) -> None:
+        """Finalized rechecks default safely to all and accept only known modes."""
+        old = os.environ.get('NORNIR_REFINE_FINALIZED_RECHECK_MODE')
+        try:
+            os.environ.pop('NORNIR_REFINE_FINALIZED_RECHECK_MODE', None)
+            self.assertEqual(RefineRuntimeConfig.from_env().finalized_recheck_mode, 'all')
+            os.environ['NORNIR_REFINE_FINALIZED_RECHECK_MODE'] = 'shadow'
+            self.assertEqual(RefineRuntimeConfig.from_env().finalized_recheck_mode, 'shadow')
+            os.environ['NORNIR_REFINE_FINALIZED_RECHECK_MODE'] = 'local'
+            self.assertEqual(RefineRuntimeConfig.from_env().finalized_recheck_mode, 'local')
+            os.environ['NORNIR_REFINE_FINALIZED_RECHECK_MODE'] = 'invalid'
+            self.assertEqual(RefineRuntimeConfig.from_env().finalized_recheck_mode, 'all')
+        finally:
+            if old is None:
+                os.environ.pop('NORNIR_REFINE_FINALIZED_RECHECK_MODE', None)
+            else:
+                os.environ['NORNIR_REFINE_FINALIZED_RECHECK_MODE'] = old
+
     def test_batched_mosaic_gate_does_not_disable_stos(self) -> None:
         """NORNIR_REFINE_BATCHED=0 is mosaic-only; STOS stays batched (#98)."""
         from nornir_imageregistration.local_distortion_correction import (

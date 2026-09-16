@@ -879,8 +879,25 @@ class Layout:
         self.nodes.update(layoutB.copy().nodes)
 
     @classmethod
+    def RelaxNode(cls, layout_obj: Layout, node_id: int, vector_scalar: float | None = None) -> NDArray[np.floating]:
+        """Move a single connected node along its weighted net tension vector.
+
+        Same step as one iteration of :meth:`RelaxNodes` for *node_id*. Isolated
+        nodes (no connections) are left unchanged and return a zero vector.
+        """
+        if vector_scalar is None:
+            vector_scalar = 1.0
+        node = layout_obj.nodes[node_id]
+        if node.NumConnections == 0:
+            return np.zeros(2, dtype=np.float64)
+        vector = layout_obj.WeightedNetTensionVector(node_id) * float(vector_scalar)
+        node.Position = node.Position + vector
+        return vector
+
+    @classmethod
     def RelaxNodes(cls, layout_obj: Layout, vector_scalar: float | None = None,
-                   node_tension_vectors: dict[int, NDArray[np.floating]] | None = None):
+                   node_tension_vectors: dict[int, NDArray[np.floating]] | None = None,
+                   fixed_ids: set[int] | frozenset[int] | None = None):
         """Adjust the position of each node along its tension vector
         :param Layout layout_obj: The layout to relax
         :param float vector_scalar: Multiply the weighted tension vectors by this amount before adjusting the position.  A high value is faster but may not be constrained.  A low value is slower but safe.
@@ -888,6 +905,8 @@ class Layout:
             *current* positions, used only to order the movement pass.  RelaxLayout has already
             evaluated these to test convergence, and nothing moves in between, so passing them
             avoids recomputing every one.  None recomputes them.  See the ordering note below.
+        :param fixed_ids: Optional set of node IDs that must not move.  Omitted or empty
+            preserves mosaic arrange behavior (every connected node moves).
         :return: nx2 array of (node ID, sort weight), one row per *connected* node.
 
         Isolated nodes are omitted from the returned array rather than left as zero
@@ -905,6 +924,8 @@ class Layout:
 
         if vector_scalar is None:
             vector_scalar = 1.0
+
+        pinned = fixed_ids if fixed_ids is not None else frozenset()
 
         # vectors = {}
 
@@ -951,6 +972,8 @@ class Layout:
         for i in range(int(sorted_node_movement.shape[0]) - 1, -1,
                        -1):  # Reversing the range calls saves me a np.flip and this function is a bottleneck
             node_id = int(sorted_node_movement[i])
+            if node_id in pinned:
+                continue
             vector = layout_obj.WeightedNetTensionVector(node_id) * vector_scalar
 
             node = layout_obj.nodes[node_id]

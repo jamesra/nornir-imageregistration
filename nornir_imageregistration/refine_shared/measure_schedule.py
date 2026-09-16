@@ -2,10 +2,41 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+
+import nornir_imageregistration
+
+
+def project_priors(
+        transform: Any,
+        cell_ids: Sequence[tuple[int, int]],
+        source_points: Mapping[tuple[int, int], NDArray[np.floating] | Sequence[float]],
+        *,
+        locked_ids: set[tuple[int, int]] | None = None,
+) -> dict[tuple[int, int], NDArray[np.float64]]:
+    """Project all available unlocked source points in one transform call."""
+    locked = locked_ids or set()
+    keys = [
+        key
+        for key in cell_ids
+        if key not in locked and key in source_points
+    ]
+    if not keys:
+        return {}
+    points = np.asarray(
+        [np.asarray(source_points[key], dtype=np.float64).reshape(2) for key in keys],
+        dtype=np.float64,
+    )
+    mapped = nornir_imageregistration.EnsureNumpyArray(
+        transform.Transform(points)
+    ).astype(np.float64, copy=False).reshape(len(keys), 2)
+    return {
+        key: np.asarray(mapped[index], dtype=np.float64).copy()
+        for index, key in enumerate(keys)
+    }
 
 
 def cells_whose_prior_moved(

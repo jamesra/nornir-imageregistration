@@ -1,4 +1,4 @@
-"""Unit tests for trusted-mesh measure scheduling."""
+"""Tests for trusted-mesh prior projection and scheduling."""
 
 from __future__ import annotations
 
@@ -11,9 +11,59 @@ import nornir_imageregistration
 from nornir_imageregistration import local_distortion_correction as ldc
 from nornir_imageregistration.refine_shared.measure_schedule import (
     cells_whose_prior_moved,
+    project_priors,
     update_last_prior,
 )
 from nornir_imageregistration.transforms.rigid import RigidTranslation
+
+
+class _CountingTransform:
+    """Affine stand-in that records Transform batch sizes."""
+
+    def __init__(self) -> None:
+        self.batch_sizes: list[int] = []
+
+    def Transform(self, points: np.ndarray) -> np.ndarray:
+        array = np.asarray(points, dtype=np.float64)
+        self.batch_sizes.append(int(array.shape[0]))
+        return array + np.asarray((2.0, -3.0))
+
+
+def test_project_priors_vectorizes_and_preserves_ids() -> None:
+    """Unlocked prior projection uses one transform call with scalar-path parity."""
+    transform = _CountingTransform()
+    ids = [(0, 0), (0, 1), (1, 0)]
+    source = {
+        (0, 0): np.asarray((1.0, 2.0)),
+        (0, 1): np.asarray((3.0, 4.0)),
+        (1, 0): np.asarray((5.0, 6.0)),
+    }
+    projected = project_priors(
+        transform,
+        ids,
+        source,
+        locked_ids={(0, 1)},
+    )
+    assert transform.batch_sizes == [2]
+    assert list(projected) == [(0, 0), (1, 0)]
+    np.testing.assert_allclose(projected[(0, 0)], [3.0, -1.0])
+    np.testing.assert_allclose(projected[(1, 0)], [7.0, 3.0])
+
+
+def test_vectorized_projection_drives_existing_schedule() -> None:
+    """Batched priors produce the same movement decisions as scalar values."""
+    transform = _CountingTransform()
+    ids = [(0, 0), (0, 1)]
+    source = {
+        (0, 0): np.asarray((1.0, 2.0)),
+        (0, 1): np.asarray((3.0, 4.0)),
+    }
+    priors = project_priors(transform, ids, source)
+    last = {
+        (0, 0): np.asarray((3.0, -1.0)),
+        (0, 1): np.asarray((4.0, 1.0)),
+    }
+    assert cells_whose_prior_moved(ids, priors, last, eps=0.5, pass_index=2) == [(0, 1)]
 
 
 class TestMeasureSchedule(unittest.TestCase):

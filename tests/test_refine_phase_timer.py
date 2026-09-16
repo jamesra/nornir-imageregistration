@@ -18,7 +18,15 @@ class TestRefinePhaseTimerBuckets(unittest.TestCase):
     """New measure-gap buckets are registered and record wall time."""
 
     def test_measure_gap_phases_listed(self) -> None:
-        for name in ('grid_build', 'approx_rigid', 'record_assemble'):
+        for name in (
+                'grid_build',
+                'approx_rigid',
+                'record_assemble',
+                'main_measurement',
+                'finalized_recheck',
+                'mesh_build_1',
+                'mesh_build_2',
+        ):
             self.assertIn(name, RefinePhaseTimer.PHASES)
 
     def test_section_records_new_buckets(self) -> None:
@@ -33,6 +41,18 @@ class TestRefinePhaseTimerBuckets(unittest.TestCase):
         self.assertGreater(timer.totals['approx_rigid'], 0.0)
         self.assertGreater(timer.totals['record_assemble'], 0.0)
         self.assertEqual(timer.counts['approx_rigid'], 1)
+
+    def test_work_counts_and_pass_summaries_reset(self) -> None:
+        timer = RefinePhaseTimer(enabled=False)
+        timer.add_work('finalized_rechecked_cells', 8)
+        timer.add_work('accepted_finalized_improvements', 2)
+        timer.record_pass({'pass': 1, 'rechecked_count': 8})
+        self.assertEqual(timer.work_counts['finalized_rechecked_cells'], 8)
+        self.assertEqual(timer.work_counts['accepted_finalized_improvements'], 2)
+        self.assertEqual(timer.pass_summaries, [{'pass': 1, 'rechecked_count': 8}])
+        timer.reset()
+        self.assertEqual(dict(timer.work_counts), {})
+        self.assertEqual(timer.pass_summaries, [])
 
 
 class TestFailureModeStats(unittest.TestCase):

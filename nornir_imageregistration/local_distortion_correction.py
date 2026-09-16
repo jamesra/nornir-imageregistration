@@ -108,7 +108,17 @@ from nornir_imageregistration.refine_shared.trust_tiers import (
 )
 from nornir_imageregistration.refine_shared.measure_schedule import (
     cells_whose_prior_moved,
+    project_priors,
     update_last_prior,
+)
+from nornir_imageregistration.refine_shared.finalized_recheck import (
+    FinalizedRecheckState,
+    canonical_control_point_array,
+    canonical_transform_control_points,
+    local_recheck_threshold,
+    merge_recheck_results,
+    plan_finalized_rechecks,
+    update_recheck_state,
 )
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
@@ -3973,6 +3983,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     finalized_points = {}  # type: AlignmentRecordDict
     finalize_candidates: dict[tuple[int, int], FinalizeCandidateState] = {}
     finalize_settings = FinalizeSettings.from_grid_refinement(settings)
+    runtime_config = get_runtime_config(refresh=True)
+    finalized_recheck_mode = runtime_config.finalized_recheck_mode
+    finalized_recheck_state = FinalizedRecheckState()
     legacy_finalize = use_legacy_finalize_gate()
     source_content_cache = SourceContentCache()
     # Measured ROI stacks travel from cell measurement to the ZNCC lock gate within a
@@ -3987,6 +4000,8 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             'NORNIR_REFINE_FINALIZE_LEGACY=1: using distance-primary finalize with 2% weight floor')
 
     prettyoutput.Log('Refine mesh uses trusted cells only')
+    prettyoutput.Log(
+        f'Finalized-point recheck mode: {finalized_recheck_mode}')
 
     # Trusted-mesh scheduling / stop-on-unchanged-set state.
     trusted_last_prior: dict[tuple[int, int], NDArray[np.float64]] = {}
@@ -4044,6 +4059,13 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             finalize_s = 0.0
             diagnostics_tables_s = 0.0
             diagnostics_heatmaps_s = 0.0
+            rechecked_count = 0
+            skipped_recheck_count = 0
+            accepted_improvement_count = 0
+            first_mesh_canonical: NDArray[np.float64] | None = None
+            shadow_local_records: list[dict[str, Any]] = []
+            improvement_shift_by_id: dict[AlignmentRecordKey, float] = {}
+            improvement_weight_gain_by_id: dict[AlignmentRecordKey, float] = {}
 
             if i == settings.num_iterations:
                 final_pass = True
@@ -4053,17 +4075,27 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             todo_count: int | None = None
             if trusted_all_cell_ids:
                 locked_ids = set(finalized_points.keys())
-                priors: dict[tuple[int, int], NDArray[np.float64]] = {}
-                for key in trusted_all_cell_ids:
-                    if key in locked_ids:
-                        continue
-                    src = trusted_source_points.get(key)
-                    if src is None:
-                        continue
-                    mapped = np.asarray(
-                        stosTransform.Transform(np.asarray(src, dtype=np.float64).reshape(1, 2)),
-                        dtype=np.float64).reshape(2)
-                    priors[key] = mapped
+                if finalized_recheck_mode == 'local':
+                    priors = project_priors(
+                        stosTransform,
+                        trusted_all_cell_ids,
+                        trusted_source_points,
+                        locked_ids=locked_ids,
+                    )
+                else:
+                    priors: dict[tuple[int, int], NDArray[np.float64]] = {}
+                    for key in trusted_all_cell_ids:
+                        if key in locked_ids:
+                            continue
+                        src = trusted_source_points.get(key)
+                        if src is None:
+                            continue
+                        mapped = np.asarray(
+                            stosTransform.Transform(
+                                np.asarray(src, dtype=np.float64).reshape(1, 2)),
+                            dtype=np.float64,
+                        ).reshape(2)
+                        priors[key] = mapped
                 todo = cells_whose_prior_moved(
                     trusted_all_cell_ids,
                     priors,
@@ -4104,6 +4136,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 roi_sink=roi_sink,
                 measure_cell_ids=measure_cell_ids)
             measure_s = time.perf_counter() - measure_t0
+            _PHASE_TIMER.add('main_measurement', measure_s)
 
             if len(alignment_points) == 0:
                 if _grow_refine_cell_size_after_failure(
@@ -4364,13 +4397,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     included_alignment_records = []
                     weight_distance_composite_scores = np.zeros((0, 3), dtype=np.float64)
                 else:
-                    (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
-                        _build_mesh_transform_or_keep(
-                            mesh_alignment_points,
-                            prior_transform=stosTransform,
-                            fixed_points=AlignRecordsToControlPoints(fixed_locked)
-                            if fixed_locked else None,
-                        ))
+                    with _PHASE_TIMER.section_wall('mesh_build_1'):
+                        (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
+                            _build_mesh_transform_or_keep(
+                                mesh_alignment_points,
+                                prior_transform=stosTransform,
+                                fixed_points=AlignRecordsToControlPoints(fixed_locked)
+                                if fixed_locked else None,
+                            ))
+                    first_mesh_canonical = canonical_transform_control_points(updatedTransform)
 
                 prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
@@ -4454,9 +4489,76 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             non_final_alignment_points = list(filter(lambda r: r.ID not in new_finalized_alignments_dict, alignment_points))
 
             # Check previous finalizations to see if we can do better now
-            (finalized_points, improved_alignments) = TryToImproveAlignments(updatedTransform,
-                                                                             finalized_points,
-                                                                             settings)
+            improved_alignments: list[AlignmentRecordKey] = []
+            proposed_local_skips: set[AlignmentRecordKey] = set()
+            if finalized_points:
+                recheck_plan, recheck_context = plan_finalized_rechecks(
+                    updatedTransform,
+                    finalized_points,
+                    settings,
+                    finalized_recheck_state,
+                    mode=finalized_recheck_mode,
+                    local_threshold=local_recheck_threshold(
+                        finalize_settings.finalize_stability_epsilon_px),
+                )
+                rechecked_count = len(recheck_plan.recheck_ids)
+                skipped_recheck_count = len(recheck_plan.skip_ids)
+                proposed_local_skips = set(recheck_plan.proposed_local_skip_ids)
+                records_to_recheck = {
+                    key: finalized_points[key]
+                    for key in recheck_plan.recheck_ids
+                }
+                records_before_recheck = dict(finalized_points)
+                with _PHASE_TIMER.section_wall('finalized_recheck'):
+                    rechecked_records, improved_alignments = TryToImproveAlignments(
+                        updatedTransform,
+                        records_to_recheck,
+                        settings)
+                for key in improved_alignments:
+                    before = records_before_recheck[key]
+                    after = rechecked_records[key]
+                    improvement_shift_by_id[key] = float(np.linalg.norm(
+                        np.asarray(after.TargetPoint, dtype=np.float64).reshape(2)
+                        - np.asarray(before.TargetPoint, dtype=np.float64).reshape(2)
+                    ))
+                    improvement_weight_gain_by_id[key] = float(after.weight - before.weight)
+                finalized_points = merge_recheck_results(
+                    finalized_points,
+                    rechecked_records,
+                    recheck_plan,
+                )
+                update_recheck_state(
+                    finalized_recheck_state,
+                    recheck_context,
+                    recheck_plan,
+                    successfully_rechecked_ids=recheck_plan.recheck_ids,
+                )
+            accepted_improvement_count = len(improved_alignments)
+            improved_set = set(improved_alignments)
+            if finalized_recheck_mode == 'shadow':
+                shadow_local_records = [
+                    {
+                        'grid_row': int(key[0]),
+                        'grid_col': int(key[1]),
+                        'movement_px': float(movement),
+                        'accepted_improvement': key in improved_set,
+                        'accepted_shift_px': improvement_shift_by_id.get(key),
+                        'accepted_weight_gain': improvement_weight_gain_by_id.get(key),
+                    }
+                    for key, movement in sorted(recheck_plan.local_movement_by_id.items())
+                    if np.isfinite(movement)
+                ] if finalized_points else []
+            _PHASE_TIMER.add_work('finalized_rechecked_cells', rechecked_count)
+            _PHASE_TIMER.add_work('accepted_finalized_improvements', accepted_improvement_count)
+            _PHASE_TIMER.add_work('proposed_local_skips', len(proposed_local_skips))
+            _PHASE_TIMER.add_work(
+                'proposed_local_skip_accepted_improvements',
+                len(proposed_local_skips.intersection(improved_alignments)),
+            )
+            _PHASE_TIMER.add_work(
+                'local_skipped_cells',
+                skipped_recheck_count,
+            )
 
             # Bake new locks immediately (peak -> TargetPoint) so unlock/mesh see Adjusted==Target.
             baked_new_locks: AlignmentRecordDict = {}
@@ -4475,6 +4577,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             # Drop candidate tracking for cells that just locked.
             for key in baked_new_locks:
                 finalize_candidates.pop(key, None)
+            finalized_recheck_state.prune(set(finalized_points))
 
             prettyoutput.Log(
                 f"Pass {i} has locked {new_finalization_count} new points, "
@@ -4598,8 +4701,40 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 prettyoutput.Log(
                     f'Building transform for next round with {len(included_alignment_records)} '
                     f'provisional and {len(finalized_points)} locked points')
-                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                    AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
+                post_finalize_points = AlignRecordsToControlPoints(combined_records_this_pass.values())
+                post_finalize_canonical = canonical_control_point_array(post_finalize_points)
+                if (
+                        first_mesh_canonical is not None
+                        and np.array_equal(
+                            first_mesh_canonical,
+                            post_finalize_canonical,
+                            equal_nan=True,
+                        )
+                ):
+                    _PHASE_TIMER.add_work('mesh_build_2_reused', 1)
+                else:
+                    with _PHASE_TIMER.section_wall('mesh_build_2'):
+                        updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                            post_finalize_points)  # type: ignore[arg-type]
+
+            _PHASE_TIMER.record_pass({
+                'pass': int(i),
+                'wall_s': float(time.perf_counter() - pass_t0),
+                'main_measurement_s': float(measure_s),
+                'finalize_s': float(finalize_s),
+                'todo_count': int(todo_count) if todo_count is not None else len(alignment_points),
+                'aligned_count': len(alignment_points),
+                'rechecked_count': rechecked_count,
+                'accepted_improvement_count': accepted_improvement_count,
+                'proposed_local_skip_count': len(proposed_local_skips),
+                'proposed_local_skip_accepted_improvement_count': len(
+                    proposed_local_skips.intersection(improved_alignments)
+                ),
+                'shadow_local_records': shadow_local_records,
+                'local_skip_count': skipped_recheck_count,
+                'locked_count': len(finalized_points),
+                'provisional_count': len(included_alignment_records),
+            })
 
             report_pass_transform(
                 progress_callback,
