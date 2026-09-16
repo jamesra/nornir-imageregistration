@@ -437,21 +437,28 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
                 and abs(self.scalar - 1.0) < _NEGLIGIBLE_SCALE_DEVIATION
                 and not self.flip_ud)
 
-    def _matrices_for(self, xp):
-        """Forward and inverse matrices on the same backend as the caller's points.
+    def _matrix_for(self, xp, *, inverse: bool):
+        """One directional matrix on the same backend as the caller's points.
 
         Cached per backend. The matrices are built on whichever module
         ``GetComputationModule`` reports, so a host-side caller working against a
         device-resident matrix otherwise paid a device-to-host copy on every call.
         Not part of ``__getstate__``, so the cache never travels to a pool worker.
         """
-        want_host = xp is np
-        cached = self._matrix_cache.get(want_host)
+        key = (xp is np, inverse)
+        cached = self._matrix_cache.get(key)
         if cached is None:
-            cached = (_to_xp_array(self.forward_matrix, xp),
-                      _to_xp_array(self.inverse_matrix, xp))
-            self._matrix_cache[want_host] = cached
+            matrix = self.inverse_matrix if inverse else self.forward_matrix
+            cached = _to_xp_array(matrix, xp)
+            self._matrix_cache[key] = cached
         return cached
+
+    def _matrices_for(self, xp):
+        """Forward and inverse matrices on the caller's array backend."""
+        return (
+            self._matrix_for(xp, inverse=False),
+            self._matrix_for(xp, inverse=True),
+        )
 
     def _update_transform_matrix(self):
         """Update the forward and inverse matrices.
@@ -467,8 +474,8 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
                               self._forward_scale_matrix @ self._inverse_center_of_rotation_translation
         xp = cp.get_array_module(self.forward_matrix)
         self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
-        # Per-backend copies of the two matrices, keyed on "wants host".
-        self._matrix_cache: dict[bool, tuple] = {}
+        # Directional per-backend copies keyed by (wants host, inverse).
+        self._matrix_cache: dict[tuple[bool, bool], NDArray[np.floating]] = {}
 
     def _pin_source_point_under_mutation(
             self,
@@ -506,7 +513,8 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(self._matrices_for(xp)[0], xp.transpose(centered_points)))
+        output_points = xp.transpose(
+            xp.matmul(self._matrix_for(xp, inverse=False), xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed
@@ -522,7 +530,8 @@ class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation
 
         num_points = points.shape[0]
         centered_points = xp.hstack((points, xp.ones((num_points, 1))))
-        output_points = xp.transpose(xp.matmul(self._matrices_for(xp)[1], xp.transpose(centered_points)))
+        output_points = xp.transpose(
+            xp.matmul(self._matrix_for(xp, inverse=True), xp.transpose(centered_points)))
         output_points = output_points[:, 0:2]
         itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
         return itransformed

@@ -165,6 +165,30 @@ def test_the_cached_matrix_matches_the_live_one():
                    dtype=np.float64))
 
 
+def test_directional_cache_materializes_only_requested_matrix(monkeypatch):
+    transform = rigid.Rigid(target_offset=OFFSET, source_rotation_center=CENTER,
+                            angle=0.3)
+    points = _points(seed=8)
+    original = rigid._to_xp_array
+    calls = []
+
+    def count_conversion(matrix, xp):
+        calls.append(matrix)
+        return original(matrix, xp)
+
+    monkeypatch.setattr(rigid, '_to_xp_array', count_conversion)
+
+    transform.Transform(points)
+    transform.Transform(points)
+    assert len(calls) == 1
+    assert calls[0] is transform.forward_matrix
+
+    transform.InverseTransform(points)
+    transform.InverseTransform(points)
+    assert len(calls) == 2
+    assert calls[1] is transform.inverse_matrix
+
+
 def test_rotating_the_transform_invalidates_the_cache():
     """A stale cache would keep returning the pre-rotation mapping."""
     points = _points(seed=5)
