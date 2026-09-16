@@ -4075,27 +4075,12 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             todo_count: int | None = None
             if trusted_all_cell_ids:
                 locked_ids = set(finalized_points.keys())
-                if finalized_recheck_mode == 'local':
-                    priors = project_priors(
-                        stosTransform,
-                        trusted_all_cell_ids,
-                        trusted_source_points,
-                        locked_ids=locked_ids,
-                    )
-                else:
-                    priors: dict[tuple[int, int], NDArray[np.float64]] = {}
-                    for key in trusted_all_cell_ids:
-                        if key in locked_ids:
-                            continue
-                        src = trusted_source_points.get(key)
-                        if src is None:
-                            continue
-                        mapped = np.asarray(
-                            stosTransform.Transform(
-                                np.asarray(src, dtype=np.float64).reshape(1, 2)),
-                            dtype=np.float64,
-                        ).reshape(2)
-                        priors[key] = mapped
+                priors = project_priors(
+                    stosTransform,
+                    trusted_all_cell_ids,
+                    trusted_source_points,
+                    locked_ids=locked_ids,
+                )
                 todo = cells_whose_prior_moved(
                     trusted_all_cell_ids,
                     priors,
