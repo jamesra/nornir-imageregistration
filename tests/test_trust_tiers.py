@@ -9,10 +9,12 @@ import numpy as np
 from nornir_imageregistration.alignment_record import EnhancedAlignmentRecord
 from nornir_imageregistration.refine_shared.peak_ratio_gates import PEAK_RATIO_MIN
 from nornir_imageregistration.refine_shared.trust_tiers import (
+    LOCK_FRAC_TRIGGER,
     TrustTier,
     assign_trust_tiers,
     demote_disagreeing,
     find_unique_clusters,
+    low_lock_quality_flag,
     mesh_records_from_tiers,
     trusted_set_snapshot,
 )
@@ -38,6 +40,12 @@ def _rec(
 
 
 class TestTrustTiers(unittest.TestCase):
+    def test_quality_flag_uses_final_lock_fraction(self) -> None:
+        self.assertTrue(low_lock_quality_flag(4, 100))
+        self.assertFalse(low_lock_quality_flag(5, 100))
+        self.assertFalse(low_lock_quality_flag(
+            1, 1, trigger=LOCK_FRAC_TRIGGER))
+
     def test_cluster_seeds_provisional_when_no_locks(self) -> None:
         records = [
             _rec((0, 0), peak=(10.0, 0.0)),

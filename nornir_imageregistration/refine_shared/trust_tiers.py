@@ -15,6 +15,7 @@ from nornir_imageregistration.refine_shared.peak_ratio_gates import PEAK_RATIO_M
 CLUSTER_MIN_SIZE: int = 3
 # Travel within this factor of the cluster median is mutually consistent.
 CLUSTER_TRAVEL_FACTOR: float = 2.0
+LOCK_FRAC_TRIGGER: float = 0.05
 RecordT = TypeVar('RecordT')
 
 
@@ -24,6 +25,16 @@ class TrustTier(IntEnum):
     UNTRUSTED = 0
     PROVISIONAL = 1
     LOCKED = 2
+
+
+def low_lock_quality_flag(
+        n_locks: int,
+        n_grid: int,
+        *,
+        trigger: float = LOCK_FRAC_TRIGGER,
+) -> bool:
+    """Return whether the final trusted lock fraction requires a quality flag."""
+    return float(n_locks) / float(max(1, n_grid)) < float(trigger)
 
 
 def _record_id(record: object) -> tuple[int, int]:

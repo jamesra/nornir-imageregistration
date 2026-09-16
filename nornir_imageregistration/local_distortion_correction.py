@@ -77,9 +77,6 @@ from nornir_imageregistration.refine_shared.ring_pose_limits import (
     clamp_similarity_arrays,
     reference_pose_from_transform,
 )
-from nornir_imageregistration.refine_shared.coherent_residual import (
-    LOCK_FRAC_TRIGGER,
-)
 from nornir_imageregistration.refine_shared.pass_diagnostics import (
     build_pass_diagnostic_rows,
     pass_diagnostics_enabled,
@@ -101,9 +98,11 @@ from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     PEAK_RATIO_MIN,
 )
 from nornir_imageregistration.refine_shared.trust_tiers import (
+    LOCK_FRAC_TRIGGER,
     TrustTier,
     assign_trust_tiers,
     demote_disagreeing,
+    low_lock_quality_flag,
     mesh_records_from_tiers,
     trusted_set_snapshot,
 )
@@ -4681,8 +4680,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         prettyoutput.Log(f'RefineTransform pair_wall_s={pair_wall_s:.2f}')
         _log_phase_breakdown('RefineTransform total', {})
 
-        quality_flag = float(len(finalized_points)) / float(max(1, final_grid_n)) < float(
-            LOCK_FRAC_TRIGGER)
+        quality_flag = low_lock_quality_flag(len(finalized_points), final_grid_n)
         if quality_flag:
             prettyoutput.Log(
                 f'QUALITY FLAG: final lock_frac='
