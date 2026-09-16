@@ -5675,17 +5675,14 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
         clamped_flips)[:, 0, :]
     target_offsets = desired_targets - mapped_centers
 
-    output: list[nornir_imageregistration.transforms.IRigidTransform] = []
-    for i in range(numPoints):
-        center = source_centers[i]
-        rigid = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=target_offsets[i],
-            source_rotation_center=center,
-            angle=float(clamped_angles[i]),
-            flip_ud=bool(clamped_flips[i]),
-            scalar=float(clamped_scales[i]))
-        output.append(rigid)
-    return output
+    return cast(
+        list[nornir_imageregistration.transforms.IRigidTransform],
+        nornir_imageregistration.transforms.CenteredSimilarity2DTransform.CreateBatch(
+            target_offsets=target_offsets,
+            source_rotation_centers=source_centers,
+            angles=clamped_angles,
+            scalars=clamped_scales,
+            flip_ud=clamped_flips))
 
 
 def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,

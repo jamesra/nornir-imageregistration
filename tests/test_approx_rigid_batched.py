@@ -53,6 +53,78 @@ def _sparse_180_mesh() -> tuple[MeshWithRBFFallback, np.ndarray]:
 class TestApproximateRigidBatched(unittest.TestCase):
     """Batched ring Transform should match per-point rigid fit at query centers."""
 
+    def test_gpu_batch_factory_matches_scalar_construction(self) -> None:
+        if not nornir_imageregistration.HasCupy():
+            self.skipTest("CuPy is unavailable")
+        rng = np.random.default_rng(20260916)
+        count = 257
+        offsets = rng.normal(size=(count, 2))
+        centers = rng.uniform(-5000.0, 5000.0, size=(count, 2))
+        angles = rng.uniform(-math.pi, math.pi, size=count)
+        scalars = rng.uniform(0.8, 1.2, size=count)
+        flips = rng.random(count) < 0.5
+        previous_lib = nornir_imageregistration.GetActiveComputationLib()
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.cupy)
+        try:
+            batched = CenteredSimilarity2DTransform.CreateBatch(
+                offsets, centers, angles, scalars, flips)
+            scalar = [
+                CenteredSimilarity2DTransform(
+                    target_offset=offsets[i],
+                    source_rotation_center=centers[i],
+                    angle=float(angles[i]),
+                    scalar=float(scalars[i]),
+                    flip_ud=bool(flips[i]))
+                for i in range(count)
+            ]
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous_lib)
+
+        for batched_transform, scalar_transform in zip(batched, scalar):
+            np.testing.assert_array_equal(
+                nornir_imageregistration.EnsureNumpyArray(batched_transform.forward_matrix),
+                nornir_imageregistration.EnsureNumpyArray(scalar_transform.forward_matrix))
+            np.testing.assert_array_equal(
+                nornir_imageregistration.EnsureNumpyArray(batched_transform.inverse_matrix),
+                nornir_imageregistration.EnsureNumpyArray(scalar_transform.inverse_matrix))
+        points = rng.uniform(-5000.0, 5000.0, size=(16, 2))
+        for i in range(0, count, 32):
+            np.testing.assert_array_equal(
+                batched[i].Transform(points),
+                scalar[i].Transform(points))
+            np.testing.assert_array_equal(
+                batched[i].InverseTransform(points),
+                scalar[i].InverseTransform(points))
+
+    def test_numpy_batch_factory_uses_scalar_path(self) -> None:
+        offsets = np.array([[1.0, 2.0], [-3.0, 4.0]])
+        centers = np.array([[100.0, 200.0], [300.0, 400.0]])
+        angles = np.array([0.25, -0.5])
+        scalars = np.array([0.9, 1.1])
+        flips = np.array([False, True])
+        previous_lib = nornir_imageregistration.GetActiveComputationLib()
+        nornir_imageregistration.SetActiveComputationLib(
+            nornir_imageregistration.ComputationLib.numpy)
+        try:
+            batched = CenteredSimilarity2DTransform.CreateBatch(
+                offsets, centers, angles, scalars, flips)
+            scalar = [
+                CenteredSimilarity2DTransform(
+                    offsets[i], centers[i], float(angles[i]), float(scalars[i]), bool(flips[i]))
+                for i in range(2)
+            ]
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous_lib)
+
+        for batched_transform, scalar_transform in zip(batched, scalar):
+            np.testing.assert_array_equal(
+                batched_transform.forward_matrix,
+                scalar_transform.forward_matrix)
+            np.testing.assert_array_equal(
+                batched_transform.inverse_matrix,
+                scalar_transform.inverse_matrix)
+
     def test_batch_maps_centers_near_parent_transform(self) -> None:
         src = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]], dtype=np.float64)
         tgt = src + np.array([[0.0, 0.0], [5.0, 0.0], [0.0, 5.0], [5.0, 5.0]], dtype=np.float64)

@@ -632,6 +632,89 @@ class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
         self._scalar = 1.0 if scalar is None else scalar
         super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, flip_ud)
 
+    @classmethod
+    def CreateBatch(
+            cls,
+            target_offsets: NDArray[np.floating],
+            source_rotation_centers: NDArray[np.floating],
+            angles: NDArray[np.floating],
+            scalars: NDArray[np.floating],
+            flip_ud: NDArray[np.bool_]) -> list[CenteredSimilarity2DTransform]:
+        """Create many transforms while batching device matrix inversion."""
+        offsets = np.asarray(target_offsets, dtype=np.float32)
+        centers = np.asarray(source_rotation_centers, dtype=np.float32)
+        angle_values = np.asarray(angles, dtype=np.float64)
+        scalar_values = np.asarray(scalars, dtype=np.float64)
+        flip_values = np.asarray(flip_ud, dtype=bool)
+        count = int(offsets.shape[0])
+        expected_vector_shape = (count, 2)
+        if offsets.shape != expected_vector_shape or centers.shape != expected_vector_shape:
+            raise ValueError("target offsets and source rotation centers must have shape (N, 2)")
+        if angle_values.shape != (count,) or scalar_values.shape != (count,) or flip_values.shape != (count,):
+            raise ValueError("angles, scalars, and flip_ud must have shape (N,)")
+        if count == 0:
+            return []
+
+        xp = nornir_imageregistration.GetComputationModule()
+        if xp is np:
+            return [
+                cls(
+                    target_offset=offsets[i],
+                    source_rotation_center=centers[i],
+                    angle=float(angle_values[i]),
+                    scalar=float(scalar_values[i]),
+                    flip_ud=bool(flip_values[i]))
+                for i in range(count)
+            ]
+
+        matrices = xp.broadcast_to(xp.identity(3), (count, 3, 3)).copy()
+        target_translation = matrices.copy()
+        target_translation[:, 0, 2] = xp.asarray(offsets[:, 0])
+        target_translation[:, 1, 2] = xp.asarray(offsets[:, 1])
+        center_translation = matrices.copy()
+        center_translation[:, 0, 2] = xp.asarray(centers[:, 0])
+        center_translation[:, 1, 2] = xp.asarray(centers[:, 1])
+        inverse_center_translation = matrices.copy()
+        inverse_center_translation[:, 0, 2] = xp.asarray(-centers[:, 0])
+        inverse_center_translation[:, 1, 2] = xp.asarray(-centers[:, 1])
+        flip_matrices = matrices.copy()
+        flip_matrices[:, 0, 0] = xp.where(xp.asarray(flip_values), -1.0, 1.0)
+        rotation_matrices = matrices.copy()
+        cosines = xp.asarray(np.asarray([np.cos(float(value)) for value in angle_values]))
+        sines = xp.asarray(np.asarray([np.sin(float(value)) for value in angle_values]))
+        rotation_matrices[:, 0, 0] = cosines
+        rotation_matrices[:, 0, 1] = sines
+        rotation_matrices[:, 1, 0] = -sines
+        rotation_matrices[:, 1, 1] = cosines
+        scale_matrices = matrices.copy()
+        scale_matrices[:, 0, 0] = xp.asarray(scalar_values)
+        scale_matrices[:, 1, 1] = xp.asarray(scalar_values)
+        forward = (
+            target_translation
+            @ center_translation
+            @ flip_matrices
+            @ rotation_matrices
+            @ scale_matrices
+            @ inverse_center_translation
+        )
+        inverse = xp.linalg.inv(forward)
+
+        output: list[CenteredSimilarity2DTransform] = []
+        for i in range(count):
+            transform = cls.__new__(cls)
+            RigidTranslation.__init__(
+                transform,
+                target_offset=offsets[i],
+                source_rotation_center=centers[i],
+                angle=float(angle_values[i]))
+            transform._scalar = float(scalar_values[i])
+            transform._flip_ud = bool(flip_values[i])
+            transform.forward_matrix = forward[i]
+            transform.inverse_matrix = inverse[i]
+            transform._matrix_cache = {}
+            output.append(transform)
+        return output
+
     @staticmethod
     def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
         return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
