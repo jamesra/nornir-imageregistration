@@ -4492,22 +4492,28 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             improved_alignments: list[AlignmentRecordKey] = []
             proposed_local_skips: set[AlignmentRecordKey] = set()
             if finalized_points:
-                recheck_plan, recheck_context = plan_finalized_rechecks(
-                    updatedTransform,
-                    finalized_points,
-                    settings,
-                    finalized_recheck_state,
-                    mode=finalized_recheck_mode,
-                    local_threshold=local_recheck_threshold(
-                        finalize_settings.finalize_stability_epsilon_px),
-                )
-                rechecked_count = len(recheck_plan.recheck_ids)
-                skipped_recheck_count = len(recheck_plan.skip_ids)
-                proposed_local_skips = set(recheck_plan.proposed_local_skip_ids)
-                records_to_recheck = {
-                    key: finalized_points[key]
-                    for key in recheck_plan.recheck_ids
-                }
+                recheck_plan = None
+                if finalized_recheck_mode == 'all':
+                    records_to_recheck = dict(finalized_points)
+                    rechecked_count = len(records_to_recheck)
+                    skipped_recheck_count = 0
+                else:
+                    recheck_plan, recheck_context = plan_finalized_rechecks(
+                        updatedTransform,
+                        finalized_points,
+                        settings,
+                        finalized_recheck_state,
+                        mode=finalized_recheck_mode,
+                        local_threshold=local_recheck_threshold(
+                            finalize_settings.finalize_stability_epsilon_px),
+                    )
+                    rechecked_count = len(recheck_plan.recheck_ids)
+                    skipped_recheck_count = len(recheck_plan.skip_ids)
+                    proposed_local_skips = set(recheck_plan.proposed_local_skip_ids)
+                    records_to_recheck = {
+                        key: finalized_points[key]
+                        for key in recheck_plan.recheck_ids
+                    }
                 records_before_recheck = dict(finalized_points)
                 with _PHASE_TIMER.section_wall('finalized_recheck'):
                     rechecked_records, improved_alignments = TryToImproveAlignments(
@@ -4522,20 +4528,24 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         - np.asarray(before.TargetPoint, dtype=np.float64).reshape(2)
                     ))
                     improvement_weight_gain_by_id[key] = float(after.weight - before.weight)
-                finalized_points = merge_recheck_results(
-                    finalized_points,
-                    rechecked_records,
-                    recheck_plan,
-                )
-                update_recheck_state(
-                    finalized_recheck_state,
-                    recheck_context,
-                    recheck_plan,
-                    successfully_rechecked_ids=recheck_plan.recheck_ids,
-                )
+                if recheck_plan is None:
+                    finalized_points.update(rechecked_records)
+                else:
+                    finalized_points = merge_recheck_results(
+                        finalized_points,
+                        rechecked_records,
+                        recheck_plan,
+                    )
+                    update_recheck_state(
+                        finalized_recheck_state,
+                        recheck_context,
+                        recheck_plan,
+                        successfully_rechecked_ids=recheck_plan.recheck_ids,
+                    )
             accepted_improvement_count = len(improved_alignments)
             improved_set = set(improved_alignments)
-            if finalized_recheck_mode == 'shadow':
+            if finalized_recheck_mode == 'shadow' and finalized_points:
+                assert recheck_plan is not None
                 shadow_local_records = [
                     {
                         'grid_row': int(key[0]),
@@ -4547,7 +4557,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     }
                     for key, movement in sorted(recheck_plan.local_movement_by_id.items())
                     if np.isfinite(movement)
-                ] if finalized_points else []
+                ]
             _PHASE_TIMER.add_work('finalized_rechecked_cells', rechecked_count)
             _PHASE_TIMER.add_work('accepted_finalized_improvements', accepted_improvement_count)
             _PHASE_TIMER.add_work('proposed_local_skips', len(proposed_local_skips))
