@@ -9,6 +9,7 @@ from typing import Mapping, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+import nornir_imageregistration
 from nornir_imageregistration.refine_shared.peak_ratio_gates import PEAK_RATIO_MIN
 from nornir_imageregistration.transforms import IControlPoints, ITriangulatedTargetSpace
 from nornir_imageregistration.transforms import converters, metrics
@@ -28,15 +29,25 @@ class StrainCrop:
     localized: bool
 
 
+def _host_points(transform: IControlPoints) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Control-point arrays on the host (strain metrics are NumPy-only)."""
+    source = nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints)
+    target = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
+    return (
+        np.asarray(source, dtype=np.float64),
+        np.asarray(target, dtype=np.float64),
+    )
+
+
 def linear_residual_distances(transform: IControlPoints) -> NDArray[np.float64]:
     """Per-control-point Euclidean distance from a rigid fit of *transform*.
 
     Same residual used inside ``BlendWithLinear``; does not blend the mesh.
     """
     rigid = converters.ConvertControlPointsToRigidTransformForBlend(transform)
-    source = np.asarray(transform.SourcePoints, dtype=np.float64)
-    target = np.asarray(transform.TargetPoints, dtype=np.float64)
-    linear = np.asarray(rigid.Transform(source), dtype=np.float64)
+    source, target = _host_points(transform)
+    linear = nornir_imageregistration.EnsureNumpyArray(rigid.Transform(source))
+    linear = np.asarray(linear, dtype=np.float64)
     return np.linalg.norm(target - linear, axis=1)
 
 
@@ -123,7 +134,7 @@ def pick_strain_crop_from_transform(
     if not isinstance(transform, IControlPoints):
         raise TypeError('transform must implement IControlPoints')
 
-    source = np.asarray(transform.SourcePoints, dtype=np.float64)
+    source, _target = _host_points(transform)
     residual = linear_residual_distances(transform)
     angle_max = 0.0
     if isinstance(transform, ITriangulatedTargetSpace):

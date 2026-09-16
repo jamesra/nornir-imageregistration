@@ -68,8 +68,12 @@ def _create_shifted_transform(
 ) -> object:
     """Build a mesh/grid transform with points shifted by *origin_yx*."""
     oy, ox = float(origin_yx[0]), float(origin_yx[1])
-    source = np.asarray(transform.SourcePoints, dtype=np.float64).copy()
-    target = np.asarray(transform.TargetPoints, dtype=np.float64).copy()
+    source = np.asarray(
+        nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints),
+        dtype=np.float64).copy()
+    target = np.asarray(
+        nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints),
+        dtype=np.float64).copy()
     source[:, 0] -= oy
     source[:, 1] -= ox
     target[:, 0] -= oy
