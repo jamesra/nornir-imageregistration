@@ -71,6 +71,12 @@ class TestRefineGridProgress(unittest.TestCase):
         self.assertIn("7/20", locked_call.kwargs["label"])
         self.assertIn("7/18 active", locked_call.kwargs["label"])
 
+    def test_refine_grid_progress_reports_trusted_mesh_todo_count(self) -> None:
+        reporter = RefineGridProgressReporter(5, 20)
+        with mock.patch("nornir_shared.prettyoutput.publish_run_event") as publish:
+            reporter.on_pass_start(2, todo_count=7)
+        self.assertEqual(publish.call_args.kwargs["label"], "Refine passes (todo=7)")
+
     def test_publish_stos_refine_files_progress_skips_zero_total(self) -> None:
         """Outer file-loop progress is not published when there is no work."""
         with mock.patch("nornir_shared.prettyoutput.publish_run_event") as publish:
@@ -176,6 +182,12 @@ class TestPassTransformPreview(unittest.TestCase):
         self.assertIn("report_pass_transform", source)
         self.assertIn("while i <= settings.num_iterations", source)
         self.assertGreater(source.count("report_pass_transform("), 1)
+
+    def test_refine_transform_progress_includes_todo_count(self) -> None:
+        import inspect
+
+        source = inspect.getsource(RefineTransform)
+        self.assertIn('pass_label += f" (todo={todo_count})"', source)
 
     def test_refine_transform_rejects_non_positive_iterations(self) -> None:
         """num_iterations < 1 raises ValueError before the loop (C03-B009 / #183).

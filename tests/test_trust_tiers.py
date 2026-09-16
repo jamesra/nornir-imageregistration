@@ -62,6 +62,20 @@ class TestTrustTiers(unittest.TestCase):
             records,
             locked_ids={(0, 0), (0, 1)},
             zncc_pass_ids={(0, 0)},
+            max_travel=2.0,
+            cell_half_size=64.0,
+        )
+        self.assertEqual(tiers[(0, 0)], TrustTier.LOCKED)
+        self.assertEqual(tiers[(0, 1)], TrustTier.UNTRUSTED)
+
+    def test_converged_candidate_requires_zncc_to_lock(self) -> None:
+        records = [
+            _rec((0, 0), peak=(0.2, 0.0)),
+            _rec((0, 1), peak=(0.3, 0.0)),
+        ]
+        tiers = assign_trust_tiers(
+            records,
+            zncc_pass_ids={(0, 0)},
             converged_ids={(0, 0), (0, 1)},
             max_travel=2.0,
             cell_half_size=64.0,
@@ -108,6 +122,49 @@ class TestTrustTiers(unittest.TestCase):
         ]
         tiers = assign_trust_tiers(records, max_travel=12.0, cell_half_size=64.0)
         self.assertTrue(all(t == TrustTier.UNTRUSTED for t in tiers.values()))
+
+    def test_missing_ratio_never_shapes_mesh(self) -> None:
+        records = [
+            _rec((0, 0), peak_ratio=None),
+            _rec((0, 1), peak_ratio=None),
+            _rec((0, 2), peak_ratio=None),
+        ]
+        tiers = assign_trust_tiers(
+            records,
+            zncc_pass_ids={(0, 0), (0, 1), (0, 2)},
+            max_travel=12.0,
+            cell_half_size=64.0,
+        )
+        self.assertTrue(all(t == TrustTier.UNTRUSTED for t in tiers.values()))
+
+    def test_cluster_seed_requires_zncc_when_available(self) -> None:
+        records = [
+            _rec((0, 0)),
+            _rec((0, 1)),
+            _rec((0, 2)),
+        ]
+        tiers = assign_trust_tiers(
+            records,
+            zncc_pass_ids={(0, 0), (0, 1)},
+            max_travel=12.0,
+            cell_half_size=64.0,
+        )
+        self.assertTrue(all(t == TrustTier.UNTRUSTED for t in tiers.values()))
+
+    def test_provisional_can_agree_with_lock_two_hops_away(self) -> None:
+        records = [
+            _rec((0, 0), peak=(2.0, 0.0)),
+            _rec((0, 2), peak=(2.5, 0.0)),
+        ]
+        tiers = assign_trust_tiers(
+            records,
+            locked_ids={(0, 0)},
+            zncc_pass_ids={(0, 2)},
+            max_travel=2.0,
+            cell_half_size=8.0,
+        )
+        self.assertEqual(tiers[(0, 0)], TrustTier.LOCKED)
+        self.assertEqual(tiers[(0, 2)], TrustTier.PROVISIONAL)
 
 
 if __name__ == '__main__':

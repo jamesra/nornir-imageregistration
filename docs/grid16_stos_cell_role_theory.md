@@ -1,180 +1,73 @@
-# STOS Grid refine: cell Role and FieldMode theory
+# STOS grid refine: trusted-cell tiers
 
-Single classification model for Grid16 (and STOS grid refine generally).
-Replaces layered specials (soft-disc-only-unique, amb-exclude, early-lock,
-Track A residual, Track B identity-neighbor) with **per-cell Role** plus
-**pass-level FieldMode**.
+Grid refine uses one rule: **only trusted cells shape the field**. A cell earns
+trust from its own unique phase-correlation peak and ZNCC prominence, then from
+agreement with trusted neighbours. Missing `peak_ratio` fails closed. Where
+fewer than three cells are trusted, refinement keeps the input transform.
 
-See also: [`grid16_rc2_refine_baseline.md`](grid16_rc2_refine_baseline.md),
-[`grid16_rc2_refine_failure_modes.md`](grid16_rc2_refine_failure_modes.md),
-[`grid_refine_stos_vs_mosaic.md`](grid_refine_stos_vs_mosaic.md).
+See also [`refine_grid_step_inventory.md`](refine_grid_step_inventory.md) and
+[`grid16_rc2_refine_failure_modes.md`](grid16_rc2_refine_failure_modes.md).
 
-## Evidence regimes
+## Tiers
 
-| Regime | Evidence | Behavior |
-|--------|----------|----------|
-| Healthy | Final locks ~33–37% | `LOCAL`; normal mesh + lock |
-| Dirt | Ambiguous peaks | `REJECT(PEAK_AMBIGUOUS)` out of mesh/locks |
-| Path **240-241** | Low locks + coherent unique **or** wrap-peak soup | Track A / global FOV `TranslateFixed`; **preserve** transform if mesh collapses |
-| Asymmetric / bubble **241-242** | Identity ring + unique high-travel free | FOV-hot / neighbor `IDENTITY_SUSPECT`; unique raw-preserve in mesh |
-| Tear **252-254** | Disc front with ambiguous `pr`; wrong regional locks | Disc-neighbor identity brand; mesh raw-preserve soft-disc ∪ unique ∪ **coherent disc-front** (not all disc — feedback loop) |
+| Tier | Required evidence | Mesh behavior | Remeasurement |
+|---|---|---|---|
+| `LOCKED` | finite `peak_ratio >= PEAK_RATIO_MIN`, ZNCC prominence, finalization travel/convergence | fixed control point | unlock-stale check |
+| `PROVISIONAL` | the same measurement evidence plus agreement with trusted neighbours; when no locks exist, membership in a mutually consistent 4-connected seed cluster | movable control point | when its prior moves |
+| `UNTRUSTED` | missing or failed evidence | excluded | when the field under it moves |
 
-## Per-cell Role
+Agreement tolerance is relative to local support. Three or more locks within two
+grid hops use `max_travel_for_finalization`; one or two use the midpoint of that
+distance and the cell half-size; a no-lock seed is judged by cluster direction
+and travel relative to the cluster median.
 
-Classify each free cell once after measure (constants:
-`PEAK_RATIO_MIN=1.20`, `PEAK_RATIO_EARLY=1.50`).
+The seed cluster has no permission to bypass either uniqueness or ZNCC. Cell-size
+growth may be attempted once when no trusted set exists; if that also finds
+nothing trusted, the input field stands.
 
-| Role | Definition | Mesh | Lock |
-|------|------------|------|------|
-| `REJECT` | `pr < 1.20` this pass, or low content | no raw peak | never |
-| `FREE` | PC-pass; not yet lock-candidate (travel only; weight bar off) | yes (bars) | no |
-| `LOCKABLE` | lock-candidate ∧ PC-pass ∧ (not field-suspect) ∧ ZNCC-pass | yes | yes when stable |
-| `IDENTITY_SUSPECT` | lock-candidate ∧ (field suspect **or** ZNCC-fail) | may stay free | **never** |
+## Per-pass loop
 
-Decision order: low-content / ambiguous → `REJECT`; else if not lock-candidate →
-`FREE`; else **field consistency** (FOV-hot unique field, cold-half under
-`ASYMMETRIC`, active unique neighbor, or **active disc neighbor**) →
-`IDENTITY_SUSPECT`; else ZNCC pass → `LOCKABLE`, fail → `IDENTITY_SUSPECT`.
+1. Build the grid and remove finalized, masked, out-of-bounds, and sticky
+   low-content cells.
+2. Measure every unlocked cell on pass 1. On later passes, measure only cells
+   whose mapped prior moved beyond the finalization stability epsilon.
+3. Require a finite unique peak and ZNCC prominence. Assign tiers and demote
+   provisional cells that no longer agree with locks within two hops.
+4. Stop when the trusted tier snapshot is unchanged or the measurement todo is
+   empty.
+5. Build the field from LOCKED fixed points and PROVISIONAL movable points.
+   UNTRUSTED records never reach `_build_mesh_transform_or_keep`.
+6. Unlock stale finalized points, finalize newly converged LOCKABLE cells, and
+   repeat up to `num_iterations`.
 
-**Registration-weight inflection is diagnostic-only.** RefineTransform still
-computes `estimate_registration_weight_cutoff` for logs/plots, but mesh inclusion,
-lock candidacy, and finalize use `transform_cutoff=-inf`. Active gates are travel,
-peak-ratio / low-content `REJECT`, field branding, and secondary masked ZNCC.
+`num_iterations` is a cap, not a request to run empty passes.
 
-**Absolute ZNCC alone cannot detect false identity locks** when ROIs already look
-correlated under a bad local prediction (241-242 med ZNCC ~0.75). Field consistency
-is the primary gate for that failure; ZNCC remains a useful secondary when intensity
-truly disagrees. Do not raise the legacy absolute floor to paper over field failures.
+## Retired field proxies
 
-Secondary **ZNCC prominence** runs only for PC-pass lock candidates that field rules
-have not already branded suspect. It scores the **ROIs the pass just measured**
-(`MeasuredRoiSink` hands the batched stacks, with the winning rigid/exact candidate per
-cell, from measurement to the gate) rather than re-warping each candidate. Per
-candidate, masked ZNCC is scored fresh at the claimed peak, plus the absolute identity
-shift as a rival when ``||peak||`` is at least the decoy radius
-(`peak_ratio_exclusion_radius` scaled by cell size).
+The following mechanisms no longer participate in `RefineTransform`:
 
-The **null** is the ZNCC of the cell's fixed ROI against the *unshifted moving ROIs of
-its measured 4-connected grid neighbors* (up to four). A neighbor's ROI sits one grid
-spacing away, so it is misaligned with this cell by construction yet carries the same
-local contrast and texture; a FOV-wide shuffle does not, and mis-estimates the null on
-pairs with regional contrast variation (dirt vs tissue, bubbles, L/R asymmetry). Cells
-with fewer than two measured neighbors, and the serial fallback, use four same-cell
-**cardinal** decoy shifts at the decoy radius instead. Prominence is
-``(z_peak - median(null)) / max(MAD-sigma(null), ZNCC_DECOY_SIGMA_FLOOR)``; LOCKABLE
-requires ``prominence >= zncc_prominence_min`` and ``z_peak > max(null ∪ {identity})``.
-Identity contributes to the max rival only, never to the median or sigma.
+- coherent and whole-FOV residual `TranslateFixed` recovery, including remeasure
+  revert;
+- discontinuity raw-preserve and coherent-front exceptions;
+- `FieldMode` branding of identity cells;
+- best-effort promotion of ambiguous peaks;
+- anchor smoothing;
+- travel/REJECT mesh fallback;
+- absolute sparse-mesh preserve thresholds;
+- final anchor smoothing, preserve, and nudge.
 
-Null statistics ``(median, max, sigma)`` are **cached per cell across passes**
-(`ZnccNullCache`): the neighborhood background changes slowly between remesh passes,
-whereas the peak and identity scores are the claim under test and are always fresh. The
-cache is emptied when the field moves under the cells — a `cell_size` grow or restore,
-and any residual `TranslateFixed` (or its revert).
+These mechanisms tried to limit damage after untrusted records entered the mesh.
+The tier boundary removes that failure mode directly.
 
-Default ``STOS_ZNCC_PROMINENCE_MIN`` / ``DEFAULT_ZNCC_PROMINENCE_MIN`` is 4.0; override
-with ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN``. The legacy absolute floor
-``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` is optional (unset = disabled) and only adds an
-extra bar when set — it is not the primary lock gate.
+## Evidence and observability
 
-### REJECT reasons
+`NORNIR_REFINE_PASS_DIAGNOSTICS=1` writes per-pass NPZ/CSV data. Acceptance uses
+both final lock fraction and unique-fraction-over-passes; healthy 183-184 must
+not lose lock fraction. A final lock fraction below `LOCK_FRAC_TRIGGER` emits a
+quality flag.
 
-| Reason | Signal | Sticky? |
-|--------|--------|---------|
-| `PEAK_AMBIGUOUS` | known `pr < 1.20` | **No** — remasure next pass |
-| `LOW_CONTENT` | source ROI std/MAD below min | **Yes** for measure (source cached) |
+`NORNIR_REFINE_PHASE_TIMING=1` reports phase timing. Pyre receives pass progress
+with the current trusted-mesh todo count and may preview pass transforms.
 
-Source-`LOW_CONTENT` cells are never remasured for the rest of that refine;
-control points are placed by the mesh / anchor-smooth, not by a registration peak.
-Moving-only flat with structured source may remasure after the transform improves.
-
-Unknown `peak_ratio` (`None`) is not peak-ambiguous (legacy-safe).
-
-## FieldMode
-
-| Mode | Trigger | Action |
-|------|---------|--------|
-| `LOCAL` | default | Roles only |
-| `RIGID_RESIDUAL` | lock_frac `< 0.05` and unique coherent **inliers** | once: `TranslateFixed(median)`; remasure |
-| (global FOV) | lock_frac `< 0.05` and Track A skips (scarce/incoherent unique) | once: downsampled FOV PC → `TranslateFixed`; remasure |
-| `ASYMMETRIC` | free-peak travel medians disagree across low-x / high-x | cold-half identity → `IDENTITY_SUSPECT` |
-
-Track A inlier filter: unique traveling peaks within unit-dot ≥ `INLIER_COS_MIN`
-(0.5 ≈ 60°) of the preliminary median direction; coherence + median on inliers only.
-Does **not** lower `COHERENCE_MIN` without inliers. Wrap-like opposing ±cell_size
-peaks are **not** Track A inliers — use global FOV recovery instead.
-
-`ASYMMETRIC` half stats use **free measured peaks only**. Field branding also fires
-when the FOV unique field is **hot** (enough unique peaks with median travel
-`> 0.5 * max_travel`), a 4-connected unique neighbor is still traveling, or a
-4-connected **active disc** neighbor (discontinuity tag with travel `> max_travel`)
-exists — refuses identity freeze beside a tear/fold front.
-
-**Mesh raw-preserve vs lock soft floors (disc):**
-
-| Concern | Set |
-|---------|-----|
-| Anchor-smooth / mesh raw peaks | `soft_discontinuity_ids` ∪ unique large-travel (`pr ≥ PEAK_RATIO_MIN`, travel `> 0.5*max_travel`) ∪ **`coherent_discontinuity_raw_preserve_ids`** (active disc cluster ≥6, direction coherence ≥0.70, inlier cos ≥0.5; **no** `pr` floor) |
-| Lock travel/weight soft floors | `soft_discontinuity_ids` only (`disc ∩ pr ≥ PEAK_RATIO_MIN`) |
-
-Do **not** raw-preserve all tagged discontinuities: ambiguous wrap-like disc peaks
-(`pr≈1.03`) caused a disc-count feedback loop (252-254: disc 78→489) unless they
-form a spatially coherent active front. Isolated / bimodal wrap dirt stays out of
-mesh preserve and remains `REJECT` for locks.
-
-After Track A / global FOV, if locks stay scarce and the mesh collapses below
-`max(MIN_MESH_ABS_AFTER_RESIDUAL, MIN_MESH_FRAC_AFTER_RESIDUAL·n_grid)`,
-**keep** the post-`TranslateFixed` transform instead of rebuilding from the
-sparse survivors.
-
-Do not raise finalize travel/weight FOV-wide.
-
-## Mapping from old gates
-
-| Old | New |
-|-----|-----|
-| Soft-disc ∩ unique | `FREE`/`LOCKABLE` ∩ disc ∩ unique |
-| `exclude_ambiguous_mesh_records` | drop `REJECT` from mesh |
-| Early-lock (`pr ≥ 1.50`) | `LOCKABLE` with stability=1 |
-| Track A coherent residual | `FieldMode.RIGID_RESIDUAL` (+ inliers) |
-| Track B identity_neighbor | obsolete; field consistency + ZNCC → `IDENTITY_SUSPECT` |
-
-## Instrumentation
-
-**Always-on pass log:** `field_mode`, role histogram, `lock_cand` / `zncc_*`
-funnel, `source_low_content_skip`, `classify_s` / `zncc_s`. Track A logs
-success (`n_unique` / `n_inliers` / coherence) or **skip reason**; global FOV
-recovery logs when attempted.
-
-**`NORNIR_REFINE_PASS_DIAGNOSTICS=1`:** NPZ/CSV columns `role`, `reject_reason`,
-`zncc`, `zncc_decoy_med`, `zncc_prominence`, `roi_candidate`, `lock_candidate`
-(and optional `source_content`). Lifetime `refine_cell_history.npz` (travel /
-role / peak_ratio / zncc / prominence per cell per pass). Heatmaps and history
-polylines need `SavePlots`.
-
-**`NORNIR_REFINE_PHASE_TIMING=1`:** buckets `classify`, `zncc_secondary`,
-`low_content_gate`, `approx_rigid` (logged at end of each pass so wall buckets
-include Role/ZNCC work).
-
-## Tuning env overrides
-
-| Env | Default | Effect |
-|-----|---------|--------|
-| `NORNIR_REFINE_ZNCC_PROMINENCE_MIN` | `4.0` | Prominence below → `IDENTITY_SUSPECT`; at/above (and peak > decoy max) → may `LOCKABLE` |
-| `NORNIR_REFINE_IDENTITY_ZNCC_MIN` | unset (off) | **Legacy** optional absolute ZNCC floor; when set, also required for LOCKABLE |
-| `NORNIR_REFINE_LOW_CONTENT_STD_MIN` | code constant | Source below → sticky measure-skip + `REJECT(LOW_CONTENT)` |
-
-Unset means use the code default (for the absolute floor, unset means disabled).
-See Runtime configuration in
-[`grid_refine_stos_vs_mosaic.md`](grid_refine_stos_vs_mosaic.md).
-
-## Best-effort mode
-
-When lock-candidates are mostly travel≈0 while a non-trivial fraction of the
-pass still has large residual travel, `assess_best_effort_mode` activates:
-
-- Travel≈0 `LOCKABLE` also requires prominence at/above the pass lock-cand
-  prominence quantile (default 0.75).
-- Upper-ranked `PEAK_AMBIGUOUS` cells may be promoted to `FREE` for mesh only
-  (`LOW_CONTENT` never promoted).
-
-Healthy identity settles without high-travel tension leave the mode off.
+The former `NORNIR_REFINE_TRUSTED_MESH` feature flag was retired after the
+September 2026 fixture A/B. Trusted mesh is now the only STOS refine path.

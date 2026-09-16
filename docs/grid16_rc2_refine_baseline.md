@@ -117,7 +117,7 @@ diagnostic refine.
 | Diagnostics | `/storage4/RC2/TEM/Grid16/refine_diagnostics/` (NPZ+CSV; heatmaps off unless `SavePlots`) |
 | Dirt visual | **PASS** — Composite dirt blob no longer scatters free yellow points |
 | `PEAK_RATIO_MIN` / `EARLY` | **1.20** / **1.50** accepted for healthy + dirt |
-| Recovery Track A/B | **Always-on** — coherent residual `TranslateFixed` when locks &lt;5% + coherent unique peaks; finalize rejects identity locks next to active unique neighbors (see [`grid16_rc2_refine_failure_modes.md`](grid16_rc2_refine_failure_modes.md)) |
+| Trusted mesh | **Always-on** — only LOCKED or PROVISIONAL cells shape the field; see [`grid16_rc2_refine_failure_modes.md`](grid16_rc2_refine_failure_modes.md) |
 
 ### Timing (log-32 CuPy; approx_rigid vectorized)
 
@@ -180,12 +180,11 @@ Final locks stay ~**33–37%** (e.g. 183-184 37.4%, 242-243 32.8%, 241-242 35.2%
   still carrying free corrections the mesh can apply. Hypothesis: identity locks
   **freeze a wrong field** on the bad side.
 
-## Cell Role theory
+## Trusted-cell theory
 
-Lock / mesh policy is defined by the unified Role + FieldMode model in
-[`grid16_stos_cell_role_theory.md`](grid16_stos_cell_role_theory.md). Track A/B
-recovery specials are absorbed there (`RIGID_RESIDUAL`, `IDENTITY_SUSPECT` via
-PC-pass ∧ ZNCC-fail).
+Lock and mesh policy is defined by LOCKED, PROVISIONAL, and UNTRUSTED tiers in
+[`grid16_stos_cell_role_theory.md`](grid16_stos_cell_role_theory.md). Historical
+failure modes are fixture expectations rather than recovery branches.
 
 ## Updating this baseline
 

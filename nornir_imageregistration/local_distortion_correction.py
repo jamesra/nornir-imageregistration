@@ -53,22 +53,13 @@ from nornir_imageregistration.refine_shared import (
     FinalizeCandidateState,
     FinalizeSettings,
     evaluate_finalize_candidates,
-    filter_records_for_mesh_inclusion,
     legacy_finalize_mask,
     unlock_stale_finalized,
     use_legacy_finalize_gate,
-    AnchorSmoothSettings,
-    should_use_anchor_smooth_mesh,
-    smooth_peaks_from_locked_anchors,
     RefineGridProgressReporter,
     count_initial_grid_points,
     report_pass_transform,
-    classify_field,
     classify_roles,
-    exclude_reject_mesh_records,
-    field_brand_identity_suspect_ids,
-    unique_large_travel_raw_preserve_ids,
-    coherent_discontinuity_raw_preserve_ids,
     masked_zncc,
     Role,
     ZnccScore,
@@ -86,24 +77,8 @@ from nornir_imageregistration.refine_shared.ring_pose_limits import (
     clamp_similarity_arrays,
     reference_pose_from_transform,
 )
-from nornir_imageregistration.refine_shared.discontinuity import (
-    per_record_max_travel,
-    sharp_warps_enabled,
-    tag_discontinuities,
-)
-from nornir_imageregistration.refine_shared.peak_ratio_gates import (
-    soft_discontinuity_ids,
-)
 from nornir_imageregistration.refine_shared.coherent_residual import (
     LOCK_FRAC_TRIGGER,
-    MIN_MESH_ABS_AFTER_RESIDUAL,
-    MIN_MESH_FRAC_AFTER_RESIDUAL,
-    diagnose_coherent_residual_translation,
-    should_attempt_global_fov_recovery,
-    estimate_global_fov_residual_translation,
-    should_keep_prior_sparse_mesh,
-    count_unique_peaks,
-    residual_remeasure_should_revert,
 )
 from nornir_imageregistration.refine_shared.pass_diagnostics import (
     build_pass_diagnostic_rows,
@@ -136,17 +111,9 @@ from nornir_imageregistration.refine_shared.measure_schedule import (
     cells_whose_prior_moved,
     update_last_prior,
 )
-from nornir_imageregistration.refine_shared.best_effort import (
-    IDENTITY_PROMINENCE_QUANTILE,
-    apply_best_effort_ambiguous_mesh_promotion,
-    assess_best_effort_mode,
-    ranked_ambiguous_mesh_ids,
-)
-from nornir_imageregistration.refine_shared.cell_roles import RejectReason
 import nornir_pools
 from nornir_imageregistration.transforms.triangulation import Triangulation
 from nornir_shared import prettyoutput
-from dataclasses import replace
 
 try:
     import cupyx
@@ -3484,10 +3451,8 @@ class ZnccNullCache:
     The null describes the background ZNCC distribution of a cell's neighborhood, which
     changes slowly between remesh passes, so it is safe to reuse; the peak and identity
     scores are the claim under test and are always recomputed. The whole cache is
-    dropped whenever the field moves under the cells: a ``cell_size`` grow / restore
-    changes what a ROI is, and a residual ``TranslateFixed`` (or its revert) moves
-    every ROI at once. Callers ``clear()`` at those points; ``RefineTransform``
-    starts each refine with an empty cache.
+    dropped when a ``cell_size`` grow or restore changes the measured ROI.
+    ``RefineTransform`` starts each refine with an empty cache.
     """
 
     def __init__(self) -> None:
@@ -3973,11 +3938,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     until convergence or pass limits are reached.
 
     When *progress_callback* accepts a fourth argument, each completed pass
-    (and residual ``TranslateFixed``) delivers a deep-copied transform so a UI
-    can preview the working mesh without sharing the worker's live object.
+    delivers a deep-copied transform so a UI can preview the working mesh
+    without sharing the worker's live object.
     MQTT dashboard progress is separate and does not carry the transform.
 
-    Pass state (locks, ring pose, residual check, cell-size adaptation) lives
+    Pass state (locks, ring pose, trusted tiers, cell-size adaptation) lives
     in this call. Repeating ``num_iterations=1`` N times is not equivalent.
 
     When a pass measures nothing usable (empty grid or all REJECT), remaining
@@ -3999,9 +3964,6 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
     # Frozen input pose for ring linearization. Do not re-Kabsch from later meshes.
     ring_reference_pose = reference_pose_from_transform(stosTransform)
-    # Same object as *stosTransform* until a mesh rebuild replaces it. TranslateFixed
-    # mutations remain visible here; collapsed 3-point meshes must not.
-    refine_input_transform = stosTransform
 
     # Convert inputs to numpy arrays
 
@@ -4011,11 +3973,6 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     finalize_candidates: dict[tuple[int, int], FinalizeCandidateState] = {}
     finalize_settings = FinalizeSettings.from_grid_refinement(settings)
     legacy_finalize = use_legacy_finalize_gate()
-    coherent_residual_checked = False  # Track A/B attempted (once per refine)
-    coherent_residual_translated = False  # TranslateFixed actually ran (for preserve gate)
-    global_pose_recovery_applied = False
-    last_residual_translation: NDArray[np.floating] | None = None
-    residual_undo_attempted = False
     source_content_cache = SourceContentCache()
     # Measured ROI stacks travel from cell measurement to the ZNCC lock gate within a
     # pass; the null cache outlives passes until the field moves under the cells.
@@ -4028,15 +3985,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
         prettyoutput.Log(
             'NORNIR_REFINE_FINALIZE_LEGACY=1: using distance-primary finalize with 2% weight floor')
 
-    trusted_mesh_mode = bool(get_runtime_config().trusted_mesh)
-    if trusted_mesh_mode:
-        prettyoutput.Log(
-            'NORNIR_REFINE_TRUSTED_MESH=1: mesh from trusted cells only '
-            '(skip Track A/B, best-effort, anchor-smooth)')
+    prettyoutput.Log('Refine mesh uses trusted cells only')
 
     # Trusted-mesh scheduling / stop-on-unchanged-set state.
     trusted_last_prior: dict[tuple[int, int], NDArray[np.float64]] = {}
     trusted_source_points: dict[tuple[int, int], NDArray[np.float64]] = {}
+    trusted_records_by_id: AlignmentRecordDict = {}
+    trusted_zncc_pass_ids: set[tuple[int, int]] = set()
+    trusted_converged_ids: set[tuple[int, int]] = set()
     trusted_all_cell_ids: list[tuple[int, int]] = []
     prev_trusted_snap: frozenset[tuple[tuple[int, int], int]] = frozenset()
     trusted_mesh_seed_grown = False
@@ -4071,6 +4027,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     pair_t0 = time.perf_counter()
 
     initial_grid_count = count_initial_grid_points(stosTransform, settings)
+    last_grid_n_for_quality = max(1, initial_grid_count)
     progress_reporter = RefineGridProgressReporter(
         settings.num_iterations,
         initial_grid_count,
@@ -4080,11 +4037,6 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
     try:
         while i <= settings.num_iterations:
             check_cancelled(cancel_event)
-            report_progress(
-                progress_callback,
-                i,
-                settings.num_iterations,
-                f"Refine pass {i}/{settings.num_iterations}")
             pass_t0 = time.perf_counter()
             pass_phase_baseline = _PHASE_TIMER.snapshot()
             measure_s = 0.0
@@ -4098,7 +4050,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             measure_t0 = time.perf_counter()
             measure_cell_ids: set[tuple[int, int]] | None = None
             todo_count: int | None = None
-            if trusted_mesh_mode and trusted_all_cell_ids:
+            if trusted_all_cell_ids:
                 locked_ids = set(finalized_points.keys())
                 priors: dict[tuple[int, int], NDArray[np.float64]] = {}
                 for key in trusted_all_cell_ids:
@@ -4129,6 +4081,16 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 prettyoutput.Log(
                     f'Pass {i}: trusted-mesh measuring {todo_count}/'
                     f'{len(trusted_all_cell_ids)} unlocked cells')
+
+            pass_label = f"Refine pass {i}/{settings.num_iterations}"
+            if todo_count is not None:
+                pass_label += f" (todo={todo_count})"
+            report_progress(
+                progress_callback,
+                i,
+                settings.num_iterations,
+                pass_label)
+            progress_reporter.on_pass_start(i, todo_count=todo_count)
 
             alignment_points = _RefineGridPointsForTwoImages(
                 stosTransform,
@@ -4167,13 +4129,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
 
             prettyoutput.Log(f"Pass {i} aligned {len(alignment_points)} points")
 
-            if trusted_mesh_mode and alignment_points:
+            if alignment_points:
                 for rec in alignment_points:
                     key = (int(rec.ID[0]), int(rec.ID[1]))
                     if key not in trusted_all_cell_ids:
                         trusted_all_cell_ids.append(key)
                     trusted_source_points[key] = np.asarray(
                         rec.SourcePoint, dtype=np.float64).reshape(2).copy()
+                    trusted_records_by_id[key] = rec
                 measured_priors = {
                     (int(rec.ID[0]), int(rec.ID[1])): np.asarray(
                         rec.TargetPoint, dtype=np.float64).reshape(2)
@@ -4185,148 +4148,6 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     measured_priors,
                 )
 
-            # FOV / coherent residual can leave almost no cells registering. Undo once
-            # so a bad TranslateFixed does not starve mesh construction.
-            if (coherent_residual_translated
-                    and not residual_undo_attempted
-                    and last_residual_translation is not None
-                    and residual_remeasure_should_revert(
-                        alignment_points, n_locks=len(finalized_points))):
-                translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
-                if callable(translate_fixed):
-                    residual_undo_attempted = True
-                    translate_fixed(-np.asarray(last_residual_translation, dtype=np.float64))
-                    coherent_residual_translated = False
-                    zncc_null_cache.clear()
-                    prettyoutput.Log(
-                        f'Reverted residual translation after remeasure found no unique peaks '
-                        f'({len(alignment_points)} alignments, '
-                        f'{count_unique_peaks(alignment_points)} unique, 0 locks); remeasuring')
-                    report_pass_transform(
-                        progress_callback,
-                        stosTransform,
-                        i,
-                        settings.num_iterations,
-                        label=f"Refine pass {i}: residual revert")
-                    measure_t0 = time.perf_counter()
-                    alignment_points = _RefineGridPointsForTwoImages(
-                        stosTransform,
-                        settings=settings,
-                        finalized=finalized_points,
-                        source_content_cache=source_content_cache,
-                        cancel_event=cancel_event,
-                        progress_callback=progress_callback,
-                        reference_pose=ring_reference_pose,
-                        roi_sink=roi_sink)
-                    measure_s += time.perf_counter() - measure_t0
-                    if len(alignment_points) == 0:
-                        if _grow_refine_cell_size_after_failure(
-                                settings,
-                                source_content_cache,
-                                pass_index=i,
-                                final_pass=final_pass,
-                                zncc_null_cache=zncc_null_cache):
-                            i += 1
-                            continue
-                        if should_finish_on_empty_alignment_pass(i, len(finalized_points)):
-                            prettyoutput.Log(
-                                f"Pass {i}: no alignment points after residual revert; "
-                                f"keeping current transform")
-                            break
-                        raise ValueError(
-                            f"No alignment points generated at pass #{i} after residual revert")
-                    alignment_points = _maybe_regularize_stos_alignment_peaks(alignment_points)
-                    prettyoutput.Log(
-                        f"Pass {i} aligned {len(alignment_points)} points after residual revert")
-
-            # Track A: once per refine, absorb a coherent residual translation when
-            # almost nothing has locked. If unique peaks are too scarce/incoherent
-            # (wrap-like), try downsampled whole-FOV phase-correlation once.
-            # coherent_residual_checked gates the attempt; coherent_residual_translated
-            # is True only when TranslateFixed ran (preserve must not treat "checked"
-            # as "translated" or sparse meshes discard a non-existent residual).
-            # Trusted-mesh path never applies whole-FOV TranslateFixed seeding.
-            if not coherent_residual_checked and not trusted_mesh_mode:
-                grid_n = max(1, len(alignment_points) + len(finalized_points))
-                lock_fraction = float(len(finalized_points)) / float(grid_n)
-                diagnosis = diagnose_coherent_residual_translation(
-                    alignment_points, lock_fraction=lock_fraction)
-                residual = diagnosis.result
-                translate_fixed = getattr(stosTransform, 'TranslateFixed', None)
-                if residual is not None and callable(translate_fixed):
-                    translate_fixed(residual.translation)
-                    finalize_candidates.clear()
-                    zncc_null_cache.clear()
-                    coherent_residual_translated = True
-                    coherent_residual_checked = True
-                    last_residual_translation = np.asarray(residual.translation, dtype=np.float64).copy()
-                    prettyoutput.Log(
-                        f'Coherent residual translation: (dy, dx)=('
-                        f'{float(residual.translation[0]):.2f}, '
-                        f'{float(residual.translation[1]):.2f}) '
-                        f'coherence={residual.coherence:.3f} '
-                        f'n_unique={residual.n_unique} '
-                        f'n_inliers={residual.n_inliers}')
-                    report_pass_transform(
-                        progress_callback,
-                        stosTransform,
-                        i,
-                        settings.num_iterations,
-                        label=f"Refine pass {i}: residual translation")
-                    _log_phase_breakdown(f'RefineTransform pass {i} (coherent residual)', pass_phase_baseline)
-                    # Remeasure this same pass index; do not burn an iteration.
-                    continue
-                if lock_fraction < float(LOCK_FRAC_TRIGGER):
-                    prettyoutput.Log(
-                        f'Coherent residual skipped: reason={diagnosis.skip_reason} '
-                        f'n_unique={diagnosis.n_unique} n_inliers={diagnosis.n_inliers} '
-                        f'coherence={diagnosis.coherence:.3f}')
-                    if (not global_pose_recovery_applied
-                            and should_attempt_global_fov_recovery(diagnosis, lock_fraction)
-                            and callable(translate_fixed)):
-                        global_peak = estimate_global_fov_residual_translation(
-                            stosTransform,
-                            settings.target_image,
-                            settings.source_image,
-                        )
-                        global_pose_recovery_applied = True
-                        if global_peak is not None and float(np.linalg.norm(global_peak)) >= 1.0:
-                            translate_fixed(global_peak)
-                            finalize_candidates.clear()
-                            zncc_null_cache.clear()
-                            coherent_residual_translated = True
-                            coherent_residual_checked = True
-                            last_residual_translation = np.asarray(global_peak, dtype=np.float64).copy()
-                            prettyoutput.Log(
-                                f'Global FOV residual translation: (dy, dx)=('
-                                f'{float(global_peak[0]):.2f}, {float(global_peak[1]):.2f})')
-                            report_pass_transform(
-                                progress_callback,
-                                stosTransform,
-                                i,
-                                settings.num_iterations,
-                                label=f"Refine pass {i}: residual translation")
-                            _log_phase_breakdown(
-                                f'RefineTransform pass {i} (global FOV residual)',
-                                pass_phase_baseline)
-                            # Remeasure this same pass index; do not burn an iteration.
-                            continue
-                        prettyoutput.Log(
-                            'Global FOV residual skipped: no usable peak')
-                    elif (not global_pose_recovery_applied
-                          and int(diagnosis.n_unique) <= 0):
-                        prettyoutput.Log(
-                            'Global FOV residual skipped: n_unique=0 '
-                            '(all cell peaks rejected; no TranslateFixed)')
-                    # Pathological recovery attempts finished for this refine.
-                    coherent_residual_checked = True
-                else:
-                    # Locks already healthy — no residual recovery needed.
-                    coherent_residual_checked = True
-            elif trusted_mesh_mode and not coherent_residual_checked:
-                coherent_residual_checked = True
-
-            progress_reporter.on_pass_start(i, todo_count=todo_count)
             report_progress(
                 progress_callback,
                 i,
@@ -4394,104 +4215,27 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 f'{cutoff_ema.ema_value if cutoff_ema.has_samples else "n/a"}\n')
 
             finalize_t0 = time.perf_counter()
-            preserve_post_residual = False
             trusted_seed_retry = False
             with _PHASE_TIMER.section_wall('finalize'):
-                anchor_smooth_active = (
-                    False if trusted_mesh_mode
-                    else should_use_anchor_smooth_mesh(finalized_points, settings))
                 n_travel_dropped = 0
-                inclusion_travel = float(settings.max_travel_for_finalization) * float(
-                    getattr(settings, 'inclusion_travel_multiplier', 1.0))
                 discontinuity_ids: set[tuple[int, int]] = set()
-                if sharp_warps_enabled() and len(alignment_points) > 0:
-                    discontinuity_ids = tag_discontinuities(
-                        alignment_points,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        stable_ids=None,
-                    )
-                    if discontinuity_ids:
-                        prettyoutput.Log(
-                            f'Sharp-warp discontinuities: {len(discontinuity_ids)} cells '
-                            f'(neighbor peak disagreement)')
-
-                # Soft travel/weight only for disc cells with finite peak_ratio >= min.
-                soft_disc_ids = soft_discontinuity_ids(alignment_points, discontinuity_ids)
-                if discontinuity_ids and len(soft_disc_ids) < len(discontinuity_ids):
-                    prettyoutput.Log(
-                        f'Sharp-warp soft floors: {len(soft_disc_ids)}/{len(discontinuity_ids)} '
-                        f'disc cells eligible (peak_ratio >= min)')
-
-                # Mesh raw-preserve: ratio-eligible soft-disc ∪ unique large-travel
-                # ∪ coherent active disc fronts (cluster + direction; no pr floor).
-                # Do NOT raw-preserve all discontinuity tags — ambiguous wrap-like
-                # disc peaks (pr≈1.03) create a feedback loop (disc 78→489 on 252-254)
-                # unless they form a spatially coherent front.
-                unique_raw_ids = unique_large_travel_raw_preserve_ids(
-                    alignment_points,
-                    max_travel=float(settings.max_travel_for_finalization),
-                )
-                coherent_disc_ids = coherent_discontinuity_raw_preserve_ids(
-                    alignment_points,
-                    discontinuity_ids,
-                    max_travel=float(settings.max_travel_for_finalization),
-                )
-                raw_preserve_ids = set(soft_disc_ids) | unique_raw_ids | coherent_disc_ids
-                if unique_raw_ids or soft_disc_ids or coherent_disc_ids:
-                    prettyoutput.Log(
-                        f'Mesh raw-preserve: soft-disc={len(soft_disc_ids)} '
-                        f'unique_large={len(unique_raw_ids)} '
-                        f'coherent_front={len(coherent_disc_ids)} -> {len(raw_preserve_ids)} '
-                        f'(tagged disc={len(discontinuity_ids)})')
-
-                travel_limits = per_record_max_travel(
-                    alignment_points,
-                    base_max_travel=inclusion_travel,
-                    discontinuity_ids=raw_preserve_ids,
-                )
-                # Soft weight floor unused while primary registration-weight bar is off.
-                soft_weight_cutoff = None
-
-                # Role + FieldMode classification (once per pass).
                 finalize_cutoff_preview = float(transform_cutoff_value)
-                finalize_travel_limits = per_record_max_travel(
-                    alignment_points,
-                    base_max_travel=float(settings.max_travel_for_finalization),
-                    discontinuity_ids=soft_disc_ids,
-                )
                 classify_t0 = time.perf_counter()
                 grid_n = max(1, len(alignment_points) + len(finalized_points))
-                lock_fraction = float(len(finalized_points)) / float(grid_n)
                 with _PHASE_TIMER.section_wall('classify'):
-                    field_mode = classify_field(
-                        alignment_points,
-                        lock_fraction=lock_fraction,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                        locked_records=list(finalized_points.values()),
-                    )
                     cand_ids = _lock_candidate_ids_preview(
                         alignment_points,
                         transform_cutoff=finalize_cutoff_preview,
                         max_travel=float(settings.max_travel_for_finalization),
-                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                        per_record_max_travel=None,
                         soft_weight_cutoff=None,
-                        discontinuity_ids=soft_disc_ids,
+                        discontinuity_ids=set(),
                     )
-                    field_suspect_ids = field_brand_identity_suspect_ids(
-                        alignment_points,
-                        field_mode=field_mode,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                        discontinuity_ids=discontinuity_ids if discontinuity_ids else None,
-                    )
-                    # Skip expensive ZNCC ROI re-extract when field already brands suspect.
-                    zncc_cand_ids = cand_ids - field_suspect_ids
                 zncc_t0 = time.perf_counter()
                 with _PHASE_TIMER.section_wall('zncc_secondary'):
                     zncc_by_id = _compute_zncc_for_candidates(
                         alignment_points,
-                        zncc_cand_ids,
+                        cand_ids,
                         stosTransform,
                         settings,
                         travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
@@ -4507,76 +4251,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         alignment_points,
                         transform_cutoff=finalize_cutoff_preview,
                         max_travel=float(settings.max_travel_for_finalization),
-                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
                         soft_weight_cutoff=None,
-                        discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
                         zncc_by_id=zncc_by_id,
                         low_content_ids=source_content_cache.low_content_ids,
-                        field_mode=field_mode,
-                        field_suspect_ids=field_suspect_ids,
+                        field_suspect_ids=set(),
                         zncc_prominence_min=float(settings.zncc_prominence_min),
                         travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
                         best_effort_active=False,
                     )
-                    best_effort = assess_best_effort_mode(
-                        alignment_points,
-                        lock_candidate=role_result.lock_candidate,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                    )
-                    if best_effort.active and not trusted_mesh_mode:
-                        role_result = classify_roles(
-                            alignment_points,
-                            transform_cutoff=finalize_cutoff_preview,
-                            max_travel=float(settings.max_travel_for_finalization),
-                            per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
-                            soft_weight_cutoff=None,
-                            discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
-                            zncc_by_id=zncc_by_id,
-                            low_content_ids=source_content_cache.low_content_ids,
-                            field_mode=field_mode,
-                            field_suspect_ids=field_suspect_ids,
-                            zncc_prominence_min=float(settings.zncc_prominence_min),
-                            travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                            best_effort_active=True,
-                            identity_prominence_quantile=IDENTITY_PROMINENCE_QUANTILE,
-                        )
-                        promote_ids = ranked_ambiguous_mesh_ids(
-                            alignment_points,
-                            role_result.reject_reasons,
-                            max_travel=float(inclusion_travel),
-                            travel_eps=float(finalize_settings.finalize_stability_epsilon_px),
-                        )
-                        promote_ids -= source_content_cache.low_content_ids
-                        if promote_ids:
-                            new_roles, new_reasons, new_by_id = (
-                                apply_best_effort_ambiguous_mesh_promotion(
-                                    list(role_result.roles),
-                                    list(role_result.reject_reasons),
-                                    alignment_points,
-                                    promote_ids,
-                                ))
-                            n_promoted = sum(
-                                1 for k in promote_ids if new_by_id.get(k) == Role.FREE)
-                            n_peak_amb = sum(
-                                1 for r in new_reasons if r == RejectReason.PEAK_AMBIGUOUS)
-                            n_low = sum(1 for r in new_reasons if r == RejectReason.LOW_CONTENT)
-                            role_result = replace(
-                                role_result,
-                                roles=new_roles,
-                                reject_reasons=new_reasons,
-                                role_by_id=new_by_id,
-                                n_peak_ambiguous=n_peak_amb,
-                                n_low_content=n_low,
-                                n_reject=n_peak_amb + n_low,
-                                n_free=sum(1 for r in new_roles if r == Role.FREE),
-                                n_lockable=sum(1 for r in new_roles if r == Role.LOCKABLE),
-                                n_identity_suspect=sum(
-                                    1 for r in new_roles if r == Role.IDENTITY_SUSPECT),
-                            )
-                            prettyoutput.Log(
-                                f'best_effort mesh promote_ambiguous={n_promoted} '
-                                f'(of {len(promote_ids)} ranked)')
                 classify_s = time.perf_counter() - classify_t0
                 lockable_ids = {
                     key for key, role in role_result.role_by_id.items() if role == Role.LOCKABLE
@@ -4584,11 +4266,7 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 prom_finite = role_result.zncc_prominence[np.isfinite(role_result.zncc_prominence)]
                 zncc_prom_med = float(np.median(prom_finite)) if prom_finite.size else float('nan')
                 prettyoutput.Log(
-                    f'field_mode={field_mode.name} '
-                    f'best_effort={int(best_effort.active)} '
-                    f'id_lc_frac={best_effort.identity_lock_cand_frac:.2f} '
-                    f'amb_mover_frac={best_effort.high_travel_frac:.3f} '
-                    f'reject={role_result.n_reject} free={role_result.n_free} '
+                    f'trusted-mesh reject={role_result.n_reject} free={role_result.n_free} '
                     f'lockable={role_result.n_lockable} '
                     f'identity_suspect={role_result.n_identity_suspect} '
                     f'peak_amb={role_result.n_peak_ambiguous} '
@@ -4601,165 +4279,94 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                     f'source_low_content_skip={len(source_content_cache.low_content_ids)} '
                     f'classify_s={classify_s:.3f} zncc_s={zncc_s:.3f}')
 
-                if anchor_smooth_active:
-                    # Soft-disc + unique large-travel keep raw peaks; ambiguous disc
-                    # are gap-filled from locked anchors (avoids disc feedback loop).
-                    mesh_alignment_points = smooth_peaks_from_locked_anchors(
-                        finalized_points,
-                        alignment_points,
-                        stosTransform,
-                        settings,
-                        discontinuity_ids=raw_preserve_ids if raw_preserve_ids else None,
-                    )
-                    prettyoutput.Log(
-                        f'Anchor-smooth mesh: {len(finalized_points)} locked seeds, '
-                        f'{len(mesh_alignment_points)} cells in smoothed field '
-                        f'(raw-preserve={len(raw_preserve_ids)})')
-                    (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
-                        _build_mesh_transform_or_keep(
-                            mesh_alignment_points,
-                            prior_transform=stosTransform,
-                            fixed_points=None,
-                        ))
-                elif trusted_mesh_mode:
-                    cell_half = float(np.min(np.asarray(settings.cell_size, dtype=np.float64))) * 0.5
-                    zncc_pass_ids = {
-                        key for key, role in role_result.role_by_id.items()
-                        if role == Role.LOCKABLE
-                    }
-                    converged_ids = {
-                        (int(rec.ID[0]), int(rec.ID[1]))
-                        for rec, ok in zip(alignment_points, role_result.lock_candidate)
-                        if bool(ok)
-                    }
-                    tier_records = list(alignment_points) + list(finalized_points.values())
-                    trust_tiers = assign_trust_tiers(
-                        tier_records,
-                        locked_ids=set(finalized_points.keys()),
-                        zncc_pass_ids=zncc_pass_ids,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        cell_half_size=cell_half,
-                        converged_ids=converged_ids,
-                    )
-                    trust_tiers = demote_disagreeing(
-                        trust_tiers,
-                        tier_records,
-                        max_travel=float(settings.max_travel_for_finalization),
-                        cell_half_size=cell_half,
-                    )
-                    snap = trusted_set_snapshot(trust_tiers)
-                    n_locked_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.LOCKED)
-                    n_prov_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.PROVISIONAL)
-                    prettyoutput.Log(
-                        f'trusted-mesh tiers: locked={n_locked_tier} '
-                        f'provisional={n_prov_tier} untrusted='
-                        f'{len(trust_tiers) - n_locked_tier - n_prov_tier}')
-                    if i > 1 and snap == prev_trusted_snap:
-                        if (n_locked_tier + n_prov_tier) == 0 and not trusted_mesh_seed_grown:
-                            grew = _grow_refine_cell_size_after_failure(
-                                settings,
-                                source_content_cache,
-                                pass_index=i,
-                                final_pass=final_pass,
-                                zncc_null_cache=zncc_null_cache)
-                            if grew:
-                                trusted_mesh_seed_grown = True
-                                trusted_all_cell_ids.clear()
-                                trusted_last_prior.clear()
-                                trusted_source_points.clear()
-                                prev_trusted_snap = frozenset()
-                                trusted_seed_retry = True
-                                prettyoutput.Log(
-                                    'trusted-mesh: zero trusted; grew cell size once for seeding')
-                        if not trusted_seed_retry:
+                cell_half = float(np.min(np.asarray(settings.cell_size, dtype=np.float64))) * 0.5
+                measured_ids = {
+                    (int(rec.ID[0]), int(rec.ID[1]))
+                    for rec in alignment_points
+                }
+                trusted_zncc_pass_ids.difference_update(measured_ids)
+                trusted_zncc_pass_ids.update({
+                    key for key, role in role_result.role_by_id.items()
+                    if role == Role.LOCKABLE
+                })
+                trusted_converged_ids.difference_update(measured_ids)
+                trusted_converged_ids.update({
+                    (int(rec.ID[0]), int(rec.ID[1]))
+                    for rec, ok in zip(alignment_points, role_result.lock_candidate)
+                    if bool(ok)
+                })
+                tier_records_by_id = dict(trusted_records_by_id)
+                tier_records_by_id.update(finalized_points)
+                tier_records = list(tier_records_by_id.values())
+                trust_tiers = assign_trust_tiers(
+                    tier_records,
+                    locked_ids=set(finalized_points.keys()),
+                    zncc_pass_ids=trusted_zncc_pass_ids,
+                    max_travel=float(settings.max_travel_for_finalization),
+                    cell_half_size=cell_half,
+                    converged_ids=trusted_converged_ids,
+                )
+                trust_tiers = demote_disagreeing(
+                    trust_tiers,
+                    tier_records,
+                    max_travel=float(settings.max_travel_for_finalization),
+                    cell_half_size=cell_half,
+                )
+                snap = trusted_set_snapshot(trust_tiers)
+                n_locked_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.LOCKED)
+                n_prov_tier = sum(1 for t in trust_tiers.values() if t == TrustTier.PROVISIONAL)
+                prettyoutput.Log(
+                    f'trusted-mesh tiers: locked={n_locked_tier} '
+                    f'provisional={n_prov_tier} untrusted='
+                    f'{len(trust_tiers) - n_locked_tier - n_prov_tier}')
+                if snap == prev_trusted_snap:
+                    if (n_locked_tier + n_prov_tier) == 0 and not trusted_mesh_seed_grown:
+                        grew = _grow_refine_cell_size_after_failure(
+                            settings,
+                            source_content_cache,
+                            pass_index=i,
+                            final_pass=final_pass,
+                            zncc_null_cache=zncc_null_cache)
+                        if grew:
+                            trusted_mesh_seed_grown = True
+                            trusted_all_cell_ids.clear()
+                            trusted_last_prior.clear()
+                            trusted_source_points.clear()
+                            trusted_records_by_id.clear()
+                            trusted_zncc_pass_ids.clear()
+                            trusted_converged_ids.clear()
+                            prev_trusted_snap = frozenset()
+                            trusted_seed_retry = True
                             prettyoutput.Log(
-                                'trusted-mesh: trusted set unchanged; stopping early')
-                            final_pass = True
+                                'trusted-mesh: zero trusted; grew cell size once for seeding')
                     if not trusted_seed_retry:
-                        prev_trusted_snap = snap
+                        prettyoutput.Log(
+                            'trusted-mesh: trusted set unchanged; stopping early')
+                        final_pass = True
+                if not trusted_seed_retry:
+                    prev_trusted_snap = snap
 
-                    locked_recs, provisional_recs = mesh_records_from_tiers(
-                        alignment_points, trust_tiers)
-                    # Already-finalized cells are fixed anchors even if not remeasured.
-                    fixed_locked = list(finalized_points.values()) + locked_recs
-                    mesh_alignment_points = list(provisional_recs)
-                    n_travel_dropped = 0
-                    if trusted_seed_retry:
-                        updatedTransform = stosTransform
-                        included_alignment_records = []
-                        weight_distance_composite_scores = np.zeros((0, 3), dtype=np.float64)
-                        preserve_post_residual = False
-                    else:
-                        (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
-                            _build_mesh_transform_or_keep(
-                                mesh_alignment_points,
-                                prior_transform=stosTransform,
-                                fixed_points=AlignRecordsToControlPoints(fixed_locked)
-                                if fixed_locked else None,
-                            ))
-                        # Untrusted cells never enter the mesh; skip sparse/raw-preserve gates.
-                        preserve_post_residual = False
+                locked_recs, provisional_recs = mesh_records_from_tiers(
+                    tier_records, trust_tiers)
+                fixed_locked_by_id = {
+                    (int(rec.ID[0]), int(rec.ID[1])): rec
+                    for rec in locked_recs
+                }
+                fixed_locked_by_id.update(finalized_points)
+                fixed_locked = list(fixed_locked_by_id.values())
+                mesh_alignment_points = list(provisional_recs)
+                if trusted_seed_retry:
+                    updatedTransform = stosTransform
+                    included_alignment_records = []
+                    weight_distance_composite_scores = np.zeros((0, 3), dtype=np.float64)
                 else:
-                    # Exclude free points whose residual travel exceeds the inclusion travel bar.
-                    # Weight-only inclusion previously folded meshes when ~1900 high-weight / ~60px-peak
-                    # outliers reshaped the triangulation while locks stayed near 2% (228-229 Grid16).
-                    # Disc / unique large-travel cells get a relaxed limit for mesh inclusion.
-                    # (Soft-disc only — not all tagged discontinuities.)
-                    mesh_alignment_points, n_travel_dropped = filter_records_for_mesh_inclusion(
-                        alignment_points,
-                        max_travel=inclusion_travel,
-                        min_keep=0,
-                        per_record_max_travel=travel_limits if raw_preserve_ids else None,
-                    )
-                    if n_travel_dropped > 0:
-                        prettyoutput.Log(
-                            f'Dropped {n_travel_dropped} free points from mesh inclusion '
-                            f'(peak travel > limit); '
-                            f'{len(mesh_alignment_points)} remain after travel filter')
-
-                    # Drop REJECT roles from mesh (peak-ambiguous / low-content).
-                    # min_keep=0: do not emergency-fill with rejects; _build_mesh_transform_or_keep
-                    # retains the prior pose when fewer than three clear cells remain.
-                    mesh_roles = [
-                        role_result.role_by_id.get(
-                            (int(rec.ID[0]), int(rec.ID[1])), Role.FREE)
-                        for rec in mesh_alignment_points
-                    ]
-                    mesh_alignment_points, n_rej_dropped = exclude_reject_mesh_records(
-                        mesh_alignment_points, mesh_roles, min_keep=0)
-                    if n_rej_dropped > 0:
-                        prettyoutput.Log(
-                            f'Dropped {n_rej_dropped} REJECT free points from mesh inclusion; '
-                            f'{len(mesh_alignment_points)} remain')
-
-                    # No registration-weight bar: travel + REJECT already filtered;
-                    # raw-preserve cells keep residuals via relaxed travel only.
                     (updatedTransform, included_alignment_records, weight_distance_composite_scores) = (
                         _build_mesh_transform_or_keep(
                             mesh_alignment_points,
                             prior_transform=stosTransform,
-                            fixed_points=AlignRecordsToControlPoints(finalized_points.values()),
+                            fixed_points=AlignRecordsToControlPoints(fixed_locked)
+                            if fixed_locked else None,
                         ))
-
-                # Sparse inclusion (reject/travel soup, or post-residual wrap peaks)
-                # must not replace a usable prior pose with a 3-point triangulation.
-                if not trusted_mesh_mode:
-                    preserve_post_residual = should_keep_prior_sparse_mesh(
-                        residual_applied=coherent_residual_translated,
-                        n_mesh=len(included_alignment_records),
-                        n_grid=grid_n,
-                        n_locks=len(finalized_points),
-                        n_prior_points=_control_point_count(stosTransform),
-                    )
-                    if preserve_post_residual:
-                        min_mesh = max(
-                            int(MIN_MESH_ABS_AFTER_RESIDUAL),
-                            int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(grid_n)),
-                        )
-                        prettyoutput.Log(
-                            f'Keeping prior transform; mesh only has '
-                            f'{len(included_alignment_records)} points (min {min_mesh})')
-                        updatedTransform = stosTransform
 
                 prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
@@ -4803,9 +4410,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                         settings=finalize_settings,
                         pass_index=i,
                         prior_candidates=finalize_candidates,
-                        per_record_max_travel=finalize_travel_limits if soft_disc_ids else None,
+                        per_record_max_travel=None,
                         soft_weight_cutoff=None,
-                        discontinuity_ids=soft_disc_ids if soft_disc_ids else None,
+                        discontinuity_ids=None,
                         lockable_ids=lockable_ids,
                     )
                     new_finalized_points = eval_result.lock_mask
@@ -4922,22 +4529,9 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                 #                                             xlim=(0, settings.target_image.shape[0]),
                 #                                             attrib='PSDDelta')
 
-            # Always merge locks into the pass control set (previously only when TryToImprove
-            # reported improvements, which dropped fixed anchors on many passes).
             smoothed_by_id: dict[tuple[int, int], object] = {}
-            if anchor_smooth_active:
-                smoothed_pass_records = smooth_peaks_from_locked_anchors(
-                    finalized_points,
-                    list({a.ID: a for a in included_alignment_records}.values()),
-                    updatedTransform,
-                    settings,
-                    discontinuity_ids=raw_preserve_ids if raw_preserve_ids else None,
-                )
-                combined_records_this_pass = {rec.ID: rec for rec in smoothed_pass_records}
-                smoothed_by_id = combined_records_this_pass
-            else:
-                combined_records_this_pass = {a.ID: a for a in included_alignment_records}
-                combined_records_this_pass.update(finalized_points)
+            combined_records_this_pass = {a.ID: a for a in included_alignment_records}
+            combined_records_this_pass.update(finalized_points)
 
             if pass_diagnostics_enabled(SavePlots) and outputDir is not None:
                 included_ids = {(int(r.ID[0]), int(r.ID[1])) for r in included_alignment_records}
@@ -4997,29 +4591,11 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             _log_phase_breakdown(f'RefineTransform pass {i}', pass_phase_baseline)
 
             if len(combined_records_this_pass) > 2:
-                # Recompute preserve against current locks/mesh in case finalize
-                # path already kept stosTransform — still skip sparse rebuild.
-                preserve_end = (
-                    False if trusted_mesh_mode
-                    else should_keep_prior_sparse_mesh(
-                        residual_applied=coherent_residual_translated,
-                        n_mesh=len(combined_records_this_pass),
-                        n_grid=max(1, len(alignment_points) + len(finalized_points)),
-                        n_locks=len(finalized_points),
-                        n_prior_points=_control_point_count(stosTransform),
-                    )
-                )
-                if preserve_post_residual or preserve_end:
-                    prettyoutput.Log(
-                        f'Keeping prior transform for next round; '
-                        f'combined mesh would have {len(combined_records_this_pass)} points')
-                    updatedTransform = stosTransform
-                else:
-                    prettyoutput.Log(
-                        f'Building transform for next round with {len(included_alignment_records)} free '
-                        f'and {len(finalized_points)} finalized points')
-                    updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                        AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
+                prettyoutput.Log(
+                    f'Building transform for next round with {len(included_alignment_records)} '
+                    f'provisional and {len(finalized_points)} locked points')
+                updatedTransform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+                    AlignRecordsToControlPoints(combined_records_this_pass.values()))  # type: ignore[arg-type]
 
             report_pass_transform(
                 progress_callback,
@@ -5048,7 +4624,10 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                               os.path.join(outputDir, f'image_pass{i}.png'), np.copy(warpedToFixedImage), bpp=8)  # type: ignore[call-overload, arg-type]
 
             i += 1
-            last_grid_n_for_quality = max(1, len(alignment_points) + len(finalized_points))
+            last_grid_n_for_quality = max(
+                last_grid_n_for_quality,
+                len(alignment_points) + len(finalized_points),
+            )
 
             if final_pass:
                 break
@@ -5085,123 +4664,10 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             # it does so on every path -- including the `continue` above, which this block
             # is skipped by.
 
-            # If we've locked 10% of the points and have not locked any new ones we are done
-            if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.1 and new_finalization_count == 0:
-                final_pass = True
-
-            # If we've locked 90% of the points we are done
-            if len(finalized_points) > len(updated_and_finalized_alignment_points) * 0.9:
-                final_pass = True
-
-            if len(finalized_points) >= len(updated_and_finalized_alignment_points):
-                break  # There are no more points to align, everything is finalized
-
             stosTransform = updatedTransform
 
-            # Make one more pass to see if we can improve finalized points
-        # Todo: This code remained untouched after an optimization pass.  I think it would be worth examining whether it can be improved.
-        # if len(finalized_points) >= 3:
-        #     final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-        #         AlignRecordsToControlPoints(finalized_points.values()))
-        # else:
-        #     final_transform = updatedTransform
         final_transform = stosTransform
-
-        final_anchor_smooth_active = (
-            False if trusted_mesh_mode
-            else should_use_anchor_smooth_mesh(finalized_points, settings))
-        if final_anchor_smooth_active:
-            final_disc_ids: set[tuple[int, int]] = set()
-            final_soft_disc_ids: set[tuple[int, int]] = set()
-            final_raw_preserve_ids: set[tuple[int, int]] = set()
-            if sharp_warps_enabled() and combined_records_this_pass:
-                final_disc_ids = tag_discontinuities(
-                    list(combined_records_this_pass.values()),
-                    max_travel=float(settings.max_travel_for_finalization),
-                    stable_ids=None,
-                )
-                final_soft_disc_ids = soft_discontinuity_ids(
-                    list(combined_records_this_pass.values()), final_disc_ids)
-                final_unique_raw = unique_large_travel_raw_preserve_ids(
-                    list(combined_records_this_pass.values()),
-                    max_travel=float(settings.max_travel_for_finalization),
-                )
-                final_coherent_disc = coherent_discontinuity_raw_preserve_ids(
-                    list(combined_records_this_pass.values()),
-                    final_disc_ids,
-                    max_travel=float(settings.max_travel_for_finalization),
-                )
-                final_raw_preserve_ids = (
-                    set(final_soft_disc_ids) | final_unique_raw | final_coherent_disc)
-            final_mesh_records = smooth_peaks_from_locked_anchors(
-                finalized_points,
-                list(combined_records_this_pass.values()),
-                stosTransform,
-                settings,
-                discontinuity_ids=final_raw_preserve_ids if final_raw_preserve_ids else None,
-            )
-            final_control_records = {rec.ID: rec for rec in final_mesh_records}
-            prettyoutput.Log(
-                f'Final anchor-smooth mesh: {len(finalized_points)} locked seeds, '
-                f'{len(final_mesh_records)} cells '
-                f'(raw-preserve={len(final_raw_preserve_ids)}, '
-                f'tagged disc={len(final_disc_ids)})')
-        else:
-            final_control_records = combined_records_this_pass
-
-        (nudged_final_points, nudged_point_keys) = TryToImproveAlignments(
-            stosTransform, final_control_records, settings)
-        prettyoutput.Log(
-            f'Final tuning of points adjusted {len(nudged_point_keys)} of '
-            f'{len(final_control_records)} points')
-
-        # Return a transform built from control points, unless a post-residual
-        # sparse set would discard TranslateFixed. Use last-pass FOV grid size for
-        # lock_frac / min_mesh (not len(final_control_records) — that is ~12 when
-        # preserve already kept a sparse combined set and falsely raises lock_frac).
         final_grid_n = max(1, last_grid_n_for_quality, len(alignment_points) + len(finalized_points))
-        n_nudged = len(nudged_final_points)
-        n_stos_pts = _control_point_count(stosTransform)
-        n_input_pts = _control_point_count(refine_input_transform)
-        preserve_final = (
-            False if trusted_mesh_mode
-            else should_keep_prior_sparse_mesh(
-                residual_applied=coherent_residual_translated,
-                n_mesh=n_nudged,
-                n_grid=final_grid_n,
-                n_locks=len(finalized_points),
-                n_prior_points=n_stos_pts,
-            )
-        )
-        if preserve_final:
-            prettyoutput.Log(
-                f'Keeping prior transform as final; control set only has '
-                f'{n_nudged} points')
-            final_transform = stosTransform
-        elif (not trusted_mesh_mode) and should_keep_prior_sparse_mesh(
-                residual_applied=coherent_residual_translated,
-                n_mesh=n_nudged,
-                n_grid=final_grid_n,
-                n_locks=len(finalized_points),
-                n_prior_points=n_input_pts,
-        ):
-            prettyoutput.Log(
-                f'Keeping input transform as final; nudged set only has '
-                f'{n_nudged} points, pass mesh {n_stos_pts}')
-            final_transform = refine_input_transform
-        elif n_nudged >= 3:
-            min_keep = max(
-                int(MIN_MESH_ABS_AFTER_RESIDUAL),
-                int(float(MIN_MESH_FRAC_AFTER_RESIDUAL) * float(final_grid_n)),
-            )
-            if n_nudged < min_keep and n_stos_pts > n_nudged:
-                prettyoutput.Log(
-                    f'Keeping pass transform ({n_stos_pts} points); '
-                    f'nudged final only has {n_nudged} points (min {min_keep})')
-                final_transform = stosTransform
-            else:
-                final_transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
-                    AlignRecordsToControlPoints(nudged_final_points.values()))  # type: ignore[arg-type]
 
         progress_reporter.on_complete()
         report_pass_transform(
@@ -5673,6 +5139,12 @@ def _build_mesh_transform_or_keep(
         else:
             scores = np.zeros((0, 3), dtype=np.float64)
         return prior_transform, records, scores
+
+    if not records:
+        assert fixed_points is not None
+        transform = nornir_imageregistration.transforms.meshwithrbffallback.MeshWithRBFFallback(
+            fixed_points)
+        return transform, records, np.zeros((0, 3), dtype=np.float64)
 
     return _PeakListToTransform(
         records,

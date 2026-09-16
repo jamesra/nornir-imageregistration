@@ -40,8 +40,6 @@ class RefineRuntimeConfig:
       Unset → 1e-3.
     - ``NORNIR_REFINE_PASS_DIAGNOSTICS`` — write per-pass NPZ/CSV including role/zncc.
     - ``NORNIR_REFINE_PHASE_TIMING`` — detailed phase buckets (incl. classify/zncc).
-    - ``NORNIR_REFINE_TRUSTED_MESH`` — opt-in trusted-mesh loop (only trusted cells
-      shape the field; skips Track A/B / best-effort / anchor-smooth).
     """
 
     phase_timing: bool
@@ -61,7 +59,6 @@ class RefineRuntimeConfig:
     identity_zncc_min: float | None
     zncc_prominence_min: float
     low_content_std_min: float
-    trusted_mesh: bool
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -157,7 +154,6 @@ class RefineRuntimeConfig:
             identity_zncc_min=identity_zncc,
             zncc_prominence_min=prominence,
             low_content_std_min=low_content_std,
-            trusted_mesh=_is_truthy(_env_flag('NORNIR_REFINE_TRUSTED_MESH', '')),
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:

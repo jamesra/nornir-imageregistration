@@ -1,8 +1,8 @@
-"""Regression tests: the pooled refine paths must carry `peak_ratio` forward.
+"""Regression tests: refine paths must preserve and require `peak_ratio`.
 
 `peak_ratio` is the primary/2nd-peak uniqueness score that every ambiguity gate
-keys on. Dropping it fails *open* -- `is_ambiguous_peak(None)` is False -- so a
-missing kwarg silently disables the false-peak rejection rather than raising.
+keys on. A missing value fails closed so a measurement that cannot establish
+uniqueness cannot lock or shape the mesh.
 """
 
 from __future__ import annotations
@@ -109,6 +109,7 @@ class TestPooledRefinePeakRatio(unittest.TestCase):
         pool = _FakePool(records)
         with mock.patch.object(ldc, 'get_runtime_config',
                                return_value=SimpleNamespace(
+                                   batched_stos_cell_measurement=False,
                                    pool_for_cell_tasks=lambda _cupy: pool)), \
                 mock.patch.object(ldc, '_use_batched_vertex_measurement',
                                   return_value=False), \
@@ -137,6 +138,7 @@ class TestPooledRefinePeakRatio(unittest.TestCase):
     def test_pooled_path_preserves_unmeasured_peak_ratio(self) -> None:
         out = self._run_pooled([None])
         self.assertIsNone(out[0].peak_ratio)
+        self.assertTrue(is_ambiguous_peak(out[0].peak_ratio))
 
 
 class TestTryToImproveAlignmentsPeakRatio(unittest.TestCase):

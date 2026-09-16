@@ -32,9 +32,9 @@ def finite_peak_ratio(record: object) -> float | None:
 
 
 def is_ambiguous_peak(ratio: float | None, *, min_ratio: float = PEAK_RATIO_MIN) -> bool:
-    """True when ratio is known and below the hard-reject floor."""
+    """True when uniqueness is missing or below the hard-reject floor."""
     if ratio is None:
-        return False
+        return True
     return float(ratio) < float(min_ratio)
 
 
@@ -75,7 +75,7 @@ def ambiguous_record_ids(
         *,
         min_ratio: float = PEAK_RATIO_MIN,
 ) -> set[tuple[int, int]]:
-    """Grid IDs whose stored peak_ratio is known and below ``min_ratio``."""
+    """Grid IDs whose stored peak_ratio is missing or below ``min_ratio``."""
     ids: set[tuple[int, int]] = set()
     for record in records:
         if is_ambiguous_peak(finite_peak_ratio(record), min_ratio=min_ratio):

@@ -87,33 +87,14 @@ Set the multiplier to **0** to disable unlock.
 Rollback: `NORNIR_REFINE_FINALIZE_LEGACY=1` restores distance-primary locking with
 a 2% weight floor (pre-fix behavior).
 
-### Anchor-smooth mesh (committed)
+### Trusted mesh
 
-Once `len(finalized_points) >= anchor_smooth_min_locks` (default **3**), mesh
-rebuild and final output use `regularize_displacements` seeded **only** from locked
-cells. Raw phase-correlation peaks still drive measurement and finalize; un-lockable
-cells receive gap-filled smoothed peaks for triangulation. Early passes with fewer
-locks keep the travel-filter + weight-cutoff mesh path.
-
-Settings on `GridRefinement`: `anchor_smooth_min_locks`, `anchor_smooth_median_radius`
-(default **1**, same as mosaic).
-
-### Sharp warps (folds / tears)
-
-Default **ON** (`NORNIR_REFINE_SHARP_WARPS` unset or truthy). Set
-`NORNIR_REFINE_SHARP_WARPS=0` to restore the older strict travel + full Gaussian
-anchor-smooth behavior.
-
-When enabled:
-
-1. Cells whose raw peak disagrees with the neighbor-median by more than
-   ``k * max_travel`` are tagged as discontinuities
-   (``NORNIR_REFINE_DISCONTINUITY_K``, default **1.5**).
-2. Those cells get a relaxed travel bar for mesh inclusion and finalize
-   (``NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT``, default **2.5**) and a soft
-   2nd-percentile weight floor instead of the inflection bar.
-3. Anchor-smooth **keeps raw peaks** on discontinuity cells so median/Gaussian
-   blur does not erase fold shear.
+STOS refine builds the field only from LOCKED fixed points and PROVISIONAL
+movable points. UNTRUSTED records never enter mesh construction. Later passes
+measure unlocked cells only when their prior moved, and refinement stops when
+the trusted tier set is unchanged. The former anchor-smooth, discontinuity
+raw-preserve, FieldMode, best-effort, residual translation, and sparse-preserve
+paths are retired.
 
 ### Pass diagnostics
 
@@ -124,8 +105,8 @@ and optional **`source_content`**. Heatmaps (weight, travel, residual, lock mask
 raw−smoothed delta, discontinuity, peak_ratio, role, zncc) are written only when
 `SavePlots=True`.
 
-See [`grid16_stos_cell_role_theory.md`](grid16_stos_cell_role_theory.md) for Role /
-FieldMode semantics. Cross-link: `NORNIR_REFINE_PHASE_TIMING=1` adds
+See [`grid16_stos_cell_role_theory.md`](grid16_stos_cell_role_theory.md) for tier
+semantics. Cross-link: `NORNIR_REFINE_PHASE_TIMING=1` adds
 `classify` / `zncc_secondary` / `low_content_gate` phase buckets.
 
 ### Cell Role tuning envs
@@ -138,19 +119,6 @@ FieldMode semantics. Cross-link: `NORNIR_REFINE_PHASE_TIMING=1` adds
 Unset means use the code default for `LOW_CONTENT`; for `IDENTITY_ZNCC_MIN`, unset means the absolute floor is **disabled**. Read sites:
 `refine_shared/runtime_config.py`, `cell_roles.identity_zncc_min_threshold`,
 `cell_validity.low_content_std_min_threshold`.
-
-### Best-effort mode (sub-par pairs)
-
-When lock-candidates are mostly travel≈0 **and** a non-trivial fraction of cells
-still show large residual travel, refine enters **best-effort** mode
-(`refine_shared/best_effort.py`):
-
-- Travel≈0 locks must also clear a **pass-relative** prominence quantile (not
-  prominence-min alone).
-- Upper-ranked `PEAK_AMBIGUOUS` cells (by `peak_ratio` within that set) may become
-  `FREE` for mesh inclusion; they still do not finalize. `LOW_CONTENT` is never
-  promoted.
-- Healthy settles (identity locks without high-travel tension) leave best-effort off.
 
 ZNCC decoy rings scale with cell size relative to the 128 px reference so
 prominence geometry matches across CellArea 128/256/512. Decoy sigma uses a
@@ -166,9 +134,9 @@ When validating against real data (optional CI when `INPUT_NORNIR_DATA` is set):
 2. **RC2 TEM pair** — e.g. Brute64→Grid for `1453-1452` or a known `1024` section;
    compare overlay / displacement RMS along the former seam; pass logs should show
    fewer early locks and any unlock events in the problem region.
-3. **Role theory pairs** — force re-refine **240-241**, **241-242**, and one healthy
-   pair with `NORNIR_REFINE_PASS_DIAGNOSTICS=1`; check role/zncc columns and that
-   healthy locks stay ~33–37%.
+3. **Tier fixtures** — force re-refine **240-241**, **241-242**, and one healthy
+   pair with `NORNIR_REFINE_PASS_DIAGNOSTICS=1`; check tier evidence and require
+   the healthy lock fraction not to drop from its recorded baseline.
 
 Unit coverage: `tests/test_refine_finalize_gate.py`, `tests/test_cell_roles.py`.
 
@@ -187,4 +155,4 @@ STOS regularize, phase timing, GPU transform, tile parallelism,
 - [Mosaic refine grid GPU assessment](mosaic_refine_grid_gpu_assessment.md)
 - [RC2 Grid16 refine baseline](grid16_rc2_refine_baseline.md)
 - [Grid16 failure modes (240-241 / 241-242)](grid16_rc2_refine_failure_modes.md)
-- [STOS cell Role / FieldMode theory](grid16_stos_cell_role_theory.md)
+- [STOS trusted-cell tier theory](grid16_stos_cell_role_theory.md)

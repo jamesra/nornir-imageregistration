@@ -353,76 +353,20 @@ class TestBuildMeshTransformOrKeep(unittest.TestCase):
         self.assertEqual(len(used), 0)
         self.assertEqual(scores.shape[0], 0)
 
-
-class TestResidualContinueSamePassIndex(unittest.TestCase):
-    """C03-B008 / #182: residual continue remasures; it does not burn a pass."""
-
-    def test_scoring_passes_stay_within_num_iterations(self) -> None:
-        """Forced residual remasures once; scoring/finalize runs once per index."""
-        from unittest import mock
-
-        import nornir_imageregistration
-        from nornir_imageregistration.local_distortion_correction import RefineTransform
-        from nornir_imageregistration.refine_shared.coherent_residual import (
-            CoherentResidualDiagnosis,
-            CoherentResidualTranslation,
-        )
-
-        nornir_imageregistration.SetActiveComputationLib(
-            nornir_imageregistration.ComputationLib.numpy)
-        shape = (128, 128)
-        yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
-        base = (np.sin(xx / 8.0) * np.cos(yy / 9.0)).astype(np.float32)
-        base = (base - base.min()) / (base.max() - base.min() + 1e-6)
-        target = base
-        source = np.roll(np.roll(base, 4, axis=0), 3, axis=1)
-        stats_t = nornir_imageregistration.ImageStats.Create(target)
-        stats_s = nornir_imageregistration.ImageStats.Create(source)
-        num_iterations = 2
-        settings = nornir_imageregistration.settings.GridRefinement(
-            target_image=target,
-            source_image=source,
-            target_image_stats=stats_t,
-            source_image_stats=stats_s,
-            num_iterations=num_iterations,
-            cell_size=np.asarray((32, 32), dtype=np.int32),
-            grid_spacing=np.asarray((32, 32), dtype=np.int32),
-            single_thread_processing=True,
-        )
-        transform = RigidTranslation((0.0, 0.0))
-        scoring_passes: list[int] = []
-        measure_calls = {"n": 0}
-        orig = ldc._RefineGridPointsForTwoImages
-
-        def counting_measure(*args, **kwargs):
-            measure_calls["n"] += 1
-            return orig(*args, **kwargs)
-
-        residual = CoherentResidualTranslation(
-            translation=np.asarray([4.0, 3.0], dtype=np.float64),
-            coherence=0.99,
-            n_unique=20,
-            n_inliers=18,
-        )
-        diag = CoherentResidualDiagnosis(
-            result=residual,
-            skip_reason=None,
-            n_unique=20,
-            n_inliers=18,
-            coherence=0.99,
-        )
-
-        def progress(current, total, label, preview=None):
-            if "scoring / finalize" in label:
-                scoring_passes.append(int(current))
-
-        with mock.patch.object(ldc, "_RefineGridPointsForTwoImages", side_effect=counting_measure), \
-                mock.patch.object(
-                    ldc, "diagnose_coherent_residual_translation", return_value=diag):
-            RefineTransform(transform, settings, progress_callback=progress)
-
-        self.assertEqual(scoring_passes, list(range(1, num_iterations + 1)))
-        self.assertEqual(measure_calls["n"], num_iterations + 1)
+    def test_builds_transform_from_trusted_fixed_points_only(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        records = [
+            _rec((0, 0), peak=(0.0, 0.0)),
+            _rec((0, 1), peak=(0.0, 0.0)),
+            _rec((1, 0), peak=(0.0, 0.0)),
+        ]
+        fixed = ldc.AlignRecordsToControlPoints(records)
+        transform, used, scores = ldc._build_mesh_transform_or_keep(
+            [], prior_transform=prior, fixed_points=fixed)
+        self.assertIsNot(transform, prior)
+        self.assertEqual(ldc._control_point_count(transform), 3)
+        self.assertEqual(used, [])
+        self.assertEqual(scores.shape, (0, 3))
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -15,6 +15,7 @@ from nornir_imageregistration.refine_shared.peak_ratio_gates import PEAK_RATIO_M
 CLUSTER_MIN_SIZE: int = 3
 # Travel within this factor of the cluster median is mutually consistent.
 CLUSTER_TRAVEL_FACTOR: float = 2.0
+RecordT = TypeVar('RecordT')
 
 
 class TrustTier(IntEnum):
@@ -85,6 +86,30 @@ def _hops_within(
                 nxt.add(nb)
                 if nb in targets:
                     found += 1
+        frontier = nxt
+    return found
+
+
+def _targets_within(
+        origin: tuple[int, int],
+        targets: set[tuple[int, int]],
+        *,
+        max_hops: int = 2,
+) -> set[tuple[int, int]]:
+    """Return targets reachable within the 4-connected hop limit."""
+    seen = {origin}
+    frontier = {origin}
+    found: set[tuple[int, int]] = set()
+    for _ in range(max_hops):
+        nxt: set[tuple[int, int]] = set()
+        for node in frontier:
+            for nb in _four_neighbors(node):
+                if nb in seen:
+                    continue
+                seen.add(nb)
+                nxt.add(nb)
+                if nb in targets:
+                    found.add(nb)
         frontier = nxt
     return found
 
@@ -168,19 +193,23 @@ def assign_trust_tiers(
         if is_unique_peak(rec, peak_ratio_min=peak_ratio_min)
     }
 
-    # Promote locked+converged unique ZNCC-pass cells.
+    # Finalized cells retain trust; newly converged candidates must also pass ZNCC.
     for key in unique_ids:
         if key not in locked_ids and key not in converged_ids:
             continue
-        if zncc_pass_ids is not None and key not in zncc_pass_ids:
+        if key not in locked_ids and zncc_pass_ids is not None and key not in zncc_pass_ids:
             continue
         tiers[key] = TrustTier.LOCKED
 
-    locked_now = {k for k, t in tiers.items() if t == TrustTier.LOCKED} | locked_ids
+    locked_now = {k for k, t in tiers.items() if t == TrustTier.LOCKED}
 
     clusters: list[set[tuple[int, int]]] = []
     if not locked_now:
-        clusters = find_unique_clusters(records, peak_ratio_min=peak_ratio_min)
+        cluster_records = [
+            rec for rec in records
+            if zncc_pass_ids is None or _record_id(rec) in zncc_pass_ids
+        ]
+        clusters = find_unique_clusters(cluster_records, peak_ratio_min=peak_ratio_min)
         cluster_members = set().union(*clusters) if clusters else set()
     else:
         cluster_members = set()
@@ -188,10 +217,8 @@ def assign_trust_tiers(
     for key in unique_ids:
         if tiers[key] == TrustTier.LOCKED:
             continue
-        if zncc_pass_ids is not None and key not in zncc_pass_ids and key not in cluster_members:
-            # Without ZNCC, cluster seeding can still provisional-promote uniqueness.
-            if key not in cluster_members:
-                continue
+        if zncc_pass_ids is not None and key not in zncc_pass_ids:
+            continue
         n_support = _hops_within(key, locked_now, max_hops=2)
         if n_support == 0 and key not in cluster_members:
             continue
@@ -201,21 +228,14 @@ def assign_trust_tiers(
             cell_half_size=cell_half_size,
         )
         if n_support > 0:
-            # Agree with nearest locked neighbour peak direction/travel.
             rec = by_id[key]
             peak = _peak_arr(rec)
-            ok = False
-            for nb in _four_neighbors(key):
-                if nb not in locked_now or nb not in by_id:
-                    # Also accept locked-only ids without a fresh record as support.
-                    if nb in locked_now:
-                        ok = True
-                        break
-                    continue
-                nb_peak = _peak_arr(by_id[nb])
-                if float(np.linalg.norm(peak - nb_peak)) <= tol:
-                    ok = True
-                    break
+            nearby_locks = _targets_within(key, locked_now, max_hops=2)
+            ok = any(
+                nb in by_id
+                and float(np.linalg.norm(peak - _peak_arr(by_id[nb]))) <= tol
+                for nb in nearby_locks
+            )
             if ok:
                 tiers[key] = TrustTier.PROVISIONAL
         elif key in cluster_members:
@@ -260,13 +280,8 @@ def demote_disagreeing(
         )
         peak = _peak_arr(by_id[key])
         agreed = False
-        for nb in _four_neighbors(key):
-            if nb not in locked:
-                continue
-            if nb not in by_id:
-                agreed = True
-                break
-            if float(np.linalg.norm(peak - _peak_arr(by_id[nb]))) <= tol:
+        for nb in _targets_within(key, locked, max_hops=2):
+            if nb in by_id and float(np.linalg.norm(peak - _peak_arr(by_id[nb]))) <= tol:
                 agreed = True
                 break
         if not agreed:
@@ -275,12 +290,12 @@ def demote_disagreeing(
 
 
 def mesh_records_from_tiers(
-        records: Sequence[object],
+        records: Sequence[RecordT],
         tiers: Mapping[tuple[int, int], TrustTier],
-) -> tuple[list[object], list[object]]:
+) -> tuple[list[RecordT], list[RecordT]]:
     """Split records into (locked_fixed, provisional_movable) for mesh build."""
-    locked: list[object] = []
-    provisional: list[object] = []
+    locked: list[RecordT] = []
+    provisional: list[RecordT] = []
     for rec in records:
         key = _record_id(rec)
         tier = tiers.get(key, TrustTier.UNTRUSTED)
