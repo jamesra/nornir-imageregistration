@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 import unittest
+from typing import cast
 
 import numpy as np
 
+import nornir_imageregistration
 from nornir_imageregistration.local_distortion_correction import (
     ApproximateRigidTransformBySourcePoints,
     calculate_offset,
@@ -19,6 +21,7 @@ from nornir_imageregistration.transforms.converters import (
     EstimateRigidComponentsFromControlPointsBatched,
 )
 from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
+from nornir_imageregistration.transforms.rigid import CenteredSimilarity2DTransform
 
 
 def _center_plus_ring(center_yx: np.ndarray, cell_size: np.ndarray) -> np.ndarray:
@@ -63,6 +66,34 @@ class TestApproximateRigidBatched(unittest.TestCase):
             predicted = np.asarray(rigids[i].Transform(point.reshape(1, 2))).reshape(2)
             expected = np.asarray(transform.Transform(point.reshape(1, 2))).reshape(2)
             self.assertLess(float(np.linalg.norm(predicted - expected)), 2.0)
+
+    def test_direct_offsets_match_legacy_translate_fixed_result(self) -> None:
+        src = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]], dtype=np.float64)
+        tgt = src + np.array([[0.0, 0.0], [5.0, 0.0], [0.0, 5.0], [5.0, 5.0]], dtype=np.float64)
+        transform = MeshWithRBFFallback(np.hstack([tgt, src]))
+        query = np.array([[25.125, 25.375], [50.875, 50.625], [75.25, 40.75]], dtype=np.float64)
+
+        rigids = ApproximateRigidTransformBySourcePoints(
+            transform, query, cell_size=np.array([32.0, 32.0], dtype=np.float64))
+        desired_targets = np.asarray(transform.Transform(query), dtype=np.float64)
+
+        for point, desired, rigid_interface in zip(query, desired_targets, rigids):
+            rigid = cast(CenteredSimilarity2DTransform, rigid_interface)
+            legacy = CenteredSimilarity2DTransform(
+                target_offset=np.zeros(2, dtype=np.float64),
+                source_rotation_center=point,
+                angle=rigid.angle,
+                flip_ud=rigid.flip_ud,
+                scalar=rigid.scalar)
+            mapped = np.asarray(legacy.Transform(point.reshape(1, 2)), dtype=np.float64).reshape(2)
+            legacy.TranslateFixed(desired - mapped)
+            np.testing.assert_array_equal(rigid.target_offset, legacy.target_offset)
+            np.testing.assert_array_equal(
+                nornir_imageregistration.EnsureNumpyArray(rigid.forward_matrix),
+                nornir_imageregistration.EnsureNumpyArray(legacy.forward_matrix))
+            np.testing.assert_array_equal(
+                nornir_imageregistration.EnsureNumpyArray(rigid.inverse_matrix),
+                nornir_imageregistration.EnsureNumpyArray(legacy.inverse_matrix))
 
     def test_clamped_ring_pins_center_to_parent_transform(self) -> None:
         mesh, src = _sparse_180_mesh()

@@ -5667,20 +5667,23 @@ def ApproximateRigidTransformBySourcePoints(input_transform: nornir_imageregistr
 
     desired_targets = nornir_imageregistration.EnsurePointsAre2DNumpyArray(
         input_transform.Transform(source_centers))
+    mapped_centers = nornir_imageregistration.transforms.converters._batched_zero_translation_targets(
+        source_centers[:, None, :],
+        source_centers,
+        clamped_angles,
+        clamped_scales,
+        clamped_flips)[:, 0, :]
+    target_offsets = desired_targets - mapped_centers
 
     output: list[nornir_imageregistration.transforms.IRigidTransform] = []
-    zeros = np.zeros(2, dtype=np.float64)
     for i in range(numPoints):
         center = source_centers[i]
         rigid = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
-            target_offset=zeros,
+            target_offset=target_offsets[i],
             source_rotation_center=center,
             angle=float(clamped_angles[i]),
             flip_ud=bool(clamped_flips[i]),
             scalar=float(clamped_scales[i]))
-        mapped = np.asarray(rigid.Transform(center.reshape(1, 2)), dtype=np.float64).reshape(2)
-        desired = np.asarray(desired_targets[i], dtype=np.float64).reshape(2)
-        rigid.TranslateFixed(desired - mapped)
         output.append(rigid)
     return output
 
