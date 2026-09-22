@@ -191,6 +191,21 @@ class TestBuildAlignmentROIsDeferOOBCheck(unittest.TestCase):
         self.assertEqual(tuple(target_roi_eager.shape), tuple(target_roi_deferred.shape))
         self.assertEqual(tuple(source_roi_eager.shape), tuple(source_roi_deferred.shape))
 
+    def test_ndarray_input_keeps_source_dtype(self):
+        float32_image = self.target_image.astype(np.float32, copy=True)
+        stats = nornir_imageregistration.ImageStats.Create(float32_image)
+        target_roi, source_roi = nornir_imageregistration.local_distortion_correction.BuildAlignmentROIs(
+            transform=self.identity_transform,
+            targetImage_param=float32_image,
+            sourceImage_param=float32_image,
+            target_image_stats=stats,
+            source_image_stats=stats,
+            target_controlpoint=np.array((20.0, 20.0)),
+            alignmentArea=self._CELL_SIZE)
+
+        self.assertEqual(target_roi.dtype, np.float32)
+        self.assertEqual(source_roi.dtype, np.float32)
+
 
 class TestAttemptAlignPointsTranslationBatched(unittest.TestCase):
     """The batched accept/reject rewrite must still reject fully-OOB cells and align the rest."""

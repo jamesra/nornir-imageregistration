@@ -8,7 +8,7 @@ masked (free) neighbors with a visit-once BFS after a seed node moves.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,6 +18,9 @@ from nornir_imageregistration.layout import Layout
 from nornir_imageregistration.grid_subdivision import (
     classify_fixed_grid_points,
 )
+
+# How often the BFS wave reports partial TargetPoints (free nodes relaxed).
+DEFAULT_PROGRESS_EVERY = 8
 
 
 def _index_to_row_col(index: int, cols: int) -> tuple[int, int]:
@@ -170,6 +173,10 @@ def propagate_masked_grid_positions(
         grid_dims: NDArray[np.integer] | Sequence[int],
         grid_spacing: NDArray[np.floating] | Sequence[float],
         layout: Layout | None = None,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+        on_progress: Callable[[NDArray[np.floating]], None] | None = None,
+        progress_every: int = DEFAULT_PROGRESS_EVERY,
 ) -> NDArray[np.floating]:
     """BFS-relax free neighbors of *seed_indices* once each; return new TargetPoints.
 
@@ -177,6 +184,11 @@ def propagate_masked_grid_positions(
     component are left unchanged when they have no spring pull from a moved seed
     path (they may still move if an upstream free node moved). Nodes that are
     free but never reached from a seed are unchanged.
+
+    Cooperative cancel: when *should_cancel* returns True, the wave stops and
+    returns the partial positions computed so far (after one progress flush).
+    *on_progress* is invoked every *progress_every* free nodes relaxed so a
+    UI thread can commit intermediate TargetPoints before a cancel.
     """
     points = np.asarray(target_points, dtype=np.float64).copy()
     fixed = np.asarray(fixed_mask, dtype=bool)
@@ -213,13 +225,28 @@ def propagate_masked_grid_positions(
             if not fixed[neighbor] and neighbor not in visited:
                 queue.append(neighbor)
 
+    since_progress = 0
+    progress_stride = max(1, int(progress_every))
+
+    def _emit_progress() -> None:
+        if on_progress is not None:
+            on_progress(points.copy())
+
     while queue:
+        if should_cancel is not None and should_cancel():
+            if since_progress > 0:
+                _emit_progress()
+            break
         node_id = queue.popleft()
         if node_id in visited or fixed[node_id]:
             continue
         visited.add(node_id)
         Layout.RelaxNode(layout, node_id, vector_scalar=1.0)
         points[node_id] = layout.nodes[node_id].Position.copy()
+        since_progress += 1
+        if since_progress >= progress_stride:
+            _emit_progress()
+            since_progress = 0
         for neighbor in four_adjacent_indices(node_id, rows, cols):
             if not fixed[neighbor] and neighbor not in visited:
                 queue.append(neighbor)

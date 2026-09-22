@@ -88,9 +88,6 @@ def plot_aligned_images(alignment_record, image_A: NDArray, image_B: NDArray):
     Plot the two images in the same axis using the provided alignment record    
     '''
 
-    image_A = nornir_imageregistration.ImageParamToImageArray(image_A)
-    image_B = nornir_imageregistration.ImageParamToImageArray(image_B)
-
     plt.clf()
 
     a = _gray_to_rgba(image_A, alpha=128)

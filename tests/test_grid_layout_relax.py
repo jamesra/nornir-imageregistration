@@ -183,7 +183,37 @@ class TestGridLayoutRelax(unittest.TestCase):
         # Neighbors of the seed do move
         self.assertFalse(np.allclose(updated[1], original[1]))
 
-    def test_all_fixed_returns_copy(self) -> None:
+    def test_progress_every_n_and_cancel_keeps_partial(self) -> None:
+        rows, cols = 1, 12
+        spacing = 10.0
+        points = self._identity_lattice(rows, cols, spacing)
+        fixed = np.zeros(rows * cols, dtype=bool)
+        fixed[0] = True
+        points[0, 1] += 5.0
+        seen: list[int] = []
+
+        def on_progress(partial: np.ndarray) -> None:
+            seen.append(int(np.count_nonzero(~np.isclose(partial, points))))
+
+        cancel_after = {"n": 0}
+
+        def should_cancel() -> bool:
+            cancel_after["n"] += 1
+            return cancel_after["n"] > 5
+
+        updated = propagate_masked_grid_positions(
+            points, fixed, seed_indices=[0],
+            grid_dims=(rows, cols), grid_spacing=(spacing, spacing),
+            should_cancel=should_cancel,
+            on_progress=on_progress,
+            progress_every=2,
+        )
+        self.assertGreaterEqual(len(seen), 1)
+        # Cancelled mid-wave: not all free nodes necessarily moved, but some did.
+        self.assertFalse(np.allclose(updated, points))
+        # Progress callbacks used stride 2; cancel after 5 loop iterations ⇒ few posts.
+        self.assertLessEqual(len(seen), 6)
+
         rows, cols = 2, 2
         points = self._identity_lattice(rows, cols)
         fixed = np.ones(rows * cols, dtype=bool)

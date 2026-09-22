@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import collections
 import contextlib
+from numpy._typing._array_like import NDArray
+from numpy import floating
 import os
 import threading
+from typing import Any
 import warnings
 import logging
 
@@ -878,7 +881,7 @@ def SourceImageToTargetSpace(transform: ITransform,
 
 
 def _ParameterToStosTransformAndFile(
-        transformData: str | NDArray | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform
+        transformData: str | ITransform | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform
 ) -> tuple[ITransform | None, nornir_imageregistration.StosFile | None]:
     """Resolve *transformData* to a transform and, when one exists, its stos file.
 
@@ -904,7 +907,7 @@ def _ParameterToStosTransformAndFile(
 
 
 def ParameterToStosTransform(
-        transformData: str | NDArray | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform):
+        transformData: str | ITransform | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform):
     """
     :param object transformData: Either a full path to a .stos file, a stosfile, or a transform object
     :return: A transform
@@ -913,7 +916,9 @@ def ParameterToStosTransform(
     return stostransform
 
 
-def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=None, warpedImage=None,
+def TransformStos(transformData: str | ITransform | nornir_imageregistration.StosFile | nornir_imageregistration.ITransform,
+                  OutputFilename: str | None = None, fixedImage: str | np.ndarray | None = None,
+                  warpedImage: str | np.ndarray | None = None,
                   scalar: float = 1.0, CropUndefined: bool = False):
     """Assembles an image based on the passed transform.
     :param transformData:
@@ -925,6 +930,8 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
     """
 
     stostransform, stos = _ParameterToStosTransformAndFile(transformData)
+    if stostransform is None:
+        raise ValueError("transformData is not a valid transform or stos file")
 
     if fixedImage is None:
         if stos is None:
@@ -939,7 +946,7 @@ def TransformStos(transformData, OutputFilename: str | None = None, fixedImage=N
         warpedImage = stos.MappedImageFullPath
 
     fixedImageSize = nornir_imageregistration.GetImageSize(fixedImage)
-    fixedImageShape = np.array(fixedImageSize) * scalar
+    fixedImageShape: NDArray[floating[Any]] = np.array(fixedImageSize) * scalar
     warpedImage = nornir_imageregistration.ImageParamToImageArray(warpedImage)
 
     if isinstance(stostransform, nornir_imageregistration.transforms.ITransformScaling) is False:

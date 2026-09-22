@@ -117,8 +117,33 @@ def array_snapshots_equal(left: ArraySnapshot | None, right: ArraySnapshot | Non
     )
 
 
+def has_mesh_control_points(transform: Any) -> bool:
+    """Return True when *transform* exposes paired source/target control points."""
+    return hasattr(transform, 'SourcePoints') and hasattr(transform, 'TargetPoints')
+
+
+def _pose_fingerprint_control_points(transform: Any) -> NDArray[np.float64]:
+    """Snapshot a non-mesh pose by mapping a fixed 3-point frame.
+
+    Used only for exact recheck-context equality. Does not invent a refine mesh.
+    """
+    source = np.asarray(((0.0, 0.0), (0.0, 1.0), (1.0, 0.0)), dtype=np.float64)
+    target = _host_array(transform.Transform(source)).astype(np.float64, copy=False).reshape(-1, 2)
+    source = source.reshape(-1, 2)
+    if target.shape != source.shape:
+        raise ValueError('transform.Transform must map each fingerprint source point')
+    return canonical_control_point_array(np.hstack((target, source)))
+
+
 def canonical_transform_control_points(transform: Any) -> NDArray[np.float64]:
-    """Return target/source control points in deterministic lexicographic order."""
+    """Return target/source control points in deterministic lexicographic order.
+
+    Mesh/grid transforms use ``SourcePoints`` / ``TargetPoints``. Rigid or affine
+    priors kept when nothing is trusted have no mesh; those use a pose fingerprint
+    so callers do not require a grid.
+    """
+    if not has_mesh_control_points(transform):
+        return _pose_fingerprint_control_points(transform)
     source = _host_array(transform.SourcePoints).astype(np.float64, copy=False).reshape(-1, 2)
     target = _host_array(transform.TargetPoints).astype(np.float64, copy=False).reshape(-1, 2)
     if source.shape != target.shape:

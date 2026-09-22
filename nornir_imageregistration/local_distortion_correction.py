@@ -115,6 +115,7 @@ from nornir_imageregistration.refine_shared.finalized_recheck import (
     FinalizedRecheckState,
     canonical_control_point_array,
     canonical_transform_control_points,
+    has_mesh_control_points,
     local_recheck_threshold,
     merge_recheck_results,
     plan_finalized_rechecks,
@@ -1429,12 +1430,7 @@ def _stos_settings_images(
 
     Does not upgrade host arrays to CuPy from ``GetComputationModule()``.
     """
-    dtype = nornir_imageregistration.default_image_dtype()
-    target = nornir_imageregistration.ImageParamToImageArray(
-        settings.target_image, dtype=dtype)
-    source = nornir_imageregistration.ImageParamToImageArray(
-        settings.source_image, dtype=dtype)
-    return target, source
+    return settings.target_image, settings.source_image
 
 
 def BuildAlignmentROIsBatched(
@@ -4392,7 +4388,14 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
                                 fixed_points=AlignRecordsToControlPoints(fixed_locked)
                                 if fixed_locked else None,
                             ))
-                    first_mesh_canonical = canonical_transform_control_points(updatedTransform)
+                    # Keep-prior may return a rigid/affine standing transform. That
+                    # is not a mesh; skip reuse snapshot so mesh_build_2 rebuilds
+                    # only after real control points exist.
+                    if has_mesh_control_points(updatedTransform):
+                        first_mesh_canonical = canonical_transform_control_points(
+                            updatedTransform)
+                    else:
+                        first_mesh_canonical = None
 
                 prettyoutput.Log(f'{len(included_alignment_records)} points included in updated transform after cutoff')
 
@@ -5708,10 +5711,8 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     ``source_image_stats`` is ``None``, i.e. no check was performed either way) so a caller
     processing many cells can batch the accept/reject decision into a single sync.
     """
-    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param,  # type: ignore[arg-type]
-                                                                  dtype=nornir_imageregistration.default_image_dtype())
-    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param,  # type: ignore[arg-type]
-                                                                  dtype=nornir_imageregistration.default_image_dtype())
+    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage_param)
+    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage_param)
     xp = cp.get_array_module(targetImage)
     sourceImage = _ensure_on_array_module(sourceImage, xp)
 
@@ -6017,8 +6018,8 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         source_controlpoint[0], source_controlpoint[1],
         "rigid-approx" if winning_transform is rigid_transform else "real",
         len(candidates), result.weight, result.peak[0], result.peak[1],
-        nornir_imageregistration.ImageParamToImageArray(targetImage).shape,
-        nornir_imageregistration.ImageParamToImageArray(sourceImage).shape)
+        targetImage.shape,
+        sourceImage.shape)
 
     if nornir_imageregistration.in_debug_mode():
         _half_h = int(round(float(np.asarray(alignmentArea, dtype=np.float64).ravel()[0]) / 2.0))
@@ -6029,7 +6030,7 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
         # with no rotation applied.  Comparing this to the warped source ROI shows whether a
         # coordinate mismatch or a rotation artefact is the root cause of a bad registration.
         result.RawSourceROI = nornir_imageregistration.CropImage(  # type: ignore[attr-defined]
-            nornir_imageregistration.ImageParamToImageArray(sourceImage),
+            sourceImage,
             int(round(float(source_controlpoint[1]))) - _half_w,
             int(round(float(source_controlpoint[0]))) - _half_h,
             2 * _half_w, 2 * _half_h)

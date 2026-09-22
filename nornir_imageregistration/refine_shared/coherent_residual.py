@@ -409,16 +409,11 @@ def estimate_global_fov_residual_translation(
     from nornir_imageregistration.phasecorrelation import find_offset
 
     try:
-        target = nornir_imageregistration.ImageParamToImageArray(
-            target_image, dtype=nornir_imageregistration.default_image_dtype())
-        source = nornir_imageregistration.ImageParamToImageArray(
-            source_image, dtype=nornir_imageregistration.default_image_dtype())
+        xp = cp.get_array_module(target_image)
+        target = xp.asarray(target_image, dtype=xp.float64)
+        source = xp.asarray(source_image, dtype=xp.float64)
     except Exception:
         return None
-
-    xp = cp.get_array_module(target)
-    target = xp.asarray(target, dtype=xp.float64)
-    source = xp.asarray(source, dtype=xp.float64)
     if target.size == 0 or source.size == 0:
         return None
 

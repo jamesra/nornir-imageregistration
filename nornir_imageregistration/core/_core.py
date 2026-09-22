@@ -2786,8 +2786,6 @@ def RandomNoiseMask(image: NDArray, Mask: NDArray[np.bool_],
     :rtype: ndimage
     """
 
-    image = ImageParamToImageArray(image)
-    Mask = ImageParamToImageArray(Mask)
     xp = cp.get_array_module(image)
     if cp.get_array_module(Mask) is not xp:
         Mask = xp.asarray(Mask, dtype=xp.bool_)
