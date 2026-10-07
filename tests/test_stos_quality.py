@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -164,6 +165,18 @@ def test_entry_is_stale_missing_pair_zncc(tmp_path: Path) -> None:
     """Missing pair_zncc forces a recompute."""
     stos_path = _write_identity_stos(tmp_path)
     assert entry_is_stale({'stos_checksum': 'x', 'stos_mtime_ns': 1}, str(stos_path))
+
+
+def test_entry_is_stale_mtime_fallback_tolerates_smb_skew(tmp_path: Path) -> None:
+    """Without a checksum, stored vs live mtime within the skew tolerance is not stale."""
+    stos_path = _write_identity_stos(tmp_path)
+    live_ns = os.stat(stos_path).st_mtime_ns
+    entry = {'pair_zncc': 0.9}
+
+    assert not entry_is_stale({**entry, 'stos_mtime_ns': live_ns + 500_000_000}, str(stos_path))
+    assert not entry_is_stale({**entry, 'stos_mtime_ns': live_ns - 500_000_000}, str(stos_path))
+    assert entry_is_stale({**entry, 'stos_mtime_ns': live_ns - 60_000_000_000}, str(stos_path))
+    assert entry_is_stale(entry, str(stos_path))
 
 
 def test_build_quality_histogram_bins_and_median() -> None:

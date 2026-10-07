@@ -16,7 +16,7 @@ from nornir_imageregistration.assemble import ParameterToStosTransform, SourceIm
 from nornir_imageregistration.files.stosfile import StosFile
 from nornir_imageregistration.grid_subdivision import CenteredGridDivision
 from nornir_imageregistration.refine_shared.cell_roles import Role, masked_zncc
-from nornir_shared.files import file_mtime_ns
+from nornir_shared.files import file_mtime_ns, mtimes_equivalent
 from nornir_shared.histogram import Histogram
 
 QUALITY_CACHE_FILENAME: str = 'stos_quality.json'
@@ -183,7 +183,7 @@ def entry_is_stale(entry: Mapping[str, Any] | None, stos_path: str) -> bool:
         return True
     if stored_mtime is None:
         return True
-    return int(stored_mtime) != int(current_mtime)
+    return not mtimes_equivalent(int(stored_mtime), int(current_mtime))
 
 
 def _to_numpy(image: Any) -> NDArray[np.floating]:
