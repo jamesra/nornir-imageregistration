@@ -26,6 +26,7 @@ import nornir_pools
 import nornir_shared.files
 import nornir_imageregistration.temporaryfiles as temporaryfiles
 from nornir_imageregistration.exceptions import MissingTilesetInputError, as_missing_tileset_error
+from nornir_imageregistration.pillow_helpers import load_image_array
 
 logger = logging.getLogger(__name__)
 
@@ -318,14 +319,13 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             if not os.path.isfile(tile_path):
                 return None
             try:
-                with Image.open(tile_path) as img:
-                    if img.size[0] != TileSize[0] or img.size[1] != TileSize[1]:
-                        raise ValueError(
-                            f"Existing tile {tile_path} with size {img.size} does not match requested size {TileSize} at {position}")
+                img = Image.fromarray(load_image_array(tile_path))
+                if img.size[0] != TileSize[0] or img.size[1] != TileSize[1]:
+                    raise ValueError(
+                        f"Existing tile {tile_path} with size {img.size} does not match requested size {TileSize} at {position}")
 
-                    # Keep pixels after the file handle closes; copy() is one buffer,
-                    # unlike frombytes(tobytes()) which allocates bytes + a second image.
-                    return img.copy()
+                # Keep an owned buffer. fromarray may share memory with the ndarray.
+                return img.copy()
             except OSError:
                 return None
 

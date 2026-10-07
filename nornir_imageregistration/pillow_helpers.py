@@ -126,5 +126,14 @@ def get_image_file_dtype(ImageFullPath: str) -> np.typing.DTypeLike:
         return dtype_for_pillow_image(im)
 
 
+def load_image_array(path: str) -> np.ndarray:
+    """Return Pillow pixel values with no mask and no extrema-to-noise fill.
+
+    This is not ``LoadImage``. Registration preprocessing stays on that function.
+    """
+    with Image.open(path) as image:
+        return np.array(image)
+
+
 if __name__ == '__main__':
     pass
