@@ -51,7 +51,8 @@ def _try_estimate_dtype_from_extrema(im):
     (min_val, max_val) = im.getextrema()  # type: ignore[union-attr]
     if mode[0] == 'I':
         if max_val <= 255:
-            assert (min_val >= 0)
+            if min_val < 0:
+                raise ValueError('8-bit integer image extrema must be non-negative')
             return np.uint8
         elif max_val <= (1 << 16):
             if min_val < 0:
@@ -62,7 +63,8 @@ def _try_estimate_dtype_from_extrema(im):
             if min_val < 0:
                 return np.int32
             else:
-                assert (min_val >= 0)
+                if min_val < 0:
+                    raise ValueError('32-bit unsigned integer image extrema must be non-negative')
                 return np.uint32
         else:
             return np.int64
