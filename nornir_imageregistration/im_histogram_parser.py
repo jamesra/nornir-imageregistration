@@ -80,14 +80,14 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
         if maxVal is None:
             maxVal = ActualMax
 
-    # If this happens perhaps ImageMagick doesn't sort the output anymore?
-    assert minVal is not None and maxVal is not None and minVal < maxVal
-
-    if minVal is None:
-        minVal = 0
-
-    if maxVal is None:
-        maxVal = 255
+    if minVal is None or maxVal is None:
+        raise ValueError(
+            "Histogram lines did not yield min and max intensity values"
+        )
+    if minVal >= maxVal:
+        raise ValueError(
+            f"Histogram min intensity ({minVal}) must be less than max ({maxVal})"
+        )
 
     hist = nornir_shared.histogram.Histogram.Init(minVal, maxVal, numBins)
 

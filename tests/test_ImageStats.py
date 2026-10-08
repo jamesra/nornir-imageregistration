@@ -4,6 +4,9 @@ Created on Mar 12, 2013
 @author: u0490822
 '''
 import os
+import subprocess
+import sys
+import textwrap
 import unittest
 
 from PIL import Image
@@ -25,6 +28,36 @@ class ImageStatsBase(setup_imagetest.ImageTestBase):
 
 
 class testHistogram(ImageStatsBase):
+
+    def test_parse_raises_on_empty_histogram_lines(self) -> None:
+        with self.assertRaises(ValueError):
+            im_histogram_parser.Parse([])
+
+    def test_parse_raises_when_min_equals_max_intensity(self) -> None:
+        flat_line = "1: ( 33, 33, 33) #212121 gray(33,33,33)"
+        with self.assertRaises(ValueError):
+            im_histogram_parser.Parse([flat_line, flat_line])
+
+    def test_parse_invalid_range_raises_under_python_o(self) -> None:
+        """ValueError must survive assert stripping (python -O); asserts would not."""
+        script = textwrap.dedent(
+            """
+            from nornir_imageregistration import im_histogram_parser
+
+            try:
+                im_histogram_parser.Parse([])
+            except ValueError:
+                raise SystemExit(0)
+            raise SystemExit(1)
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-O", "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
 
     def HistogramFromFileImageMagick(self, File):
         '''Create a histogram for a file, put FilePrefix in front of any files written'''
