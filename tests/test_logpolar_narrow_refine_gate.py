@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import unittest
 
+import hypothesis
+import hypothesis.strategies as st
 import numpy as np
 import scipy.ndimage
 
@@ -72,6 +74,27 @@ class TestNarrowAngleRefineGate(unittest.TestCase):
         self.assertTrue(
             stos_brute._logpolar_needs_narrow_angle_refine(
                 _diag(strength_delta_ratio=0.119)))
+
+    @hypothesis.given(
+        angle_ratio=st.floats(0.5, 2.5),
+        trans_ratio=st.floats(0.5, 2.0),
+        delta_ratio=st.floats(0.0, 0.5),
+    )
+    @hypothesis.settings(max_examples=80, deadline=None)
+    def test_gate_is_or_of_three_channel_thresholds(
+            self, angle_ratio: float, trans_ratio: float, delta_ratio: float,
+    ) -> None:
+        d = _diag(
+            angle_peak_ratio=angle_ratio,
+            translation_peak_ratio=trans_ratio,
+            strength_delta_ratio=delta_ratio,
+        )
+        expected = (
+            angle_ratio < 1.35
+            or trans_ratio < 1.12
+            or delta_ratio < 0.12
+        )
+        self.assertEqual(stos_brute._logpolar_needs_narrow_angle_refine(d), expected)
 
 
 class TestCommonRandomAngleSearch(unittest.TestCase):
