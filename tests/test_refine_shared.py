@@ -6,16 +6,29 @@ import os
 import unittest
 
 import numpy as np
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import nornir_imageregistration
 from nornir_imageregistration.refine_shared import (
     RefineRuntimeConfig,
+    filter_alignment_records_by_weight,
+    filter_records_by_registration_weight,
     filter_weights_by_estimate_cutoff,
     is_alignable_cell,
     measure_translation_cell,
     normalize_cell,
     regularize_displacements,
 )
+
+_POINT_PAIR_DTYPE = np.dtype([('Weight', 'f8'), ('DisplacementX', 'f8')])
+
+
+class _AlignmentRecordStub:
+    """Minimal alignment record for cutoff filter tests."""
+
+    def __init__(self, weight: float) -> None:
+        self.weight = float(weight)
 
 try:
     import cupy as cp
@@ -54,6 +67,91 @@ class TestRefineShared(unittest.TestCase):
         self.assertEqual(keep.shape, weights.shape)
         self.assertTrue(np.any(keep))
         self.assertTrue(np.any(~keep) or keep.sum() == keep.size)
+
+    def test_filter_records_by_registration_weight_empty(self) -> None:
+        """Empty structured updates pass through unchanged."""
+        empty = np.array([], dtype=_POINT_PAIR_DTYPE)
+        out = filter_records_by_registration_weight(empty)
+        self.assertEqual(out.size, 0)
+        self.assertEqual(out.dtype, _POINT_PAIR_DTYPE)
+
+    def test_filter_alignment_records_by_weight_empty(self) -> None:
+        """Empty record lists pass through unchanged."""
+        self.assertEqual(filter_alignment_records_by_weight([]), [])
+
+    def test_filter_records_by_registration_weight_few_positive(self) -> None:
+        """With fewer than three positive weights, all positive entries are kept."""
+        records = np.zeros(4, dtype=_POINT_PAIR_DTYPE)
+        records['Weight'] = np.asarray([0.0, -0.1, 0.35, 0.82])
+        out = filter_records_by_registration_weight(records)
+        self.assertEqual(out.size, 2)
+        np.testing.assert_allclose(out['Weight'], [0.35, 0.82])
+
+    def test_filter_alignment_records_by_weight_few_positive(self) -> None:
+        """Record lists with fewer than three positive weights keep every positive row."""
+        rows = [
+            _AlignmentRecordStub(0.0),
+            _AlignmentRecordStub(0.25),
+            _AlignmentRecordStub(0.75),
+        ]
+        kept = filter_alignment_records_by_weight(rows)
+        self.assertEqual(len(kept), 2)
+        self.assertAlmostEqual(kept[0].weight, 0.25)
+        self.assertAlmostEqual(kept[1].weight, 0.75)
+
+    def test_filter_records_by_registration_weight_bimodal(self) -> None:
+        """Bimodal weights drop the low tail while preserving high-confidence rows."""
+        weights = np.asarray([0.05, 0.08, 0.11, 0.86, 0.9, 0.93, 0.96, 0.99])
+        records = np.zeros(weights.size, dtype=_POINT_PAIR_DTYPE)
+        records['Weight'] = weights
+        out = filter_records_by_registration_weight(records)
+        self.assertGreater(out.size, 0)
+        self.assertLess(out.size, weights.size)
+        self.assertTrue(np.all(out['Weight'] >= 0.5))
+
+    def test_filter_alignment_records_by_weight_bimodal(self) -> None:
+        """Alignment records follow the same bimodal cutoff as structured updates."""
+        weights = [0.06, 0.09, 0.12, 0.88, 0.91, 0.94, 0.97, 1.0]
+        rows = [_AlignmentRecordStub(w) for w in weights]
+        kept = filter_alignment_records_by_weight(rows)
+        self.assertGreater(len(kept), 0)
+        self.assertLess(len(kept), len(rows))
+        self.assertTrue(all(r.weight >= 0.5 for r in kept))
+
+    @given(
+        weights=st.lists(
+            st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+            min_size=0,
+            max_size=24,
+        ))
+    @settings(max_examples=40, deadline=None)
+    def test_filter_records_matches_weight_mask(self, weights: list[float]) -> None:
+        """Structured filtering matches the shared weight cutoff mask."""
+        w = np.asarray(weights, dtype=np.float64)
+        records = np.zeros(w.size, dtype=_POINT_PAIR_DTYPE)
+        if w.size:
+            records['Weight'] = w
+        out = filter_records_by_registration_weight(records)
+        keep = filter_weights_by_estimate_cutoff(w)
+        np.testing.assert_array_equal(out['Weight'], records[keep]['Weight'])
+
+    @given(
+        weights=st.lists(
+            st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+            min_size=0,
+            max_size=24,
+        ))
+    @settings(max_examples=40, deadline=None)
+    def test_filter_alignment_records_matches_weight_mask(self, weights: list[float]) -> None:
+        """Record-list filtering matches the shared weight cutoff mask."""
+        rows = [_AlignmentRecordStub(w) for w in weights]
+        kept = filter_alignment_records_by_weight(rows)
+        w = np.asarray(weights, dtype=np.float64)
+        keep = filter_weights_by_estimate_cutoff(w)
+        expected = [row for row, ok in zip(rows, keep) if ok]
+        self.assertEqual(len(kept), len(expected))
+        for got, exp in zip(kept, expected):
+            self.assertAlmostEqual(got.weight, exp.weight)
 
     def test_estimate_registration_weight_cutoff_flat_fallback(self) -> None:
         """Curves without a verified inflection use the keep-all fallback."""
