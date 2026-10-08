@@ -62,6 +62,7 @@ def ParseHistogramLine(line: str):
 
 
 def Parse(lines, minVal=None, maxVal=None, numBins=None):
+    """Build a histogram from ImageMagick ``histogram:info:-`` text lines."""
     # Each line of the convert  -define histogram:unique-colors=true -format %c histogram:info:- command should have this form:
     #    1: ( 33, 33, 33) #212121 gray(33,33,33)
     #    2: ( 35, 35, 35) #232323 gray(35,35,35)
@@ -80,6 +81,8 @@ def Parse(lines, minVal=None, maxVal=None, numBins=None):
         if maxVal is None:
             maxVal = ActualMax
 
+    # ImageMagick usually sorts lines by intensity; if min/max are missing or
+    # inverted, the output format or sort order may have changed.
     if minVal is None or maxVal is None:
         raise ValueError(
             "Histogram lines did not yield min and max intensity values"
