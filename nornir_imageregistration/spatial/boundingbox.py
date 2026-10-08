@@ -5,6 +5,8 @@ points are represented as (Y,X)
 
 '''
 
+from __future__ import annotations
+
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 
