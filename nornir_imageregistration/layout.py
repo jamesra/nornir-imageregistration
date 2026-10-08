@@ -1397,7 +1397,13 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
     sorted_offsets = OffsetsSortedByWeight(original_layout)
 
     print("Building Layout from offsets")
-    LayoutList = []
+    LayoutList: list[Layout] = []
+    tile_to_layout: dict[int, Layout] = {}
+
+    def _register_layout_nodes(layout: Layout) -> None:
+        for node_id in layout.nodes:
+            tile_to_layout[node_id] = layout
+
     for iRow in range(0, sorted_offsets.shape[0]):
         row = sorted_offsets[iRow, :]
         A_ID = int(row[0])
@@ -1413,8 +1419,8 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             print("Skip: Invalid weight, not a number")
             continue
 
-        ALayout = GetLayoutForID(LayoutList, A_ID)
-        BLayout = GetLayoutForID(LayoutList, B_ID)
+        ALayout = tile_to_layout.get(A_ID)
+        BLayout = tile_to_layout.get(B_ID)
 
         if ALayout is None and BLayout is None:
             new_layout = Layout()
@@ -1423,6 +1429,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             new_layout.CreateNode(B_ID, A_pos + offset)
             new_layout.SetOffset(A_ID, B_ID, offset, Weight)
             LayoutList.append(new_layout)
+            _register_layout_nodes(new_layout)
             # print("New layout")
 
         elif (not ALayout is None) and (not BLayout is None):
@@ -1438,10 +1445,12 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
                 MergeLayoutsWithNodeOffset(ALayout, BLayout, A_ID, B_ID, offset, Weight)
                 # print("Merged")
                 LayoutList.remove(BLayout)
+                _register_layout_nodes(ALayout)
         else:
 
             if ALayout is None and not BLayout is None:
                 BLayout.CreateOffsetNode(B_ID, A_ID, -offset, Weight)
+                tile_to_layout[A_ID] = BLayout
                 # We'll pick it up on the next pass
                 # print("Skip: Getting it next time")
                 # continue
@@ -1449,6 +1458,7 @@ def BuildLayoutWithHighestWeightsFirst(original_layout):
             else:
                 assert ALayout is not None
                 ALayout.CreateOffsetNode(A_ID, B_ID, offset, Weight)
+                tile_to_layout[B_ID] = ALayout
 
     # OK, we should have a single list of layouts
     # LargestLayout = LayoutList[0]

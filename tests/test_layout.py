@@ -597,6 +597,52 @@ class TestLayout(setup_imagetest.TestBase):
         self.assertTrue(result)
 
 
+def _layout_list_fingerprint(layout_list: list[Layout]) -> frozenset[tuple[int, tuple[float, float]]]:
+    """Stable node positions across returned layout components."""
+    nodes: set[tuple[int, tuple[float, float]]] = set()
+    for component in layout_list:
+        for node_id, node in component.nodes.items():
+            pos = tuple(float(v) for v in node.Position)
+            nodes.add((node_id, pos))
+    return frozenset(nodes)
+
+
+@hypothesis.given(
+    hypothesis.strategies.integers(min_value=4, max_value=48),
+    hypothesis.strategies.integers(min_value=0, max_value=10_000),
+)
+@hypothesis.settings(deadline=None, max_examples=25)
+def test_build_layout_highest_weights_first_matches_reference(num_tiles: int, seed: int) -> None:
+    """BuildLayoutWithHighestWeightsFirst is deterministic for synthetic section inputs."""
+    rng = np.random.default_rng(seed)
+    layout = Layout()
+    side = int(np.ceil(np.sqrt(num_tiles)))
+    pitch = 128.0
+    for tile_id in range(num_tiles):
+        row, col = divmod(tile_id, side)
+        layout.CreateNode(tile_id, np.array([row * pitch, col * pitch], dtype=np.float64))
+    for tile_id in range(num_tiles):
+        row, col = divmod(tile_id, side)
+        for dr, dc in ((0, 1), (1, 0)):
+            nr, nc = row + dr, col + dc
+            neighbor = nr * side + nc
+            if neighbor >= num_tiles:
+                continue
+            offset = np.array([dr * pitch, dc * pitch], dtype=np.float64)
+            weight = float(rng.uniform(0.2, 1.0))
+            if tile_id < neighbor:
+                layout.SetOffset(tile_id, neighbor, offset, weight)
+            else:
+                layout.SetOffset(neighbor, tile_id, -offset, weight)
+
+    first = BuildLayoutWithHighestWeightsFirst(layout)
+    second = BuildLayoutWithHighestWeightsFirst(layout)
+    assert _layout_list_fingerprint(first) == _layout_list_fingerprint(second)
+    placed_ids = [node_id for component in first for node_id in component.nodes]
+    assert len(placed_ids) == num_tiles
+    assert len(set(placed_ids)) == num_tiles
+
+
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()
