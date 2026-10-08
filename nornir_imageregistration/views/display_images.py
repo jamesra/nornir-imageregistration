@@ -99,37 +99,6 @@ def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None =
         (fig, gs, axes_for_row) = _DisplayImageList2D(image_data, grid_dims, image_titles, rois)  # type: ignore[arg-type]
         set_title_for_multi_image(fig, title)
 
-    elif isinstance(input_params, collections.abc.Iterable):
-        # OK, we have a list of images or a list of lists
-        # TODO: Why doesn't this use the DisplayImageList2D function?
-
-        height, width = _GridLayoutDims(input_params)
-        gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
-        fig = MplFigure()
-        set_title_for_multi_image(fig, title)
-
-        for i, image in enumerate(input_params):
-            image = nornir_imageregistration.EnsureNumpyArray(image)
-            # fig = figure()
-            if isinstance(image, np.ndarray):
-                # ax = fig.add_subplot(101 + ((len(input_params) - (i)) * 10))
-                iRow = i // width
-                iCol = (i - (iRow * width)) % width
-
-                print("Row %d Col %d" % (iRow, iCol))
-
-                ax = fig.add_subplot(gs[iRow, iCol])
-                #                     if height > 1:
-                #                         ax = axes[iRow, iCol ]
-                #                     else:
-                #                         ax = axes[iCol]
-
-                ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal',
-                          norm=matplotlib.colors.NoNorm())
-
-                if image_titles is not None:
-                    ax.set_title(image_titles[i])
-
     else:
         return
 
