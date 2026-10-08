@@ -10,6 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
+import nornir_imageregistration
 from nornir_imageregistration.mathfuncs.cutoff_types import (
     CutoffMethod,
     EstimateCutoffResult,
@@ -18,6 +19,11 @@ from nornir_imageregistration.mathfuncs.estimate_cutoff import (
     estimate_cutoff,
     linear_percentile_curve,
 )
+
+try:
+    import cupy as cp
+except (ModuleNotFoundError, ImportError):
+    cp = None
 
 
 class TestLinearPercentileCurve(unittest.TestCase):
@@ -48,6 +54,18 @@ class TestLinearPercentileCurve(unittest.TestCase):
         expected = np.percentile(data, percentiles, method="linear")
         actual = linear_percentile_curve(data, percentiles)
         np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_cupy_matches_numpy(self) -> None:
+        assert cp is not None
+        rng = np.random.default_rng(3)
+        host = rng.random(512).astype(np.float64)
+        q = np.linspace(0.0, 100.0, 51)
+        expected = np.percentile(host, q, method="linear")
+        actual = nornir_imageregistration.EnsureNumpyArray(
+            linear_percentile_curve(cp.asarray(host), q)
+        )
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 class TestEstimateCutoff(unittest.TestCase):
