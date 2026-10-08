@@ -32,6 +32,13 @@ TileOverlapFeatureScore = collections.namedtuple('TileOverlapFeatureScore',
                                                  'overlap_ID iTile image feature_score')
 
 
+def _TileOverlapsAsIterable(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverlap]) -> Iterable[TileOverlap]:
+    """Iterate overlaps without materializing dict.values() into a list."""
+    if isinstance(tile_overlaps, dict):
+        return tile_overlaps.values()
+    return tile_overlaps
+
+
 def CreateTileToOverlapsDict(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverlap]) -> \
         collections.defaultdict[int, dict[int, TileToOverlap]]:
     """
@@ -40,11 +47,8 @@ def CreateTileToOverlapsDict(tile_overlaps: dict[Any, TileOverlap] | Sequence[Ti
     described in the overlap object
     """
 
-    if isinstance(tile_overlaps, dict):
-        tile_overlaps = list(tile_overlaps.values())
-
     tile_to_overlaps_dict = collections.defaultdict(dict)
-    for tile_overlap in tile_overlaps:
+    for tile_overlap in _TileOverlapsAsIterable(tile_overlaps):
         tile_to_overlaps_dict[tile_overlap.A.ID][tile_overlap.ID] = TileToOverlap(iTile=0, tile_overlap=tile_overlap)
         tile_to_overlaps_dict[tile_overlap.B.ID][tile_overlap.ID] = TileToOverlap(iTile=1, tile_overlap=tile_overlap)
 
@@ -639,13 +643,9 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
 
     layout = existing_layout if existing_layout is not None else nornir_imageregistration.layout.Layout()
 
-    list_tile_overlaps = tile_overlaps
-    if isinstance(tile_overlaps, dict):
-        list_tile_overlaps = list(tile_overlaps.values())
+    iterable_tile_overlaps = _TileOverlapsAsIterable(tile_overlaps)
 
-    assert (isinstance(list_tile_overlaps, list))
-
-    for t in list_tile_overlaps:
+    for t in iterable_tile_overlaps:
         if not layout.Contains(t.A.ID):
             layout.CreateNode(t.A.ID, t.A.FixedBoundingBox.Center)
 
@@ -653,7 +653,7 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
             layout.CreateNode(t.B.ID, t.B.FixedBoundingBox.Center)
 
     print("Starting tile alignment")
-    for tile_overlap in list_tile_overlaps:
+    for tile_overlap in _TileOverlapsAsIterable(tile_overlaps):
         t = pool.add_task("Align %d -> %d" % (tile_overlap.ID[0], tile_overlap.ID[1]),
                           __tile_offset_remote,
                           tile_overlap.A.ImagePath,
