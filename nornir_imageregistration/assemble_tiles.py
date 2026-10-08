@@ -432,17 +432,13 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                                                                            target_space_scale)
     scaled_targetRect = nornir_imageregistration.Rectangle.SafeRound(scaled_targetRect)
 
-    tiles_list = list(mosaic_tileset.values())
-    if not tiles_list:
-        raise ValueError("Mosaic Tileset has no tiles.")
-
     output_dtype = _assemble_output_dtype(mosaic_tileset)
 
     (fullImage, fullImageZbuffer) = __CreateOutputBufferForArea(int(scaled_targetRect.Height), int(scaled_targetRect.Width),
                                                                 dtype=output_dtype)
 
     work_items: List[Tuple[nornir_imageregistration.tile.Tile, nornir_imageregistration.Rectangle]] = []
-    for tile in tiles_list:
+    for tile in mosaic_tileset.values():
         region_to_render = nornir_imageregistration.Rectangle.Intersect(targetRect, tile.TargetSpaceBoundingBox)
         if region_to_render is not None and region_to_render.Area > 0:
             work_items.append((tile, region_to_render))
@@ -596,17 +592,13 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
                                                                             target_space_scale)
     scaled_target_rect = nornir_imageregistration.Rectangle.SafeRound(scaled_target_rect)
 
-    tiles_list = list(mosaic_tileset.values())
-    if not tiles_list:
-        raise ValueError("Mosaic Tileset has no tiles.")
-
     output_dtype = _assemble_output_dtype(mosaic_tileset)
 
     full_image, full_image_zbuffer = __CreateOutputBufferForArea(
         int(scaled_target_rect.Height), int(scaled_target_rect.Width), dtype=output_dtype)
 
     work_items: List[Tuple[nornir_imageregistration.tile.Tile, nornir_imageregistration.Rectangle]] = []
-    for tile in tiles_list:
+    for tile in mosaic_tileset.values():
         region_to_render = nornir_imageregistration.Rectangle.Intersect(target_rect, tile.TargetSpaceBoundingBox)
         if region_to_render is not None and region_to_render.Area > 0:
             work_items.append((tile, region_to_render))
