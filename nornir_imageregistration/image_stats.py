@@ -559,7 +559,8 @@ def Histogram(filenames: str | Sequence[str], Bpp: int | None = None, Scale: flo
     histlist = []
     numBins = None
     completed = 0
-    for f, task in FilenameToTask.items():
+    for f in list(FilenameToTask.keys()):
+        task = FilenameToTask[f]
         try:
             h = task.wait_return()
         except (OSError, IOError, ValueError) as e:
