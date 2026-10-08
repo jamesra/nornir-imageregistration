@@ -41,26 +41,6 @@ class Tile:
     _fftimage: NDArray | None  # The FFT of the padded image data
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
 
-    def TryEstimateImageToSourceSpaceScalar(self):
-        """
-        Calculate image_to_source_space_scale if it was not passed.
-        TODO: This may be a function that is no longer needed or should
-        not exist with the refactor of tile and mosaic_tileset.  Probably
-        better to require passing image_to_source_space in constructor
-        """
-        t_dim = self.SourceSpaceBoundingBox.Dimensions
-        i_dim = self.ImageSize
-
-        if np.allclose(t_dim, i_dim):
-            return 1.0
-        else:
-            scales = i_dim / t_dim
-
-            if np.all(scales == scales[0]):  # Make sure both values are equal
-                return scales[0]
-            else:
-                raise ValueError(f"Mismatch between heightScale and widthScale. {scales}")
-
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
         """
@@ -297,8 +277,6 @@ class Tile:
         self._image_size = None
 
         self.image_to_source_space_scale = image_to_source_space_scale
-        # if image_to_source_space_scale is None:
-        #    self.image_to_source_space_scale = self.TryEstimateImageToSourceSpaceScalar()
 
         if ID is None:
             self._ID = Tile.__nextID
