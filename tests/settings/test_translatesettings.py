@@ -47,6 +47,18 @@ class TestTranslateSettings(setup_imagetest.TestBase):
         with open(settings_path, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), corrupt_body)
 
+    def testNonObjectTranslateSettingsJsonPreservedWhenNoDefaults(self):
+        settings_path = os.path.join(self.TestOutputPath, "non_object_translatesettings.json")
+        non_object_body = "[1, 2, 3]\n"
+        with open(settings_path, "w", encoding="utf-8") as handle:
+            handle.write(non_object_body)
+
+        with self.assertRaises(TypeError):
+            nornir_imageregistration.settings.GetOrSaveTranslateSettings(None, settings_path)
+
+        with open(settings_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), non_object_body)
+
     def testCorruptTranslateSettingsJsonRecoveredWithDefaults(self):
         settings = nornir_imageregistration.settings.TranslateSettings()
         settings.min_overlap = 0.75
