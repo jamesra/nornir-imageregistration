@@ -35,6 +35,7 @@ from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
+from nornir_imageregistration.transformed_image_data import TransformedTileMetadata
 from nornir_imageregistration.registration_control import (
     ProgressCallback,
     check_cancelled,
@@ -2124,15 +2125,13 @@ def _warp_overlap_for_grid_refine(
         target_space_scale,
         "cupy" if nornir_imageregistration.UsingCupy() else "numpy")
 
+    metadata = TransformedTileMetadata.from_scaled_target_origin(
+        source_space_scale, target_space_scale, target_min_y, target_min_x)
     return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(
         fixed_image,  # type: ignore[arg-type]
         center_distance_image,  # type: ignore[arg-type]
         transform,
-        source_space_scale,
-        target_space_scale,
-        rendered_target_space_origin=(
-            target_min_y * (1.0 / target_space_scale),
-            target_min_x * (1.0 / target_space_scale)),
+        metadata,
         SingleThreadedInvoke=single_threaded_invoke)
 
 

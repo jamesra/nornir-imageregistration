@@ -975,17 +975,14 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
     del source_image
     del distanceImage
 
-    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(fixedImage,  # type: ignore[arg-type]
-                                                                                                             centerDistanceImage,  # type: ignore[arg-type]
-                                                                                                             transform,
-                                                                                                             source_space_scale,
-                                                                                                             target_space_scale,
-                                                                                                             rendered_target_space_origin=(
-                                                                                                                 target_minY * (
-                                                                                                                         1.0 / target_space_scale),
-                                                                                                                 target_minX * (
-                                                                                                                         1.0 / target_space_scale)),
-                                                                                                             SingleThreadedInvoke=SingleThreadedInvoke)
+    metadata = nornir_imageregistration.transformed_image_data.TransformedTileMetadata.from_scaled_target_origin(
+        source_space_scale, target_space_scale, target_minY, target_minX)
+    return nornir_imageregistration.transformed_image_data_temp_files.TransformedImageDataViaTempFile.Create(
+        fixedImage,  # type: ignore[arg-type]
+        centerDistanceImage,  # type: ignore[arg-type]
+        transform,
+        metadata,
+        SingleThreadedInvoke=SingleThreadedInvoke)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Tuple
 
@@ -14,6 +15,25 @@ class TransformedImageDataState(Enum):
     SHARED_MEMORY = auto()
     TEMP_FILE = auto()
     CLEARED = auto()
+
+
+@dataclass(frozen=True)
+class TransformedTileMetadata:
+    """Scales and rendered origin that every ITransformedImageData backend carries beside its images."""
+    source_space_scale: float
+    target_space_scale: float
+    rendered_target_space_origin: Tuple[float, float]
+
+    @classmethod
+    def from_scaled_target_origin(cls, source_space_scale: float, target_space_scale: float,
+                                  scaled_min_y: int, scaled_min_x: int) -> TransformedTileMetadata:
+        """Build metadata for an image rendered at the given bottom-left corner of the scaled target region.
+
+        The rendered origin is stored in unscaled target space; compositors multiply it back by
+        target_space_scale to place the image.
+        """
+        return cls(source_space_scale, target_space_scale,
+                   (scaled_min_y * (1.0 / target_space_scale), scaled_min_x * (1.0 / target_space_scale)))
 
 
 class ITransformedImageData(abc.ABC):
@@ -53,8 +73,7 @@ class ITransformedImageData(abc.ABC):
     def Create(cls, image: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
                centerDistanceImage: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
                transform,
-               source_space_scale: float, target_space_scale: float,
-               rendered_target_space_origin: Tuple[float, float], SingleThreadedInvoke: bool) -> ITransformedImageData:
+               metadata: TransformedTileMetadata, SingleThreadedInvoke: bool) -> ITransformedImageData:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -98,9 +117,7 @@ class TransformedImageDataError(ITransformedImageData):
     def Create(cls, image: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
                centerDistanceImage: NDArray | nornir_imageregistration.Shared_Mem_Metadata,
                transform: Any,
-               source_space_scale: float,
-               target_space_scale: float,
-               rendered_target_space_origin: Tuple[float, float],
+               metadata: TransformedTileMetadata,
                SingleThreadedInvoke: bool) -> ITransformedImageData:
         raise NotImplementedError("TransformedImageDataError cannot be created from image data")
 

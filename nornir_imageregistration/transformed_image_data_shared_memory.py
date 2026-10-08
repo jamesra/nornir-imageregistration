@@ -16,7 +16,8 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 from nornir_imageregistration.mmap_metadata import memmap_metadata
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
-from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState
+from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState, \
+    TransformedTileMetadata
 
 
 @dataclass
@@ -146,12 +147,11 @@ class TransformedImageDataViaSharedMemory(ITransformedImageData):
     def Create(cls, image: NDArray | Shared_Mem_Metadata | memmap_metadata,
                centerDistanceImage: NDArray | Shared_Mem_Metadata | memmap_metadata,
                transform,
-               source_space_scale: float, target_space_scale: float,
-               rendered_target_space_origin: Tuple[float, float],
+               metadata: TransformedTileMetadata,
                SingleThreadedInvoke: bool) -> TransformedImageDataViaSharedMemory:
-        o = TransformedImageDataViaSharedMemory(source_space_scale=source_space_scale,
-                                                target_space_scale=target_space_scale,
-                                                rendered_target_space_origin=rendered_target_space_origin)
+        o = TransformedImageDataViaSharedMemory(source_space_scale=metadata.source_space_scale,
+                                                target_space_scale=metadata.target_space_scale,
+                                                rendered_target_space_origin=metadata.rendered_target_space_origin)
         o._image_state = cls._state_from_input(image)
         o._center_distance_image_state = cls._state_from_input(centerDistanceImage)
         o._transform = transform

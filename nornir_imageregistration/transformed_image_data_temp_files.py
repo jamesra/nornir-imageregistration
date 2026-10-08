@@ -22,7 +22,8 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 import nornir_pools
 from nornir_imageregistration.shared_mem_metadata import Shared_Mem_Metadata
-from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState
+from nornir_imageregistration.transformed_image_data import ITransformedImageData, TransformedImageDataState, \
+    TransformedTileMetadata
 
 
 # When porting to Python 3.10 there was a regression where
@@ -156,11 +157,10 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
     @classmethod
     def Create(cls, image: NDArray | Shared_Mem_Metadata, centerDistanceImage: NDArray | Shared_Mem_Metadata,
                transform,
-               source_space_scale: float, target_space_scale: float,
-               rendered_target_space_origin: Tuple[float, float], SingleThreadedInvoke: bool):
-        o = TransformedImageDataViaTempFile(source_space_scale=source_space_scale,
-                                            target_space_scale=target_space_scale,
-                                            rendered_target_space_origin=rendered_target_space_origin)
+               metadata: TransformedTileMetadata, SingleThreadedInvoke: bool):
+        o = TransformedImageDataViaTempFile(source_space_scale=metadata.source_space_scale,
+                                            target_space_scale=metadata.target_space_scale,
+                                            rendered_target_space_origin=metadata.rendered_target_space_origin)
         o._image = nornir_imageregistration.ImageParamToImageArray(image)
         o._centerDistanceImage = nornir_imageregistration.ImageParamToImageArray(centerDistanceImage)
         o._image_state = TransformedImageDataState.IN_MEMORY
