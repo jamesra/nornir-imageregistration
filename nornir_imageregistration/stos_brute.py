@@ -1549,6 +1549,30 @@ def _peak_from_correlation_image(
         peak_ratio=float(peak_result.peak_ratio))
 
 
+@dataclass(frozen=True)
+class _NonFixedCorrelationFramePlan:
+    desired_shape: tuple[int, int]
+    repad_target: bool
+    reuse_rotated_without_pad: bool
+
+
+def _non_fixed_correlation_frame_plan(
+        im_target_shape: tuple[int, int],
+        padded_target_shape: tuple[int, int],
+        rotated_source_shape: tuple[int, int],
+) -> _NonFixedCorrelationFramePlan:
+    """Pad/reuse decisions for the non-fixed-shape ``_score_one_angle_core`` branch."""
+
+    target_height = max(padded_target_shape[0], rotated_source_shape[0])
+    target_width = max(padded_target_shape[1], rotated_source_shape[1])
+    desired_shape = (target_height, target_width)
+    return _NonFixedCorrelationFramePlan(
+        desired_shape=desired_shape,
+        repad_target=im_target_shape != desired_shape,
+        reuse_rotated_without_pad=rotated_source_shape == desired_shape,
+    )
+
+
 def _score_one_angle_core(
         im_target: NDArray,
         im_source: NDArray,
@@ -1647,27 +1671,29 @@ def _score_one_angle_core(
         else:
             padded_target = im_target
 
-        target_height = max(padded_target.shape[0], rotated_source.shape[0])
-        target_width = max(padded_target.shape[1], rotated_source.shape[1])
-
-        desired_shape = (target_height, target_width)
-        if im_target.shape != desired_shape:
+        frame_plan = _non_fixed_correlation_frame_plan(
+            tuple(int(s) for s in im_target.shape),
+            tuple(int(s) for s in padded_target.shape),
+            tuple(int(s) for s in rotated_source.shape),
+        )
+        desired_shape = frame_plan.desired_shape
+        if frame_plan.repad_target:
             padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
                 im_target,
-                new_width=target_width,
-                new_height=target_height,
+                new_width=desired_shape[1],
+                new_height=desired_shape[0],
                 image_median=target_stats.median,
                 image_stddev=target_stats.std,
                 min_overlap=1.0)
             fft_target = None
 
-        if rotated_source.shape == desired_shape:
+        if frame_plan.reuse_rotated_without_pad:
             rotated_padded_source = rotated_source
         else:
             rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
                 rotated_source,
-                new_width=target_width,
-                new_height=target_height,
+                new_width=desired_shape[1],
+                new_height=desired_shape[0],
                 image_median=working_source_stats.median,
                 image_stddev=working_source_stats.std,
                 min_overlap=1.0)
