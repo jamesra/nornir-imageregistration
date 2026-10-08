@@ -28,7 +28,7 @@ def _try_read_bpp_from_pillow_mode(im):
         parts = mode.split(';')
         if len(parts) > 1:
             bits = int(parts[1])
-    except:
+    except ValueError:
         pass
 
     return bits
