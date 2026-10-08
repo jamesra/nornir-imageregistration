@@ -1,5 +1,4 @@
 import collections.abc
-from itertools import product
 import math
 from typing import Iterable, Sequence
 
