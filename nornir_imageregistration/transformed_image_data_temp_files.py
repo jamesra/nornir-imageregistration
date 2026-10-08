@@ -266,7 +266,12 @@ class TransformedImageDataViaTempFile(ITransformedImageData):
             # between the two pool tasks submitted below.
             TransformedImageDataViaTempFile._EnsureSharedTempFolder()
 
-            # TODO: Replace with a task group once we are on Python 3.11
+            # Spill both arrays on the global thread pool. asyncio.TaskGroup (3.11+) is for async
+            # coroutines, not blocking np.save; stdlib concurrent.futures has no TaskGroup; a
+            # an ad-hoc ThreadPoolExecutor was avoided here because module history shows atexit and
+            # executor shutdown regressions on spill paths. Paired add_task/wait_return keeps
+            # structured concurrency on the shared pool (same as Clear()) with wait_return
+            # exception propagation.
             pool = nornir_pools.GetGlobalThreadPool()
 
             _image_path_task = pool.add_task("Image", self.SaveArrayToTemporaryFile, "Image", image)
