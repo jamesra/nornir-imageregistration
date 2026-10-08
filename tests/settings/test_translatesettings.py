@@ -3,6 +3,7 @@ Created on Sep 1, 2022
 
 @author: u0490822
 '''
+import json
 import os
 import unittest
 
@@ -33,6 +34,30 @@ class TestTranslateSettings(setup_imagetest.TestBase):
         settings_reload = nornir_imageregistration.settings.GetOrSaveTranslateSettings(None, settings_path)
         self.assertTrue(settings_reload.min_overlap == min_overlap_value,
                         "Settings loaded from disk should match value saved")
+
+    def testCorruptTranslateSettingsJsonPreservedWhenNoDefaults(self):
+        settings_path = os.path.join(self.TestOutputPath, "corrupt_translatesettings.json")
+        corrupt_body = "{ not valid json\n"
+        with open(settings_path, "w", encoding="utf-8") as handle:
+            handle.write(corrupt_body)
+
+        with self.assertRaises(json.JSONDecodeError):
+            nornir_imageregistration.settings.GetOrSaveTranslateSettings(None, settings_path)
+
+        with open(settings_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), corrupt_body)
+
+    def testCorruptTranslateSettingsJsonRecoveredWithDefaults(self):
+        settings = nornir_imageregistration.settings.TranslateSettings()
+        settings.min_overlap = 0.75
+        settings_path = os.path.join(self.TestOutputPath, "recover_translatesettings.json")
+        with open(settings_path, "w", encoding="utf-8") as handle:
+            handle.write("{ bad json")
+
+        reloaded = nornir_imageregistration.settings.GetOrSaveTranslateSettings(settings, settings_path)
+        self.assertEqual(reloaded.min_overlap, 0.75)
+        reloaded_from_disk = nornir_imageregistration.settings.GetOrSaveTranslateSettings(None, settings_path)
+        self.assertEqual(reloaded_from_disk.min_overlap, 0.75)
 
 
 if __name__ == "__main__":
