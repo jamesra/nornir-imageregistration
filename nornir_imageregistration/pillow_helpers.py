@@ -63,8 +63,6 @@ def _try_estimate_dtype_from_extrema(im):
             if min_val < 0:
                 return np.int32
             else:
-                if min_val < 0:
-                    raise ValueError('32-bit unsigned integer image extrema must be non-negative')
                 return np.uint32
         else:
             return np.int64
