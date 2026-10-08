@@ -1,7 +1,7 @@
 """
 Headless / agent-friendly plotting: save figures to PNG instead of opening UI windows.
 
-Detection (any condition is enough):
+Detection is ``nornir_shared.headless.is_headless``, re-exported here (any condition is enough):
 - ``NORNIR_HEADLESS`` is ``1``, ``true``, ``yes``, or ``on`` (case-insensitive).
 - Non-Windows host with no ``DISPLAY`` (typical Linux CI / Docker agents).
 
@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import tempfile
 import uuid
+
+from nornir_shared.headless import is_headless
 
 __all__ = [
     "is_headless",
@@ -31,15 +32,6 @@ __all__ = [
 # Keep derived tags short enough that the pid/uuid suffix stays readable and the
 # whole filename stays well inside path limits on Windows hosts.
 _TAG_MAX_LENGTH = 60
-
-
-def is_headless() -> bool:
-    flag = os.environ.get("NORNIR_HEADLESS", "").strip().lower()
-    if flag in ("1", "true", "yes", "on"):
-        return True
-    if sys.platform != "win32" and not os.environ.get("DISPLAY"):
-        return True
-    return False
 
 
 def _headless_plot_artifact_base() -> str:
