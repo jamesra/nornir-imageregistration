@@ -1650,7 +1650,8 @@ def _score_one_angle_core(
         target_height = max(padded_target.shape[0], rotated_source.shape[0])
         target_width = max(padded_target.shape[1], rotated_source.shape[1])
 
-        if not np.array_equal(im_target.shape, np.array((target_height, target_width))):
+        desired_shape = (target_height, target_width)
+        if im_target.shape != desired_shape:
             padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
                 im_target,
                 new_width=target_width,
@@ -1660,7 +1661,7 @@ def _score_one_angle_core(
                 min_overlap=1.0)
             fft_target = None
 
-        if np.array_equal(rotated_source.shape, np.array((target_height, target_width))):
+        if rotated_source.shape == desired_shape:
             rotated_padded_source = rotated_source
         else:
             rotated_padded_source = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
@@ -1671,7 +1672,7 @@ def _score_one_angle_core(
                 image_stddev=working_source_stats.std,
                 min_overlap=1.0)
 
-    assert np.array_equal(padded_target.shape, rotated_padded_source.shape)
+    assert padded_target.shape == rotated_padded_source.shape
 
     use_cached_fft = (
         fft_target is not None
