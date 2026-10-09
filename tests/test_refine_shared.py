@@ -17,6 +17,7 @@ from nornir_imageregistration.refine_shared import (
     filter_weights_by_estimate_cutoff,
     is_alignable_cell,
     measure_translation_cell,
+    measure_translation_cells_batched,
     normalize_cell,
     regularize_displacements,
 )
@@ -59,6 +60,45 @@ class TestRefineShared(unittest.TestCase):
         record = measure_translation_cell(cell, cell, np.asarray((32, 32)))
         self.assertGreater(float(record.weight), 0.0)
         self.assertLess(float(np.linalg.norm(record.peak)), 1.0)
+
+    def test_measure_translation_cells_batched_identical(self) -> None:
+        """Identical batched stacks yield near-zero peaks with positive weights."""
+        rng = np.random.default_rng(4)
+        cell = rng.random((32, 32))
+        batch_size = 3
+        fixed = np.stack([cell] * batch_size, axis=0)
+        moving = fixed.copy()
+        cell_shape = np.asarray((32, 32), dtype=np.int64)
+        peaks, weights, peak_ratios = measure_translation_cells_batched(
+            fixed, moving, cell_shape)
+        self.assertEqual(peaks.shape, (batch_size, 2))
+        self.assertEqual(weights.shape, (batch_size,))
+        self.assertEqual(peak_ratios.shape, (batch_size,))
+        self.assertTrue(np.all(weights > 0.0))
+        self.assertTrue(np.all(np.linalg.norm(peaks, axis=1) < 1.0))
+        self.assertTrue(np.all(peak_ratios >= 0.0))
+
+    def test_measure_translation_cells_batched_chunk_concat(self) -> None:
+        """Chunked batched calls match a one-shot call on the full stack."""
+        from unittest import mock
+
+        rng = np.random.default_rng(5)
+        num_cells = 4
+        fixed = rng.random((num_cells, 24, 24))
+        moving = fixed.copy()
+        cell_shape = np.asarray((24, 24), dtype=np.int64)
+        patch_target = (
+            'nornir_imageregistration.refine_shared.cell_measurement'
+            '.batched_fft_cell_chunk_size')
+        with mock.patch(patch_target, return_value=1):
+            chunked_peaks, chunked_weights, chunked_ratios = (
+                measure_translation_cells_batched(fixed, moving, cell_shape))
+        with mock.patch(patch_target, return_value=num_cells):
+            full_peaks, full_weights, full_ratios = measure_translation_cells_batched(
+                fixed, moving, cell_shape)
+        np.testing.assert_allclose(chunked_peaks, full_peaks, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(chunked_weights, full_weights, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(chunked_ratios, full_ratios, rtol=1e-5, atol=1e-5)
 
     def test_filter_weights_by_estimate_cutoff(self) -> None:
         """Low outliers are dropped when enough samples exist."""
