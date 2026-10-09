@@ -20,6 +20,15 @@ def _assemble_serial_gpu_enabled() -> bool:
     return raw in ('1', 'true', 'yes', 'on')
 
 
+def tile_id_from_filename(path: str, default: int) -> int:
+    """Return an int tile ID from the basename stem, or default if not numeric."""
+    try:
+        filename_root, _ = os.path.splitext(os.path.basename(path))
+        return int(filename_root)
+    except (ValueError, TypeError):
+        return default
+
+
 def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
                      image_to_source_space_scale: float) -> MosaicTileset:
     """
@@ -44,12 +53,7 @@ def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image
         filename = item[0]
         transfrom = item[1]
 
-        tile_number = i
-        try:
-            (filename_root, _) = os.path.splitext(filename)
-            tile_number = int(filename_root)
-        except:
-            pass
+        tile_number = tile_id_from_filename(filename, i)
 
         if image_folder is not None:
             filename = os.path.join(image_folder, filename)
@@ -82,14 +86,8 @@ def Create(transforms, imagepaths, image_to_source_space_scale: float) -> dict[i
             log.error("Missing tile: " + imagepaths[i])
             continue
 
-        tile_number = i
-
         filename = imagepaths[i]
-        try:
-            (filename_root, _) = os.path.splitext(os.path.basename(filename))
-            tile_number = int(filename_root)
-        except:
-            pass
+        tile_number = tile_id_from_filename(filename, i)
 
         tile = nornir_imageregistration.tile.Tile(t, imagepaths[i],
                                                   image_to_source_space_scale=image_to_source_space_scale,
