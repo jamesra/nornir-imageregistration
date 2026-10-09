@@ -31,6 +31,7 @@ import nornir_imageregistration
 from nornir_imageregistration import cp
 import nornir_imageregistration.assemble
 import nornir_imageregistration.assemble_tiles
+from nornir_imageregistration.env_flags import env_is_truthy
 from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
@@ -1912,7 +1913,7 @@ def _cupy_memory_pool_stats() -> tuple[int | None, int | None]:
 
 def _log_refinement_gpu_memory(label: str) -> None:
     """Log CuPy pool usage when ``NORNIR_LOG_GPU_MEM=1``."""
-    if os.environ.get('NORNIR_LOG_GPU_MEM', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+    if not env_is_truthy('NORNIR_LOG_GPU_MEM'):
         return
     used_bytes, total_bytes = _cupy_memory_pool_stats()
     if used_bytes is None:

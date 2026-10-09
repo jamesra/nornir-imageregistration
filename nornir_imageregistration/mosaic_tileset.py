@@ -12,12 +12,12 @@ import nornir_shared.tasktimer
 from nornir_shared import prettyoutput
 
 from nornir_imageregistration import Rectangle, RectLike
+from nornir_imageregistration.env_flags import env_is_truthy
 
 
 def _assemble_serial_gpu_enabled() -> bool:
     """Return True when CuPy should use serial TilesToImage instead of threaded."""
-    raw = os.environ.get('NORNIR_ASSEMBLE_SERIAL_GPU', '').strip().lower()
-    return raw in ('1', 'true', 'yes', 'on')
+    return env_is_truthy('NORNIR_ASSEMBLE_SERIAL_GPU')
 
 
 def tile_id_from_filename(path: str, default: int) -> int:

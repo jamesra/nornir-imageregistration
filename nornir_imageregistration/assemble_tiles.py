@@ -29,6 +29,7 @@ import nornir_pools
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_shared.tasktimer
 
+from nornir_imageregistration.env_flags import env_flag, is_falsey, is_truthy
 from nornir_imageregistration.type_info import ShapeLike
 from nornir_imageregistration.image_filter_cache import WindowFilterCache
 from nornir_imageregistration.distance import CreateDistanceImage
@@ -292,10 +293,10 @@ def _prefetch_tile_image(tile: nornir_imageregistration.tile.Tile) -> None:
 
 def _assemble_prefetch_enabled() -> bool:
     """Return True when TilesToImage should prefetch upcoming tile PNGs on a thread pool."""
-    raw = os.environ.get('NORNIR_ASSEMBLE_PREFETCH', '').strip().lower()
-    if raw in ('0', 'false', 'no'):
+    raw = env_flag('NORNIR_ASSEMBLE_PREFETCH')
+    if is_falsey(raw):
         return False
-    if raw in ('1', 'true', 'yes'):
+    if is_truthy(raw):
         return True
     return (nornir_imageregistration.GetActiveComputationLib()
             == nornir_imageregistration.ComputationLib.cupy)
@@ -303,10 +304,10 @@ def _assemble_prefetch_enabled() -> bool:
 
 def _assemble_grid_extrapolate() -> bool:
     """Whether tile warps request RBF/grid extrapolation outside the discrete mesh."""
-    raw = os.environ.get('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', '').strip().lower()
-    if raw in ('0', 'false', 'no'):
+    raw = env_flag('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE')
+    if is_falsey(raw):
         return False
-    if raw in ('1', 'true', 'yes'):
+    if is_truthy(raw):
         return True
     # Production default: skip RBF extrapolation for assemble; edge tiles are rare and costly.
     return False

@@ -2565,9 +2565,8 @@ def __ExecuteProfiler():
 if __name__ == '__main__':
     # Legacy Windows fixture profiler. Opt-in only:
     #   NORNIR_PROFILE=1 python -m nornir_imageregistration.stos_brute
-    import os
-    _profile = os.environ.get('NORNIR_PROFILE', '').strip().lower()
-    if _profile not in ('1', 'true', 'yes', 'on'):
+    from nornir_imageregistration.env_flags import env_is_truthy
+    if not env_is_truthy('NORNIR_PROFILE'):
         raise SystemExit(
             'stos_brute.py is a library module. '
             'Set NORNIR_PROFILE=1 to run the legacy fixture profiler.'

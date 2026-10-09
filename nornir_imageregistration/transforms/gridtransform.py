@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any, cast
 
 import numpy as np
@@ -33,6 +32,7 @@ except ImportError:
 import scipy.spatial
 
 import nornir_imageregistration
+from nornir_imageregistration.env_flags import env_flag, is_falsey, is_truthy
 from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
@@ -56,13 +56,13 @@ def _assemble_inverse_use_scipy() -> bool:
     quantize to **±1 DN** on 8-bit tiles (RPC3 601: ~84% of tiles have >=1 changed pixel;
     within affected tiles up to ~22% of pixels, all |delta|=1). Degenerate meshes still fall back to SciPy.
     """
-    raw = os.environ.get('NORNIR_ASSEMBLE_INVERSE_SCIPY', '').strip().lower()
-    if raw in ('0', 'false', 'no'):
+    raw = env_flag('NORNIR_ASSEMBLE_INVERSE_SCIPY')
+    if is_falsey(raw):
         return False
-    if raw in ('1', 'true', 'yes'):
+    if is_truthy(raw):
         return True
-    extrap_raw = os.environ.get('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', '').strip().lower()
-    if extrap_raw in ('1', 'true', 'yes'):
+    # When inverse-scipy is unset, stay on CuPy even if grid extrapolation is on.
+    if is_truthy(env_flag('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE')):
         return False
     return False
 

@@ -7,17 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-
-def _env_flag(name: str, default: str = '') -> str:
-    return os.environ.get(name, default).strip().lower()
-
-
-def _is_falsey(flag: str) -> bool:
-    return flag in ('0', 'false', 'no', 'off')
-
-
-def _is_truthy(flag: str) -> bool:
-    return flag in ('1', 'true', 'yes', 'on')
+from nornir_imageregistration.env_flags import env_flag, is_falsey, is_truthy
 
 
 @dataclass(frozen=True)
@@ -64,35 +54,35 @@ class RefineRuntimeConfig:
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
         """Build a config snapshot from the current process environment."""
-        phase_flag = _env_flag('NORNIR_REFINE_PHASE_TIMING', '0')
-        batched = _env_flag('NORNIR_REFINE_BATCHED', '')
+        phase_flag = env_flag('NORNIR_REFINE_PHASE_TIMING', '0')
+        batched = env_flag('NORNIR_REFINE_BATCHED', '')
         if batched == '':
-            batched = _env_flag('NORNIR_REFINE_BATCHED_GPU', '')
+            batched = env_flag('NORNIR_REFINE_BATCHED_GPU', '')
         # Mosaic vertex gate. Default ON when unset (validated production default).
-        batched_on = True if batched == '' else not _is_falsey(batched)
+        batched_on = True if batched == '' else not is_falsey(batched)
 
         # STOS cell gate is independent so mosaic debug (BATCHED=0) does not
         # force STOS onto the serial path (#98 / C03-B007).
-        stos_batched = _env_flag('NORNIR_REFINE_BATCHED_STOS', '')
+        stos_batched = env_flag('NORNIR_REFINE_BATCHED_STOS', '')
         if stos_batched == '':
             stos_batched_on = True
         else:
-            stos_batched_on = not _is_falsey(stos_batched)
+            stos_batched_on = not is_falsey(stos_batched)
 
-        tile_flag = _env_flag('NORNIR_REFINE_TILE_PARALLEL', '')
-        if _is_falsey(tile_flag):
+        tile_flag = env_flag('NORNIR_REFINE_TILE_PARALLEL', '')
+        if is_falsey(tile_flag):
             tile_parallel = False
-        elif _is_truthy(tile_flag):
+        elif is_truthy(tile_flag):
             tile_parallel = True
         else:
             tile_parallel = False
 
-        gpu_flag = _env_flag('NORNIR_REFINE_GPU_TRANSFORM', '')
-        gpu_transform = not (_is_falsey(gpu_flag) or gpu_flag == '')
+        gpu_flag = env_flag('NORNIR_REFINE_GPU_TRANSFORM', '')
+        gpu_transform = not (is_falsey(gpu_flag) or gpu_flag == '')
 
-        sharp_flag = _env_flag('NORNIR_REFINE_SHARP_WARPS', '')
+        sharp_flag = env_flag('NORNIR_REFINE_SHARP_WARPS', '')
         # Default ON when unset; only an explicit falsey disables.
-        sharp_warps = True if sharp_flag == '' else not _is_falsey(sharp_flag)
+        sharp_warps = True if sharp_flag == '' else not is_falsey(sharp_flag)
 
         disc_k = 1.5
         raw_k = os.environ.get('NORNIR_REFINE_DISCONTINUITY_K', '').strip()
@@ -137,22 +127,22 @@ class RefineRuntimeConfig:
             except ValueError:
                 pass
 
-        finalized_recheck_mode = _env_flag('NORNIR_REFINE_FINALIZED_RECHECK_MODE', 'all')
+        finalized_recheck_mode = env_flag('NORNIR_REFINE_FINALIZED_RECHECK_MODE', 'all')
         if finalized_recheck_mode not in ('all', 'shadow', 'local'):
             finalized_recheck_mode = 'all'
 
         return cls(
-            phase_timing=not (_is_falsey(phase_flag) or phase_flag == ''),
+            phase_timing=not (is_falsey(phase_flag) or phase_flag == ''),
             batched_vertex_measurement=batched_on,
             batched_stos_cell_measurement=stos_batched_on,
-            prewarp_mode=_env_flag('NORNIR_REFINE_PREWARP_MODE', ''),
+            prewarp_mode=env_flag('NORNIR_REFINE_PREWARP_MODE', ''),
             tile_measure_parallel=tile_parallel,
             gpu_transform=gpu_transform,
-            disable_prewarp_cache=_is_truthy(_env_flag('NORNIR_DISABLE_PREWARP_CACHE', '')),
-            mosaic_cutoff=_is_truthy(_env_flag('NORNIR_REFINE_MOSAIC_CUTOFF', '')),
-            stos_regularize=_is_truthy(_env_flag('NORNIR_REFINE_STOS_REGULARIZE', '')),
-            finalize_legacy=_is_truthy(_env_flag('NORNIR_REFINE_FINALIZE_LEGACY', '')),
-            pass_diagnostics=_is_truthy(_env_flag('NORNIR_REFINE_PASS_DIAGNOSTICS', '')),
+            disable_prewarp_cache=is_truthy(env_flag('NORNIR_DISABLE_PREWARP_CACHE', '')),
+            mosaic_cutoff=is_truthy(env_flag('NORNIR_REFINE_MOSAIC_CUTOFF', '')),
+            stos_regularize=is_truthy(env_flag('NORNIR_REFINE_STOS_REGULARIZE', '')),
+            finalize_legacy=is_truthy(env_flag('NORNIR_REFINE_FINALIZE_LEGACY', '')),
+            pass_diagnostics=is_truthy(env_flag('NORNIR_REFINE_PASS_DIAGNOSTICS', '')),
             sharp_warps=sharp_warps,
             discontinuity_k=disc_k,
             discontinuity_travel_mult=disc_travel,

@@ -44,6 +44,16 @@ class TestScaledTransformCache(unittest.TestCase):
         finally:
             os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
+    def test_prefetch_on_off_tokens(self):
+        """Assemble prefetch accepts the shared on/off tokens."""
+        try:
+            os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'on'
+            self.assertTrue(at._assemble_prefetch_enabled())
+            os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'off'
+            self.assertFalse(at._assemble_prefetch_enabled())
+        finally:
+            os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
+
     def test_grid_extrapolate_default_off(self):
         env = os.environ.pop('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', None)
         try:
@@ -51,6 +61,15 @@ class TestScaledTransformCache(unittest.TestCase):
         finally:
             if env is not None:
                 os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = env
+
+    def test_grid_extrapolate_on_off_tokens(self):
+        try:
+            os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = 'on'
+            self.assertTrue(at._assemble_grid_extrapolate())
+            os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = 'off'
+            self.assertFalse(at._assemble_grid_extrapolate())
+        finally:
+            os.environ.pop('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', None)
 
     def test_inverse_scipy_default_cupy_extrapolate_still_cupy(self):
         from nornir_imageregistration.transforms import gridtransform as gt

@@ -760,10 +760,11 @@ if __name__ == '__main__':
     Prefer ``scripts/audit_cupy_item_bench.py`` for CuPy audit timings.
     """
     import os
+
     import matplotlib.pyplot as plt
 
-    _profile = os.environ.get('NORNIR_PROFILE', '').strip().lower()
-    if _profile not in ('1', 'true', 'yes', 'on'):
+    from nornir_imageregistration.env_flags import env_is_truthy
+    if not env_is_truthy('NORNIR_PROFILE'):
         raise SystemExit(
             'phasecorrelation.py is a library module. '
             'Set NORNIR_PROFILE=1 to run the legacy fixture profiler.'
