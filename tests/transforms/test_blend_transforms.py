@@ -20,6 +20,7 @@ from nornir_imageregistration.transforms.converters import (
 )
 from nornir_imageregistration.transforms.utils import (
   DEFAULT_MAX_BLEND_WEIGHT,
+  DEFAULT_REBLEND_ITERATIONS,
   DEFAULT_REBLEND_TOLERANCE,
   DEFAULT_REBLEND_WEIGHT_TOLERANCE,
   BlendTransforms,
@@ -197,6 +198,11 @@ class TestLinearBlendParams(unittest.TestCase):
         reblend_weight_tolerance=None)
     self.assertEqual(params.reblend_tolerance, DEFAULT_REBLEND_TOLERANCE)
     self.assertEqual(params.reblend_weight_tolerance, DEFAULT_REBLEND_WEIGHT_TOLERANCE)
+
+  def test_default_reblend_iterations_matches_iterative_api(self) -> None:
+    self.assertEqual(LinearBlendParams().reblend_iterations, DEFAULT_REBLEND_ITERATIONS)
+    self.assertEqual(
+        LinearBlendParams.from_kwargs().reblend_iterations, DEFAULT_REBLEND_ITERATIONS)
 
   def test_kwargs_and_params_paths_match_target_points(self) -> None:
     source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])

@@ -176,7 +176,7 @@ class LinearBlendParams:
     min_blend: float | None = None
     max_blend: float | None = None
     travel_limit: float | None = None
-    reblend_iterations: int = 1
+    reblend_iterations: int = DEFAULT_REBLEND_ITERATIONS
     reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE
     reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE
 
@@ -186,7 +186,7 @@ class LinearBlendParams:
                     min_blend: float | None = None,
                     max_blend: float | None = None,
                     travel_limit: float | None = None,
-                    reblend_iterations: int = 1,
+                    reblend_iterations: int = DEFAULT_REBLEND_ITERATIONS,
                     reblend_tolerance: float | None = None,
                     reblend_weight_tolerance: float | None = None,
                     linear_factor: float | None = None) -> "LinearBlendParams":
