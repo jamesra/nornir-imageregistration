@@ -4,12 +4,13 @@ Created on Apr 4, 2013
 @author: u0490822
 """
 
-from collections.abc import Iterable
 import warnings
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-from typing import Any, Sequence
 
 try:
     import cupy as cp
@@ -163,8 +164,55 @@ DEFAULT_REBLEND_WEIGHT_TOLERANCE: float = 0.01
 INVERSE_MAP_Y_CORRELATION_THRESHOLD: float = 0.9
 
 
+@dataclass(frozen=True, slots=True)
+class LinearBlendParams:
+    """Shared linear-blend knobs threaded through blend and chain-correction helpers.
+
+    Public entry points keep keyword arguments for compatibility; they pack into
+    this type once and pass it internally. ``linear_factor`` is accepted only via
+    :meth:`from_kwargs` (deprecated alias for ``min_blend``).
+    """
+
+    min_blend: float | None = None
+    max_blend: float | None = None
+    travel_limit: float | None = None
+    reblend_iterations: int = 1
+    reblend_tolerance: float = DEFAULT_REBLEND_TOLERANCE
+    reblend_weight_tolerance: float = DEFAULT_REBLEND_WEIGHT_TOLERANCE
+
+    @classmethod
+    def from_kwargs(cls,
+                    *,
+                    min_blend: float | None = None,
+                    max_blend: float | None = None,
+                    travel_limit: float | None = None,
+                    reblend_iterations: int = 1,
+                    reblend_tolerance: float | None = None,
+                    reblend_weight_tolerance: float | None = None,
+                    linear_factor: float | None = None) -> "LinearBlendParams":
+        """Pack loose blend kwargs; ``None`` reblend tolerances become module defaults."""
+        return cls(
+            min_blend=_coalesce_min_blend(min_blend, linear_factor, stacklevel=4),
+            max_blend=max_blend,
+            travel_limit=travel_limit,
+            reblend_iterations=reblend_iterations,
+            reblend_tolerance=(
+                DEFAULT_REBLEND_TOLERANCE if reblend_tolerance is None else reblend_tolerance),
+            reblend_weight_tolerance=(
+                DEFAULT_REBLEND_WEIGHT_TOLERANCE
+                if reblend_weight_tolerance is None
+                else reblend_weight_tolerance),
+        )
+
+    @property
+    def effective_max_blend(self) -> float | None:
+        """Per-point max rigid weight after subtle defaults."""
+        return resolve_effective_max_blend(self.min_blend, self.travel_limit, self.max_blend)
+
+
 def _coalesce_min_blend(min_blend: float | None,
-                        linear_factor: float | None) -> float | None:
+                        linear_factor: float | None,
+                        stacklevel: int = 3) -> float | None:
     """Return min_blend, accepting deprecated linear_factor with a warning."""
     if linear_factor is not None:
         if min_blend is not None and min_blend != linear_factor:
@@ -174,7 +222,7 @@ def _coalesce_min_blend(min_blend: float | None,
             warnings.warn(
                 "linear_factor is deprecated; use min_blend instead",
                 DeprecationWarning,
-                stacklevel=3)
+                stacklevel=stacklevel)
             return linear_factor
     return min_blend
 
@@ -312,8 +360,14 @@ def BlendWithLinear(transform: IControlPoints,
     :return:  Either a mesh triangulation, a grid triangulation, or a linear transformation.  Grid and Triangulation
     match the input transform.  Linear transforms are only returned if min_blend is 1.0.
     """
-    min_blend = _coalesce_min_blend(min_blend, linear_factor)
-    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
+    params = LinearBlendParams.from_kwargs(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        reblend_iterations=reblend_iterations,
+        reblend_tolerance=reblend_tolerance,
+        reblend_weight_tolerance=reblend_weight_tolerance,
+        linear_factor=linear_factor)
 
     # This check is here to help the IDE with autocompletion
     if not isinstance(transform, nornir_imageregistration.ITransform):
@@ -323,21 +377,13 @@ def BlendWithLinear(transform: IControlPoints,
     linear_transform = nornir_imageregistration.transforms.converters.ConvertControlPointsToRigidTransformForBlend(
         transform,
         ignore_rotation=ignore_rotation)
-    if min_blend == 1.0:
+    if params.min_blend == 1.0:
         return linear_transform
 
-    if reblend_iterations > 1:
-        blended = BlendTransformsIteratively(transform,
-                                             linear_transform=linear_transform,
-                                             min_blend=min_blend,
-                                             travel_limit=travel_limit,
-                                             reblend_iterations=reblend_iterations,
-                                             reblend_tolerance=reblend_tolerance,
-                                             reblend_weight_tolerance=reblend_weight_tolerance,
-                                             max_blend=effective_max_blend)
+    if params.reblend_iterations > 1:
+        blended = _blend_transforms_iteratively(transform, linear_transform, params)
     else:
-        blended = BlendTransforms(transform, linear_transform=linear_transform, min_blend=min_blend,
-                                  travel_limit=travel_limit, max_blend=effective_max_blend)
+        blended = _blend_transforms(transform, linear_transform, params)
 
     if _orientation_sign_preserved(mesh_corr, estimate_inverse_map_y_correlation(blended)):
         return blended
@@ -364,8 +410,21 @@ def BlendTransforms(transform: IControlPoints,
     :param max_blend: Cap per-point linear weight; defaults to min_blend or 0.9 by mode.
     :return: Mesh triangulation, grid triangulation, or linear transform matching input type.
     """
-    min_blend = _coalesce_min_blend(min_blend, linear_factor)
-    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
+    params = LinearBlendParams.from_kwargs(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        linear_factor=linear_factor)
+    return _blend_transforms(transform, linear_transform, params)
+
+
+def _blend_transforms(transform: IControlPoints,
+                      linear_transform: ITransform,
+                      params: LinearBlendParams):
+    """One-shot blend using packed :class:`LinearBlendParams`."""
+    min_blend = params.min_blend
+    travel_limit = params.travel_limit
+    effective_max_blend = params.effective_max_blend
 
     if min_blend is not None and (min_blend < 0 or min_blend > 1.0):
         raise ValueError(f"min_blend must be between 0 and 1.0, got {min_blend}")
@@ -407,19 +466,32 @@ def BlendTransformsIteratively(transform: IControlPoints,
                                *,
                                linear_factor: float | None = None) -> ITransform:
     """Iteratively blend toward linear_transform until points stabilize or iteration cap is reached."""
-    min_blend = _coalesce_min_blend(min_blend, linear_factor)
-    effective_max_blend = resolve_effective_max_blend(min_blend, travel_limit, max_blend)
-    if reblend_iterations <= 1:
-        return BlendTransforms(transform,
-                               linear_transform=linear_transform,
-                               min_blend=min_blend,
-                               travel_limit=travel_limit,
-                               max_blend=effective_max_blend)
+    params = LinearBlendParams.from_kwargs(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        reblend_iterations=reblend_iterations,
+        reblend_tolerance=reblend_tolerance,
+        reblend_weight_tolerance=reblend_weight_tolerance,
+        linear_factor=linear_factor)
+    return _blend_transforms_iteratively(transform, linear_transform, params)
+
+
+def _blend_transforms_iteratively(transform: IControlPoints,
+                                  linear_transform: ITransform,
+                                  params: LinearBlendParams):
+    """Iterative blend using packed :class:`LinearBlendParams`."""
+    if params.reblend_iterations <= 1:
+        return _blend_transforms(transform, linear_transform, params)
+
+    min_blend = params.min_blend
+    travel_limit = params.travel_limit
+    effective_max_blend = params.effective_max_blend
 
     xp = cp.get_array_module(transform.TargetPoints)
     current_target_points = xp.asarray(transform.TargetPoints, dtype=float)
     source_points = transform.SourcePoints
-    for _ in range(reblend_iterations):
+    for _ in range(params.reblend_iterations):
         target_points = current_target_points
         linear_points = xp.asarray(linear_transform.Transform(source_points))
 
@@ -433,7 +505,8 @@ def BlendTransformsIteratively(transform: IControlPoints,
         movement = float(xp.max(xp.sqrt(xp.sum((new_target_points - target_points) ** 2, axis=1))))
         current_target_points = new_target_points
 
-        if movement < reblend_tolerance or float(xp.max(weights)) < reblend_weight_tolerance:
+        if (movement < params.reblend_tolerance
+                or float(xp.max(weights)) < params.reblend_weight_tolerance):
             break
 
     return _control_points_from_blended_targets(transform, current_target_points)

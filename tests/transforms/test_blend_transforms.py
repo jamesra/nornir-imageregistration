@@ -2,24 +2,36 @@
 
 import unittest
 import warnings
+from typing import cast
 
 import numpy as np
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import nornir_imageregistration.transforms
 from nornir_imageregistration.transforms import MeshWithRBFFallback
+from nornir_imageregistration.transforms.addition import (
+  AddTransformsWithLinearCorrection,
+)
+from nornir_imageregistration.transforms.base import IControlPoints
 from nornir_imageregistration.transforms.converters import (
-    ConvertControlPointsToRigidTransformForBlend,
-    EstimateRigidComponentsFromControlPoints,
+  ConvertControlPointsToRigidTransformForBlend,
+  EstimateRigidComponentsFromControlPoints,
 )
 from nornir_imageregistration.transforms.utils import (
-    DEFAULT_MAX_BLEND_WEIGHT,
-    _as_numpy_points,
-    _travel_blend_weights,
-    BlendTransforms,
-    BlendTransformsIteratively,
-    BlendWithLinear,
-    estimate_inverse_map_y_correlation,
-    resolve_effective_max_blend,
+  DEFAULT_MAX_BLEND_WEIGHT,
+  DEFAULT_REBLEND_TOLERANCE,
+  DEFAULT_REBLEND_WEIGHT_TOLERANCE,
+  BlendTransforms,
+  BlendTransformsIteratively,
+  BlendWithLinear,
+  LinearBlendParams,
+  _as_numpy_points,
+  _blend_transforms,
+  _blend_transforms_iteratively,
+  _travel_blend_weights,
+  estimate_inverse_map_y_correlation,
+  resolve_effective_max_blend,
 )
 
 
@@ -165,6 +177,111 @@ class TestBlendTransformsIteratively(unittest.TestCase):
     blended_corr = estimate_inverse_map_y_correlation(blended)
     self.assertLess(blended_corr, 0.0)
     self.assertEqual(np.sign(mesh_corr), np.sign(blended_corr))
+
+
+class TestLinearBlendParams(unittest.TestCase):
+  """Packing kwargs into LinearBlendParams matches direct construction and blend outputs."""
+
+  def test_from_kwargs_coalesces_linear_factor(self) -> None:
+    with warnings.catch_warnings(record=True) as caught:
+      warnings.simplefilter('always', DeprecationWarning)
+      params = LinearBlendParams.from_kwargs(linear_factor=0.05, travel_limit=100.0)
+    self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
+    self.assertEqual(params.min_blend, 0.05)
+    self.assertEqual(params.travel_limit, 100.0)
+
+  def test_from_kwargs_none_tolerances_become_defaults(self) -> None:
+    params = LinearBlendParams.from_kwargs(
+        min_blend=0.1,
+        reblend_tolerance=None,
+        reblend_weight_tolerance=None)
+    self.assertEqual(params.reblend_tolerance, DEFAULT_REBLEND_TOLERANCE)
+    self.assertEqual(params.reblend_weight_tolerance, DEFAULT_REBLEND_WEIGHT_TOLERANCE)
+
+  def test_kwargs_and_params_paths_match_target_points(self) -> None:
+    source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])
+    target = source.copy()
+    target[0] += np.array([80.0, 0.0])
+    nonlinear = _mesh_from_points(source, target)
+    linear = nornir_imageregistration.transforms.RigidTranslation(target_offset=np.zeros(2))
+    params = LinearBlendParams.from_kwargs(
+        min_blend=0.05,
+        travel_limit=100.0,
+        reblend_iterations=8,
+        reblend_tolerance=0.01)
+    via_kwargs = cast(IControlPoints, BlendTransformsIteratively(
+        nonlinear, linear, min_blend=0.05, travel_limit=100.0,
+        reblend_iterations=8, reblend_tolerance=0.01))
+    via_params = cast(IControlPoints, _blend_transforms_iteratively(nonlinear, linear, params))
+    np.testing.assert_allclose(
+        _as_numpy_points(via_kwargs.TargetPoints),
+        _as_numpy_points(via_params.TargetPoints),
+        atol=0.0,
+        rtol=0.0)
+
+  @given(
+      min_blend=st.one_of(st.none(), st.floats(0.0, 1.0, allow_nan=False, allow_infinity=False)),
+      max_blend=st.one_of(st.none(), st.floats(0.0, 1.0, allow_nan=False, allow_infinity=False)),
+      travel_limit=st.one_of(st.none(), st.floats(1.0, 1000.0, allow_nan=False, allow_infinity=False)),
+      reblend_iterations=st.integers(1, 8),
+      reblend_tolerance=st.one_of(st.none(), st.floats(0.001, 2.0, allow_nan=False, allow_infinity=False)),
+      reblend_weight_tolerance=st.one_of(
+          st.none(), st.floats(0.001, 1.0, allow_nan=False, allow_infinity=False)),
+  )
+  @settings(max_examples=40, deadline=None)
+  def test_from_kwargs_matches_direct_dataclass(
+          self,
+          min_blend: float | None,
+          max_blend: float | None,
+          travel_limit: float | None,
+          reblend_iterations: int,
+          reblend_tolerance: float | None,
+          reblend_weight_tolerance: float | None) -> None:
+    packed = LinearBlendParams.from_kwargs(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        reblend_iterations=reblend_iterations,
+        reblend_tolerance=reblend_tolerance,
+        reblend_weight_tolerance=reblend_weight_tolerance)
+    expected = LinearBlendParams(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        reblend_iterations=reblend_iterations,
+        reblend_tolerance=(
+            DEFAULT_REBLEND_TOLERANCE if reblend_tolerance is None else reblend_tolerance),
+        reblend_weight_tolerance=(
+            DEFAULT_REBLEND_WEIGHT_TOLERANCE
+            if reblend_weight_tolerance is None
+            else reblend_weight_tolerance))
+    self.assertEqual(packed, expected)
+    self.assertEqual(packed.effective_max_blend,
+                     resolve_effective_max_blend(min_blend, travel_limit, max_blend))
+
+  def test_one_shot_params_path_matches_kwargs(self) -> None:
+    source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])
+    target = source + np.array([[5.0, 0.0], [0.0, 5.0], [-5.0, 0.0], [0.0, -5.0]])
+    nonlinear = _mesh_from_points(source, target)
+    linear = nornir_imageregistration.transforms.RigidTranslation(
+        target_offset=np.array([1.0, 1.0]))
+    params = LinearBlendParams.from_kwargs(min_blend=0.2)
+    via_kwargs = cast(IControlPoints, BlendTransforms(nonlinear, linear, min_blend=0.2))
+    via_params = cast(IControlPoints, _blend_transforms(nonlinear, linear, params))
+    np.testing.assert_allclose(
+        _as_numpy_points(via_kwargs.TargetPoints),
+        _as_numpy_points(via_params.TargetPoints),
+        atol=0.0,
+        rtol=0.0)
+
+  def test_add_transforms_still_accepts_loose_kwargs(self) -> None:
+    source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])
+    a_to_b = _mesh_from_points(source, source + 1.0)
+    b_to_c = nornir_imageregistration.transforms.RigidTranslation(
+        target_offset=np.array([2.0, 3.0]))
+    out = cast(IControlPoints, AddTransformsWithLinearCorrection(
+        b_to_c, a_to_b, min_blend=0.2, travel_limit=50.0, reblend_iterations=2))
+    self.assertTrue(np.isfinite(_as_numpy_points(out.TargetPoints)).all())
 
 
 class TestDegenerateRigidFitForBlend(unittest.TestCase):

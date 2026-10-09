@@ -282,22 +282,15 @@ def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB
             ignore_rotation=ignore_rotation)
     linear_transform = AddTransforms(linear_BToC_Ttransform, AToB_mapped_Transform, EnrichTolerance, True)
 
-    blend_kwargs: dict = {
-        'min_blend': min_blend,
-        'travel_limit': travel_limit,
-        'reblend_iterations': reblend_iterations,
-        'linear_factor': linear_factor,
-    }
-    if reblend_tolerance is not None:
-        blend_kwargs['reblend_tolerance'] = reblend_tolerance
-    if reblend_weight_tolerance is not None:
-        blend_kwargs['reblend_weight_tolerance'] = reblend_weight_tolerance
-    if max_blend is not None:
-        blend_kwargs['max_blend'] = max_blend
-
-    blended_transform = nornir_imageregistration.transforms.utils.BlendTransformsIteratively(
+    blend_params = nornir_imageregistration.transforms.utils.LinearBlendParams.from_kwargs(
+        min_blend=min_blend,
+        max_blend=max_blend,
+        travel_limit=travel_limit,
+        reblend_iterations=reblend_iterations,
+        reblend_tolerance=reblend_tolerance,
+        reblend_weight_tolerance=reblend_weight_tolerance,
+        linear_factor=linear_factor)
+    return nornir_imageregistration.transforms.utils._blend_transforms_iteratively(
         nonlinear_transform,  # type: ignore[arg-type]
         linear_transform,
-        **blend_kwargs)
-
-    return blended_transform
+        blend_params)
