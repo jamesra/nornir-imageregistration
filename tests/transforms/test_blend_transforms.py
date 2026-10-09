@@ -3,6 +3,7 @@
 import unittest
 import warnings
 from typing import cast
+from unittest import mock
 
 import numpy as np
 from hypothesis import given, settings
@@ -25,11 +26,11 @@ from nornir_imageregistration.transforms.utils import (
   DEFAULT_REBLEND_WEIGHT_TOLERANCE,
   BlendTransforms,
   BlendTransformsIteratively,
+  BlendTransformsIterativelyWithParams,
+  BlendTransformsWithParams,
   BlendWithLinear,
   LinearBlendParams,
   _as_numpy_points,
-  _blend_transforms,
-  _blend_transforms_iteratively,
   _travel_blend_weights,
   estimate_inverse_map_y_correlation,
   resolve_effective_max_blend,
@@ -218,7 +219,8 @@ class TestLinearBlendParams(unittest.TestCase):
     via_kwargs = cast(IControlPoints, BlendTransformsIteratively(
         nonlinear, linear, min_blend=0.05, travel_limit=100.0,
         reblend_iterations=8, reblend_tolerance=0.01))
-    via_params = cast(IControlPoints, _blend_transforms_iteratively(nonlinear, linear, params))
+    via_params = cast(IControlPoints, BlendTransformsIterativelyWithParams(
+        nonlinear, linear, params))
     np.testing.assert_allclose(
         _as_numpy_points(via_kwargs.TargetPoints),
         _as_numpy_points(via_params.TargetPoints),
@@ -273,7 +275,7 @@ class TestLinearBlendParams(unittest.TestCase):
         target_offset=np.array([1.0, 1.0]))
     params = LinearBlendParams.from_kwargs(min_blend=0.2)
     via_kwargs = cast(IControlPoints, BlendTransforms(nonlinear, linear, min_blend=0.2))
-    via_params = cast(IControlPoints, _blend_transforms(nonlinear, linear, params))
+    via_params = cast(IControlPoints, BlendTransformsWithParams(nonlinear, linear, params))
     np.testing.assert_allclose(
         _as_numpy_points(via_kwargs.TargetPoints),
         _as_numpy_points(via_params.TargetPoints),
@@ -288,6 +290,61 @@ class TestLinearBlendParams(unittest.TestCase):
     out = cast(IControlPoints, AddTransformsWithLinearCorrection(
         b_to_c, a_to_b, min_blend=0.2, travel_limit=50.0, reblend_iterations=2))
     self.assertTrue(np.isfinite(_as_numpy_points(out.TargetPoints)).all())
+
+  def test_add_transforms_calls_params_iterative_entry(self) -> None:
+    """AddTransforms must call WithParams directly, not the kwargs façade."""
+    source = np.array([[0.0, 0.0], [100.0, 0.0], [0.0, 100.0], [100.0, 100.0]])
+    a_to_b = _mesh_from_points(source, source + 1.0)
+    b_to_c = nornir_imageregistration.transforms.RigidTranslation(
+        target_offset=np.array([2.0, 3.0]))
+    params_calls: list[LinearBlendParams] = []
+    kwargs_calls: list[int] = []
+    real_params = BlendTransformsIterativelyWithParams
+    real_kwargs = BlendTransformsIteratively
+
+    def params_spy(nonlinear, linear, params):
+      params_calls.append(params)
+      return real_params(nonlinear, linear, params)
+
+    def kwargs_spy(*args, **kwargs):
+      kwargs_calls.append(1)
+      return real_kwargs(*args, **kwargs)
+
+    with (
+        mock.patch(
+            'nornir_imageregistration.transforms.utils.BlendTransformsIterativelyWithParams',
+            params_spy),
+        mock.patch(
+            'nornir_imageregistration.transforms.utils.BlendTransformsIteratively',
+            kwargs_spy),
+    ):
+      AddTransformsWithLinearCorrection(
+          b_to_c, a_to_b, min_blend=0.2, travel_limit=50.0, reblend_iterations=2)
+    self.assertEqual(len(params_calls), 1)
+    self.assertEqual(kwargs_calls, [])
+    self.assertIsInstance(params_calls[0], LinearBlendParams)
+    self.assertEqual(params_calls[0].reblend_iterations, 2)
+    self.assertEqual(params_calls[0].min_blend, 0.2)
+
+  def test_add_transforms_reblend_iterations_changes_output(self) -> None:
+    """Uniform fractional blend: each pass pulls toward linear, so counts diverge."""
+    source = np.array([[0.0, 0.0], [200.0, 0.0], [0.0, 200.0], [200.0, 200.0]])
+    target_ab = source + np.array([[80.0, 0.0], [0.0, 80.0], [-80.0, 0.0], [0.0, -80.0]])
+    a_to_b = _mesh_from_points(source, target_ab)
+    # Non-identity B→C so composed nonlinear and linear targets differ.
+    b_to_c = _mesh_from_points(
+        source + 5.0,
+        source + 5.0 + np.array([[30.0, -10.0], [-10.0, 30.0], [30.0, 10.0], [10.0, 30.0]]))
+    one = cast(IControlPoints, AddTransformsWithLinearCorrection(
+        b_to_c, a_to_b, min_blend=0.5, travel_limit=None,
+        reblend_iterations=1, reblend_tolerance=1e-9))
+    many = cast(IControlPoints, AddTransformsWithLinearCorrection(
+        b_to_c, a_to_b, min_blend=0.5, travel_limit=None,
+        reblend_iterations=8, reblend_tolerance=1e-9))
+    self.assertGreater(
+        float(np.max(np.abs(
+            _as_numpy_points(one.TargetPoints) - _as_numpy_points(many.TargetPoints)))),
+        0.01)
 
 
 class TestDegenerateRigidFitForBlend(unittest.TestCase):

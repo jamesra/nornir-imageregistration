@@ -168,9 +168,10 @@ INVERSE_MAP_Y_CORRELATION_THRESHOLD: float = 0.9
 class LinearBlendParams:
     """Shared linear-blend knobs threaded through blend and chain-correction helpers.
 
-    Public entry points keep keyword arguments for compatibility; they pack into
-    this type once and pass it internally. ``linear_factor`` is accepted only via
-    :meth:`from_kwargs` (deprecated alias for ``min_blend``).
+    Keyword façades pack into this type once; callers that already have a packed
+    instance use :func:`BlendTransformsWithParams` /
+    :func:`BlendTransformsIterativelyWithParams`. ``linear_factor`` is accepted
+    only via :meth:`from_kwargs` (deprecated alias for ``min_blend``).
     """
 
     min_blend: float | None = None
@@ -381,9 +382,9 @@ def BlendWithLinear(transform: IControlPoints,
         return linear_transform
 
     if params.reblend_iterations > 1:
-        blended = _blend_transforms_iteratively(transform, linear_transform, params)
+        blended = BlendTransformsIterativelyWithParams(transform, linear_transform, params)
     else:
-        blended = _blend_transforms(transform, linear_transform, params)
+        blended = BlendTransformsWithParams(transform, linear_transform, params)
 
     if _orientation_sign_preserved(mesh_corr, estimate_inverse_map_y_correlation(blended)):
         return blended
@@ -415,12 +416,12 @@ def BlendTransforms(transform: IControlPoints,
         max_blend=max_blend,
         travel_limit=travel_limit,
         linear_factor=linear_factor)
-    return _blend_transforms(transform, linear_transform, params)
+    return BlendTransformsWithParams(transform, linear_transform, params)
 
 
-def _blend_transforms(transform: IControlPoints,
-                      linear_transform: ITransform,
-                      params: LinearBlendParams):
+def BlendTransformsWithParams(transform: IControlPoints,
+                              linear_transform: ITransform,
+                              params: LinearBlendParams):
     """One-shot blend using packed :class:`LinearBlendParams`."""
     min_blend = params.min_blend
     travel_limit = params.travel_limit
@@ -474,15 +475,15 @@ def BlendTransformsIteratively(transform: IControlPoints,
         reblend_tolerance=reblend_tolerance,
         reblend_weight_tolerance=reblend_weight_tolerance,
         linear_factor=linear_factor)
-    return _blend_transforms_iteratively(transform, linear_transform, params)
+    return BlendTransformsIterativelyWithParams(transform, linear_transform, params)
 
 
-def _blend_transforms_iteratively(transform: IControlPoints,
-                                  linear_transform: ITransform,
-                                  params: LinearBlendParams):
+def BlendTransformsIterativelyWithParams(transform: IControlPoints,
+                                         linear_transform: ITransform,
+                                         params: LinearBlendParams):
     """Iterative blend using packed :class:`LinearBlendParams`."""
     if params.reblend_iterations <= 1:
-        return _blend_transforms(transform, linear_transform, params)
+        return BlendTransformsWithParams(transform, linear_transform, params)
 
     min_blend = params.min_blend
     travel_limit = params.travel_limit

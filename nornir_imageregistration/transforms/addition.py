@@ -290,13 +290,7 @@ def AddTransformsWithLinearCorrection(BToC_Unaltered_Transform: ITransform, AToB
         reblend_tolerance=reblend_tolerance,
         reblend_weight_tolerance=reblend_weight_tolerance,
         linear_factor=linear_factor)
-    # Keep the public façade; LinearBlendParams is only for coalescing kwargs.
-    return nornir_imageregistration.transforms.utils.BlendTransformsIteratively(
+    return nornir_imageregistration.transforms.utils.BlendTransformsIterativelyWithParams(
         nonlinear_transform,  # type: ignore[arg-type]
         linear_transform,
-        min_blend=blend_params.min_blend,
-        max_blend=blend_params.max_blend,
-        travel_limit=blend_params.travel_limit,
-        reblend_iterations=blend_params.reblend_iterations,
-        reblend_tolerance=blend_params.reblend_tolerance,
-        reblend_weight_tolerance=blend_params.reblend_weight_tolerance)
+        blend_params)
