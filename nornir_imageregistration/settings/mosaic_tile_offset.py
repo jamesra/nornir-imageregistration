@@ -50,9 +50,6 @@ class TileOffset(object):
     def __eq__(self, other):
         return self.A == other.A and self.B == other.B and self.X == other.X and self.Y == other.Y and self.Comment == other.Comment
 
-    def __ne__(self, other):
-        return not self.__eq__(other.ID)
-
     def __ge__(self, other):
         return self.ID.__ge__(other.ID)
 
