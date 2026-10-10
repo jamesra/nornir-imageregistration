@@ -2,6 +2,13 @@
 
 Stdlib only so callers can resolve flags without importing CuPy, matplotlib,
 or the package ``__init__`` that selects a plotting backend.
+
+Two token sets exist on purpose:
+
+- ``BASIC_*`` — ``1``/``true``/``yes`` and ``0``/``false``/``no``; matches the
+  historical assemble / inverse-scipy gates (``on``/``off`` are unknown there).
+- ``TRUTHY_TOKENS`` / ``FALSEY_TOKENS`` — the refine set, which also accepts
+  ``on`` / ``off``.
 """
 
 from __future__ import annotations
@@ -9,17 +16,22 @@ from __future__ import annotations
 import os
 
 __all__ = [
+    "BASIC_FALSEY_TOKENS",
+    "BASIC_TRUTHY_TOKENS",
     "FALSEY_TOKENS",
     "TRUTHY_TOKENS",
     "env_flag",
-    "env_is_falsey",
     "env_is_truthy",
+    "is_basic_falsey",
+    "is_basic_truthy",
     "is_falsey",
     "is_truthy",
 ]
 
-TRUTHY_TOKENS = frozenset({"1", "true", "yes", "on"})
-FALSEY_TOKENS = frozenset({"0", "false", "no", "off"})
+BASIC_TRUTHY_TOKENS = frozenset({"1", "true", "yes"})
+BASIC_FALSEY_TOKENS = frozenset({"0", "false", "no"})
+TRUTHY_TOKENS = BASIC_TRUTHY_TOKENS | {"on"}
+FALSEY_TOKENS = BASIC_FALSEY_TOKENS | {"off"}
 
 
 def env_flag(name: str, default: str = "") -> str:
@@ -28,20 +40,25 @@ def env_flag(name: str, default: str = "") -> str:
 
 
 def is_truthy(flag: str) -> bool:
-    """Return True when *flag* is a known truthy token (already normalized)."""
+    """Return True when *flag* is a refine-set truthy token (already normalized)."""
     return flag in TRUTHY_TOKENS
 
 
 def is_falsey(flag: str) -> bool:
-    """Return True when *flag* is a known falsey token (already normalized)."""
+    """Return True when *flag* is a refine-set falsey token (already normalized)."""
     return flag in FALSEY_TOKENS
 
 
+def is_basic_truthy(flag: str) -> bool:
+    """Return True for assemble-set truthy tokens (no ``on``)."""
+    return flag in BASIC_TRUTHY_TOKENS
+
+
+def is_basic_falsey(flag: str) -> bool:
+    """Return True for assemble-set falsey tokens (no ``off``)."""
+    return flag in BASIC_FALSEY_TOKENS
+
+
 def env_is_truthy(name: str, default: str = "") -> bool:
-    """Return True when the named env var's normalized value is truthy."""
+    """Return True when the named env var's normalized value is refine-set truthy."""
     return is_truthy(env_flag(name, default))
-
-
-def env_is_falsey(name: str, default: str = "") -> bool:
-    """Return True when the named env var's normalized value is falsey."""
-    return is_falsey(env_flag(name, default))

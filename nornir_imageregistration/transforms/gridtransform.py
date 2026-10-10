@@ -32,7 +32,7 @@ except ImportError:
 import scipy.spatial
 
 import nornir_imageregistration
-from nornir_imageregistration.env_flags import env_flag, is_falsey, is_truthy
+from nornir_imageregistration.env_flags import env_flag, is_basic_falsey, is_basic_truthy
 from nornir_imageregistration.nearest_neighbor import build_nearest_neighbor_index
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
 from nornir_imageregistration.transforms import float_to_shortest_string
@@ -57,12 +57,12 @@ def _assemble_inverse_use_scipy() -> bool:
     within affected tiles up to ~22% of pixels, all |delta|=1). Degenerate meshes still fall back to SciPy.
     """
     raw = env_flag('NORNIR_ASSEMBLE_INVERSE_SCIPY')
-    if is_falsey(raw):
+    if is_basic_falsey(raw):
         return False
-    if is_truthy(raw):
+    if is_basic_truthy(raw):
         return True
     # When inverse-scipy is unset, stay on CuPy even if grid extrapolation is on.
-    if is_truthy(env_flag('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE')):
+    if is_basic_truthy(env_flag('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE')):
         return False
     return False
 

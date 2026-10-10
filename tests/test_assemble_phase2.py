@@ -44,13 +44,16 @@ class TestScaledTransformCache(unittest.TestCase):
         finally:
             os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
-    def test_prefetch_on_off_tokens(self):
-        """Assemble prefetch accepts the shared on/off tokens."""
+    def test_prefetch_on_off_tokens_are_unknown(self):
+        """Assemble prefetch keeps historical tokens; on/off fall through to default."""
+        cupy_default = (
+            nornir_imageregistration.GetActiveComputationLib()
+            == nornir_imageregistration.ComputationLib.cupy)
         try:
             os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'on'
-            self.assertTrue(at._assemble_prefetch_enabled())
+            self.assertEqual(at._assemble_prefetch_enabled(), cupy_default)
             os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'off'
-            self.assertFalse(at._assemble_prefetch_enabled())
+            self.assertEqual(at._assemble_prefetch_enabled(), cupy_default)
         finally:
             os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
@@ -62,10 +65,11 @@ class TestScaledTransformCache(unittest.TestCase):
             if env is not None:
                 os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = env
 
-    def test_grid_extrapolate_on_off_tokens(self):
+    def test_grid_extrapolate_on_off_tokens_are_unknown(self):
+        """Assemble extrapolate keeps historical tokens; on/off leave the default off."""
         try:
             os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = 'on'
-            self.assertTrue(at._assemble_grid_extrapolate())
+            self.assertFalse(at._assemble_grid_extrapolate())
             os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = 'off'
             self.assertFalse(at._assemble_grid_extrapolate())
         finally:
