@@ -40,6 +40,13 @@ _DIM_VAR = stos_brute._COARSE_GRID_DIM_VAR
 _TOPK_VAR = stos_brute._COARSE_GRID_TOPK_VAR
 
 
+def _pair(dim: int, min_overlap: float = 0.5) -> stos_brute._RegistrationPair:
+    """Blank square source/target pair with placeholder stats."""
+    return stos_brute._RegistrationPair(
+        np.zeros((dim, dim), dtype=np.float32), np.zeros((dim, dim), dtype=np.float32),
+        mock.Mock(), mock.Mock(), min_overlap)
+
+
 class _EnvIsolated(unittest.TestCase):
     """Neither variable may leak between tests, or the default-off guarantee is untestable."""
 
@@ -106,9 +113,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
                                return_value=sentinel) as exhaustive:
             with mock.patch.object(stos_brute, '_find_best_angle_with_coarse_grid') as coarse:
                 result = stos_brute._find_best_angle_with_scale_search(
-                    np.zeros((8, 8), dtype=np.float32), np.zeros((8, 8), dtype=np.float32),
-                    mock.Mock(), mock.Mock(), [0.0, 10.0, 20.0],
-                    min_overlap=0.5, metadata_applied=1.0, scale_hint=None,
+                    _pair(8), [0.0, 10.0, 20.0], metadata_applied=1.0, scale_hint=None,
                     SingleThread=True, use_cluster=False)
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
@@ -121,9 +126,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
                                return_value=(mock.sentinel.record, 1.0)) as exhaustive:
             with mock.patch.object(stos_brute, '_find_best_angle_with_coarse_grid') as coarse:
                 stos_brute._find_best_angle_with_scale_search(
-                    np.zeros((8, 8), dtype=np.float32), np.zeros((8, 8), dtype=np.float32),
-                    mock.Mock(), mock.Mock(), [0.0],
-                    min_overlap=0.5, metadata_applied=1.0, scale_hint=None,
+                    _pair(8), [0.0], metadata_applied=1.0, scale_hint=None,
                     SingleThread=True, use_cluster=False)
         exhaustive.assert_called_once()
         coarse.assert_not_called()
@@ -135,9 +138,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
                                return_value=sentinel) as coarse:
             with mock.patch.object(stos_brute, '_find_best_angle_exhaustive') as exhaustive:
                 result = stos_brute._find_best_angle_with_scale_search(
-                    np.zeros((8, 8), dtype=np.float32), np.zeros((8, 8), dtype=np.float32),
-                    mock.Mock(), mock.Mock(), [0.0, 10.0, 20.0],
-                    min_overlap=0.5, metadata_applied=1.0, scale_hint=None,
+                    _pair(8), [0.0, 10.0, 20.0], metadata_applied=1.0, scale_hint=None,
                     SingleThread=True, use_cluster=False)
         self.assertEqual(sentinel, result)
         coarse.assert_called_once()
@@ -155,8 +156,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         angles = [0.0, 10.0, 20.0]
         seen = []
 
-        def fake(source, target, s_stats, t_stats, angle_range, min_overlap, scale,
-                 *args, **kwargs):
+        def fake(pair, angle_range, scale, *args, **kwargs):
             seen.append(float(scale))
             record = mock.Mock()
             # A clear winner at 1.05 so the peak-ratio guard is satisfied.
@@ -166,9 +166,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
 
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             _, best_scale = stos_brute._find_best_angle_with_coarse_grid(
-                np.zeros((2048, 2048), dtype=np.float32),
-                np.zeros((2048, 2048), dtype=np.float32),
-                mock.Mock(), mock.Mock(), angles, 0.5, candidates,
+                _pair(2048), angles, candidates,
                 True, False, 512, 2)
 
         coarse_calls = seen[:len(candidates)]
@@ -182,8 +180,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         weights = {0.9: 1.0, 0.95: 2.0, 1.0: 5.0, 1.05: 3.0, 1.1: 1.5}
         calls = []
 
-        def fake(source, target, s_stats, t_stats, angle_range, min_overlap, scale,
-                 *args, **kwargs):
+        def fake(pair, angle_range, scale, *args, **kwargs):
             calls.append((float(scale), tuple(float(a) for a in angle_range)))
             record = mock.Mock()
             record.weight = weights[scale]
@@ -192,9 +189,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
 
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             stos_brute._find_best_angle_with_coarse_grid(
-                np.zeros((2048, 2048), dtype=np.float32),
-                np.zeros((2048, 2048), dtype=np.float32),
-                mock.Mock(), mock.Mock(), [0.0, 10.0, 20.0], 0.5, candidates,
+                _pair(2048), [0.0, 10.0, 20.0], candidates,
                 True, False, 512, 2)
 
         refine_calls = calls[len(candidates):]
@@ -206,8 +201,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         """Decimation can move the winner by a step, so the pick is not trusted exactly."""
         calls = []
 
-        def fake(source, target, s_stats, t_stats, angle_range, min_overlap, scale,
-                 *args, **kwargs):
+        def fake(pair, angle_range, scale, *args, **kwargs):
             calls.append(tuple(float(a) for a in angle_range))
             record = mock.Mock()
             record.weight = 5.0 if scale == 1.0 else 1.0
@@ -216,9 +210,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
 
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             stos_brute._find_best_angle_with_coarse_grid(
-                np.zeros((2048, 2048), dtype=np.float32),
-                np.zeros((2048, 2048), dtype=np.float32),
-                mock.Mock(), mock.Mock(), [0.0, 10.0, 20.0, 30.0], 0.5, [0.95, 1.0],
+                _pair(2048), [0.0, 10.0, 20.0, 30.0], [0.95, 1.0],
                 True, False, 512, 1)
 
         self.assertEqual((0.0, 10.0, 20.0), calls[-1],
@@ -231,8 +223,7 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
     def test_a_flat_coarse_ranking_falls_back_to_the_full_search(self):
         candidates = [0.9, 0.95, 1.0, 1.05, 1.1]
 
-        def flat(source, target, s_stats, t_stats, angle_range, min_overlap, scale,
-                 *args, **kwargs):
+        def flat(pair, angle_range, scale, *args, **kwargs):
             record = mock.Mock()
             record.weight = 1.9  # the measured noise floor, identical everywhere
             record.angle = 10.0
@@ -243,22 +234,22 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_exhaustive',
                                    return_value=sentinel) as exhaustive:
                 with self.assertLogs(stos_brute.__name__, level='INFO'):
+                    pair = _pair(2048)
                     result = stos_brute._find_best_angle_with_coarse_grid(
-                        np.zeros((2048, 2048), dtype=np.float32),
-                        np.zeros((2048, 2048), dtype=np.float32),
-                        mock.Mock(), mock.Mock(), [0.0, 10.0], 0.5, candidates,
+                        pair, [0.0, 10.0], candidates,
                         True, False, 512, 2)
 
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
+        self.assertIs(pair, exhaustive.call_args.args[0],
+                      'the fallback must search the full-resolution pair, not the decimated one')
 
     def test_a_margin_just_inside_the_noise_spread_falls_back(self):
         """1.2 is the threshold because #95 measured an 11-17% run-to-run spread."""
         self.assertGreater(stos_brute._COARSE_GRID_MIN_PEAK_RATIO, 1.17)
 
     def test_a_clear_peak_does_not_fall_back(self):
-        def peaked(source, target, s_stats, t_stats, angle_range, min_overlap, scale,
-                   *args, **kwargs):
+        def peaked(pair, angle_range, scale, *args, **kwargs):
             record = mock.Mock()
             record.weight = 5.0 if scale == 1.0 else 1.9
             record.angle = 10.0
@@ -267,9 +258,7 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=peaked):
             with mock.patch.object(stos_brute, '_find_best_angle_exhaustive') as exhaustive:
                 _, scale = stos_brute._find_best_angle_with_coarse_grid(
-                    np.zeros((2048, 2048), dtype=np.float32),
-                    np.zeros((2048, 2048), dtype=np.float32),
-                    mock.Mock(), mock.Mock(), [0.0, 10.0], 0.5, [0.95, 1.0, 1.05],
+                    _pair(2048), [0.0, 10.0], [0.95, 1.0, 1.05],
                     True, False, 512, 1)
         exhaustive.assert_not_called()
         self.assertEqual(1.0, scale)
@@ -281,13 +270,100 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
                                return_value=sentinel) as exhaustive:
             with mock.patch.object(stos_brute, '_find_best_angle_at_scale') as at_scale:
                 result = stos_brute._find_best_angle_with_coarse_grid(
-                    np.zeros((256, 256), dtype=np.float32),
-                    np.zeros((256, 256), dtype=np.float32),
-                    mock.Mock(), mock.Mock(), [0.0, 10.0], 0.5, [0.95, 1.0],
+                    _pair(256), [0.0, 10.0], [0.95, 1.0],
                     True, False, 512, 2)
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
         at_scale.assert_not_called()
+
+
+class TestRegistrationPairRouting(_EnvIsolated):
+    """Each ``_RegistrationPair`` field must reach the matching argument one level down.
+
+    Source and target get distinct shapes and distinct intensity levels, so a swapped image
+    or stats object is visible.
+    """
+
+    def setUp(self):
+        super().setUp()
+        rng = np.random.default_rng(0)
+        self.source = rng.random((2048, 1024)).astype(np.float32)
+        self.target = (rng.random((1024, 2048)) + 10.0).astype(np.float32)
+        self.source_stats = nornir_imageregistration.ImageStats.CalcStats(self.source)
+        self.target_stats = nornir_imageregistration.ImageStats.CalcStats(self.target)
+        self.pair = stos_brute._RegistrationPair(
+            self.source, self.target, self.source_stats, self.target_stats, 0.37)
+
+    def test_at_scale_one_passes_every_field_unchanged(self):
+        with mock.patch.object(stos_brute, '_find_best_angle') as inner:
+            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 1.0, True, False)
+        kw = inner.call_args.kwargs
+        self.assertIs(self.source, kw['source_image'])
+        self.assertIs(self.target, kw['target_image'])
+        self.assertIs(self.source_stats, kw['source_stats'])
+        self.assertIs(self.target_stats, kw['target_stats'])
+        self.assertEqual(0.37, kw['min_overlap'])
+        self.assertEqual(1.0, kw['source_scale'])
+
+    def test_at_another_scale_only_the_source_is_rescaled(self):
+        with mock.patch.object(stos_brute, '_find_best_angle') as inner:
+            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 0.5, True, False)
+        kw = inner.call_args.kwargs
+        self.assertEqual((1024, 512), tuple(kw['source_image'].shape))
+        self.assertIs(self.target, kw['target_image'])
+        self.assertIs(self.target_stats, kw['target_stats'])
+        self.assertIsNot(self.source_stats, kw['source_stats'])
+        self.assertLess(kw['source_stats'].mean, 1.0, 'stats must come from the scaled source')
+        self.assertEqual(0.37, kw['min_overlap'])
+
+    def test_the_exhaustive_search_hands_the_pair_to_every_candidate(self):
+        record = mock.Mock(weight=1.0, angle=0.0)
+        with mock.patch.object(stos_brute, '_find_best_angle_at_scale',
+                               return_value=record) as at_scale:
+            stos_brute._find_best_angle_exhaustive(self.pair, [0.0], [0.9, 1.0], True, False)
+        self.assertEqual(2, at_scale.call_count)
+        for call in at_scale.call_args_list:
+            self.assertIs(self.pair, call.args[0])
+
+    def test_the_scale_search_hands_the_pair_on(self):
+        for dim in (None, '512'):
+            with self.subTest(coarse=dim):
+                if dim is None:
+                    os.environ.pop(_DIM_VAR, None)
+                    target = '_find_best_angle_exhaustive'
+                else:
+                    os.environ[_DIM_VAR] = dim
+                    target = '_find_best_angle_with_coarse_grid'
+                with mock.patch.object(stos_brute, target,
+                                       return_value=(mock.sentinel.r, 1.0)) as inner:
+                    stos_brute._find_best_angle_with_scale_search(
+                        self.pair, [0.0, 10.0], metadata_applied=1.0, scale_hint=None,
+                        SingleThread=True, use_cluster=False, force_search=True)
+                self.assertIs(self.pair, inner.call_args.args[0])
+
+    def test_the_coarse_pass_scores_a_decimated_pair_and_the_refine_the_original(self):
+        pairs = []
+
+        def fake(pair, angle_range, scale, *args, **kwargs):
+            pairs.append(pair)
+            record = mock.Mock()
+            record.weight = 5.0 if scale == 1.0 else 1.0
+            record.angle = 0.0
+            return record
+
+        with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
+            stos_brute._find_best_angle_with_coarse_grid(
+                self.pair, [0.0, 10.0], [0.95, 1.0], True, False, 512, 1)
+
+        coarse, refine = pairs[:2], pairs[2:]
+        self.assertEqual(1, len(refine))
+        self.assertIs(self.pair, refine[0])
+        for coarse_pair in coarse:
+            self.assertEqual((512, 256), tuple(coarse_pair.source_image.shape))
+            self.assertEqual((256, 512), tuple(coarse_pair.target_image.shape))
+            self.assertLess(coarse_pair.source_stats.mean, 1.0)
+            self.assertGreater(coarse_pair.target_stats.mean, 10.0)
+            self.assertEqual(0.37, coarse_pair.min_overlap)
 
 
 class TestDecimationScale(unittest.TestCase):

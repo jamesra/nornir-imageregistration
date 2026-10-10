@@ -1316,12 +1316,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         detected_scale = 1.0
     else:
         best_match, detected_scale = _find_best_angle_with_scale_search(
-            source_image=source_image,
-            target_image=target_image,
-            source_stats=source_stats,
-            target_stats=target_stats,
+            _RegistrationPair(source_image, target_image, source_stats, target_stats,
+                              settings.min_overlap),
             angle_range=settings.angle_range,
-            min_overlap=settings.min_overlap,
             metadata_applied=metadata_scale_iso,
             scale_hint=resolved_scale_hint,
             SingleThread=SingleThread,
@@ -1462,12 +1459,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             _xp_img = cp.get_array_module(source_image)
             flipped_source = _xp_img.flipud(source_image)
             flipped_seed, flipped_scale = _find_best_angle_with_scale_search(
-                source_image=flipped_source,
-                target_image=target_image,
-                source_stats=source_stats,
-                target_stats=target_stats,
+                _RegistrationPair(flipped_source, target_image, source_stats, target_stats,
+                                  settings.min_overlap),
                 angle_range=settings.angle_range,
-                min_overlap=settings.min_overlap,
                 metadata_applied=metadata_scale_iso,
                 scale_hint=resolved_scale_hint,
                 SingleThread=SingleThread,
@@ -1731,12 +1725,8 @@ def _score_one_angle_core(
         already_shifted=True)
 
 
-def _find_best_angle_at_scale(source_image: NDArray[np.floating],
-                              target_image: NDArray[np.floating],
-                              source_stats: nornir_imageregistration.ImageStats,
-                              target_stats: nornir_imageregistration.ImageStats,
+def _find_best_angle_at_scale(pair: _RegistrationPair,
                               angle_range: NDArray[np.floating] | Sequence[float],
-                              min_overlap: float,
                               source_scale: float,
                               SingleThread: bool,
                               use_cluster: bool,
@@ -1744,13 +1734,14 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                               progress_callback: ProgressCallback | None = None,
                               *,
                               use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
+    """Angle sweep with the source pre-scaled by *source_scale* (stats recomputed when scaled)."""
     if np.isclose(source_scale, 1.0):
-        return _find_best_angle(source_image=source_image,
-                                target_image=target_image,
-                                source_stats=source_stats,
-                                target_stats=target_stats,
+        return _find_best_angle(source_image=pair.source_image,
+                                target_image=pair.target_image,
+                                source_stats=pair.source_stats,
+                                target_stats=pair.target_stats,
                                 angle_range=angle_range,
-                                min_overlap=min_overlap,
+                                min_overlap=pair.min_overlap,
                                 SingleThread=SingleThread,
                                 use_cluster=use_cluster,
                                 source_scale=1.0,
@@ -1758,14 +1749,14 @@ def _find_best_angle_at_scale(source_image: NDArray[np.floating],
                                 progress_callback=progress_callback,
                                 use_gpu=use_gpu)
 
-    scaled_source = _scale_registration_image(source_image, source_scale)
+    scaled_source = _scale_registration_image(pair.source_image, source_scale)
     scaled_stats = nornir_imageregistration.ImageStats.CalcStats(scaled_source)
     return _find_best_angle(source_image=scaled_source,
-                            target_image=target_image,
+                            target_image=pair.target_image,
                             source_stats=scaled_stats,
-                            target_stats=target_stats,
+                            target_stats=pair.target_stats,
                             angle_range=angle_range,
-                            min_overlap=min_overlap,
+                            min_overlap=pair.min_overlap,
                             SingleThread=SingleThread,
                             use_cluster=use_cluster,
                             source_scale=1.0,
@@ -1821,12 +1812,8 @@ def _decimation_scale(target_shape: tuple[int, int],
     return float(largest_dimension) / float(largest) if largest else 1.0
 
 
-def _find_best_angle_with_coarse_grid(source_image: NDArray[np.floating],
-                                      target_image: NDArray[np.floating],
-                                      source_stats: nornir_imageregistration.ImageStats,
-                                      target_stats: nornir_imageregistration.ImageStats,
+def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
                                       angle_range: NDArray[np.floating] | Sequence[float],
-                                      min_overlap: float,
                                       candidates: Sequence[float],
                                       SingleThread: bool,
                                       use_cluster: bool,
@@ -1858,24 +1845,24 @@ def _find_best_angle_with_coarse_grid(source_image: NDArray[np.floating],
       objective -- the ``_LogPolar`` case in #235 measured 1.64-1.97 across every angle -- it
       would not be, so a coarse pass that finds no clear peak falls back to the full search.
     """
-    scale = _decimation_scale(target_image.shape, source_image.shape, largest_dimension)
+    scale = _decimation_scale(pair.target_image.shape, pair.source_image.shape, largest_dimension)
     if scale >= 1.0:
         return _find_best_angle_exhaustive(
-            source_image, target_image, source_stats, target_stats, angle_range,
-            min_overlap, candidates, SingleThread, use_cluster,
+            pair, angle_range, candidates, SingleThread, use_cluster,
             cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
 
-    coarse_target = _scale_registration_image(target_image, scale)
-    coarse_source = _scale_registration_image(source_image, scale)
+    coarse_target = _scale_registration_image(pair.target_image, scale)
+    coarse_source = _scale_registration_image(pair.source_image, scale)
     coarse_target_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_target)
     coarse_source_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_source)
+    coarse_pair = _RegistrationPair(coarse_source, coarse_target, coarse_source_stats,
+                                    coarse_target_stats, pair.min_overlap)
 
     scored: list[tuple[float, float, float]] = []  # (weight, scale, angle)
     for candidate in candidates:
         check_cancelled(cancel_event)
         match = _find_best_angle_at_scale(
-            coarse_source, coarse_target, coarse_source_stats, coarse_target_stats,
-            angle_range, min_overlap, candidate, SingleThread, use_cluster,
+            coarse_pair, angle_range, candidate, SingleThread, use_cluster,
             cancel_event=cancel_event, progress_callback=progress_callback,
             use_gpu=use_gpu)
         scored.append((float(match.weight), float(candidate), float(match.angle)))
@@ -1892,8 +1879,7 @@ def _find_best_angle_with_coarse_grid(source_image: NDArray[np.floating],
             largest_dimension, scored[0][0], scored[1][0],
             scored[0][0] / scored[1][0], _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
         return _find_best_angle_exhaustive(
-            source_image, target_image, source_stats, target_stats, angle_range,
-            min_overlap, candidates, SingleThread, use_cluster,
+            pair, angle_range, candidates, SingleThread, use_cluster,
             cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
 
     angle_list = [float(a) for a in angle_range]
@@ -1903,8 +1889,7 @@ def _find_best_angle_with_coarse_grid(source_image: NDArray[np.floating],
         check_cancelled(cancel_event)
         refine_angles = _neighbouring_angles(angle_list, coarse_angle)
         match = _find_best_angle_at_scale(
-            source_image, target_image, source_stats, target_stats,
-            refine_angles, min_overlap, candidate, SingleThread, use_cluster,
+            pair, refine_angles, candidate, SingleThread, use_cluster,
             cancel_event=cancel_event, progress_callback=progress_callback,
             use_gpu=use_gpu)
         if best_match is None or match.weight > best_match.weight:
@@ -1932,12 +1917,8 @@ def _neighbouring_angles(angle_list: Sequence[float], angle: float) -> list[floa
     return sorted(window)
 
 
-def _find_best_angle_exhaustive(source_image: NDArray[np.floating],
-                                target_image: NDArray[np.floating],
-                                source_stats: nornir_imageregistration.ImageStats,
-                                target_stats: nornir_imageregistration.ImageStats,
+def _find_best_angle_exhaustive(pair: _RegistrationPair,
                                 angle_range: NDArray[np.floating] | Sequence[float],
-                                min_overlap: float,
                                 candidates: Sequence[float],
                                 SingleThread: bool,
                                 use_cluster: bool,
@@ -1951,9 +1932,7 @@ def _find_best_angle_exhaustive(source_image: NDArray[np.floating],
     best_scale = 1.0
     for candidate in candidates:
         check_cancelled(cancel_event)
-        match = _find_best_angle_at_scale(source_image, target_image, source_stats, target_stats,
-                                          angle_range, min_overlap, candidate,
-                                          SingleThread, use_cluster,
+        match = _find_best_angle_at_scale(pair, angle_range, candidate, SingleThread, use_cluster,
                                           cancel_event=cancel_event,
                                           progress_callback=progress_callback,
                                           use_gpu=use_gpu)
@@ -1964,12 +1943,8 @@ def _find_best_angle_exhaustive(source_image: NDArray[np.floating],
     return best_match, best_scale
 
 
-def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
-                                       target_image: NDArray[np.floating],
-                                       source_stats: nornir_imageregistration.ImageStats,
-                                       target_stats: nornir_imageregistration.ImageStats,
+def _find_best_angle_with_scale_search(pair: _RegistrationPair,
                                        angle_range: NDArray[np.floating] | Sequence[float],
-                                       min_overlap: float,
                                        metadata_applied: float,
                                        scale_hint: float | None,
                                        SingleThread: bool,
@@ -1979,6 +1954,7 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
                                        cancel_event: threading.Event | None = None,
                                        progress_callback: ProgressCallback | None = None,
                                        use_gpu: bool | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+    """Best (angle record, scale) over the scale candidates; coarse grid only when opted in."""
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
 
     # The angle x scale cross product is ~1980 full-resolution scores on the ds32 pair, about
@@ -1988,15 +1964,13 @@ def _find_best_angle_with_scale_search(source_image: NDArray[np.floating],
     if coarse is not None and len(candidates) > 1 and len(angle_range) > 1:
         largest_dimension, top_k = coarse
         return _find_best_angle_with_coarse_grid(
-            source_image, target_image, source_stats, target_stats, angle_range,
-            min_overlap, candidates, SingleThread, use_cluster,
+            pair, angle_range, candidates, SingleThread, use_cluster,
             largest_dimension, top_k,
             cancel_event=cancel_event, progress_callback=progress_callback,
             use_gpu=use_gpu)
 
     return _find_best_angle_exhaustive(
-        source_image, target_image, source_stats, target_stats, angle_range,
-        min_overlap, candidates, SingleThread, use_cluster,
+        pair, angle_range, candidates, SingleThread, use_cluster,
         cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
 
 
