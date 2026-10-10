@@ -117,16 +117,58 @@ class TestScaleAtFinalAngle(unittest.TestCase):
         target_h = nornir_imageregistration.ImagePermutationHelper(base.copy())
         with unittest.mock.patch.object(stos_brute, '_refine_scale_local', return_value=0.99) as mock_refine:
             result = stos_brute._scale_at_final_angle(
-                source_h.ImageWithMaskAsNoise,
-                target_h.ImageWithMaskAsNoise,
-                source_h.Stats,
-                target_h.Stats,
+                stos_brute._RegistrationPair(
+                    source_h.ImageWithMaskAsNoise,
+                    target_h.ImageWithMaskAsNoise,
+                    source_h.Stats,
+                    target_h.Stats,
+                    min_overlap=0.5,
+                ),
                 final_angle=5.0,
                 scale_seed=1.0,
-                min_overlap=0.5,
             )
         self.assertAlmostEqual(result, 0.99)
         mock_refine.assert_called_once()
+
+
+class TestRegistrationPairRouting(unittest.TestCase):
+    """Each ``_RegistrationPair`` field must reach the matching ``ScoreOneAngle`` argument.
+
+    Real fixtures use near-identical source/target stats, so a swapped field still
+    registers; distinct shapes and sentinel stats make a swap visible.
+    """
+
+    def setUp(self) -> None:
+        self.source = np.zeros((8, 10), dtype=np.float32)
+        self.target = np.ones((12, 14), dtype=np.float32)
+        self.source_stats = object()
+        self.target_stats = object()
+        self.pair = stos_brute._RegistrationPair(
+            self.source, self.target, self.source_stats, self.target_stats, 0.37)  # type: ignore[arg-type]
+
+    def _assert_routed(self, mock_score: unittest.mock.MagicMock) -> None:
+        self.assertGreater(mock_score.call_count, 0)
+        for call in mock_score.call_args_list:
+            kw = call.kwargs
+            self.assertEqual(tuple(kw['source_original'].shape), (8, 10))
+            self.assertEqual(tuple(kw['target_original'].shape), (12, 14))
+            self.assertEqual(tuple(kw['source_image_shape']), (8, 10))
+            self.assertEqual(tuple(kw['target_image_shape']), (12, 14))
+            self.assertIs(kw['source_stats'], self.source_stats)
+            self.assertIs(kw['target_stats'], self.target_stats)
+            self.assertEqual(kw['min_overlap'], 0.37)
+
+    def test_refine_scale_local(self) -> None:
+        record = unittest.mock.MagicMock(weight=1.0)
+        with unittest.mock.patch.object(stos_brute, 'ScoreOneAngle', return_value=record) as mock_score:
+            stos_brute._refine_scale_local(self.pair, angle=3.0, initial_scale=1.0)
+        self._assert_routed(mock_score)
+
+    def test_find_best_angle_common_random(self) -> None:
+        record = unittest.mock.MagicMock(weight=1.0)
+        with unittest.mock.patch.object(stos_brute, 'ScoreOneAngle', return_value=record) as mock_score:
+            stos_brute._find_best_angle_common_random(self.pair, [0.0, 1.0])
+        self._assert_routed(mock_score)
 
 
 class TestRefineScaleLocal(unittest.TestCase):
@@ -137,13 +179,15 @@ class TestRefineScaleLocal(unittest.TestCase):
         source_h = nornir_imageregistration.ImagePermutationHelper(source)
         target_h = nornir_imageregistration.ImagePermutationHelper(base)
         refined = stos_brute._refine_scale_local(
-            source_h.ImageWithMaskAsNoise,
-            target_h.ImageWithMaskAsNoise,
-            source_h.Stats,
-            target_h.Stats,
+            stos_brute._RegistrationPair(
+                source_h.ImageWithMaskAsNoise,
+                target_h.ImageWithMaskAsNoise,
+                source_h.Stats,
+                target_h.Stats,
+                min_overlap=0.5,
+            ),
             angle=0.0,
             initial_scale=shrink,
-            min_overlap=0.5,
             wide_search=False,
         )
         self.assertAlmostEqual(refined, shrink, delta=0.05)

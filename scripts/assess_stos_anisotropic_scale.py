@@ -354,10 +354,9 @@ def _assess_pair(
         source, target, source_stats, target_stats)
     seed = float(np.clip(manual_scalar, stos_brute._SCALE_REFINE_MIN, stos_brute._SCALE_REFINE_MAX))
     scale_iso_refine = stos_brute._refine_scale_local(
-        source, target, source_stats, target_stats,
+        stos_brute._RegistrationPair(source, target, source_stats, target_stats, _MIN_OVERLAP),
         angle=angle_deg,
         initial_scale=seed,
-        min_overlap=_MIN_OVERLAP,
         wide_search=False,
     )
 

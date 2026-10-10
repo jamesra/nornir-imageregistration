@@ -331,8 +331,8 @@ class TestMixedBackendPhaseCorrelation(unittest.TestCase):
             nornir_imageregistration.ComputationLib.cupy)
         try:
             scale = stos_brute._scale_at_final_angle(
-                source_np, target_cp, source_stats, target_stats,
-                0.0, 1.0, 0.5, wide_search=False)
+                stos_brute._RegistrationPair(source_np, target_cp, source_stats, target_stats, 0.5),
+                0.0, 1.0, wide_search=False)
         finally:
             nornir_imageregistration.SetActiveComputationLib(previous)
         self.assertGreater(float(scale), 0.0)

@@ -355,20 +355,29 @@ def _estimate_scale_radial_fft(
     return clamped, peak_ratio
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _RegistrationPair:
+    """Source/target images, their noise stats, and the overlap floor scored together.
+
+    Arrays are held by reference on whatever backend the caller chose (NumPy or CuPy).
+    ``eq=False`` keeps identity equality and hashing: a generated ``__eq__`` would
+    compare arrays element-wise and could not produce a single bool.
+    """
+    source_image: NDArray[np.floating]
+    target_image: NDArray[np.floating]
+    source_stats: nornir_imageregistration.ImageStats
+    target_stats: nornir_imageregistration.ImageStats
+    min_overlap: float
+
+
 def _scale_at_final_angle(
-        source_image: NDArray[np.floating],
-        target_image: NDArray[np.floating],
-        source_stats: nornir_imageregistration.ImageStats,
-        target_stats: nornir_imageregistration.ImageStats,
+        pair: _RegistrationPair,
         final_angle: float,
         scale_seed: float,
-        min_overlap: float,
         *,
         wide_search: bool = False) -> float:
     """Re-estimate scale at the finalized angle (A1/A7); log-polar scale is only a seed."""
-    return _refine_scale_local(
-        source_image, target_image, source_stats, target_stats,
-        final_angle, scale_seed, min_overlap, wide_search=wide_search)
+    return _refine_scale_local(pair, final_angle, scale_seed, wide_search=wide_search)
 
 
 def _smooth01(value: float, low: float, high: float) -> float:
@@ -437,12 +446,8 @@ def _logpolar_needs_narrow_angle_refine(d: LogPolarDiagnostics) -> bool:
 
 
 def _find_best_angle_common_random(
-        source_image: NDArray[np.floating],
-        target_image: NDArray[np.floating],
-        source_stats: nornir_imageregistration.ImageStats,
-        target_stats: nornir_imageregistration.ImageStats,
+        pair: _RegistrationPair,
         angle_range: Sequence[float],
-        min_overlap: float,
         *,
         random_seed: int = 0,
 ) -> nornir_imageregistration.AlignmentRecord:
@@ -463,8 +468,8 @@ def _find_best_angle_common_random(
         raise ValueError('angle_range must not be empty')
 
     # Host coerce — see docstring. Cheap relative to nine ScoreOneAngle calls.
-    source_image = nornir_imageregistration.EnsureNumpyArray(source_image)
-    target_image = nornir_imageregistration.EnsureNumpyArray(target_image)
+    source_image = nornir_imageregistration.EnsureNumpyArray(pair.source_image)
+    target_image = nornir_imageregistration.EnsureNumpyArray(pair.target_image)
 
     best: nornir_imageregistration.AlignmentRecord | None = None
     source_shape = tuple(int(s) for s in source_image.shape[:2])
@@ -477,10 +482,10 @@ def _find_best_angle_common_random(
             target_image_shape=target_shape,
             source_image_shape=source_shape,
             angle=angle,
-            target_stats=target_stats,
-            source_stats=source_stats,
+            target_stats=pair.target_stats,
+            source_stats=pair.source_stats,
             target_image_prepadded=False,
-            min_overlap=min_overlap,
+            min_overlap=pair.min_overlap,
             source_scale=1.0,
         )
         if best is None or float(record.weight) > float(best.weight):
@@ -707,13 +712,9 @@ def _refine_scale_initial_center(settings: StosBruteSettings,
     return float(logpolar_detected_scale)
 
 
-def _refine_scale_local(source_image: NDArray[np.floating],
-                        target_image: NDArray[np.floating],
-                        source_stats: nornir_imageregistration.ImageStats,
-                        target_stats: nornir_imageregistration.ImageStats,
+def _refine_scale_local(pair: _RegistrationPair,
                         angle: float,
                         initial_scale: float,
-                        min_overlap: float,
                         *,
                         wide_search: bool = False) -> float:
     """Refine isotropic scale with coarse grid + local ternary search (A6)."""
@@ -721,14 +722,14 @@ def _refine_scale_local(source_image: NDArray[np.floating],
 
     def _score(scale: float) -> float:
         record = ScoreOneAngle(
-            target_original=target_image,
-            source_original=source_image,
-            target_image_shape=target_image.shape,
-            source_image_shape=source_image.shape,
+            target_original=pair.target_image,
+            source_original=pair.source_image,
+            target_image_shape=pair.target_image.shape,
+            source_image_shape=pair.source_image.shape,
             angle=angle,
-            target_stats=target_stats,
-            source_stats=source_stats,
-            min_overlap=min_overlap,
+            target_stats=pair.target_stats,
+            source_stats=pair.source_stats,
+            min_overlap=pair.min_overlap,
             source_scale=float(scale),
         )
         return float(record.weight)
@@ -1254,10 +1255,10 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         final_angle = float(brute_force_result.angle)
         scale_seed = float(logpolar_result.scale)
         scale_at_angle = _scale_at_final_angle(
-            _ensure_device_for_scoring(candidate_source_image),
-            _ensure_device_for_scoring(target_image),
-            source_stats, target_stats,
-            final_angle, scale_seed, settings.min_overlap, wide_search=True)
+            _RegistrationPair(_ensure_device_for_scoring(candidate_source_image),
+                              _ensure_device_for_scoring(target_image),
+                              source_stats, target_stats, settings.min_overlap),
+            final_angle, scale_seed, wide_search=True)
 
         if nornir_imageregistration.in_debug_mode():
             logging.getLogger(__name__).debug(
@@ -1338,6 +1339,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         """Narrow-angle/scale refine + ScoreOneAngle for one LogPolar orientation."""
         detected = float(seed.scale)
         final_angle = float(seed.angle)
+        pair = _RegistrationPair(candidate_source, target_image, source_stats, target_stats,
+                                 settings.min_overlap)
         # Narrow refine when the log-polar seed looks soft on *any* of the three
         # diagnostics that feed ``_logpolar_confidence`` — not only a weak angle
         # peak. A sharp angle peak with a flat translation peak (ratio ~1.06) is
@@ -1352,21 +1355,11 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             and _logpolar_needs_narrow_angle_refine(seed.diagnostics)
         ):
             angle_range = _logpolar_narrow_angle_range(final_angle, seed.diagnostics)
-            angle_refined = _find_best_angle_common_random(
-                source_image=candidate_source,
-                target_image=target_image,
-                source_stats=source_stats,
-                target_stats=target_stats,
-                angle_range=angle_range,
-                min_overlap=settings.min_overlap,
-            )
+            angle_refined = _find_best_angle_common_random(pair, angle_range)
             final_angle = float(angle_refined.angle)
         refine_initial = _refine_scale_initial_center(
             settings, metadata_scale_iso, detected, resolved_scale_hint)
-        detected = _refine_scale_local(
-            candidate_source, target_image, source_stats, target_stats,
-            final_angle, refine_initial, settings.min_overlap,
-            wide_search=False)
+        detected = _refine_scale_local(pair, final_angle, refine_initial, wide_search=False)
         translation_results = ScoreOneAngle(
             source_original=candidate_source,
             target_original=target_image,
@@ -1422,9 +1415,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 (force_scale_search or resolved_scale_hint is None)
                 and settings.initial_scale_hint is None)
             detected = _refine_scale_local(
-                candidate_source, target_image, source_stats, target_stats,
-                float(refined.angle), refine_initial, settings.min_overlap,
-                wide_search=use_wide_scale_search)
+                _RegistrationPair(candidate_source, target_image, source_stats, target_stats,
+                                  settings.min_overlap),
+                float(refined.angle), refine_initial, wide_search=use_wide_scale_search)
         else:
             detected = 1.0
         translation_results = ScoreOneAngle(
@@ -2351,8 +2344,8 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
     refine_threshold = _RPC3_MANUAL_ABS_PCT_CHANGE_MIN / 100.0
     if rotated_180 or abs(scale_seed - 1.0) > refine_threshold:
         shift_scale = _scale_at_final_angle(
-            source_image, target_image, source_stats, target_stats,
-            recovered_angle, scale_seed, min_overlap, wide_search=False)
+            _RegistrationPair(source_image, target_image, source_stats, target_stats, min_overlap),
+            recovered_angle, scale_seed, wide_search=False)
         if nornir_imageregistration.in_debug_mode():
             logging.getLogger(__name__).debug(
                 'B1 fixed-angle scale: seed=%.6f refined=%.6f angle=%.4f',

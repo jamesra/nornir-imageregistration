@@ -328,8 +328,8 @@ def _estimate_source_axis(
     """Return iso_refine, sy, sx, weight_aniso, weight_iso."""
     seed = float(np.clip(seed_scalar, stos_brute._SCALE_REFINE_MIN, stos_brute._SCALE_REFINE_MAX))
     iso = stos_brute._refine_scale_local(
-        source, target, source_stats, target_stats,
-        angle=angle_deg, initial_scale=seed, min_overlap=_MIN_OVERLAP, wide_search=False)
+        stos_brute._RegistrationPair(source, target, source_stats, target_stats, _MIN_OVERLAP),
+        angle=angle_deg, initial_scale=seed, wide_search=False)
     score = aniso._make_aniso_scorer(source, target, source_stats, target_stats, angle_deg)
     w_iso = score(iso, iso)
     sy, sx, w_aniso = aniso._refine_anisotropic(score, float(iso))

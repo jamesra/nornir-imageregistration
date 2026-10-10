@@ -109,20 +109,19 @@ class TestCommonRandomAngleSearch(unittest.TestCase):
         self.source = scipy.ndimage.rotate(self.target, -15.0, reshape=False)
         self.target_stats = nornir_imageregistration.ImageStats.CalcStats(self.target)
         self.source_stats = nornir_imageregistration.ImageStats.CalcStats(self.source)
+        self.pair = stos_brute._RegistrationPair(
+            self.source, self.target, self.source_stats, self.target_stats, 0.5)
 
     def test_it_is_deterministic_across_calls(self):
         angles = [-5.0, 0.0, 15.0, 20.0]
-        a = stos_brute._find_best_angle_common_random(
-            self.source, self.target, self.source_stats, self.target_stats, angles, 0.5)
-        b = stos_brute._find_best_angle_common_random(
-            self.source, self.target, self.source_stats, self.target_stats, angles, 0.5)
+        a = stos_brute._find_best_angle_common_random(self.pair, angles)
+        b = stos_brute._find_best_angle_common_random(self.pair, angles)
         self.assertEqual(a.angle, b.angle)
         self.assertEqual(a.weight, b.weight)
 
     def test_it_prefers_the_true_angle_over_neighbours(self):
         angles = [0.0, 10.0, 15.0, 20.0, 30.0]
-        best = stos_brute._find_best_angle_common_random(
-            self.source, self.target, self.source_stats, self.target_stats, angles, 0.5)
+        best = stos_brute._find_best_angle_common_random(self.pair, angles)
         self.assertEqual(15.0, best.angle)
 
 
