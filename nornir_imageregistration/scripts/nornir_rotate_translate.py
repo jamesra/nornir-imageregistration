@@ -93,8 +93,7 @@ def Execute(ExecArgs=None):
 
     stosArgs = StosOverrideArgs(Args)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     alignRecord = sb.SliceToSliceRigidRegistration(target_image=stosArgs.ControlImage,
                                                    source_image=stosArgs.WarpedImage,

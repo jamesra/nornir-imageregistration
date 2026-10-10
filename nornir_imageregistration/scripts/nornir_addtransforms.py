@@ -75,8 +75,7 @@ def ValidateArgs(Args):
     if not os.path.exists(Args.warpedpath):
         OnUseError("Warped stos file not found: " + Args.warpedpath)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
 
 def Execute(ExecArgs=None):

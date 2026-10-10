@@ -92,8 +92,7 @@ def ValidateArgs(Args):
     if not os.path.exists(Args.inputpath):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     if not Args.tilepath is None:
         if not os.path.exists(Args.tilepath):
