@@ -2201,7 +2201,7 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
 
     if not np.array_equal(rotated_padded_source.shape, padded_target.shape):
         # If the target image does not match the dimensions of the rotated source image, make the size equal
-        rotated_desired_shape = nornir_shared.mathhelper.max_shape([rotated_padded_source.shape, padded_target.shape])  # type: ignore[arg-type]
+        rotated_desired_shape = nornir_shared.mathhelper.max_shape([rotated_padded_source.shape, padded_target.shape])
         rotated_desired_height, rotated_desired_width = rotated_desired_shape
         padded_target = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(target_image,
                                                                                                   min_overlap=min_overlap,
