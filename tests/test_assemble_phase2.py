@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import nornir_imageregistration
 import nornir_imageregistration.assemble_tiles as at
@@ -45,17 +46,21 @@ class TestScaledTransformCache(unittest.TestCase):
             os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
     def test_prefetch_on_off_tokens_are_unknown(self):
-        """Assemble prefetch keeps historical tokens; on/off fall through to default."""
-        cupy_default = (
-            nornir_imageregistration.GetActiveComputationLib()
-            == nornir_imageregistration.ComputationLib.cupy)
-        try:
-            os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'on'
-            self.assertEqual(at._assemble_prefetch_enabled(), cupy_default)
-            os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'off'
-            self.assertEqual(at._assemble_prefetch_enabled(), cupy_default)
-        finally:
-            os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
+        """Assemble prefetch keeps historical tokens; on/off fall through to default.
+
+        Stub the active lib to CuPy so the default is True. Under a NumPy default,
+        wrong ``is_falsey('off')`` would still return False and miss the regression.
+        """
+        cupy = nornir_imageregistration.ComputationLib.cupy
+        with mock.patch.object(
+                nornir_imageregistration, 'GetActiveComputationLib', return_value=cupy):
+            try:
+                os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'on'
+                self.assertTrue(at._assemble_prefetch_enabled())
+                os.environ['NORNIR_ASSEMBLE_PREFETCH'] = 'off'
+                self.assertTrue(at._assemble_prefetch_enabled())
+            finally:
+                os.environ.pop('NORNIR_ASSEMBLE_PREFETCH', None)
 
     def test_grid_extrapolate_default_off(self):
         env = os.environ.pop('NORNIR_ASSEMBLE_GRID_EXTRAPOLATE', None)
@@ -85,6 +90,22 @@ class TestScaledTransformCache(unittest.TestCase):
             self.assertTrue(gt._assemble_inverse_use_scipy())
             os.environ.pop('NORNIR_ASSEMBLE_INVERSE_SCIPY', None)
             os.environ['NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'] = '1'
+            self.assertFalse(gt._assemble_inverse_use_scipy())
+        finally:
+            for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
+                os.environ.pop(k, None)
+
+    def test_inverse_scipy_on_off_tokens_are_unknown(self):
+        """gridtransform inverse-scipy keeps BASIC tokens; on/off fall through to default."""
+        from nornir_imageregistration.transforms import gridtransform as gt
+        for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
+            os.environ.pop(k, None)
+        try:
+            # Default is False; 'on' must not force SciPy (catches is_truthy regression).
+            os.environ['NORNIR_ASSEMBLE_INVERSE_SCIPY'] = 'on'
+            self.assertFalse(gt._assemble_inverse_use_scipy())
+            # 'off' is also unknown (same default; pin documented even when weak under default False).
+            os.environ['NORNIR_ASSEMBLE_INVERSE_SCIPY'] = 'off'
             self.assertFalse(gt._assemble_inverse_use_scipy())
         finally:
             for k in ('NORNIR_ASSEMBLE_INVERSE_SCIPY', 'NORNIR_ASSEMBLE_GRID_EXTRAPOLATE'):
