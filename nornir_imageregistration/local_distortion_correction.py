@@ -46,7 +46,6 @@ from nornir_imageregistration.refine_shared import (
     get_runtime_config,
     get_phase_timer,
     is_alignable_cell,
-    filter_records_by_registration_weight,
     filter_weights_by_estimate_cutoff,
     estimate_registration_weight_cutoff,
     measure_translation_cell,
@@ -395,13 +394,6 @@ def _base_target_for_refinement_cell(
     target_a = nornir_imageregistration.EnsureNumpyArray(A.Transform.Transform(src_a)[0])
     target_b = nornir_imageregistration.EnsureNumpyArray(B.Transform.Transform(src_b)[0])
     return (target_a + target_b) * 0.5
-
-
-def _filter_weighted_point_pair_updates(point_pair_updates: np.ndarray) -> np.ndarray:
-    """
-    Drop low-confidence overlap updates using the shared estimate_cutoff helper.
-    """
-    return filter_records_by_registration_weight(point_pair_updates)
 
 
 def _phase_correlate_refinement_cell(
