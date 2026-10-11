@@ -81,13 +81,14 @@ __known_shared_memory_allocations: dict[str, tuple[shared_memory.SharedMemory, t
 
 # from memory_profiler import profile
 
-def ravel_index(idx: NDArray[np.integer], shp: Sequence[int] | NDArray[np.integer]) -> NDArray[np.integer]:
+def ravel_index(idx: NDArray[np.integer], shp: Sequence[int]) -> NDArray[np.integer]:
     """Convert an NxD array of coordinates into flat indices for an array of shape shp.
 
     Accepts NumPy or CuPy ``idx``; ops follow ``cp.get_array_module(idx)``.
 
-    :param idx: Nx2 (or NxD) array of coordinates [[x1,y1], [x2,y2], ...].
-    :param shp: Shape of the target array, as a shape tuple (e.g. ``image.shape``) or a 1D integer array.
+    :param idx: Nx2 (or NxD) integer array of coordinates [[y1,x1], [y2,x2], ...] (row, col order).
+    :param shp: Shape of the target array as a tuple of ints (e.g. ``image.shape``). Do not pass an
+        array: ``cupy.ravel_multi_index`` requires Python ints for the dims.
     :return: 1D array of flat indices (numpy or cupy depending on idx).
     """
     xp = cp.get_array_module(idx)
@@ -108,13 +109,15 @@ def ravel_index(idx: NDArray[np.integer], shp: Sequence[int] | NDArray[np.intege
 def index_with_array(image: NDArray, indices: NDArray) -> NDArray:
     """Return image values at the given pixel coordinates.
 
+    Accepts NumPy or CuPy ``image``; ``indices`` should be on the same backend.
+
     :param image: 2D (or ND) array to index into.
-    :param indices: Nx2 array of (x, y) or (col, row) pixel coordinates.
+    :param indices: Nx2 integer array of (row, col) pixel coordinates.
     :return: 1D array of values at those indices (same backend as image).
     """
     xp = cp.get_array_module(image)
 
-    return xp.take(image, ravel_index(indices, xp.asarray(image.shape)))
+    return xp.take(image, ravel_index(indices, image.shape))
 
 
 def array_distance(array: NDArray) -> NDArray:

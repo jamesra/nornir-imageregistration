@@ -1,8 +1,8 @@
-"""ravel_index accepts the shape as a tuple (``image.shape``) or as a 1D integer array.
+"""ravel_index takes the shape as a tuple (``image.shape``) and matches ``numpy.ravel_multi_index``.
 
-Real callers pass both: ``assemble`` passes ``mask.shape`` / ``outputImage.shape`` tuples and
-``index_with_array`` passes ``xp.asarray(image.shape)``. Both must give the same flat indices as
-``numpy.ravel_multi_index``.
+Callers pass shape tuples: ``assemble`` (``mask.shape`` / ``outputImage.shape``) and
+``index_with_array`` (``image.shape``). ``index_with_array`` once passed ``xp.asarray(image.shape)``,
+which ``cupy.ravel_multi_index`` rejects with TypeError, so CuPy images are covered below.
 """
 
 import unittest
@@ -40,27 +40,23 @@ def _shape_and_coords(draw: st.DrawFn) -> tuple[tuple[int, ...], NDArray[np.int6
 
 
 class TestRavelIndexShapeTypes(unittest.TestCase):
-    """Tuple and ndarray shapes give identical results that match numpy.ravel_multi_index."""
+    """Tuple shapes give results that match numpy.ravel_multi_index on NumPy and CuPy."""
 
     @given(_shape_and_coords())
     @example(((1, 9), np.array([[0, 0], [0, 8], [0, 4]], dtype=np.int64)))
     @example(((7, 1), np.array([[0, 0], [6, 0]], dtype=np.int64)))
     @example(((65536, 65536), np.array([[65535, 65535], [1, 0]], dtype=np.int64)))
     @settings(deadline=None, max_examples=200)
-    def test_tuple_and_array_shape_match_reference(
+    def test_tuple_shape_matches_reference(
             self, case: tuple[tuple[int, ...], NDArray[np.int64]]) -> None:
-        """ravel_index(coords, shape) equals ravel_multi_index for tuple and ndarray shapes."""
+        """ravel_index(coords, shape) equals ravel_multi_index for a tuple shape."""
         shape, coords = case
         expected = np.ravel_multi_index(tuple(coords.T), shape)
 
-        from_tuple = nornir_imageregistration.ravel_index(coords, shape)
-        from_array = nornir_imageregistration.ravel_index(coords, np.asarray(shape))
-
-        np.testing.assert_array_equal(from_tuple, expected)
-        np.testing.assert_array_equal(from_array, expected)
+        np.testing.assert_array_equal(nornir_imageregistration.ravel_index(coords, shape), expected)
 
     def test_index_with_array_reads_pixels(self) -> None:
-        """index_with_array (ndarray-shape caller) returns image values at (row, col) coords."""
+        """index_with_array returns image values at (row, col) coords."""
         image = np.arange(5 * 7, dtype=np.float32).reshape(5, 7)
         coords = np.array([[0, 0], [4, 6], [2, 3], [1, 6]], dtype=np.int64)
         np.testing.assert_array_equal(index_with_array(image, coords), image[coords[:, 0], coords[:, 1]])
@@ -73,6 +69,29 @@ class TestRavelIndexShapeTypes(unittest.TestCase):
         expected = nornir_imageregistration.ravel_index(coords, shape)
         result = nornir_imageregistration.ravel_index(cupy.asarray(coords), shape)
         np.testing.assert_array_equal(cupy.asnumpy(result), expected)
+
+    @unittest.skipUnless(_HAVE_CUPY, "CuPy with a CUDA device is not available")
+    def test_index_with_array_cupy_image(self) -> None:
+        """index_with_array on a CuPy image and CuPy coords stays on the GPU and matches NumPy.
+
+        Regression: the shape used to be passed as ``cupy.asarray(image.shape)``, which made
+        ``cupy.ravel_multi_index`` raise TypeError (reachable from
+        ``GridDivisionBase.ApplyTargetImageMask`` / ``ApplySourceImageMask`` with a CuPy mask).
+        """
+        host_image = np.arange(300 * 517, dtype=np.float32).reshape(300, 517)
+        host_coords = np.array([[0, 0], [299, 516], [123, 45], [7, 400]], dtype=np.int64)
+        result = index_with_array(cupy.asarray(host_image), cupy.asarray(host_coords))
+        self.assertIsInstance(result, cupy.ndarray)
+        np.testing.assert_array_equal(cupy.asnumpy(result), host_image[host_coords[:, 0], host_coords[:, 1]])
+
+    @unittest.skipUnless(_HAVE_CUPY, "CuPy with a CUDA device is not available")
+    def test_index_with_array_cupy_bool_mask(self) -> None:
+        """A CuPy boolean mask (the grid_subdivision use) returns the mask values at the coords."""
+        host_mask = np.zeros((64, 96), dtype=bool)
+        host_mask[10:20, 30:50] = True
+        host_coords = np.array([[15, 40], [0, 0], [19, 49], [20, 50]], dtype=np.int64)
+        result = index_with_array(cupy.asarray(host_mask), cupy.asarray(host_coords))
+        np.testing.assert_array_equal(cupy.asnumpy(result), [True, False, True, False])
 
 
 if __name__ == '__main__':
