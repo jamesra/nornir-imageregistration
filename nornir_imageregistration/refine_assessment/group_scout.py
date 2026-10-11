@@ -439,15 +439,20 @@ class ScoutStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path))
-        self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCOUT_SCHEMA)
-        row = self._conn.execute(
-            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-        if row is None:
-            self._conn.execute(
-                "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-                (str(SCHEMA_VERSION),))
-            self._conn.commit()
+        try:
+            self._conn.row_factory = sqlite3.Row
+            self._conn.executescript(_SCOUT_SCHEMA)
+            row = self._conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+            if row is None:
+                self._conn.execute(
+                    "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
+                    (str(SCHEMA_VERSION),))
+                self._conn.commit()
+        except BaseException:
+            # A corrupt or locked file must not stay open (and locked on Windows).
+            self._conn.close()
+            raise
 
     def close(self) -> None:
         """Close the underlying connection."""

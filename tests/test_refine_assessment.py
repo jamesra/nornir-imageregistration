@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
+from types import TracebackType
+from typing import Callable
 
 import numpy as np
 import pytest
 
 from nornir_imageregistration.refine_assessment.catalog import Catalog, RunsDb
+from nornir_imageregistration.refine_assessment.group_scout import ScoutStore
 from nornir_imageregistration.refine_assessment.importer import import_refine_fixture
 from nornir_imageregistration.refine_assessment.strain import (
     classify_struggle_vs_damage,
@@ -105,6 +109,42 @@ def test_runs_db_insert(tmp_path: Path) -> None:
         assert runs.get_run(run_id)['quality_flag'] == 1
     finally:
         runs.close()
+
+
+def _connections_in_traceback(tb: TracebackType | None) -> list[sqlite3.Connection]:
+    """Return sqlite connections reachable from the traceback's frame locals."""
+    found: list[sqlite3.Connection] = []
+    while tb is not None:
+        for value in tb.tb_frame.f_locals.values():
+            candidates = [value, getattr(value, '__dict__', {}).get('_conn')]
+            found.extend(c for c in candidates if isinstance(c, sqlite3.Connection))
+        tb = tb.tb_next
+    return found
+
+
+@pytest.mark.parametrize(
+    'opener',
+    [Catalog.open, RunsDb.open, ScoutStore],
+    ids=['Catalog', 'RunsDb', 'ScoutStore'],
+)
+def test_open_closes_connection_on_corrupt_file(
+        tmp_path: Path, opener: Callable[[Path], object]) -> None:
+    """A failed open closes its connection so the bad file can be deleted or replaced.
+
+    While the exception (and its traceback) is alive, an unclosed connection keeps the
+    file open; on Windows that blocks ``os.remove`` of the corrupt database.
+    """
+    path = tmp_path / 'corrupt.sqlite'
+    path.write_bytes(b'this is not a sqlite database' * 64)
+    with pytest.raises(sqlite3.DatabaseError) as excinfo:
+        opener(path)
+    connections = _connections_in_traceback(excinfo.tb)
+    assert connections, 'expected the half-opened connection in the traceback'
+    for conn in connections:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute('SELECT 1')
+    os.remove(path)
+    assert not path.exists()
 
 
 def _write_tiny_stos(tmp_path: Path) -> Path:

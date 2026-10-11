@@ -173,10 +173,15 @@ class Catalog:
         if create:
             path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(path))
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA foreign_keys = ON')
-        catalog = cls(path=path, _conn=conn)
-        catalog._migrate()
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute('PRAGMA foreign_keys = ON')
+            catalog = cls(path=path, _conn=conn)
+            catalog._migrate()
+        except BaseException:
+            # A corrupt or locked file must not stay open (and locked on Windows).
+            conn.close()
+            raise
         return catalog
 
     def close(self) -> None:
@@ -474,9 +479,14 @@ class RunsDb:
         if create:
             path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(path))
-        conn.row_factory = sqlite3.Row
-        db = cls(path=path, _conn=conn)
-        db._migrate()
+        try:
+            conn.row_factory = sqlite3.Row
+            db = cls(path=path, _conn=conn)
+            db._migrate()
+        except BaseException:
+            # A corrupt or locked file must not stay open (and locked on Windows).
+            conn.close()
+            raise
         return db
 
     def close(self) -> None:
