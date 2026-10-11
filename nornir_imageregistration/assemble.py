@@ -651,7 +651,7 @@ def _TransformImageUsingCoords(target_coords: NDArray,
         outputImage = xp.full(output_area_shape, cval,
                               dtype=original_dtype)  # Use same DType as source_image for output, we are past the call to map_coordinates that cannot handle float16
 
-    target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(  # type: ignore[arg-type]
+    target_coords_flat = nornir_imageregistration.ravel_index(inbounds_target_coords, outputImage.shape).astype(
         np.int32, copy=False)
     # del filtered_target_coords
 

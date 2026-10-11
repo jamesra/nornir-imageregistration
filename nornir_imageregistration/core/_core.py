@@ -81,11 +81,13 @@ __known_shared_memory_allocations: dict[str, tuple[shared_memory.SharedMemory, t
 
 # from memory_profiler import profile
 
-def ravel_index(idx: NDArray[np.integer], shp: NDArray) -> NDArray[np.integer]:
+def ravel_index(idx: NDArray[np.integer], shp: Sequence[int] | NDArray[np.integer]) -> NDArray[np.integer]:
     """Convert an NxD array of coordinates into flat indices for an array of shape shp.
 
+    Accepts NumPy or CuPy ``idx``; ops follow ``cp.get_array_module(idx)``.
+
     :param idx: Nx2 (or NxD) array of coordinates [[x1,y1], [x2,y2], ...].
-    :param shp: Shape of the target array (e.g. image shape).
+    :param shp: Shape of the target array, as a shape tuple (e.g. ``image.shape``) or a 1D integer array.
     :return: 1D array of flat indices (numpy or cupy depending on idx).
     """
     xp = cp.get_array_module(idx)
