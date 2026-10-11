@@ -159,7 +159,7 @@ def pick_strain_crop_from_transform(
         return None
 
     ids = _grid_ids_from_points(source, grid_spacing)
-    strain_ids = [ids[i] for i in range(len(ids)) if bool(hot[i])]
+    strain_ids = [gid for gid, is_hot in zip(ids, hot) if is_hot]
     strain_set = set(strain_ids)
     # Halo among known grid ids only.
     known = set(ids)

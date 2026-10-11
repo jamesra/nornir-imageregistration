@@ -17,6 +17,7 @@ from nornir_imageregistration.refine_assessment.importer import import_refine_fi
 from nornir_imageregistration.refine_assessment.strain import (
     classify_struggle_vs_damage,
     is_localized_high_strain,
+    pick_strain_crop_from_transform,
     suggest_tags_from_strain,
 )
 from nornir_imageregistration.refine_assessment.tags import TagStatus
@@ -27,6 +28,7 @@ from nornir_imageregistration.refine_assessment.verdict import (
     compare_to_best,
 )
 from nornir_imageregistration.transforms.factory import CreateRigidTransform
+from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
 from nornir_imageregistration.files.stosfile import StosFile
 import nornir_imageregistration
 
@@ -92,6 +94,46 @@ def test_localized_strain_and_struggle_classifier() -> None:
         manual_zncc=0.8, automatic_zncc=0.4, unique_frac=0.1, localized=True) == 'struggle'
     assert classify_struggle_vs_damage(
         manual_zncc=0.1, automatic_zncc=0.1, unique_frac=0.0, localized=False) == 'damage'
+
+
+@pytest.mark.parametrize(
+    ('grid_spacing', 'use_unique_mask', 'expected_strain', 'expected_halo'),
+    [
+        (None, False, ((14, 0), (15, 0), (30, 0), (35, 0)),
+         ((12, 0), (13, 0), (16, 0), (17, 0), (28, 0), (29, 0), (31, 0), (32, 0), (33, 0), (34, 0))),
+        (None, True, ((14, 0), (35, 0)),
+         ((12, 0), (13, 0), (15, 0), (16, 0), (33, 0), (34, 0))),
+        ((64.0, 64.0), False, ((2, 2), (2, 3), (5, 0), (5, 5)),
+         ((0, 2), (0, 3), (1, 1), (1, 2), (1, 3), (1, 4), (2, 0), (2, 1), (2, 4), (2, 5), (3, 0), (3, 1),
+          (3, 2), (3, 3), (3, 4), (3, 5), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (5, 1), (5, 2),
+          (5, 3), (5, 4))),
+        ((64.0, 64.0), True, ((2, 2), (5, 5)),
+         ((0, 2), (1, 1), (1, 2), (1, 3), (2, 0), (2, 1), (2, 3), (2, 4), (3, 1), (3, 2), (3, 3), (3, 5),
+          (4, 2), (4, 4), (4, 5), (5, 3), (5, 4))),
+    ],
+)
+def test_pick_strain_crop_ids(
+        grid_spacing: tuple[float, float] | None,
+        use_unique_mask: bool,
+        expected_strain: tuple[tuple[int, int], ...],
+        expected_halo: tuple[tuple[int, int], ...],
+) -> None:
+    """Pins the strain and halo cell ids chosen for a mesh with two displaced points."""
+    ys, xs = np.meshgrid(np.arange(6) * 64.0, np.arange(6) * 64.0, indexing='ij')
+    source = np.column_stack([ys.ravel(), xs.ravel()])
+    target = source.copy()
+    target[14] += [30, -25]
+    target[15] += [40, 20]
+    transform = MeshWithRBFFallback(np.hstack([target, source]))
+    unique_mask = (np.arange(36) % 3 != 0) if use_unique_mask else None
+
+    crop = pick_strain_crop_from_transform(
+        transform, grid_spacing=grid_spacing, residual_quantile=0.9, unique_mask=unique_mask)
+
+    assert crop is not None
+    assert crop.strain_ids == expected_strain
+    assert crop.certified_ids == expected_strain
+    assert crop.halo_ids == expected_halo
 
 
 def test_runs_db_insert(tmp_path: Path) -> None:
