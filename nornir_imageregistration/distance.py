@@ -39,7 +39,9 @@ def CreateDistanceImage(shape: ShapeLike, dtype: DTypeLike | None = None):
     Distances are measured in pixels, and the distance is zero at the center pixel.  Distances are measured
     to the center of each pixel.
     """
-    # TODO, this has some obvious optimizations available
+    # The half-plane row loop below was measured against a single broadcast
+    # (np.sqrt(y_range[:, np.newaxis] + x_range)) and was not faster; see
+    # .cursor/issue-handoff/optimization-loop-rejections.md before vectorizing it.
     if dtype is None:
         dtype = nornir_imageregistration.default_depth_image_dtype()
 
@@ -47,12 +49,9 @@ def CreateDistanceImage(shape: ShapeLike, dtype: DTypeLike | None = None):
     shape = np.asarray(shape, dtype=np.int64)
     is_odd_shape = np.fmod(shape, 2) > 0
 
-    half_shape = None
-    if True:
-        even_shape = shape.copy()
-        even_shape[is_odd_shape] -= 1
-        half_shape = even_shape / 2
-        half_shape = half_shape.astype(np.int64)
+    even_shape = shape.copy()
+    even_shape[is_odd_shape] -= 1
+    half_shape = (even_shape / 2).astype(np.int64)
 
     y_range = None
     if not is_odd_shape[0]:
