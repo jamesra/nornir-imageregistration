@@ -2302,10 +2302,12 @@ def uint16_img_from_uint16_array(data):
     """Convert a uint16 numpy array to a Pillow 16-bit image (workaround for Pillow I;16 handling)."""
     assert (nornir_imageregistration.IsIntArray(data))
 
-    size = data.shape[::-1]
-    img = Image.new("I", size=data.T.shape)
-    img.frombytes(data.tobytes(), 'raw', 'I;16')
-    return img
+    if data.dtype != np.uint16:
+        # Wider or signed ints are clipped to the 16 bits a PNG can hold.
+        data = np.clip(data, 0, 65535).astype(np.uint16)
+
+    # Native I;16 is written by PNG directly; the generic "I" mode is not supported by every Pillow build.
+    return Image.fromarray(np.ascontiguousarray(data))
 
 
 def uint16_img_from_float_array(image):
@@ -2395,11 +2397,9 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
                 else:
                     im = Image.fromarray(uint16_image, mode="I;16")
         else:
-            if bpp < 32:
-                if ext.lower() == '.png':
-                    im = uint16_img_from_uint16_array(image)
-                else:
-                    im = Image.fromarray(image, mode=f"I;{bpp}")
+            if ext.lower() == '.png' or bpp > 16:
+                # Pillow has no 32-bit unsigned mode and PNG tops out at 16 bits.
+                im = uint16_img_from_uint16_array(image)
             else:
                 im = Image.fromarray(image, mode=f"I;{bpp}")
 
