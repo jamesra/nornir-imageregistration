@@ -141,6 +141,37 @@ def ApproxEqual(a: float, b: float, epsilon=None) -> bool:
     return np.abs(a - b) < epsilon
 
 
+# Elements per slab when an integer image is too wide to scale in its float output type.
+_INT_TO_FLOAT_SLAB_ELEMENTS = 1 << 22
+
+
+def _int_image_to_unit_float(image: NDArray, dtype: DTypeLike) -> NDArray:
+    """Scale an integer image to 0..1 in the float *dtype*.
+
+    When the integer maximum fits *dtype* (8-bit images, or any image into float32/float64)
+    this is the plain cast-then-divide. A 16-bit or wider image into float16 overflows that
+    way (float16 tops out at 65504), so it is divided in float32 one row slab at a time,
+    keeping the wider copy small. Accepts NumPy or CuPy; ops follow ``cp.get_array_module``.
+    """
+    int_max = np.iinfo(image.dtype).max
+    if int_max <= float(np.finfo(dtype).max):  # Compare as Python numbers; a float16 scalar would overflow
+        return image.astype(dtype, copy=False) / int_max
+
+    work_dtype = np.promote_types(dtype, np.float32)
+    if image.ndim == 0:
+        return (image.astype(work_dtype) / int_max).astype(dtype)
+
+    xp = cp.get_array_module(image)
+    scaled = xp.empty(image.shape, dtype=dtype)
+    row_elements = max(1, image.size // max(1, image.shape[0]))
+    rows_per_slab = max(1, _INT_TO_FLOAT_SLAB_ELEMENTS // row_elements)
+    for start in range(0, image.shape[0], rows_per_slab):
+        slab = image[start:start + rows_per_slab].astype(work_dtype)
+        slab /= int_max
+        scaled[start:start + rows_per_slab] = slab
+    return scaled
+
+
 def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None) -> NDArray | np.memmap:
     image = None
     if isinstance(imageparam, cp.ndarray):
@@ -151,7 +182,7 @@ def ImageParamToNumpyImageArray(imageparam: ImageLike, dtype=None) -> NDArray | 
             image = imageparam
         elif np.issubdtype(imageparam.dtype, np.integer) and np.issubdtype(dtype, np.floating):
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / np.iinfo(imageparam.dtype).max
+            image = _int_image_to_unit_float(imageparam, dtype)
         else:
             image = imageparam.astype(dtype=dtype, copy=False)
     elif isinstance(imageparam, str):
@@ -187,7 +218,7 @@ def ImageParamToImageArray(imageparam: ImageLike, dtype=None) -> NDArray:
             image = imageparam
         elif xp.issubdtype(imageparam.dtype, np.integer) and xp.issubdtype(dtype, np.floating):  # type: ignore[union-attr]
             # Scale image to 0.0 to 1.0
-            image = imageparam.astype(dtype, copy=False) / xp.iinfo(imageparam.dtype).max  # type: ignore[union-attr]
+            image = _int_image_to_unit_float(imageparam, dtype)  # type: ignore[arg-type]
         else:
             image = imageparam.astype(dtype=dtype, copy=False)  # type: ignore[union-attr]
     elif isinstance(imageparam, str):
