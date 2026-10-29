@@ -370,6 +370,22 @@ class _RegistrationPair:
     min_overlap: float
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _SearchExecution:
+    """How an angle sweep runs: worker strategy, cancellation, progress, and GPU choice.
+
+    Built once per registration by ``SliceToSliceRigidRegistrationWithPreprocessedImages``
+    and handed unchanged through the pair-level search helpers to ``_find_best_angle``.
+    ``eq=False`` keeps identity equality and hashing, so an unhashable progress callback
+    cannot make the record unhashable.
+    """
+    single_thread: bool
+    use_cluster: bool
+    cancel_event: threading.Event | None = None
+    progress_callback: ProgressCallback | None = None
+    use_gpu: bool | None = None
+
+
 def _scale_at_final_angle(
         pair: _RegistrationPair,
         final_angle: float,
@@ -1123,6 +1139,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         *,
         use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
     use_cp = _use_cupy_for_scoring(use_gpu)
+    execution = _SearchExecution(SingleThread, Cluster, cancel_event, progress_callback, use_gpu)
 
     target_image = target_image_data.ImageWithMaskAsNoise
     source_image = source_image_data.ImageWithMaskAsNoise
@@ -1189,17 +1206,11 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         fallback_angles = _adaptive_fallback_angle_range(logpolar_result.angle, diagnostics)
         angle_count = len(fallback_angles)
 
-        brute_force_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
-                                              target_image=_ensure_device_for_scoring(target_image),
-                                              source_stats=source_stats,
-                                              target_stats=target_stats,
-                                              angle_range=fallback_angles,
-                                              min_overlap=settings.min_overlap,
-                                              SingleThread=SingleThread,
-                                              use_cluster=Cluster,
-                                              cancel_event=cancel_event,
-                                              progress_callback=progress_callback,
-                                              use_gpu=use_gpu)
+        # Uploaded once and shared by every fallback sweep and the scale refine below.
+        device_pair = _RegistrationPair(_ensure_device_for_scoring(candidate_source_image),
+                                        _ensure_device_for_scoring(target_image),
+                                        source_stats, target_stats, settings.min_overlap)
+        brute_force_result = _find_best_angle_at_scale(device_pair, fallback_angles, 1.0, execution)
 
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
             widened_angles = _adaptive_fallback_angle_range(
@@ -1209,34 +1220,15 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             )
             pass_used = 2
             angle_count = len(widened_angles)
-            widened_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
-                                              target_image=_ensure_device_for_scoring(target_image),
-                                              source_stats=source_stats,
-                                              target_stats=target_stats,
-                                              angle_range=widened_angles,
-                                              min_overlap=settings.min_overlap,
-                                              SingleThread=SingleThread,
-                                              use_cluster=Cluster,
-                                              cancel_event=cancel_event,
-                                              progress_callback=progress_callback,
-                                              use_gpu=use_gpu)
+            widened_result = _find_best_angle_at_scale(device_pair, widened_angles, 1.0, execution)
             if widened_result.weight > brute_force_result.weight:
                 brute_force_result = widened_result
 
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
             pass_used = 3
             angle_count = len(settings.angle_range)
-            full_sweep_result = _find_best_angle(source_image=_ensure_device_for_scoring(candidate_source_image),
-                                                 target_image=_ensure_device_for_scoring(target_image),
-                                                 source_stats=source_stats,
-                                                 target_stats=target_stats,
-                                                 angle_range=settings.angle_range,
-                                                 min_overlap=settings.min_overlap,
-                                                 SingleThread=SingleThread,
-                                                 use_cluster=Cluster,
-                                                 cancel_event=cancel_event,
-                                                 progress_callback=progress_callback,
-                                                 use_gpu=use_gpu)
+            full_sweep_result = _find_best_angle_at_scale(
+                device_pair, settings.angle_range, 1.0, execution)
             if full_sweep_result.weight > brute_force_result.weight:
                 brute_force_result = full_sweep_result
 
@@ -1254,11 +1246,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
         final_angle = float(brute_force_result.angle)
         scale_seed = float(logpolar_result.scale)
-        scale_at_angle = _scale_at_final_angle(
-            _RegistrationPair(_ensure_device_for_scoring(candidate_source_image),
-                              _ensure_device_for_scoring(target_image),
-                              source_stats, target_stats, settings.min_overlap),
-            final_angle, scale_seed, wide_search=True)
+        scale_at_angle = _scale_at_final_angle(device_pair, final_angle, scale_seed, wide_search=True)
 
         if nornir_imageregistration.in_debug_mode():
             logging.getLogger(__name__).debug(
@@ -1300,19 +1288,10 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         source_image = _ensure_device_for_scoring(source_image)
         target_image = _ensure_device_for_scoring(target_image)
     elif not settings.search_scale:
-        best_match = _find_best_angle(
-            source_image=source_image,
-            target_image=target_image,
-            source_stats=source_stats,
-            target_stats=target_stats,
-            angle_range=settings.angle_range,
-            min_overlap=settings.min_overlap,
-            SingleThread=SingleThread,
-            use_cluster=Cluster,
-            source_scale=1.0,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback,
-            use_gpu=use_gpu)
+        best_match = _find_best_angle_at_scale(
+            _RegistrationPair(source_image, target_image, source_stats, target_stats,
+                              settings.min_overlap),
+            settings.angle_range, 1.0, execution)
         detected_scale = 1.0
     else:
         best_match, detected_scale = _find_best_angle_with_scale_search(
@@ -1321,12 +1300,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             angle_range=settings.angle_range,
             metadata_applied=metadata_scale_iso,
             scale_hint=resolved_scale_hint,
-            SingleThread=SingleThread,
-            use_cluster=Cluster,
+            execution=execution,
             force_search=force_scale_search,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback,
-            use_gpu=use_gpu,
         )
 
     def _finalize_logpolar_candidate(
@@ -1464,12 +1439,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 angle_range=settings.angle_range,
                 metadata_applied=metadata_scale_iso,
                 scale_hint=resolved_scale_hint,
-                SingleThread=SingleThread,
-                use_cluster=Cluster,
+                execution=execution,
                 force_search=force_scale_search,
-                cancel_event=cancel_event,
-                progress_callback=progress_callback,
-                use_gpu=use_gpu,
             )
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
@@ -1728,41 +1699,25 @@ def _score_one_angle_core(
 def _find_best_angle_at_scale(pair: _RegistrationPair,
                               angle_range: NDArray[np.floating] | Sequence[float],
                               source_scale: float,
-                              SingleThread: bool,
-                              use_cluster: bool,
-                              cancel_event: threading.Event | None = None,
-                              progress_callback: ProgressCallback | None = None,
-                              *,
-                              use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
+                              execution: _SearchExecution) -> nornir_imageregistration.AlignmentRecord:
     """Angle sweep with the source pre-scaled by *source_scale* (stats recomputed when scaled)."""
-    if np.isclose(source_scale, 1.0):
-        return _find_best_angle(source_image=pair.source_image,
-                                target_image=pair.target_image,
-                                source_stats=pair.source_stats,
-                                target_stats=pair.target_stats,
-                                angle_range=angle_range,
-                                min_overlap=pair.min_overlap,
-                                SingleThread=SingleThread,
-                                use_cluster=use_cluster,
-                                source_scale=1.0,
-                                cancel_event=cancel_event,
-                                progress_callback=progress_callback,
-                                use_gpu=use_gpu)
-
-    scaled_source = _scale_registration_image(pair.source_image, source_scale)
-    scaled_stats = nornir_imageregistration.ImageStats.CalcStats(scaled_source)
-    return _find_best_angle(source_image=scaled_source,
+    source_image = pair.source_image
+    source_stats = pair.source_stats
+    if not np.isclose(source_scale, 1.0):
+        source_image = _scale_registration_image(pair.source_image, source_scale)
+        source_stats = nornir_imageregistration.ImageStats.CalcStats(source_image)
+    return _find_best_angle(source_image=source_image,
                             target_image=pair.target_image,
-                            source_stats=scaled_stats,
+                            source_stats=source_stats,
                             target_stats=pair.target_stats,
                             angle_range=angle_range,
                             min_overlap=pair.min_overlap,
-                            SingleThread=SingleThread,
-                            use_cluster=use_cluster,
+                            SingleThread=execution.single_thread,
+                            use_cluster=execution.use_cluster,
                             source_scale=1.0,
-                            cancel_event=cancel_event,
-                            progress_callback=progress_callback,
-                            use_gpu=use_gpu)
+                            cancel_event=execution.cancel_event,
+                            progress_callback=execution.progress_callback,
+                            use_gpu=execution.use_gpu)
 
 
 _COARSE_GRID_DIM_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_DIM'
@@ -1815,14 +1770,9 @@ def _decimation_scale(target_shape: tuple[int, int],
 def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
                                       angle_range: NDArray[np.floating] | Sequence[float],
                                       candidates: Sequence[float],
-                                      SingleThread: bool,
-                                      use_cluster: bool,
+                                      execution: _SearchExecution,
                                       largest_dimension: int,
                                       top_k: int,
-                                      cancel_event: threading.Event | None = None,
-                                      progress_callback: ProgressCallback | None = None,
-                                      *,
-                                      use_gpu: bool | None = None
                                       ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     """Score the whole angle x scale grid on decimated images, refine the best few at full size.
 
@@ -1847,9 +1797,7 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
     """
     scale = _decimation_scale(pair.target_image.shape, pair.source_image.shape, largest_dimension)
     if scale >= 1.0:
-        return _find_best_angle_exhaustive(
-            pair, angle_range, candidates, SingleThread, use_cluster,
-            cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
+        return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
 
     coarse_target = _scale_registration_image(pair.target_image, scale)
     coarse_source = _scale_registration_image(pair.source_image, scale)
@@ -1860,11 +1808,8 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
 
     scored: list[tuple[float, float, float]] = []  # (weight, scale, angle)
     for candidate in candidates:
-        check_cancelled(cancel_event)
-        match = _find_best_angle_at_scale(
-            coarse_pair, angle_range, candidate, SingleThread, use_cluster,
-            cancel_event=cancel_event, progress_callback=progress_callback,
-            use_gpu=use_gpu)
+        check_cancelled(execution.cancel_event)
+        match = _find_best_angle_at_scale(coarse_pair, angle_range, candidate, execution)
         scored.append((float(match.weight), float(candidate), float(match.angle)))
 
     scored.sort(key=lambda entry: -entry[0])
@@ -1878,20 +1823,15 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
             '%d scales',
             largest_dimension, scored[0][0], scored[1][0],
             scored[0][0] / scored[1][0], _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
-        return _find_best_angle_exhaustive(
-            pair, angle_range, candidates, SingleThread, use_cluster,
-            cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
+        return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
 
     angle_list = [float(a) for a in angle_range]
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
     for _, candidate, coarse_angle in scored[:max(1, top_k)]:
-        check_cancelled(cancel_event)
+        check_cancelled(execution.cancel_event)
         refine_angles = _neighbouring_angles(angle_list, coarse_angle)
-        match = _find_best_angle_at_scale(
-            pair, refine_angles, candidate, SingleThread, use_cluster,
-            cancel_event=cancel_event, progress_callback=progress_callback,
-            use_gpu=use_gpu)
+        match = _find_best_angle_at_scale(pair, refine_angles, candidate, execution)
         if best_match is None or match.weight > best_match.weight:
             best_match = match
             best_scale = candidate
@@ -1920,22 +1860,14 @@ def _neighbouring_angles(angle_list: Sequence[float], angle: float) -> list[floa
 def _find_best_angle_exhaustive(pair: _RegistrationPair,
                                 angle_range: NDArray[np.floating] | Sequence[float],
                                 candidates: Sequence[float],
-                                SingleThread: bool,
-                                use_cluster: bool,
-                                cancel_event: threading.Event | None = None,
-                                progress_callback: ProgressCallback | None = None,
-                                *,
-                                use_gpu: bool | None = None
+                                execution: _SearchExecution,
                                 ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     """A full angle sweep at every scale candidate, at full resolution. The default."""
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
     for candidate in candidates:
-        check_cancelled(cancel_event)
-        match = _find_best_angle_at_scale(pair, angle_range, candidate, SingleThread, use_cluster,
-                                          cancel_event=cancel_event,
-                                          progress_callback=progress_callback,
-                                          use_gpu=use_gpu)
+        check_cancelled(execution.cancel_event)
+        match = _find_best_angle_at_scale(pair, angle_range, candidate, execution)
         if best_match is None or match.weight > best_match.weight:
             best_match = match
             best_scale = candidate
@@ -1947,13 +1879,9 @@ def _find_best_angle_with_scale_search(pair: _RegistrationPair,
                                        angle_range: NDArray[np.floating] | Sequence[float],
                                        metadata_applied: float,
                                        scale_hint: float | None,
-                                       SingleThread: bool,
-                                       use_cluster: bool,
+                                       execution: _SearchExecution,
                                        *,
-                                       force_search: bool = False,
-                                       cancel_event: threading.Event | None = None,
-                                       progress_callback: ProgressCallback | None = None,
-                                       use_gpu: bool | None = None) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+                                       force_search: bool = False) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     """Best (angle record, scale) over the scale candidates; coarse grid only when opted in."""
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
 
@@ -1964,14 +1892,9 @@ def _find_best_angle_with_scale_search(pair: _RegistrationPair,
     if coarse is not None and len(candidates) > 1 and len(angle_range) > 1:
         largest_dimension, top_k = coarse
         return _find_best_angle_with_coarse_grid(
-            pair, angle_range, candidates, SingleThread, use_cluster,
-            largest_dimension, top_k,
-            cancel_event=cancel_event, progress_callback=progress_callback,
-            use_gpu=use_gpu)
+            pair, angle_range, candidates, execution, largest_dimension, top_k)
 
-    return _find_best_angle_exhaustive(
-        pair, angle_range, candidates, SingleThread, use_cluster,
-        cancel_event=cancel_event, progress_callback=progress_callback, use_gpu=use_gpu)
+    return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
 
 
 def ScoreManyAnglesGpu(target_original: NDArray,

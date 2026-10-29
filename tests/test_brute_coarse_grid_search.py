@@ -28,6 +28,7 @@ comparison above lives in `test_brute_decimated_ranking.py`.
 from __future__ import annotations
 
 import os
+import threading
 import unittest
 from unittest import mock
 
@@ -35,9 +36,11 @@ import numpy as np
 
 import nornir_imageregistration
 from nornir_imageregistration import stos_brute
+from nornir_imageregistration.settings import SliceToSliceMethod
 
 _DIM_VAR = stos_brute._COARSE_GRID_DIM_VAR
 _TOPK_VAR = stos_brute._COARSE_GRID_TOPK_VAR
+_EXECUTION = stos_brute._SearchExecution(single_thread=True, use_cluster=False)
 
 
 def _pair(dim: int, min_overlap: float = 0.5) -> stos_brute._RegistrationPair:
@@ -114,7 +117,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_with_coarse_grid') as coarse:
                 result = stos_brute._find_best_angle_with_scale_search(
                     _pair(8), [0.0, 10.0, 20.0], metadata_applied=1.0, scale_hint=None,
-                    SingleThread=True, use_cluster=False)
+                    execution=_EXECUTION)
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
         coarse.assert_not_called()
@@ -127,7 +130,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_with_coarse_grid') as coarse:
                 stos_brute._find_best_angle_with_scale_search(
                     _pair(8), [0.0], metadata_applied=1.0, scale_hint=None,
-                    SingleThread=True, use_cluster=False)
+                    execution=_EXECUTION)
         exhaustive.assert_called_once()
         coarse.assert_not_called()
 
@@ -139,7 +142,7 @@ class TestTheDefaultPathIsUnchanged(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_exhaustive') as exhaustive:
                 result = stos_brute._find_best_angle_with_scale_search(
                     _pair(8), [0.0, 10.0, 20.0], metadata_applied=1.0, scale_hint=None,
-                    SingleThread=True, use_cluster=False)
+                    execution=_EXECUTION)
         self.assertEqual(sentinel, result)
         coarse.assert_called_once()
         exhaustive.assert_not_called()
@@ -167,7 +170,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             _, best_scale = stos_brute._find_best_angle_with_coarse_grid(
                 _pair(2048), angles, candidates,
-                True, False, 512, 2)
+                _EXECUTION, 512, 2)
 
         coarse_calls = seen[:len(candidates)]
         self.assertEqual(sorted(candidates), sorted(coarse_calls),
@@ -190,7 +193,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             stos_brute._find_best_angle_with_coarse_grid(
                 _pair(2048), [0.0, 10.0, 20.0], candidates,
-                True, False, 512, 2)
+                _EXECUTION, 512, 2)
 
         refine_calls = calls[len(candidates):]
         self.assertEqual(2, len(refine_calls))
@@ -211,7 +214,7 @@ class TestTheGridStaysExhaustive(_EnvIsolated):
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             stos_brute._find_best_angle_with_coarse_grid(
                 _pair(2048), [0.0, 10.0, 20.0, 30.0], [0.95, 1.0],
-                True, False, 512, 1)
+                _EXECUTION, 512, 1)
 
         self.assertEqual((0.0, 10.0, 20.0), calls[-1],
                          'the full-resolution refine should bracket the coarse winner')
@@ -237,7 +240,7 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
                     pair = _pair(2048)
                     result = stos_brute._find_best_angle_with_coarse_grid(
                         pair, [0.0, 10.0], candidates,
-                        True, False, 512, 2)
+                        _EXECUTION, 512, 2)
 
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
@@ -259,7 +262,7 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_exhaustive') as exhaustive:
                 _, scale = stos_brute._find_best_angle_with_coarse_grid(
                     _pair(2048), [0.0, 10.0], [0.95, 1.0, 1.05],
-                    True, False, 512, 1)
+                    _EXECUTION, 512, 1)
         exhaustive.assert_not_called()
         self.assertEqual(1.0, scale)
 
@@ -271,7 +274,7 @@ class TestItFallsBackWhenTheSurfaceIsFlat(_EnvIsolated):
             with mock.patch.object(stos_brute, '_find_best_angle_at_scale') as at_scale:
                 result = stos_brute._find_best_angle_with_coarse_grid(
                     _pair(256), [0.0, 10.0], [0.95, 1.0],
-                    True, False, 512, 2)
+                    _EXECUTION, 512, 2)
         self.assertEqual(sentinel, result)
         exhaustive.assert_called_once()
         at_scale.assert_not_called()
@@ -296,7 +299,7 @@ class TestRegistrationPairRouting(_EnvIsolated):
 
     def test_at_scale_one_passes_every_field_unchanged(self):
         with mock.patch.object(stos_brute, '_find_best_angle') as inner:
-            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 1.0, True, False)
+            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 1.0, _EXECUTION)
         kw = inner.call_args.kwargs
         self.assertIs(self.source, kw['source_image'])
         self.assertIs(self.target, kw['target_image'])
@@ -307,7 +310,7 @@ class TestRegistrationPairRouting(_EnvIsolated):
 
     def test_at_another_scale_only_the_source_is_rescaled(self):
         with mock.patch.object(stos_brute, '_find_best_angle') as inner:
-            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 0.5, True, False)
+            stos_brute._find_best_angle_at_scale(self.pair, [0.0, 1.0], 0.5, _EXECUTION)
         kw = inner.call_args.kwargs
         self.assertEqual((1024, 512), tuple(kw['source_image'].shape))
         self.assertIs(self.target, kw['target_image'])
@@ -320,7 +323,7 @@ class TestRegistrationPairRouting(_EnvIsolated):
         record = mock.Mock(weight=1.0, angle=0.0)
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale',
                                return_value=record) as at_scale:
-            stos_brute._find_best_angle_exhaustive(self.pair, [0.0], [0.9, 1.0], True, False)
+            stos_brute._find_best_angle_exhaustive(self.pair, [0.0], [0.9, 1.0], _EXECUTION)
         self.assertEqual(2, at_scale.call_count)
         for call in at_scale.call_args_list:
             self.assertIs(self.pair, call.args[0])
@@ -338,7 +341,7 @@ class TestRegistrationPairRouting(_EnvIsolated):
                                        return_value=(mock.sentinel.r, 1.0)) as inner:
                     stos_brute._find_best_angle_with_scale_search(
                         self.pair, [0.0, 10.0], metadata_applied=1.0, scale_hint=None,
-                        SingleThread=True, use_cluster=False, force_search=True)
+                        execution=_EXECUTION, force_search=True)
                 self.assertIs(self.pair, inner.call_args.args[0])
 
     def test_the_coarse_pass_scores_a_decimated_pair_and_the_refine_the_original(self):
@@ -353,7 +356,7 @@ class TestRegistrationPairRouting(_EnvIsolated):
 
         with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=fake):
             stos_brute._find_best_angle_with_coarse_grid(
-                self.pair, [0.0, 10.0], [0.95, 1.0], True, False, 512, 1)
+                self.pair, [0.0, 10.0], [0.95, 1.0], _EXECUTION, 512, 1)
 
         coarse, refine = pairs[:2], pairs[2:]
         self.assertEqual(1, len(refine))
@@ -364,6 +367,147 @@ class TestRegistrationPairRouting(_EnvIsolated):
             self.assertLess(coarse_pair.source_stats.mean, 1.0)
             self.assertGreater(coarse_pair.target_stats.mean, 10.0)
             self.assertEqual(0.37, coarse_pair.min_overlap)
+
+
+class TestSearchExecutionRouting(_EnvIsolated):
+    """Each ``_SearchExecution`` field must reach ``_find_best_angle`` unchanged.
+
+    Every field gets a value different from ``_find_best_angle``'s default, so a field that is
+    dropped, swapped or replaced by a default on the way down is visible.
+    """
+
+    _MIN_OVERLAP = 0.41  # not any helper's default
+
+    def setUp(self):
+        super().setUp()
+        self.event = threading.Event()
+        self.callback = mock.Mock()
+        self.execution = stos_brute._SearchExecution(
+            single_thread=False, use_cluster=True, cancel_event=self.event,
+            progress_callback=self.callback, use_gpu=False)
+        rng = np.random.default_rng(1)
+        self.target = rng.random((64, 72)).astype(np.float32)
+        self.source = rng.random((60, 66)).astype(np.float32)
+
+    def _assert_flags(self, kw, use_cluster=True):
+        self.assertIs(False, kw['SingleThread'])
+        self.assertIs(use_cluster, kw.get('use_cluster', False))
+        self.assertIs(self.event, kw['cancel_event'])
+        self.assertIs(self.callback, kw['progress_callback'])
+        self.assertIs(False, kw['use_gpu'])
+
+    def _assert_unscaled_pair(self, kw):
+        """The sweep scored the caller's source and target, unscaled, at the caller's overlap."""
+        self.assertEqual(self.source.shape, tuple(kw['source_image'].shape))
+        self.assertEqual(self.target.shape, tuple(kw['target_image'].shape))
+        self.assertEqual(self._MIN_OVERLAP, kw['min_overlap'])
+
+    def test_at_scale_passes_every_field_at_and_away_from_scale_one(self):
+        pair = _pair(32)
+        for scale in (1.0, 0.5):
+            with self.subTest(scale=scale):
+                with mock.patch.object(stos_brute, '_find_best_angle') as inner:
+                    stos_brute._find_best_angle_at_scale(pair, [0.0, 1.0], scale, self.execution)
+                self._assert_flags(inner.call_args.kwargs)
+
+    def test_every_search_helper_hands_the_same_execution_down(self):
+        record = mock.Mock(weight=1.0, angle=0.0)
+        with mock.patch.object(stos_brute, '_find_best_angle_at_scale',
+                               return_value=record) as at_scale:
+            stos_brute._find_best_angle_exhaustive(_pair(8), [0.0], [0.9, 1.0], self.execution)
+        for call in at_scale.call_args_list:
+            self.assertIs(self.execution, call.args[3])
+
+        def peaked(pair, angle_range, scale, execution):
+            self.assertIs(self.execution, execution)
+            return mock.Mock(weight=5.0 if scale == 1.0 else 1.0, angle=0.0)
+
+        with mock.patch.object(stos_brute, '_find_best_angle_at_scale', side_effect=peaked) as at_scale:
+            stos_brute._find_best_angle_with_coarse_grid(
+                _pair(2048), [0.0, 10.0], [0.95, 1.0], self.execution, 512, 1)
+        self.assertEqual(3, at_scale.call_count, 'two coarse scores and one refine')
+
+        # Both early exits of the coarse grid fall back to the exhaustive search.
+        flat = mock.Mock(weight=1.9, angle=0.0)
+        for dim in (256, 2048):
+            with self.subTest(coarse_fallback=dim):
+                with mock.patch.object(stos_brute, '_find_best_angle_at_scale', return_value=flat), \
+                        mock.patch.object(stos_brute, '_find_best_angle_exhaustive',
+                                          return_value=(record, 1.0)) as exhaustive:
+                    stos_brute._find_best_angle_with_coarse_grid(
+                        _pair(dim), [0.0, 10.0], [0.95, 1.0], self.execution, 512, 1)
+                self.assertIs(self.execution, exhaustive.call_args.args[3])
+
+        for dim, target in ((None, '_find_best_angle_exhaustive'),
+                            ('512', '_find_best_angle_with_coarse_grid')):
+            with self.subTest(scale_search=target):
+                if dim is None:
+                    os.environ.pop(_DIM_VAR, None)
+                else:
+                    os.environ[_DIM_VAR] = dim
+                with mock.patch.object(stos_brute, target, return_value=(record, 1.0)) as inner:
+                    stos_brute._find_best_angle_with_scale_search(
+                        _pair(8), [0.0, 10.0], metadata_applied=1.0, scale_hint=None,
+                        execution=self.execution, force_search=True)
+                self.assertIs(self.execution, inner.call_args.args[3])
+
+    @staticmethod
+    def _recording_find_best_angle(calls: list[dict]):
+        """A ``_find_best_angle`` stand-in that records its keyword arguments in *calls*."""
+        def fake(**kw):
+            calls.append(kw)
+            angles = [float(a) for a in kw['angle_range']]
+            return nornir_imageregistration.AlignmentRecord(
+                peak=(0.0, 0.0), weight=1.0 + 0.01 * len(calls), angle=angles[len(angles) // 2])
+        return fake
+
+    def test_the_public_entry_point_routes_its_flags_to_every_brute_sweep(self):
+        for search_scale in (True, False):
+            with self.subTest(search_scale=search_scale):
+                calls: list[dict] = []
+                fake = self._recording_find_best_angle(calls)
+                with mock.patch.object(stos_brute, '_find_best_angle', side_effect=fake):
+                    stos_brute.SliceToSliceRigidRegistration(
+                        self.target, self.source, AngleSearchRange=[0.0, 10.0, 20.0, 30.0],
+                        method=SliceToSliceMethod.BruteForce, search_scale=search_scale,
+                        MinOverlap=self._MIN_OVERLAP,
+                        SingleThread=False, Cluster=True, cancel_event=self.event,
+                        progress_callback=self.callback, use_gpu=False)
+
+                # The upright and flipped sweeps carry Cluster; the finalize angle refine has
+                # never passed it (``_find_best_angle`` overrides use_cluster to False anyway).
+                self.assertGreaterEqual(sum('use_cluster' in kw for kw in calls), 2)
+                self.assertIn('use_cluster', calls[0], 'the upright sweep must receive Cluster')
+                for kw in calls:
+                    self._assert_flags(kw, use_cluster='use_cluster' in kw)
+                if not search_scale:
+                    self._assert_unscaled_pair(calls[0])
+
+    def test_the_logpolar_fallback_routes_its_flags_to_every_sweep(self):
+        calls: list[dict] = []
+        fake = self._recording_find_best_angle(calls)
+        diagnostics = stos_brute.LogPolarDiagnostics(
+            angle_peak_ratio=1.05, translation_peak_ratio=1.02, strength_delta_ratio=0.05,
+            degrees_per_pixel=1.0, peak_strength=1.0)
+        ambiguous = stos_brute.AngleScaleResult(angle=10.0, scale=1.0, weight=1.0,
+                                                translation=(0.0, 0.0), ambiguous=True,
+                                                diagnostics=diagnostics)
+        with mock.patch.object(stos_brute, '_find_best_angle', side_effect=fake), \
+                mock.patch.object(stos_brute, '_find_angle_and_scale_with_logpolar',
+                                  return_value=ambiguous), \
+                mock.patch.object(stos_brute, '_brute_fallback_needs_widen', return_value=True):
+            stos_brute.SliceToSliceRigidRegistration(
+                self.target, self.source, AngleSearchRange=[0.0, 10.0, 20.0, 30.0],
+                method=SliceToSliceMethod.LogPolar, TestFlip=False, MinOverlap=self._MIN_OVERLAP,
+                SingleThread=False,
+                Cluster=True, cancel_event=self.event, progress_callback=self.callback,
+                use_gpu=False)
+
+        self.assertEqual(3, len(calls), 'adaptive, widened and full-sweep fallback passes')
+        for kw in calls:
+            self._assert_flags(kw)
+            self._assert_unscaled_pair(kw)
+        self.assertEqual([0.0, 10.0, 20.0, 30.0], sorted(float(a) for a in calls[2]['angle_range']))
 
 
 class TestDecimationScale(unittest.TestCase):
