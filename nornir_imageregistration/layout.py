@@ -340,7 +340,7 @@ class LayoutPosition:
         other ordering. (#255)
         """
         position_difference = self.TensionVectors(connected_nodes)
-        magnitudes = np.sqrt(np.sum(position_difference ** 2, 1))
+        magnitudes = nornir_imageregistration.array_distance(position_difference)
         i = magnitudes.argmax() if use_max else magnitudes.argmin()
         iRows = self.get_row_indices(connected_nodes)
         return (self._OffsetArray[iRows[i], self.iOffsetID],

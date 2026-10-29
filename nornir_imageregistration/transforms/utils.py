@@ -447,7 +447,7 @@ def BlendTransformsWithParams(transform: IControlPoints,
     linear_points = xp.asarray(linear_points)
 
     if travel_limit is not None:
-        distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
+        distances = nornir_imageregistration.array_distance(linear_points - target_points)
         blend_weights = _travel_blend_weights(distances, travel_limit, min_blend, effective_max_blend)
     else:
         blend_weights = xp.full(target_points.shape[0], min_blend, dtype=float)
@@ -497,13 +497,13 @@ def BlendTransformsIterativelyWithParams(transform: IControlPoints,
         linear_points = xp.asarray(linear_transform.Transform(source_points))
 
         if travel_limit is not None:
-            distances = xp.sqrt(xp.sum((linear_points - target_points) ** 2, axis=1))
+            distances = nornir_imageregistration.array_distance(linear_points - target_points)
             weights = _travel_blend_weights(distances, travel_limit, min_blend, effective_max_blend)
         else:
             weights = xp.full(target_points.shape[0], min_blend, dtype=float)
 
         new_target_points = _blend_target_points(target_points, linear_points, weights)
-        movement = float(xp.max(xp.sqrt(xp.sum((new_target_points - target_points) ** 2, axis=1))))
+        movement = float(xp.max(nornir_imageregistration.array_distance(new_target_points - target_points)))
         current_target_points = new_target_points
 
         if (movement < params.reblend_tolerance

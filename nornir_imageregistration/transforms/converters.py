@@ -145,8 +145,8 @@ def EstimateScale(source_points: NDArray[np.floating],
     centered_source_points = source_points - mean_source_points
     centered_target_points = target_points - mean_target_points
 
-    target_rms = xp.sum(xp.sqrt(xp.sum(centered_target_points ** 2, axis=1)))
-    source_rms = xp.sum(xp.sqrt(xp.sum(centered_source_points ** 2, axis=1)))
+    target_rms = xp.sum(nornir_imageregistration.array_distance(centered_target_points))
+    source_rms = xp.sum(nornir_imageregistration.array_distance(centered_source_points))
 
     scale = target_rms / source_rms
     return float(scale)
