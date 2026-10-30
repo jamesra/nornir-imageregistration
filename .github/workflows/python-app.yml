@@ -1,29 +1,26 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+# Non-data unit tests for nornir-imageregistration (no large TESTINPUTPATH corpus).
 
 name: Python application
 
 on:
   push:
-    branches: [ "master", "dev", "CuPy"]
+    branches: [ "master", "dev", "cpu_only" ]
   pull_request:
     branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write
 
 env:
-  CURSES: False
+  CURSES: "False"
   TERM: xterm
   ECLIPSE: ECLIPSE
-  # TESTINPUTPATH: ${{ github.workspace }}/testdata
-  # TESTOUTPUTPATH: ${{ github.workspace }}/testdata_output
+  NORNIR_HEADLESS: "1"
 
 jobs:
   build:
-
-    # runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -31,46 +28,135 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
+        python-version: "3.13"
 
     - name: Install dependencies
+      shell: bash
       run: |
+        set -euo pipefail
         python -m pip install --upgrade pip
-        pip install .
-        
-    - name: Create test data folders (Mac and linux)
+        python -m pip install pytest "numpy>=2.2.0" "scipy>=1.11" "matplotlib>=3.10" "Pillow>=10.2" "pydantic>=2.9.2" "six>=1.16" "scikit-image>=0.25.1" "hypothesis>=6.96"
+        python -m pip install "nornir_shared @ git+https://github.com/jamesra/nornir-shared.git@dev"
+        python -m pip install "nornir_pools @ git+https://github.com/jamesra/nornir-pools.git@master" --no-deps
+        python -m pip install . --no-deps
+        python -c "import numpy; import nornir_imageregistration; print('install ok', numpy.__version__)"
+
+    - name: Create test data folders (Unix)
       if: runner.os != 'Windows'
       run: |
-        echo ${{ github.workspace }}
         mkdir -p ${{ github.workspace }}/testdata ${{ github.workspace }}/testdata_output
         echo "TESTINPUTPATH=${{ github.workspace }}/testdata" >> $GITHUB_ENV
         echo "TESTOUTPUTPATH=${{ github.workspace }}/testdata_output" >> $GITHUB_ENV
 
-    - name: Create test data folders for Windows
+    - name: Create test data folders (Windows)
       if: runner.os == 'Windows'
       run: |
-        echo ${{ github.workspace }}
-        mkdir -p ${{ github.workspace }}\testdata 
+        mkdir -p ${{ github.workspace }}\testdata
         mkdir -p ${{ github.workspace }}\testdata_output
         echo "TESTINPUTPATH=${{ github.workspace }}\testdata" >> $env:GITHUB_ENV
         echo "TESTOUTPUTPATH=${{ github.workspace }}\testdata_output" >> $env:GITHUB_ENV
 
-    - name: Echo test data folders (Mac and linux)
-      if: runner.os != 'Windows'
-      run: |
-        echo $TESTINPUTPATH
-        echo $TESTOUTPUTPATH
+    - name: Restore CI fixtures cache
+      id: fixture-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/ci-testdata
+        key: ci-testdata-v1
 
-    - name: Echo test data folders for Windows
-      if: runner.os == 'Windows'
+    - name: Download CI fixture zip (cache miss)
+      if: steps.fixture-cache.outputs.cache-hit != 'true'
+      id: fixture-download
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
       run: |
-        echo $env:TESTINPUTPATH
-        echo $env:TESTOUTPUTPATH
-    
-    - name: Test with unittest
+        gh release download ci-testdata-v1 \
+          --repo jamesra/nornir-imageregistration \
+          --pattern "ci-testdata-v1.zip" \
+          --dir "${{ github.workspace }}"
+        unzip -q "${{ github.workspace }}/ci-testdata-v1.zip" \
+          -d "${{ github.workspace }}/ci-testdata"
+
+    - name: Stage CI fixtures into TESTINPUTPATH (Unix)
+      if: runner.os != 'Windows' && (steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success')
+      shell: bash
       run: |
-        python -m unittest discover -s ./test  -p 'test_grid_division*.py'
+        mkdir -p "$TESTINPUTPATH/Images" "$TESTINPUTPATH/Transforms"
+        cp -r "${{ github.workspace }}/ci-testdata/Images/." "$TESTINPUTPATH/Images/"
+        cp -r "${{ github.workspace }}/ci-testdata/Transforms/." "$TESTINPUTPATH/Transforms/"
+
+    - name: Stage CI fixtures into TESTINPUTPATH (Windows)
+      if: runner.os == 'Windows' && (steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success')
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force "$env:TESTINPUTPATH\Images" | Out-Null
+        New-Item -ItemType Directory -Force "$env:TESTINPUTPATH\Transforms" | Out-Null
+        if (Test-Path "${{ github.workspace }}\ci-testdata\Images") {
+          Copy-Item -Recurse -Force "${{ github.workspace }}\ci-testdata\Images\*" "$env:TESTINPUTPATH\Images\"
+        }
+        if (Test-Path "${{ github.workspace }}\ci-testdata\Transforms") {
+          Copy-Item -Recurse -Force "${{ github.workspace }}\ci-testdata\Transforms\*" "$env:TESTINPUTPATH\Transforms\"
+        }
+
+    - name: Run A-class unit tests
+      run: >
+        python -m pytest -q
+        tests/test_grid_division.py
+        tests/spatial/
+        tests/test_stosfile_paths.py
+        tests/test_gen_random_data_dtype.py
+        tests/test_tile_overlap.py
+        tests/test_transformed_image_data_contracts.py
+        tests/test_assemble_phase2.py
+        tests/test_assemble_preload.py
+        tests/test_volume.py
+        tests/transforms/test_registrationtree.py
+        tests/transforms/test_points_to_linear_fit.py
+        tests/transforms/test_linearfit.py
+        tests/transforms/test_transform_conversion.py
+        tests/transforms/test_scale_translate_registration.py
+        tests/settings/test_mosaicoffsets.py
+        tests/settings/test_translatesettings.py
+        tests/test_assemble_gpu_threaded.py
+        tests/test_blob_filter.py
+        tests/test_blob_filter_golden.py
+        tests/test_blob_filter_legacy_parity.py
+        tests/test_build_pyramid_memory.py
+        tests/test_cuvs_and_nearest_neighbor.py
+        tests/test_ensure_array_backend.py
+        tests/test_generate_optimized_tiles_empty.py
+        tests/test_image_to_tiles_coverage.py
+        tests/test_layout.py
+        tests/test_logpolar_phase_a.py
+        tests/test_refine_shared.py
+        tests/test_tileset_functions_concurrent_merge.py
+        tests/test_tileset_functions_copy.py
+        tests/test_tileset_functions_lineage.py
+        tests/test_tileset_functions_missing_paths.py
+        tests/test_tileset_functions_skip_empty.py
+        tests/transforms/test_blend_transforms.py
+        tests/transforms/test_chain_linear_correction.py
+        tests/transforms/test_grid_on_fixed_point_changed.py
+        tests/transforms/test_linear_nd_cupy_fallback.py
+        tests/transforms/test_transforms.py
+        tests/views/test_showgrayscale.py
+
+    - name: Run B-class unit tests (requires ci-testdata-v1 fixture pack)
+      if: steps.fixture-cache.outputs.cache-hit == 'true' || steps.fixture-download.outcome == 'success'
+      run: >
+        python -m pytest -q
+        tests/test_refine_grid_input_section_functional.py
+        tests/test_batched_refine_parity.py
+        tests/test_tiles.py
+        tests/test_SliceToSliceBrute.py
+        tests/test_assemble.py
+        tests/test_ImageAlign.py
+        tests/transforms/test_addition.py
+        tests/transforms/test_metrics.py
+        tests/test_assemble_tiles_basics.py

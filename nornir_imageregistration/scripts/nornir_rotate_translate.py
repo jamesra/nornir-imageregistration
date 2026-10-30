@@ -9,18 +9,12 @@ import logging
 import os
 import sys
 
-import nornir_imageregistration
-
+from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 
-from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
-
 
 def __CreateArgParser(ExecArgs=None):
-
-
-
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
     parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file")
 
@@ -49,19 +43,28 @@ def __CreateArgParser(ExecArgs=None):
                         help='images are known to overlap by at least this percentage',
                         dest='min_overlap'
                         )
-    
+
     parser.add_argument('-checkflip', '-flip',
-                        action='store',
+                        action='store_true',
                         required=False,
-                        type=bool,
-                        default=False,
                         help='If true, a vertically flipped version of the warped image will also be searched for the best alignment',
                         dest='testflip'
                         )
 
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        # type=bool,
+                        # default=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
+
     return parser
 
+
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the rotate_translate script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -71,6 +74,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -81,36 +85,35 @@ def OnUseError(message):
 
 
 def Execute(ExecArgs=None):
-    
+    """Run the rotate_translate script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
-        
+
     (Args, extra) = ParseArgs(ExecArgs)
 
     stosArgs = StosOverrideArgs(Args)
-    
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
 
-    alignRecord = sb.SliceToSliceBruteForce( stosArgs.ControlImage,
-                                             stosArgs.WarpedImage,
-                                             stosArgs.ControlMask,
-                                             stosArgs.WarpedMask,
-                                             MinOverlap=Args.min_overlap,
-                                             TestFlip=Args.testflip)
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
+
+    alignRecord = sb.SliceToSliceRigidRegistration(target_image=stosArgs.ControlImage,
+                                                   source_image=stosArgs.WarpedImage,
+                                                   target_mask=stosArgs.ControlMask,
+                                                   source_mask=stosArgs.WarpedMask,
+                                                   MinOverlap=Args.min_overlap,
+                                                   TestFlip=Args.testflip)
 
     if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
         stos = alignRecord.ToStos(stosArgs.ControlImage,
-                                stosArgs.WarpedImage,
-                                stosArgs.ControlMask,
-                                stosArgs.WarpedMask,
-                                PixelSpacing=1)
+                                  stosArgs.WarpedImage,
+                                  stosArgs.ControlMask,
+                                  stosArgs.WarpedMask,
+                                  PixelSpacing=1)
 
         stos.Save(Args.outputpath)
     else:
         stos = alignRecord.ToStos(ImagePath=stosArgs.ControlImage,
-                                WarpedImagePath=stosArgs.WarpedImage,
-                                PixelSpacing=1)
+                                  WarpedImagePath=stosArgs.WarpedImage,
+                                  PixelSpacing=1)
 
         stos.Save(Args.outputpath, AddMasks=False)
 
@@ -123,7 +126,6 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
-
     (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))

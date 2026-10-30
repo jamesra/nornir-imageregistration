@@ -1,0 +1,144 @@
+"""Permanent tests for find_peak memory-oriented refactor."""
+from __future__ import annotations
+
+import unittest
+
+import numpy as np
+
+import nornir_imageregistration
+from nornir_imageregistration.phasecorrelation import find_peak
+
+try:
+    import cupy as cp
+except (ModuleNotFoundError, ImportError):
+    import nornir_imageregistration.cupy_thunk as cp
+
+
+def _synthetic_peak(xp, *, out_of_mask_high: bool = False, in_mask_zeros: bool = False):
+    image = xp.full((32, 32), 0.1, dtype=xp.float32)
+    if in_mask_zeros:
+        image[8:24, 8:24] = 0.0
+    image[14:18, 14:18] = 0.9
+    if out_of_mask_high:
+        image[0:3, 0:3] = 5.0
+    mask = xp.zeros((32, 32), dtype=bool)
+    mask[4:28, 4:28] = True
+    return image, mask
+
+
+class TestFindPeakMemory(unittest.TestCase):
+    """allow_in_place parity, mutation semantics, and masked-peak correctness."""
+
+    def test_allow_in_place_matches_copy_path(self) -> None:
+        image, mask = _synthetic_peak(np, in_mask_zeros=True)
+        copy_result = find_peak(image.copy(), mask.copy(), allow_in_place=False)
+        in_place_image = image.copy()
+        in_place_result = find_peak(in_place_image, mask.copy(), allow_in_place=True)
+
+        self.assertAlmostEqual(copy_result.peak_strength, in_place_result.peak_strength, places=5)
+        self.assertAlmostEqual(copy_result.scaled_offset[0], in_place_result.scaled_offset[0], places=4)
+        self.assertAlmostEqual(copy_result.scaled_offset[1], in_place_result.scaled_offset[1], places=4)
+        self.assertAlmostEqual(copy_result.cutoff_value, in_place_result.cutoff_value, places=5)
+        # peak_ratio was omitted here, which is how the in-place cutoff was able to
+        # erase competing peaks unnoticed. See test_find_peak_inplace_ratio_parity.
+        self.assertAlmostEqual(copy_result.peak_ratio, in_place_result.peak_ratio, places=4)
+
+    def test_allow_in_place_mutates_input(self) -> None:
+        image, mask = _synthetic_peak(np)
+        pristine = image.copy()
+        find_peak(image, mask, allow_in_place=True)
+        self.assertFalse(np.allclose(image, pristine),
+                         "allow_in_place=True should overwrite the correlation image")
+
+    def test_copy_path_preserves_input(self) -> None:
+        image, mask = _synthetic_peak(np)
+        pristine = image.copy()
+        find_peak(image, mask, allow_in_place=False)
+        np.testing.assert_allclose(image, pristine)
+
+    def test_out_of_mask_high_ignored(self) -> None:
+        image, mask = _synthetic_peak(np, out_of_mask_high=True)
+        result = find_peak(image, mask)
+        cy, cx = np.asarray(image.shape, dtype=np.float32) / 2.0
+        self.assertAlmostEqual(result.scaled_offset[0], cy - 16.0, delta=2.0)
+        self.assertAlmostEqual(result.scaled_offset[1], cx - 16.0, delta=2.0)
+        # SNR must use in-mask mean, not the out-of-mask 5.0 blob.
+        reference_mean = float(np.mean(image[mask]))
+        work = image.copy()
+        work[~mask] = 0
+        work[work < result.cutoff_value] = 0
+        expected_snr = float(np.max(work)) / reference_mean
+        self.assertAlmostEqual(result.peak_strength, expected_snr, places=5)
+
+    def test_in_mask_zeros_counted_in_mean(self) -> None:
+        """count_nonzero(overlap_mask) must include in-mask zeros."""
+        image, mask = _synthetic_peak(np, in_mask_zeros=True)
+        result = find_peak(image, mask)
+        reference_mean = float(np.mean(image[mask]))
+        # Wrong denominator would exclude zeros and inflate the mean.
+        wrong_mean = float(np.sum(image[mask]) / np.count_nonzero(image[mask]))
+        self.assertLess(reference_mean, wrong_mean)
+        work = image.copy()
+        work[~mask] = 0
+        work[work < result.cutoff_value] = 0
+        expected_snr = float(np.max(work)) / reference_mean
+        self.assertAlmostEqual(result.peak_strength, expected_snr, places=5)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_cupy_parity_with_numpy(self) -> None:
+        image_np, mask_np = _synthetic_peak(np, in_mask_zeros=True, out_of_mask_high=True)
+        image_cp = cp.asarray(image_np)
+        mask_cp = cp.asarray(mask_np)
+        result_np = find_peak(image_np, mask_np)
+        result_cp = find_peak(image_cp, mask_cp)
+        self.assertAlmostEqual(result_np.peak_strength, result_cp.peak_strength, places=4)
+        self.assertAlmostEqual(result_np.scaled_offset[0], result_cp.scaled_offset[0], places=3)
+        self.assertAlmostEqual(result_np.scaled_offset[1], result_cp.scaled_offset[1], places=3)
+        self.assertAlmostEqual(result_np.cutoff_value, result_cp.cutoff_value, places=4)
+        self.assertIsInstance(image_cp, cp.ndarray)
+        self.assertIsInstance(image_np, np.ndarray)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_cupy_parity_device_sort_threshold(self) -> None:
+        """512² exceeds _DEVICE_SORT_MIN_SAMPLES; cutoff/offset must still match NumPy."""
+        rng = np.random.default_rng(2)
+        image_np = rng.random((512, 512)).astype(np.float32) * 0.15
+        image_np[250:260, 248:258] = 0.9
+        mask_np = np.ones((512, 512), dtype=bool)
+        mask_np[:64, :] = False
+        result_np = find_peak(image_np, mask_np)
+        result_cp = find_peak(cp.asarray(image_np), cp.asarray(mask_np))
+        self.assertAlmostEqual(result_np.scaled_offset[0], result_cp.scaled_offset[0], places=3)
+        self.assertAlmostEqual(result_np.scaled_offset[1], result_cp.scaled_offset[1], places=3)
+        self.assertAlmostEqual(result_np.cutoff_value, result_cp.cutoff_value, places=4)
+
+    @unittest.skipUnless(nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_linear_percentile_curve_matches_numpy(self) -> None:
+        from nornir_imageregistration.mathfuncs import linear_percentile_curve
+
+        rng = np.random.default_rng(1)
+        host = rng.random(4096).astype(np.float32)
+        q = np.linspace(95.0, 100.0, 101)
+        expected = np.percentile(host, q, method="linear")
+        actual = nornir_imageregistration.EnsureNumpyArray(
+            linear_percentile_curve(cp.asarray(host), q))
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
+
+    def test_no_peak_returns_zero_translation(self) -> None:
+        """A blank correlation image must not report shape/2 as an offset."""
+        image = np.zeros((64, 64), dtype=np.float32)
+        result = find_peak(image)
+        self.assertEqual(result.scaled_offset, (0.0, 0.0))
+        self.assertEqual(result.peak_strength, 0.0)
+
+    def test_empty_overlap_mask_returns_zero_translation(self) -> None:
+        """If every pixel is ineligible, fall back to no translation, not FFT center."""
+        image = np.ones((48, 80), dtype=np.float32)
+        mask = np.zeros((48, 80), dtype=bool)
+        result = find_peak(image, mask)
+        self.assertEqual(result.scaled_offset, (0.0, 0.0))
+        self.assertEqual(result.peak_strength, 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

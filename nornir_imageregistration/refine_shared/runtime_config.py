@@ -1,0 +1,223 @@
+"""Consolidate NORNIR_REFINE_* env gates and pool-selection helpers."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any
+
+from nornir_imageregistration.env_flags import env_flag, is_falsey, is_truthy
+
+
+@dataclass(frozen=True)
+class RefineRuntimeConfig:
+    """Process-wide refinement runtime options resolved from the environment.
+
+    Env vars are read when the config is constructed (call ``from_env()`` or
+    ``get_runtime_config(refresh=True)`` to pick up mid-process changes used by
+    benchmarks and tests).
+
+    Role / content tuning (see docs/grid16_stos_cell_role_theory.md):
+
+    - ``NORNIR_REFINE_ZNCC_PROMINENCE_MIN`` — min ZNCC prominence (peak vs decoy
+      shifts, in noise units) for lock candidates. Below → ``IDENTITY_SUSPECT``.
+      Unset → ``STOS_ZNCC_PROMINENCE_MIN`` (4.0).
+    - ``NORNIR_REFINE_IDENTITY_ZNCC_MIN`` — optional absolute ZNCC floor (legacy).
+      Unset → disabled (None). When set, lock candidates must also clear this bar.
+    - ``NORNIR_REFINE_LOW_CONTENT_STD_MIN`` — min ROI intensity std for alignable
+      source content. Below → sticky measure-skip + ``REJECT(LOW_CONTENT)``.
+      Unset → 1e-3.
+    - ``NORNIR_REFINE_PASS_DIAGNOSTICS`` — write per-pass NPZ/CSV including role/zncc.
+    - ``NORNIR_REFINE_PHASE_TIMING`` — detailed phase buckets (incl. classify/zncc).
+    """
+
+    phase_timing: bool
+    batched_vertex_measurement: bool
+    batched_stos_cell_measurement: bool
+    prewarp_mode: str
+    tile_measure_parallel: bool
+    gpu_transform: bool
+    disable_prewarp_cache: bool
+    mosaic_cutoff: bool
+    stos_regularize: bool
+    finalize_legacy: bool
+    pass_diagnostics: bool
+    sharp_warps: bool
+    discontinuity_k: float
+    discontinuity_travel_mult: float
+    identity_zncc_min: float | None
+    zncc_prominence_min: float
+    low_content_std_min: float
+    finalized_recheck_mode: str
+
+    @classmethod
+    def from_env(cls) -> RefineRuntimeConfig:
+        """Build a config snapshot from the current process environment."""
+        phase_flag = env_flag('NORNIR_REFINE_PHASE_TIMING', '0')
+        batched = env_flag('NORNIR_REFINE_BATCHED', '')
+        if batched == '':
+            batched = env_flag('NORNIR_REFINE_BATCHED_GPU', '')
+        # Mosaic vertex gate. Default ON when unset (validated production default).
+        batched_on = True if batched == '' else not is_falsey(batched)
+
+        # STOS cell gate is independent so mosaic debug (BATCHED=0) does not
+        # force STOS onto the serial path (#98 / C03-B007).
+        stos_batched = env_flag('NORNIR_REFINE_BATCHED_STOS', '')
+        if stos_batched == '':
+            stos_batched_on = True
+        else:
+            stos_batched_on = not is_falsey(stos_batched)
+
+        tile_flag = env_flag('NORNIR_REFINE_TILE_PARALLEL', '')
+        if is_falsey(tile_flag):
+            tile_parallel = False
+        elif is_truthy(tile_flag):
+            tile_parallel = True
+        else:
+            tile_parallel = False
+
+        gpu_flag = env_flag('NORNIR_REFINE_GPU_TRANSFORM', '')
+        gpu_transform = not (is_falsey(gpu_flag) or gpu_flag == '')
+
+        sharp_flag = env_flag('NORNIR_REFINE_SHARP_WARPS', '')
+        # Default ON when unset; only an explicit falsey disables.
+        sharp_warps = True if sharp_flag == '' else not is_falsey(sharp_flag)
+
+        disc_k = 1.5
+        raw_k = os.environ.get('NORNIR_REFINE_DISCONTINUITY_K', '').strip()
+        if raw_k:
+            try:
+                disc_k = max(0.1, float(raw_k))
+            except ValueError:
+                pass
+
+        disc_travel = 2.5
+        raw_travel = os.environ.get('NORNIR_REFINE_DISCONTINUITY_TRAVEL_MULT', '').strip()
+        if raw_travel:
+            try:
+                disc_travel = max(1.0, float(raw_travel))
+            except ValueError:
+                pass
+
+        # Optional absolute floor (legacy). Unset → disabled.
+        identity_zncc: float | None = None
+        raw_zncc = os.environ.get('NORNIR_REFINE_IDENTITY_ZNCC_MIN', '').strip()
+        if raw_zncc:
+            try:
+                identity_zncc = float(raw_zncc)
+            except ValueError:
+                pass
+
+        # Defaults match settings.grid_refinement.STOS_ZNCC_PROMINENCE_MIN
+        # (avoid circular imports).
+        prominence = 4.0
+        raw_prom = os.environ.get('NORNIR_REFINE_ZNCC_PROMINENCE_MIN', '').strip()
+        if raw_prom:
+            try:
+                prominence = float(raw_prom)
+            except ValueError:
+                pass
+
+        low_content_std = 1e-3
+        raw_std = os.environ.get('NORNIR_REFINE_LOW_CONTENT_STD_MIN', '').strip()
+        if raw_std:
+            try:
+                low_content_std = max(0.0, float(raw_std))
+            except ValueError:
+                pass
+
+        finalized_recheck_mode = env_flag('NORNIR_REFINE_FINALIZED_RECHECK_MODE', 'all')
+        if finalized_recheck_mode not in ('all', 'shadow', 'local'):
+            finalized_recheck_mode = 'all'
+
+        return cls(
+            phase_timing=not (is_falsey(phase_flag) or phase_flag == ''),
+            batched_vertex_measurement=batched_on,
+            batched_stos_cell_measurement=stos_batched_on,
+            prewarp_mode=env_flag('NORNIR_REFINE_PREWARP_MODE', ''),
+            tile_measure_parallel=tile_parallel,
+            gpu_transform=gpu_transform,
+            disable_prewarp_cache=is_truthy(env_flag('NORNIR_DISABLE_PREWARP_CACHE', '')),
+            mosaic_cutoff=is_truthy(env_flag('NORNIR_REFINE_MOSAIC_CUTOFF', '')),
+            stos_regularize=is_truthy(env_flag('NORNIR_REFINE_STOS_REGULARIZE', '')),
+            finalize_legacy=is_truthy(env_flag('NORNIR_REFINE_FINALIZE_LEGACY', '')),
+            pass_diagnostics=is_truthy(env_flag('NORNIR_REFINE_PASS_DIAGNOSTICS', '')),
+            sharp_warps=sharp_warps,
+            discontinuity_k=disc_k,
+            discontinuity_travel_mult=disc_travel,
+            identity_zncc_min=identity_zncc,
+            zncc_prominence_min=prominence,
+            low_content_std_min=low_content_std,
+            finalized_recheck_mode=finalized_recheck_mode,
+        )
+
+    def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:
+        """Return True when per-tile prewarp should use the shared thread pool."""
+        mode = self.prewarp_mode
+        if 'serial' in mode:
+            return False
+        if 'thread' in mode:
+            return True
+        return using_cupy
+
+    def prewarp_cache_enabled(self, using_cupy: bool) -> bool:
+        """Return True when cross-pass prewarp caching is allowed."""
+        if self.disable_prewarp_cache:
+            return False
+        if using_cupy:
+            return 'cache' in self.prewarp_mode
+        return True
+
+    def prewarp_single_warp_coverage_enabled(self) -> bool:
+        """Return True for the opt-in single-warp coverage path."""
+        return 'singlewarp' in self.prewarp_mode
+
+    def pool_for_cell_tasks(self, using_cupy: bool) -> Any:
+        """Return the pool used for per-cell STOS / overlap alignment tasks."""
+        import nornir_pools
+
+        if using_cupy:
+            return nornir_pools.GetGlobalSerialPool()
+        return nornir_pools.GetGlobalMultithreadingPool()
+
+    def pool_for_prewarp(self, using_cupy: bool) -> Any:
+        """Return the pool used for mosaic prewarp dispatch when parallelized."""
+        import nornir_pools
+
+        if using_cupy and self.prewarp_thread_dispatch_enabled(using_cupy):
+            return nornir_pools.GetGlobalThreadPool()
+        if using_cupy:
+            return nornir_pools.GetGlobalSerialPool()
+        return nornir_pools.GetGlobalMultithreadingPool()
+
+    def pool_for_tile_measure(self) -> Any:
+        """Return the pool used when ``tile_measure_parallel`` is enabled."""
+        import nornir_pools
+
+        return nornir_pools.GetGlobalThreadPool()
+
+
+@lru_cache(maxsize=1)
+def _cached_config() -> RefineRuntimeConfig:
+    return RefineRuntimeConfig.from_env()
+
+
+def get_runtime_config(*, refresh: bool = False) -> RefineRuntimeConfig:
+    """Return the process refine runtime config, optionally refreshing from env.
+
+    ``refresh=True`` clears the cache and re-reads every refine env var, costing
+    roughly 8 us against 42 ns for a cached read. Use it at coarse boundaries only:
+    once per refine pass, per tile, or right after a test or benchmark changes the
+    environment.
+
+    Per-cell accessors (``low_content_std_min_threshold``,
+    ``identity_zncc_min_threshold``, ``sharp_warps_enabled``, and friends) read the
+    cache. They used to refresh, which cleared the cache on every access and meant
+    it never served a single hit -- ``is_alignable_cell`` alone paid that twice per
+    cell. The coarse callers in ``local_distortion_correction`` still refresh, so a
+    mid-process change is picked up without the per-cell cost.
+    """
+    if refresh:
+        _cached_config.cache_clear()
+    return _cached_config()

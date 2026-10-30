@@ -1,222 +1,474 @@
-
-import matplotlib.pyplot as plt 
-import collections
-import nornir_imageregistration
-import numpy as np
+import collections.abc
 import math
-import matplotlib.colors 
-import matplotlib.gridspec 
+from typing import Iterable, Sequence
 
-def ShowGrayscale(input_params, title=None,PassFail=False):
-    '''
+import matplotlib.colors
+import matplotlib.gridspec
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes as MplAxes
+from matplotlib.figure import Figure as MplFigure
+from matplotlib.patches import Rectangle as MplRectangle
+import numpy as np
+from numpy.typing import NDArray
+
+from nornir_imageregistration import Rectangle
+
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+
+import nornir_imageregistration
+from nornir_imageregistration.headless import is_headless, save_figure_to_png_artifact
+
+
+def add_rectangle(ax: MplAxes, roi: nornir_imageregistration.Rectangle, **kwargs) -> MplRectangle | None:
+    """Add a rectangle to the axes"""
+    if roi is None:
+        return None
+
+    if 'facecolor' not in kwargs:
+        kwargs['facecolor'] = 'blue'
+
+    if 'alpha' not in kwargs:
+        kwargs['alpha'] = 0.25
+
+    rect = MplRectangle((roi.MinX, roi.MinY), roi.Width, roi.Height, **kwargs)
+    ax.add_patch(rect)
+    return rect
+
+
+def ShowGrayscale(input_params: Sequence[NDArray] | NDArray, title: str | None = None,
+                  image_titles: Sequence[str] | str | None = None,
+                  rois: Sequence[nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None,
+                  PassFail: bool = False,
+                  filename: str | None = None):
+    """
+    :param PassFail:
     :param list input_params: A list or single ndimage to be displayed with imshow
     :param str title: Informative title for the figure, for example expected test results
-    '''
-    from matplotlib.widgets import Button
- 
-    def set_title_for_single_image(title):
-        if not title is None:
-            plt.title(title)
-        return 
+    :param image_titles: A list of titles, must have same shape as input_params
+    """
 
-    def set_title_for_multi_image(fig, title):
-        if not title is None:
+    def set_title_for_single_image(title: str | None):
+        if title is not None:
+            plt.title(title)
+        return
+
+    def set_title_for_multi_image(fig, title: str | None):
+        if title is not None:
             fig.suptitle(title)
         return
 
-    class PassFailInput(object):
-        
-        def __init__(self, fig):
-            self.Pass = None
-            self.fig = fig
-            
-
-        def OnPassButton(self, event):
-            self.Pass = True   
-            return
-
-        def OnFailButton(self, event):
-            self.Pass = False 
-            return
-                
     fig = None
     axes = None
-    
+
     image_data = _ConvertParamsToImageList(input_params)
-    grid_dims = _GridLayoutDims(image_data)
-    
-    if grid_dims == (1,1): 
-        (fig, ax) = _DisplayImageSingle(image_data)
-        set_title_for_single_image(title)
-    elif grid_dims[1] == 1:
-        (fig, ax) = _DisplayImageList1D(image_data)
-        set_title_for_multi_image(fig, title)
-    elif grid_dims[1] > 1:
-        (fig, gs) = _DisplayImageList2D(image_data, grid_dims)
-        set_title_for_multi_image(fig, title)
-        
-    elif isinstance(input_params, collections.Iterable):
-        #OK, we have a list of images or a list of lists
-        #TODO: Why doesn't this use the DisplayImageList2D function?
-        
-            height, width = _GridLayoutDims(input_params)
-            gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=height)
-            fig = plt.figure()
+    grid_dims = _GridLayoutDims(image_data)  # type: ignore[arg-type]
+
+    if image_titles is not None:
+        title_dims = _TitleLayoutDims(image_titles)
+        if grid_dims != title_dims:
+            raise ValueError(
+                f"layout of image titles must match layout of images.\nGot {grid_dims} layout of images and {title_dims} layout of image titles")
+    else:
+        title_dims = None
+
+    if grid_dims == (1, 1):
+        image_title = None
+        if isinstance(image_titles, str):
+            image_title = image_titles
+        elif isinstance(image_titles, collections.abc.Iterable):
+            image_title = image_titles[0]
+
+        (fig, ax) = _DisplayImageSingle(image_data, image_title)
+        if image_titles is None:
+            set_title_for_single_image(title)
+        else:
             set_title_for_multi_image(fig, title)
 
-            for i, image in enumerate(input_params):
-                # fig = figure()
-                if isinstance(image, np.ndarray):
-                    # ax = fig.add_subplot(101 + ((len(input_params) - (i)) * 10))
-                    iRow = i // width
-                    iCol = (i - (iRow * width)) % width
+        axes_for_row = [ax]
+        # add_rois_to_single_axes(ax, rois)
+    elif grid_dims[1] == 1:
+        (fig, axes) = _DisplayImageList1D(image_data, image_titles)
+        axes_for_row = [axes]
+        set_title_for_multi_image(fig, title)
+    elif grid_dims[1] > 1:
+        (fig, gs, axes_for_row) = _DisplayImageList2D(image_data, grid_dims, image_titles, rois)  # type: ignore[arg-type]
+        set_title_for_multi_image(fig, title)
 
-                    print("Row %d Col %d" % (iRow, iCol))
-                    
-                    
-                    ax = fig.add_subplot(gs[iRow, iCol])
-#                     if height > 1:
-#                         ax = axes[iRow, iCol ]
-#                     else:
-#                         ax = axes[iCol]
-
-                    ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())  
     else:
         return
 
-    callback = PassFailInput(fig)
-    
+    add_rois(fig, grid_dims, axes_for_row, rois)  # type: ignore[arg-type]
+
     fig.tight_layout()
 
-    if PassFail == True:
-        axprev = plt.axes([0.7, 0.05, 0.1, 0.075])
-        axnext = plt.axes([0.81, 0.05, 0.1, 0.075])
-
-        bnext = Button(axnext, 'Pass', color='#00FF80')
-        bnext.on_clicked(callback.OnPassButton)
-        bprev = Button(axprev, 'Fail', color='#FF0000')
-        bprev.on_clicked(callback.OnFailButton)
-        #plt.tight_layout(pad=1.0)  
-        fig.show()
-        
-        while callback.Pass is None:
-            fig.waitforbuttonpress()
-            
-        plt.close(fig)
+    if PassFail:
+        return nornir_imageregistration.ShowWithPassFail(fig)
 
     else:
-        #plt.tight_layout(pad=1.0)  
-        fig.show()
+        # plt.tight_layout(pad=1.0)
+        if filename is not None:
+            fig.savefig(filename, dpi=300)
+        elif is_headless():
+            save_figure_to_png_artifact(fig, tag="showgrayscale", dpi=300)
+        else:
+            fig.show()
     # Do not call clf or we get two windows on the next call 
     # plt.clf()
- 
+
     fig = None
 
-    return callback.Pass
+    return
+
+
+def __all_rectangles(rois: Rectangle | Sequence[Rectangle | Sequence[Rectangle]] | None) -> bool:
+    if rois is None:
+        return True
+    elif isinstance(rois, Rectangle):
+        return True
+    elif isinstance(rois, collections.abc.Sequence):
+        for roi in rois:
+            if roi is None:
+                return False
+            elif isinstance(roi, Rectangle):
+                continue
+            elif not isinstance(roi, Sequence):
+                raise ValueError(f"Unexpected type in roi list: {roi.__class__} within: {rois}")
+            else:
+                return False  # A valid type, but not a rectangle
+        return True
+    else:
+        raise ValueError(f"Unexpected type for rois: {rois.__class__}")
+
+
+def add_rois(fig: MplFigure,
+             grid_dim: tuple[int, int],
+             axes_for_row: list[list[MplAxes]],
+             rois: Rectangle | Sequence[Rectangle] | None):
+    """Add the rois to the figure.  If there is one figure, add all rois to that figure.  
+    If there are multiple figures and rois is a list of lists of equal length as the number of images then each roi list is added to the 
+    corresponding images.  If rois is a list of only rectangles the rectangles are added to each image.
+    """
+
+    if rois is None:
+        return
+
+    if isinstance(rois, Sequence) and len(rois) == 0:
+        return
+
+    if grid_dim == (1, 1):
+        ax = fig.get_axes()[0]
+        add_rois_to_single_axes(ax, rois)
+    else:
+        # If there is a list of only rectangles, add the set of rectangles to each image
+        if __all_rectangles(rois):
+            for ax in fig.get_axes():
+                add_rois_to_single_axes(ax, rois)
+        elif len(rois) == math.prod(grid_dim):  # type: ignore[arg-type]
+            for i, ax in enumerate(fig.get_axes()):
+                add_rois_to_single_axes(ax, rois[i])  # type: ignore[arg-type, index]
+        elif len(rois) == grid_dim[0]:  # type: ignore[arg-type]
+            # Each row of the tuple corresponds to a row of the grid
+
+            for iRow, axes_row in enumerate(axes_for_row):
+                add_rois_to_axes_row(axes_row, rois[iRow])  # type: ignore[arg-type, index]
+        else:
+            # Add each list of rois to the corresponding image, and stop when the list ends
+            for ax in fig.get_axes():
+                add_rois_to_single_axes(ax, rois)
+
+
+def add_rois_to_axes_row(row_axes: Sequence[MplAxes], rois: Sequence[Rectangle] | Rectangle | None):
+    """Add all of the rectangles to a row of Axes"""
+    if rois is None:
+        return
+    elif isinstance(rois, Rectangle):
+        for ax in row_axes:
+            add_rectangle(ax, rois)
+    else:
+        for ax, roi in zip(row_axes, rois):
+            if roi is None:
+                continue
+            elif not isinstance(roi, Rectangle):
+                raise ValueError(f"Unexpected type in roi list for single image: {roi.__class__} \n\twithin: {rois}")
+
+            add_rectangle(ax, roi)
+    return
+
+
+def add_rois_to_single_axes(ax: MplAxes, rois: Rectangle | Sequence[Rectangle] | None):
+    """Add all of the rectangles to an Axes"""
+    if rois is None:
+        return
+    elif isinstance(rois, Rectangle):
+        add_rectangle(ax, rois)
+    else:
+        for roi in rois:
+            if roi is None:
+                continue
+            elif not isinstance(roi, Rectangle):
+                raise ValueError(f"Unexpected type in roi list for single image: {roi.__class__} \n\twithin: {rois}")
+
+            add_rectangle(ax, roi)
+    return
 
 
 def _ConvertParamsToImageList(param):
-    output=None
+    output = None
     if isinstance(param, str):
-        loaded_image = nornir_imageregistration.ImageParamToImageArray(param)
-        output = nornir_imageregistration.core._Image_To_Uint8(loaded_image)
+        loaded_image = nornir_imageregistration.ImageParamToNumpyImageArray(param)
+        output = nornir_imageregistration.core.image_to_uint8(loaded_image)
     elif isinstance(param, np.ndarray):
-        output = nornir_imageregistration.core._Image_To_Uint8(param)
-    elif isinstance(param, collections.Iterable):
+        output = nornir_imageregistration.core.image_to_uint8(param)
+    elif isinstance(param, cp.ndarray):
+        param = nornir_imageregistration.EnsureNumpyArray(param)  # Ensure it is not a Cupy array
+        output = nornir_imageregistration.core.image_to_uint8(param)
+    elif isinstance(param, collections.abc.Iterable):
         output = [_ConvertParamsToImageList(item) for item in param]
         if len(output) == 1:
             output = output[0]
-    
-    return output
-    
 
-def _GridLayoutDims(imagelist):
-    '''Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
-    '''
-    
-    def _NumImages(param):
+    return output
+
+
+def _GridLayoutDims(image_list: np.typing.NDArray | Iterable | None) -> tuple[int, int]:
+    """Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    """
+
+    def _num_images(param):
         if isinstance(param, np.ndarray):
+            return 1
+        elif isinstance(param, cp.ndarray):
             return 1
         else:
             return len(param)
-                
-    if isinstance(imagelist, np.ndarray):
-        return (1,1)
-    elif isinstance(imagelist, collections.Iterable):
-        lengths = [_NumImages(p) for p in imagelist]
+
+    if image_list is None:
+        return 0, 0
+    elif isinstance(image_list, np.ndarray):
+        return 1, 1
+    elif isinstance(image_list, collections.abc.Iterable):
+        lengths = [_num_images(p) for p in image_list]
         max_len = np.max(lengths)
-        return (len(imagelist), max_len)
+        return len(image_list), max_len  # type: ignore[arg-type]
+
+
+def _TitleLayoutDims(title_list: np.typing.NDArray | Iterable) -> tuple[int, int]:
+    """Given a list of N items, returns the number of rows & columns to display the list.  Dimensions will always be wider than they are tall or equal in dimension
+    """
+
+    def _num_titles(param):
+        if isinstance(param, str):
+            return 1
+        else:
+            return len(param)
+
+    if isinstance(title_list, str):
+        return 1, 1
+
+    elif isinstance(title_list, collections.abc.Iterable):
+        lengths = [_num_titles(p) for p in title_list]
+        max_len = np.max(lengths)
+        return len(title_list), max_len  # type: ignore[arg-type]
+
+
+def get_aspect(ax: MplAxes | None = None):
+    remove_plot = False
+    if ax is None:
+        ax = plt.gca()
+        remove_plot = True
+    fig = ax.figure
+
+    ll, ur = ax.get_position() * fig.get_size_inches()  # type: ignore[union-attr]
+    width, height = ur - ll
+    axes_ratio = height / width
+    aspect = axes_ratio / ax.get_data_ratio()
+
+    if remove_plot:
+        plt.close(fig)  # type: ignore[arg-type]
+
+    return aspect
+
 
 def _ImageList1DGridDims(imagelist):
-    #OK, a 1D list, so figure out how to spread the images across a grid
+    # OK, a 1D list, so figure out how to spread the images across a grid
     numImages = len(imagelist)
-    width = math.ceil(math.sqrt(numImages))
-    height = math.ceil(numImages / width)
 
-    if height > width:
-        tempH = height
-        height = width
-        height = tempH
+    aspect_ratio = get_aspect()
+    # Assume
+    # N = Num Images
+    # R = Ratio
+    # W = Width
+    # H = Height
+    #
+    # W * H = N
+    # W / H = R
+    #
+    # H = W / R
+    # W * (W / R) = W^2 / R
+    # sqrt(N * R) = W^2
+    #
 
-    return (int(height), int(width))
+    A = math.ceil(math.sqrt(numImages * aspect_ratio))
+    B = math.ceil(numImages / A)
+
+    if len(imagelist) == 0:
+        return 0, 0
+
+    width = None
+    height = None
+
+    # Use the first image dimensions to determine if we have more rows or columns
+    if A != B:
+        imshapetotal = imagelist[0].shape
+        for im in imagelist[1:]:
+            imshapetotal = np.add(imshapetotal, im.shape)
+
+        if imshapetotal[0] * aspect_ratio > imshapetotal[1]:  # Images are taller than the are wide
+            width = max(A, B)
+            height = min(A, B)
+        else:
+            width = min(A, B)
+            height = max(A, B)
+
+    if width is None:
+        if aspect_ratio > 1:
+            width = max(A, B)
+            height = min(A, B)
+        else:
+            width = min(A, B)
+            height = max(A, B)
+
+    assert height is not None and width is not None
+    return int(height), int(width)
+
 
 def _DisplayImageSingle(input_param, title=None):
     fig, ax = plt.subplots()
-    ax.imshow(input_param, cmap=plt.gray(), aspect='equal', norm=matplotlib.colors.NoNorm())
-    if not title is None:
+    ax.imshow(input_param, cmap=plt.gray(), origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
+    if title is not None:
         ax.set_title(title)
-    
-    return (fig, ax)
-    
-def _DisplayImageList1D(input_params, title=None): 
-        
+
+    return fig, ax
+
+
+def _DisplayImageList1D(input_params, image_titles: Sequence[str] | None = None):
     (height, width) = _ImageList1DGridDims(input_params)
+
     fig, axes = plt.subplots(height, width)
 
+    total_plots = height * width
+
+    ndim = len(axes.shape)
+
     for i, image in enumerate(input_params):
+
+        image = nornir_imageregistration.EnsureNumpyArray(image)
+        ax = None
+
+        if ndim == 1:
+            ax = axes[i]
+        elif ndim == 2:
+            iRow = i // width
+            iCol = (i - (iRow * width)) % width
+            # print("Row %d Col %d" % (iRow, iCol))
+
+            if height > 1:
+                ax = axes[iRow, iCol]
+            else:
+                ax = axes[iCol]
+        else:
+            raise NotImplementedError("What in the world?  3D Display or something?")
+
+        ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal', norm=matplotlib.colors.NoNorm())
+
+        if image_titles is not None:
+            ax.set_title(image_titles[i])
+
+    i += 1
+    while i < total_plots:
         iRow = i // width
         iCol = (i - (iRow * width)) % width
 
-        #print("Row %d Col %d" % (iRow, iCol))
-
         if height > 1:
-            ax = axes[iRow, iCol ]
+            ax = axes[iRow, iCol]
         else:
             ax = axes[iCol]
 
-        ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())   
-            
-    return (fig, axes)
-    
-def _DisplayImageList2D(input_params, grid_dims, title=None):
+        ax.remove()
+
+        i += 1
+
+    return fig, axes
+
+
+def _DisplayImageList2D(input_params, grid_dims, image_titles: Sequence[str] | str | None = None, rois: Sequence[
+                                                                                                  nornir_imageregistration.Rectangle] | nornir_imageregistration.Rectangle | None = None) -> \
+        tuple[MplFigure, matplotlib.gridspec.GridSpec, list[MplAxes]]:
     (height, width) = grid_dims
     gs = matplotlib.gridspec.GridSpec(nrows=height, ncols=width)
-    fig = plt.figure()
-    #, axes = plt.subplots(height, width)
+    fig = MplFigure()
+    # , axes = plt.subplots(height, width)
+
+    axes_for_row = []
 
     for (iRow, row_list) in enumerate(input_params):
-        
+
+        row_titles = None
+        if image_titles is not None:
+            row_titles = image_titles[iRow]
+
+        row_rois = None
+        if rois is not None:
+            row_rois = rois[iRow]
+
         if isinstance(row_list, np.ndarray):
-            ax = fig.add_subplot(gs[iRow,:])#axes[iRow, 0]
-            ax.imshow(row_list, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())
-            continue 
-        
+            ax = fig.add_subplot(gs[iRow, :])  # axes[iRow, 0]
+            axes_for_row.append([ax])
+            ax.imshow(row_list, cmap=plt.gray(), origin='lower', figure=fig, aspect='equal',
+                      norm=matplotlib.colors.NoNorm())
+
+            if row_titles is not None:
+                ax.set_title(row_titles)
+
+            if row_rois is not None:
+                add_rectangle(ax, row_rois)  # type: ignore[arg-type]
+
+            continue
+
         numCols = len(row_list)
+        col_axes = []
         for iCol, image in enumerate(row_list):
-            #print("Row %d Col %d" % (iRow, iCol))
-            
-            if iCol == numCols-1 and numCols < width:
+            image = nornir_imageregistration.EnsureNumpyArray(image)
+            # print("Row %d Col %d" % (iRow, iCol))
+
+            if iCol == numCols - 1 and numCols < width:
                 ax = fig.add_subplot(gs[iRow, iCol:])
             else:
                 ax = fig.add_subplot(gs[iRow, iCol])
-                
 
- #           if height > 1:
-#                ax = fig.add_subplot(gs[iRow, iCol]
-#            else:
-#                ax = fig.add_subplot([iCol]
+            #           if height > 1:
+            #                ax = fig.add_subplot(gs[iRow, iCol]
+            #            else:
+            #                ax = fig.add_subplot([iCol]
 
-            ax.imshow(image, cmap=plt.gray(), figure=fig, aspect='equal', norm=matplotlib.colors.NoNorm())    
-    
-    return (fig, gs)
-    
+            ax.imshow(image, cmap=plt.gray(), figure=fig, origin='lower', aspect='equal',
+                      norm=matplotlib.colors.NoNorm())
+            col_axes.append(ax)
+
+            if row_titles is not None:
+                row_title = row_titles[iCol]
+                ax.set_title(row_title)
+
+            if row_rois is not None:
+                roi = row_rois[iCol]
+                add_rectangle(ax, roi)  # type: ignore[arg-type]
+
+        axes_for_row.append(col_axes)
+
+    return fig, gs, axes_for_row
+

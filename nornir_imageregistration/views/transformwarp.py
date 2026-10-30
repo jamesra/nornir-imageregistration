@@ -4,173 +4,189 @@ Created on Sep 4, 2018
 @author: u0490822
 '''
 
-import os
-import numpy
 import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
-import scipy.interpolate
+import numpy
 
 import nornir_imageregistration
-from nornir_imageregistration.transforms import *  
+from nornir_imageregistration.headless import is_headless, save_current_pyplot_figure
 import nornir_shared.histogram
 import nornir_shared.plot
+from nornir_imageregistration.transforms import factory, ITriangulatedTargetSpace
+
 
 class TransformWarpView:
-    
+
     def __init__(self, transform):
         '''
         Calculates various metrics of the warp introduced by a transform 
         :param object transform: A full path to a .stos file, a triangulation transform, or a .stos file object
         '''
-        
+
         if isinstance(transform, str):
-            transform = nornir_imageregistration.files.StosFile.Load(transform)
-        
-        if isinstance(transform, nornir_imageregistration.files.StosFile):
-            transform = factory.LoadTransform(transform.Transform,1)
-            
-        if not isinstance(transform, nornir_imageregistration.transforms.triangulation.Triangulation):
+            transform = nornir_imageregistration.StosFile.Load(transform)
+
+        if isinstance(transform, nornir_imageregistration.StosFile):
+            assert transform.Transform is not None
+            transform = factory.LoadTransform(transform.Transform, 1)
+
+        if not isinstance(transform, ITriangulatedTargetSpace):
             raise ValueError("TransformWarpView requires a TriangulationTransform or a .stos file")
-        
+
         self._angle_delta = None
-        self.__transform = transform 
-        
-        
+        self.__transform = transform
+
     @property
-    def transform(self): 
+    def transform(self) -> ITriangulatedTargetSpace:
         return self.__transform
-    
+
     @transform.setter
-    def transform(self, val):
+    def transform(self, val: ITriangulatedTargetSpace):
         if self.__transform != val:
             self._angle_delta = None
-            
-            if not isinstance(val, nornir_imageregistration.transforms.triangulation.Triangulation):
+
+            if not isinstance(val, ITriangulatedTargetSpace):
                 raise ValueError("TransformWarpView.transform requires an object derived from TriangulationTransform")
-            
+
             self.__transform = val
-            
-    
+
     @property
     def angle_delta(self):
         if self._angle_delta is None:
-            self._angle_delta = metrics.TriangleVertexAngleDelta(self.transform)
-            
+            self._angle_delta = nornir_imageregistration.transforms.metrics.TriangleVertexAngleDelta(self.transform)
+
         return self._angle_delta
-    
-    
-        
-        
-    def GenerateWarpImage(self, RenderToSourceSpace=True, title=None, outputfullpath=None, maxAngle=None):
+
+    def GenerateWarpImage(self, RenderToSourceSpace: bool = True,
+                          title: str | None = None,
+                          outputfullpath: str | None = None,
+                          maxAngle: float | None = None):
         '''Generate a plot for the change in angles for verticies
+        :param RenderToSourceSpace:
+        :param title:
         :param str outputfullpath: Filename to save, if None then display interactively
         :param float maxAngle: The angle that maps to the highest value in the temperature map of the output.  Defaults to maximum angle found
         '''
-        
-        
+
         if maxAngle is None:
             maxAngle = numpy.max(list(map(numpy.max, self.angle_delta)))
         else:
             maxAngle = (maxAngle / 180) * numpy.pi
-             
-        #maxVal = numpy.pi / 12.0 #Maximum angle change is 60
+
+        # maxVal = numpy.pi / 12.0 #Maximum angle change is 60
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
         if RenderToSourceSpace:
-            points = self.transform.SourcePoints
+            points = self.transform.SourcePoints  # type: ignore[reportAttributeAccessIssue]
         else:
-            points = self.transform.TargetPoints
+            points = self.transform.TargetPoints  # type: ignore[reportAttributeAccessIssue]
 
-        #plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], self.transform.FixedTriangles)
+        # plotTriangulation = mtri.Triangulation(points[:,1], points[:,0], self.transform.FixedTriangles)
 
-        #interp_cubic_min_E = mtri.CubicTriInterpolator(plotTriangulation, measurement, kind='min_E')
-        #zi_cubic_min_E = interp_cubic_min_E(xi, yi)
+        # interp_cubic_min_E = mtri.CubicTriInterpolator(plotTriangulation, measurement, kind='min_E')
+        # zi_cubic_min_E = interp_cubic_min_E(xi, yi)
 
-        fig1, ax1 = plt.subplots(figsize=(8,8), dpi=150 ) 
+        dpi = 150
+        figsize, dpi = self.FigureSizeForResolution(resolution=1280, dpi=dpi)
+        fig1, ax1 = plt.subplots(figsize=(figsize, figsize), dpi=dpi, layout='tight')
         ax1.set_aspect('equal')
         ax1.axis('off')
-        #ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
-        tpc = ax1.tripcolor(points[:,1], points[:,0], self.transform.WarpedTriangles, measurement, vmin=0, vmax=maxAngle, shading='gouraud')
+        # ax1.triplot(points[:,1], points[:,0], transform.FixedTriangles)
+        tpc = ax1.tripcolor(points[:, 1], points[:, 0], self.transform.FixedTriangles, measurement, vmin=0,  # type: ignore[reportCallIssue, reportAttributeAccessIssue]
+                            vmax=maxAngle, shading='gouraud')
 
         cbar = fig1.colorbar(tpc)
         cbar.set_label('Angle delta (radians)')
-        #ax1.plot(points[:,1], points[:,0], 'o')
+        # ax1.plot(points[:,1], points[:,0], 'o')
         if title is None:
             title = 'Normalized mean difference in vertex triangle angles\nVolume vs Section space'
         ax1.set_title(title)
-        #ax1.invert_yaxis()
-        
-        if(outputfullpath is not None):
+        # ax1.invert_yaxis()
+
+        if outputfullpath is not None:
+            # Calculate figure size for the desired resolution
             # plt.show()
-            plt.savefig(outputfullpath, bbox_inches='tight', figure=(1280,1280))
+
+            plt.savefig(outputfullpath)
             plt.close()
+        elif is_headless():
+            save_current_pyplot_figure(tag="transformwarp_vertex", dpi=150)
         else:
-            plt.show() 
-            
-            
+            plt.show()
+
+    @staticmethod
+    def FigureSizeForResolution(resolution: int, dpi: int | None = None):
+        """
+        return: The figure size and dpi in a tuple required to call savefig and get an output image of the desired dimensions
+        """
+
+        if dpi is None:
+            dpi = 300
+
+        return resolution / dpi, dpi
+
     def GenerateWarpHistogram(self, outputfullpath=None):
         '''
         :return: A histogram object representing the maximum angle change for each vertex
         '''
-        
-        #maxVal = numpy.max(list(map(numpy.max, self.angle_delta)))
+
+        # maxVal = numpy.max(list(map(numpy.max, self.angle_delta)))
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
-        
-        #allMeasures = numpy.concatenate(self.angle_delta)
-                
-        #std = numpy.std(allMeasures)
-        
-        #numbins = int(numpy.abs(maxVal / (std/4.0)))
-        
-        
-        
-#        if numbins > 500:
-            #numbins = int(numpy.sqrt(self.transform.NumControlPoints) * numpy.log(self.transform.NumControlPoints))
-            
-        maxVal = numpy.pi / 12.0 #Maximum angle change is 60
-        numbins = 120 #A bin every 1/2 degree
-                
+
+        # allMeasures = numpy.concatenate(self.angle_delta)
+
+        # std = numpy.std(allMeasures)
+
+        # numbins = int(numpy.abs(maxVal / (std/4.0)))
+
+        #        if numbins > 500:
+        # numbins = int(numpy.sqrt(self.transform.NumControlPoints) * numpy.log(self.transform.NumControlPoints))
+
+        maxVal = numpy.pi / 12.0  # Maximum angle change is 60
+        numbins = 120  # A bin every 1/2 degree
+
         h = nornir_shared.histogram.Histogram.Init(0, maxVal, numbins)
-        h.Add(measurement)
+        h.Add(measurement)  # type: ignore[arg-type]
         return h
-        
+
 
 class StosTransformWarpView(TransformWarpView):
-    
+
     @property
-    def stos(self): 
+    def stos(self):
         return self.__stos
-    
+
     @stos.setter
     def stos(self, val):
         if self.__stos != val:
             if val is not None:
-                if not isinstance(val, nornir_imageregistration.files.StosFile):
+                if not isinstance(val, nornir_imageregistration.StosFile):
                     raise ValueError("stos attribute must be a StosFile object")
-                
-                self.transform = factory.LoadTransform(val.Transform,1)
+
+                assert val.Transform is not None
+                self.transform = factory.LoadTransform(val.Transform, 1)  # type: ignore[reportAttributeAccessIssue]
             else:
-                self.transform = None
-            
+                self.transform = None  # type: ignore[reportAttributeAccessIssue]
+
             self.__stos = val
-    
+
     def __init__(self, transform):
-        
+        super(TransformWarpView, self).__init__()
+
         self.__stos = None
-        
+
         if isinstance(transform, str):
-            transform = nornir_imageregistration.files.StosFile.Load(transform)
-        
-        if isinstance(transform, nornir_imageregistration.files.StosFile):
+            transform = nornir_imageregistration.StosFile.Load(transform)
+
+        if isinstance(transform, nornir_imageregistration.StosFile):
             self.stos = transform
-            
+
     def GenerateWarpOverlayForFixedImage(self, outputfullpath=None):
-        
+
         maxVal = numpy.max(list(map(numpy.max, self.angle_delta)))
         measurement = numpy.asarray(list(map(numpy.max, self.angle_delta)))
 
-        points = self.transform.FixedPoints
-        
+        points = self.transform.FixedPoints  # type: ignore[reportAttributeAccessIssue]
+
 
 if __name__ == '__main__':
     pass

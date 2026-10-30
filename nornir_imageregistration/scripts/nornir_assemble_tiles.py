@@ -9,15 +9,12 @@ import logging
 import os
 import sys
 
+import nornir_imageregistration
 import nornir_imageregistration.assemble
-
 import nornir_shared.misc
 
 
 def __CreateArgParser(ExecArgs=None):
-
-
-
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
     parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file")
 
@@ -40,10 +37,10 @@ def __CreateArgParser(ExecArgs=None):
                         required=False,
                         type=float,
                         default=1.0,
-                        help='The input images are a different size than the transform, scale the transform by the specified factor',
+                        help='The input images are a different size than the transform, scale the transform by the specified inverse factor.  So if the images are downsampled by a factor of 4 pass 4 to this parameter.',
                         dest='scalar'
                         )
-    
+
     parser.add_argument('-tilesize', '-t',
                         action='store',
                         required=False,
@@ -59,10 +56,18 @@ def __CreateArgParser(ExecArgs=None):
                         default=1.0,
                         help='Path to directory containing tiles listed in mosaic',
                         dest='tilepath')
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
 
     return parser
 
+
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the assemble_tiles script. Returns (namespace, unknown)."""
     if ExecArgs is None:
         ExecArgs = sys.argv
 
@@ -72,6 +77,7 @@ def ParseArgs(ExecArgs=None):
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -80,39 +86,45 @@ def OnUseError(message):
 
     sys.exit()
 
+
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure."""
     if not os.path.exists(Args.inputpath):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     if not Args.tilepath is None:
         if not os.path.exists(Args.tilepath):
             OnUseError("Tile path not found: " + Args.tilepath)
 
+
 def Execute(ExecArgs=None):
+    """Run the assemble_tiles script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
-        
+
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)
 
-    mosaic = Mosaic.LoadFromMosaicFile(m)
-    mosaicBaseName = os.path.basename(m)
+    if Args.use_cp:
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+    else:
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
-    mosaic.TranslateToZeroOrigin()
+    mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(Args.inputpath)
+    mosaicTileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(mosaic=mosaic,
+                                                                             image_folder=Args.tilepath,
+                                                                             image_to_source_space_scale=1.0 / Args.scalar)
+    mosaicTileset.TranslateToZeroOrigin()
 
-    mosaicImage = mosaic.AssembleImage(Args.tilepath)
+    mosaicImage = mosaicTileset.AssembleImage(target_space_scale=Args.scalar)
 
     if not Args.outputpath.endswith('.png'):
-        Args.outputpath = Args.outputpath + '.png'
+        Args.outputpath += '.png'
 
-    imsave(Args.outputpath, mosaicImage)
-
-    self.assertTrue(os.path.exists(outputImagePath), "OutputImage not found")
-
+    nornir_imageregistration.SaveImage(Args.outputpath, mosaicImage)
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
     else:
@@ -120,7 +132,6 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
-
     (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))

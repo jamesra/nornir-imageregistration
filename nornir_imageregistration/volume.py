@@ -4,8 +4,9 @@ Created on Jan 27, 2014
 @author: u0490822
 '''
 
-import nornir_imageregistration.transforms.utils as tutils
 import numpy as np
+
+import nornir_imageregistration.transforms.utils
 
 
 def _SortArrayByColumn(arr, SortColumn=None):
@@ -23,15 +24,16 @@ def _SortArrayByColumn(arr, SortColumn=None):
     else:
         columns = arr[:, SortColumn]
 
-    indicies = np.lexsort(columns)
+    indices = np.lexsort(columns)
 
-    return (arr[:, indicies], indicies)
+    return arr[:, indices], indices
 
 
 class Volume(object):
     '''
     A collection of slice-to-volume transforms that can map a point from any section into the volume
     '''
+
     @property
     def SectionToVolumeTransforms(self):
         return self._SectionToVolumeTransforms
@@ -45,9 +47,9 @@ class Volume(object):
         '''Adds a transform for a section, raise ValueError if it exists'''
         if SectionID in self._SectionToVolumeTransforms:
             raise ValueError("Key %s already in _SectionToVolumeTransforms" % (str(SectionID)))
-        
+
         self._SectionToVolumeTransforms[SectionID] = transform
-        
+
     def AddOrUpdateSection(self, SectionID, transform):
         '''Adds a transform for a section, replacing it if it already exists'''
         self._SectionToVolumeTransforms[SectionID] = transform
@@ -57,7 +59,7 @@ class Volume(object):
     ##############################
 
     def SectionToVolume2D(self, SectionID, Points):
-        return self._SectionToVolumeTransforms[SectionID].Transform(Points)
+        return self._SectionToVolumeTransforms[SectionID].transform(Points)
 
     def VolumeToSection2D(self, SectionID, Points):
         self._SectionToVolumeTransforms[SectionID].InverseTransform(Points)
@@ -70,30 +72,29 @@ class Volume(object):
         '''Maps array of [X Y Z] points on sections to volume space'''
         self.__ApplyTransformFor3DPoints(points, transformFunc=self.VolumeToSection2D)
 
-    def __ApplyTransformFor3DPoints(self, points, transformFunc):
+    @staticmethod
+    def __ApplyTransformFor3DPoints(points, transformFunc):
         '''Maps array of [X Y Z] points on sections to volume space'''
         outputPoints = points.copy()
 
         (numRows, numCols) = points.shape()
-        assert(numCols == 3)
-        sorted_points, unsorted_indicies = _SortArrayByColumn(points, ColumnNumber=2)
+        assert (numCols == 3)
+        sorted_points, unsorted_indices = _SortArrayByColumn(points, SortColumn=2)
 
-        # sectionNumbers, sectionIndicies = np.unique(points[:, 2], return_index=False, return_inverse=True)
+        # sectionNumbers, sectionIndices = np.unique(points[:, 2], return_index=False, return_inverse=True)
         iRow = 0
         while iRow < numRows:
-
             sectionNumber = sorted_points[iRow, 2]
             iEnd = np.searchsorted(sorted_points[:, 2], sectionNumber, side='right')
 
             sectionPoints = sorted_points[iRow:iEnd, 0:2]
 
             transformedPoints = transformFunc(sectionNumber, sectionPoints)
-            input_array_position = unsorted_indicies[iRow:iEnd]
+            input_array_position = unsorted_indices[iRow:iEnd]
 
             outputPoints[input_array_position, :] = transformedPoints
 
             iRow = iEnd
-
 
     ##############################
     # Boundary data              #
@@ -102,11 +103,11 @@ class Volume(object):
     @property
     def VolumeBounds(self):
         # Boundaries of the volume based on locations where sections will map points into the volume
-        return tutils.FixedBoundingBox(self.SectionToVolumeTransforms.values())
-    
+        return nornir_imageregistration.transforms.utils.FixedBoundingBox(list(self.SectionToVolumeTransforms.values()))
+
     def IsOriginAtZero(self):
-        return tutils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
         '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
-        return tutils.TranslateToZeroOrigin(self._SectionToVolumeTransforms.values())
+        return nornir_imageregistration.transforms.utils.TranslateToZeroOrigin(list(self._SectionToVolumeTransforms.values()))

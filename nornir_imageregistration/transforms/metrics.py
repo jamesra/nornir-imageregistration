@@ -5,9 +5,12 @@ Created on Aug 31, 2018
 '''
 
 import numpy
-import nornir_imageregistration
+from numpy.typing import NDArray
+
 from nornir_imageregistration.spatial import ArcAngle
-from . import triangulation, utils
+from nornir_imageregistration.transforms.base import IControlPoints, ITriangulatedTargetSpace, ITriangulatedSourceSpace
+from . import triangulation
+
 
 # /// <summary>
 # /// Angle of arc between A & B with Origin
@@ -24,7 +27,6 @@ from . import triangulation, utils
 #     double AngleB = Math.Atan2(B.Y, B.X);
 #     return AngleB - AngleA; 
 # }
-
 
 
 def TriangleAngleDelta(transform):
@@ -45,18 +47,19 @@ def TriangleAngleDelta(transform):
     return numpy.abs(FixedTriAngles - WarpedTriAngles)
 
 
-def TriangleAngles(triangle_indicies, points):
+def TriangleAngles(triangle_indices: NDArray[numpy.integer], points: NDArray[numpy.floating]) -> NDArray[
+    numpy.floating]:
     '''
     For each triangle in a triangulation transform measure the angles of the control triangle 
     and compare to the angles of the mapped triangle.  Report the differences as a structured 
     array.
 
-    :param numpy.ndarray triangle_indicies: Triangle Indicies, an Nx3 array
+    :param numpy.ndarray triangle_indices: Triangle indices, an Nx3 array
     :param numpy.ndarray points: Vertex positions, an Nx2 array
     :return: A nx3 array of the angle for each triangle
     '''
 
-    triangles = points[triangle_indicies]
+    triangles = points[triangle_indices]
 
     A = triangles[:, 0]
     B = triangles[:, 1]
@@ -64,14 +67,15 @@ def TriangleAngles(triangle_indicies, points):
 
     OriginAAngles = numpy.abs(ArcAngle(A, B, C))
     OriginBAngles = numpy.abs(ArcAngle(B, C, A))
-    #anglesC = numpy.abs(ArcAngle(C, A, B))
+    # anglesC = numpy.abs(ArcAngle(C, A, B))
     calcAnglesC = numpy.pi - (OriginAAngles + OriginBAngles)
 
-    #numpy.array_equal(anglesC, calcAnglesC)
+    # numpy.array_equal(anglesC, calcAnglesC)
 
-    return numpy.swapaxes(numpy.vstack((OriginAAngles, OriginBAngles, calcAnglesC)),0,1)
+    return numpy.swapaxes(numpy.vstack((OriginAAngles, OriginBAngles, calcAnglesC)), 0, 1)
 
-def TriangleVertexAngleDelta(transform):
+
+def TriangleVertexAngleDelta(transform: ITriangulatedTargetSpace) -> NDArray[numpy.floating]:
     '''
     For each vertex in a triangulation transform measure the angle differences of the control triangles 
     and subtract the equivalent angle found in the mapped triangles that the vertex is a part of.
@@ -80,8 +84,10 @@ def TriangleVertexAngleDelta(transform):
     :param triangulation transform: The transform to be analyzed
     :return: A nx3 array of the angle for each triangle
     '''
+    if not isinstance(transform, IControlPoints):
+        raise ValueError("transform must implement IControlPoints")
 
-    fixed_tri = transform.FixedTriangles
+    fixed_tri = transform.target_space_trianglulation.simplices
 
     FixedTriAngles = TriangleAngles(fixed_tri, transform.TargetPoints)
     WarpedTriAngles = TriangleAngles(fixed_tri, transform.SourcePoints)
@@ -94,9 +100,8 @@ def TriangleVertexAngleDelta(transform):
         values = delta[index]
         VertexValues.append(values)
 
-    return VertexValues
+    return VertexValues  # type: ignore[return-value]
 
 
 if __name__ == '__main__':
-    
     pass

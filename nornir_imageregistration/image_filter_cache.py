@@ -1,0 +1,189 @@
+"""
+Implements a class that caches filter windows for use in image processing.  Examples are hamming and distance filters.
+
+"""
+import shutil
+import multiprocessing
+import threading
+
+from skimage.filters import window
+import numpy as np
+from numpy.typing import NDArray, DTypeLike
+from typing import Callable
+import tempfile
+import os
+
+import skimage.filters
+
+import nornir_shared.files
+import nornir_shared.prettyoutput as prettyoutput
+from nornir_imageregistration.type_info import ShapeLike
+import nornir_imageregistration
+
+FilterWindowCreationFunction = Callable[[ShapeLike, DTypeLike | None], NDArray[np.floating]]
+
+
+class WindowFilterCache:
+    """
+    A generic class that creates and caches filter windows for use in image processing based on size.
+    Cached images are saved to disk in a temporary directory for easy access in multiprocessing.  T
+    The images in the cache are read-only.
+    """
+
+    _creation_function: FilterWindowCreationFunction
+    cache_dir: str
+    _name: str
+    _loaded_images: dict[ShapeLike, NDArray[np.floating]]
+    _lock: threading.RLock
+
+    def __init__(self, name: str, creation_function: FilterWindowCreationFunction, dtype: DTypeLike | None = None):
+        """
+        :param name: Name of the filter cache, used as a subdirectory in under the temp directory
+        :param creation_function:  Function to call if a filter needs to be created for a given size
+        """
+
+        self._name = name
+        self.cache_dir = os.path.join(nornir_imageregistration.gettempdir(), name)
+        self._creation_function = creation_function
+        self._dtype = dtype if dtype is not None else nornir_imageregistration.default_depth_image_dtype()
+        self._loaded_images = dict()
+        # Callers reach this cache from worker threads, and the lookup-then-create sequence
+        # below is not atomic. Guarding it here rather than at the call sites because that is
+        # where the invariant lives: assemble_tiles held an external lock at one of its three
+        # call sites and not at the other two, and the unguarded one is the path
+        # TilesToImageParallel takes for every tile. Reentrant because _creation_function is
+        # supplied by the caller and nothing stops it consulting the cache. (#104)
+        self._lock = threading.RLock()
+
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+    def __del__(self):
+        try:
+            # Only delete cache directory if we're in the parent process
+            if multiprocessing.current_process().name != 'MainProcess':
+                return
+            cache_dir = getattr(self, 'cache_dir', None)
+            if not cache_dir or not os.path.isdir(cache_dir):
+                return
+            # Release any memory-mapped file handles before deletion to avoid
+            # Windows "file in use" errors (WinError 32).
+            loaded = getattr(self, '_loaded_images', {})
+            for arr in list(loaded.values()):
+                if isinstance(arr, np.memmap):
+                    try:
+                        # Delete the memmap object to release the file handle.
+                        # Accessing private _mmap is unsafe across numpy versions;
+                        # dropping the reference is sufficient on CPython.
+                        del arr
+                    except Exception:
+                        pass
+            loaded.clear()
+            # ignore_errors so Windows in-use files don't prevent a clean exit
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except Exception:
+            # During interpreter shutdown logging infrastructure may be gone;
+            # swallow all errors silently.
+            pass
+
+    def GetOrCreate(self, image_shape: ShapeLike, **kwargs) -> NDArray[np.floating]:
+        """Get or create a cached image filter of the expected shape"""
+        return self.__GetOrCreateCachedImage(image_shape)
+
+    def KeepGetOrCreate(self, image: NDArray | None, image_shape: ShapeLike):
+        """
+        If image is the expected shape, returns image.  Otherwise returns or generates a cached image of the expected shape
+        :param image: Existing image to return if it is the correct shape
+        :param image_shape: Shape of the image to return
+        :return:
+        """
+
+        if len(image_shape) != 2:
+            raise ValueError("image_shape must be a 2 element tuple")
+
+        if image is not None and np.array_equal(image.shape, image_shape):
+            return image
+
+        return self.__GetOrCreateCachedImage((image_shape[0], image_shape[1]))
+
+    def __GetOrCreateCachedImage(self, image_shape: ShapeLike, creation_kwargs: dict | None = None) -> NDArray[
+        np.floating]:
+
+        if isinstance(image_shape, np.ndarray):
+            image_shape = tuple(image_shape)
+
+        # Held across the whole lookup-load-create-save sequence, not just the dict access.
+        # Without it every thread that arrived before the first one finished missed the dict
+        # and built its own copy: measured at one build per worker thread for a single shape,
+        # 16 of 16 with 16 workers, so the cache deduplicated nothing under concurrency. Those
+        # threads also raced to np.save the same path. The duplicated work is cheap here
+        # (CreateDistanceImage is 1.8 ms at 1024x1024) and the burst is bounded by the worker
+        # count per distinct shape, so this is a correctness and tidiness fix rather than a
+        # throughput one. Creation is serialised across shapes too; a mosaic has one or two
+        # tile sizes, so that costs nothing worth the complexity of per-shape locks. (#104)
+        with self._lock:
+            if image_shape in self._loaded_images:
+                return self._loaded_images[image_shape]
+
+            return self.__LoadOrCreate(image_shape)
+
+    def __LoadOrCreate(self, image_shape: ShapeLike) -> NDArray[np.floating]:
+        """Load the cached image from disk, or build and persist it.  Caller holds _lock."""
+        image_path = os.path.join(self.cache_dir, f'{image_shape[0]}x{image_shape[1]}.npy')
+        output = None
+
+        # output = nornir_imageregistration.LoadImage(distance_image_path)
+        try:
+            #             if use_memmap:
+            #                 output = np.load(distance_array_path, mmap_mode='r')
+            #             else:
+            # Load without mmap to avoid Windows "file in use" locks during shutdown.
+            output = np.load(image_path)
+            if output.dtype != self._dtype:
+                output = None
+                prettyoutput.Log(f"Removed outdated image from {self._name} cache: {image_path}")
+                os.remove(image_path)
+            else:
+                output.flags.writeable = False
+                self._loaded_images[image_shape] = output
+                return output
+        except FileNotFoundError:
+            # print("Distance_image %s does not exist" % distance_array_path)
+            pass
+        except Exception as e:
+            print(f"{self._name}: Invalid image {image_path}\n{str(e)}")
+            try:
+                os.remove(image_path)
+            except IOError as e:
+                prettyoutput.LogErr(f"Unable to delete invalid image: {image_path}\n{str(e)}")
+                pass
+            pass
+
+        if output is None:
+            output = self._creation_function(image_shape, self._dtype)
+            # Marked read-only before publishing, not after saving. The class documents cache
+            # images as read-only, but the flag used to be cleared at the end of this branch,
+            # leaving a window in which the dict held a writeable array. (#104)
+            output.flags.writeable = False
+            self._loaded_images[image_shape] = output
+            try:
+                np.save(image_path, output)
+            except OSError as e:
+                # Directory may have been removed by another process's cache
+                # cleanup (__del__) or a temp scrubber since __init__.
+                try:
+                    os.makedirs(self.cache_dir, exist_ok=True)
+                    np.save(image_path, output)
+                except OSError as retry_error:
+                    prettyoutput.LogErr(
+                        f"Unable to save {self._name} cache image {image_path}: {retry_error}"
+                    )
+
+        return output
+
+
+def CreateWindowFilterCache(window_type: str, dtype: DTypeLike | None = None) -> WindowFilterCache:
+    """Create a window of the specified shape and type"""
+    dtype = dtype if dtype is not None else nornir_imageregistration.default_image_dtype()
+    return WindowFilterCache(window_type,
+                             lambda shape, dtype: skimage.filters.window(window_type, shape=shape).astype(dtype,
+                                                                                                          copy=False))

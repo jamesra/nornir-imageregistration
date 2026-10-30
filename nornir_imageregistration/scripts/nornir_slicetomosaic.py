@@ -10,30 +10,26 @@ import os
 import sys
 
 import nornir_imageregistration.assemble
-
 import nornir_shared.misc
 
 
 def __CreateArgParser(ExecArgs=None):
-
-
-
     # conflict_handler = 'resolve' replaces old arguments with new if both use the same option flag
-    parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file");
+    parser = argparse.ArgumentParser(description="Produce a registered image for the moving image in a .stos file")
 
     parser.add_argument('-input', '-i',
                         action='store',
                         required=True,
                         type=str,
                         help='Input .stos file path',
-                        dest='inputpath');
+                        dest='inputpath')
 
     parser.add_argument('-output', '-o',
                         action='store',
                         required=True,
                         type=str,
                         help='Output image file path',
-                        dest='outputpath');
+                        dest='outputpath')
 
     parser.add_argument('-fixed', '-f',
                         action='store',
@@ -42,7 +38,7 @@ def __CreateArgParser(ExecArgs=None):
                         default=None,
                         help='Fixed image path, overrides .stos file fixed image entry',
                         dest='fixedimagepath'
-                        );
+                        )
 
     parser.add_argument('-warped', '-w',
                         action='store',
@@ -51,7 +47,7 @@ def __CreateArgParser(ExecArgs=None):
                         default=None,
                         help='Warping image path, overrides .stos file fixed image entry',
                         dest='warpedimagepath'
-                        );
+                        )
 
     parser.add_argument('-scale', '-s',
                         action='store',
@@ -60,20 +56,30 @@ def __CreateArgParser(ExecArgs=None):
                         default=1.0,
                         help='The input images are a different size than the transform, scale the transform by the specified factor',
                         dest='scalar'
-                        );
+                        )
 
-    return parser;
+    parser.add_argument('-cuda', '-c',
+                        action='store_true',
+                        required=False,
+                        help='Use GPU for calculations if available',
+                        dest='use_cp'
+                        )
+
+    return parser
+
 
 def ParseArgs(ExecArgs=None):
+    """Parse command-line arguments for the slicetomosaic script. Returns (namespace, unknown)."""
     if ExecArgs is None:
-        ExecArgs = sys.argv;
+        ExecArgs = sys.argv
 
-    parser = __CreateArgParser();
+    parser = __CreateArgParser()
 
     return parser.parse_known_args(args=ExecArgs)
 
 
 def OnUseError(message):
+    """Print usage and exit with error (for invalid args)."""
     parser = __CreateArgParser()
     parser.print_usage()
 
@@ -82,12 +88,13 @@ def OnUseError(message):
 
     sys.exit()
 
+
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure."""
     if not os.path.exists(Args.inputpath):
         OnUseError("Input stos file not found: " + Args.inputpath)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     if not Args.fixedimagepath is None:
         if not os.path.exists(Args.fixedimagepath):
@@ -100,20 +107,22 @@ def ValidateArgs(Args):
     if not os.path.exists(Args.inputpath):
         OnUseError("Input stos file not found: " + Args.inputpath)
 
+
 def Execute(ExecArgs=None):
+    """Run the slicetomosaic script with the given (or default) command-line args."""
     if ExecArgs is None:
         ExecArgs = sys.argv[1:]
-        
+
     (Args, extra) = ParseArgs(ExecArgs)
 
     ValidateArgs(Args)
 
-    nornir_imageregistration.assemble.TransformStos(transformFullpath=Args.inputpath,
-                                   OutputFilename=Args.outputpath,
-                                   fixedImageFilename=Args.fixedimagepath,
-                                   warpedImageFilename=Args.warpedimagepath,
-                                   scalar=Args.scalar,
-                                   CropUndefined=False)
+    nornir_imageregistration.assemble.TransformStos(transformData=Args.inputpath,
+                                                    OutputFilename=Args.outputpath,
+                                                    fixedImage=Args.fixedimagepath,
+                                                    warpedImage=Args.warpedimagepath,
+                                                    scalar=Args.scalar,
+                                                    CropUndefined=False)
 
     if os.path.exists(Args.outputpath):
         print("Wrote: " + Args.outputpath)
@@ -122,11 +131,10 @@ def Execute(ExecArgs=None):
 
 
 if __name__ == '__main__':
-
-    (args, extra) = ParseArgs();
+    (args, extra) = ParseArgs()
 
     nornir_shared.misc.SetupLogging(OutputPath=os.path.join(os.path.dirname(args.outputpath), "Logs"))
 
-    Execute();
+    Execute()
 
     pass

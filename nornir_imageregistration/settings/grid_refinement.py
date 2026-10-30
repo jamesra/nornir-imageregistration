@@ -1,0 +1,412 @@
+"""
+Created on Apr 26, 2022
+
+@author: u0490822
+"""
+from __future__ import annotations
+from typing import Iterable, Sequence
+
+import numpy as np
+from numpy.typing import NDArray
+
+import nornir_imageregistration
+from nornir_imageregistration.nornir_image_types import ImageLike
+from nornir_imageregistration.refine_shared.ring_pose_limits import (
+    RING_ALLOW_FLIP_CHANGE,
+    RING_ANGLE_MAX_DEGREES,
+    RING_SCALE_FRACTION_MAX,
+)
+
+try:
+    import cupy as cp
+except (ModuleNotFoundError, ImportError):
+    import nornir_imageregistration.cupy_thunk as cp
+
+# STOS cells are hundreds of pixels wide and the correlation peak of two sections a few
+# cuts apart is a broad hill, several pixels across, not a spike. The library default
+# ``peak_uniqueness.DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS`` (3 px, sized for mosaic tile
+# overlaps) leaves that hill's own shoulder as the "second peak", so the primary/secondary
+# ratio hovers near 1.0 and the ratio gate rejects well-registered cells. Measured on the
+# RC2 825-822 pair (512 px cells, dual-candidate ROIs): 219 of 254 cells rejected as
+# ambiguous at 3 px, so refine kept the prior transform; 87 at 10 px, and the refined
+# transform cut the residual misalignment from 7.2 px to 2.1 px median.
+STOS_PEAK_RATIO_EXCLUSION_RADIUS: int = 10
+
+# Lock-candidate ZNCC prominence: (z_peak - median(decoys)) / sigma(decoys). Absolute
+# ZNCC is section-gap dependent (~0.1 for 3-apart pairs, ~0.75 for adjacent); prominence
+# is scale-free. Default 4.0 is a starting bar; calibrate via probe_zncc_prominence on
+# Grid16 Manual pairs before changing.
+STOS_ZNCC_PROMINENCE_MIN: float = 4.0
+
+
+class GridRefinement:
+    """
+    Settings for grid refinement
+    """
+    source_image: NDArray[np.floating]
+    target_image: NDArray[np.floating]
+    source_mask: NDArray[np.bool_] | None
+    target_mask: NDArray[np.bool_] | None
+    cell_size: NDArray[np.integer]
+    grid_spacing: NDArray[np.integer]
+    angles_to_search: list[int] | Iterable[float] | NDArray[np.floating]
+    final_pass_angles: list[int] | Iterable[float] | NDArray[np.floating]
+    num_iterations: int
+    max_travel_for_finalization: float
+    max_travel_for_finalization_improvement: float
+    min_finalize_pass: int
+    finalize_stability_passes: int
+    finalize_stability_epsilon_px: float
+    finalize_unlock_travel_multiplier: float
+    inclusion_travel_multiplier: float
+    anchor_smooth_min_locks: int
+    anchor_smooth_median_radius: int
+    min_alignment_overlap: float
+    min_unmasked_area: float
+    peak_ratio_exclusion_radius: int
+    zncc_prominence_min: float
+    ring_scale_fraction_max: float
+    ring_angle_max_degrees: float
+    ring_allow_flip_change: bool
+    _single_thread_processing: bool
+    _cupy_processing: bool
+
+    @property
+    def cupy_processing(self) -> bool:
+        '''True if the settings are for processing the images with cupy.
+        Currently this indicates if the images are stored in cupy arrays instead
+        of numpy arrays
+        '''
+        return self._cupy_processing
+
+    @property
+    def single_thread_processing(self) -> bool:
+        '''True if the settings are for processing the images on a single thread.
+        Currently this indicates if the images are stored in shared memory or not
+        '''
+        return self._single_thread_processing or self._cupy_processing
+
+    def __getstate__(self):
+        # Return a dict that contains only the name attribute
+        output = {}
+        output.update(self.__dict__)
+        del output['target_image']
+        del output['target_image']
+        del output['source_mask']
+        del output['target_mask']
+
+        return output
+
+    def __setstate__(self, state):
+        # Restore the name attribute from the state dict
+        self.__dict__.update(state)
+        self.target_image = nornir_imageregistration.ImageParamToImageArray(self.target_image_meta)  # type: ignore[arg-type]
+        self.source_image = nornir_imageregistration.ImageParamToImageArray(self.source_image_meta)  # type: ignore[arg-type]
+        self.source_mask = nornir_imageregistration.ImageParamToImageArray(self.source_mask_meta)  # type: ignore[arg-type]
+        self.target_mask = nornir_imageregistration.ImageParamToImageArray(self.target_mask_meta)  # type: ignore[arg-type]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        nornir_imageregistration.unlink_shared_memory(self.target_image_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.source_image_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.source_mask_meta)  # type: ignore[arg-type]
+        nornir_imageregistration.unlink_shared_memory(self.target_mask_meta)  # type: ignore[arg-type]
+
+    def __init__(self,
+                 target_image: NDArray[np.floating],
+                 source_image: NDArray[np.floating],
+                 target_image_stats: nornir_imageregistration.ImageStats,
+                 source_image_stats: nornir_imageregistration.ImageStats,
+                 target_mask: NDArray[np.bool_] | None = None,
+                 source_mask: NDArray[np.bool_] | None = None,
+                 num_iterations: int | None = None,
+                 cell_size: int | NDArray[np.integer] | Iterable[int] | None = None,
+                 grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
+                 angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
+                 final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                 max_travel_for_finalization: float | None = None,
+                 max_travel_for_finalization_improvement: float | None = None,
+                 min_finalize_pass: int | None = None,
+                 finalize_stability_passes: int | None = None,
+                 finalize_stability_epsilon_px: float | None = None,
+                 finalize_unlock_travel_multiplier: float | None = None,
+                 inclusion_travel_multiplier: float | None = None,
+                 anchor_smooth_min_locks: int | None = None,
+                 anchor_smooth_median_radius: int | None = None,
+                 min_alignment_overlap: float | None = None,
+                 min_unmasked_area: float | None = None,
+                 single_thread_processing: bool = False,
+                 cupy_processing: bool | None = None,
+                 ring_scale_fraction_max: float | None = None,
+                 ring_angle_max_degrees: float | None = None,
+                 ring_allow_flip_change: bool | None = None,
+                 peak_ratio_exclusion_radius: int | None = None,
+                 zncc_prominence_min: float | None = None):
+        """
+        Contains the settings that will be passed to RefineGrid.  It is the responsibility of the caller
+        to ensure input images have been properly masked with random noise.  image_permutations_helper.py
+        contains a class to aid in masking input images.
+
+        :param target_image: ndarray or path to file, target space (control/reference) image
+        :param source_image: ndarray or path to file, source space (mapped) image
+        :param target_mask: ndarray or path to file, target space image mask
+        :param source_mask: ndarray or path to file, source space image mask
+        :param int num_iterations: The maximum number of iterations to perform
+        :param tuple cell_size: (width, height) area of image around control points to use for registration
+        :param tuple grid_spacing: (width, height) of separation between control points on the grid
+        :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is used on all registrations.  Can have a performance impact.
+        :param array final_pass_angles: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is usually a reduced range to fine tune a registration. Can have a performance impact.
+        :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
+        :param max_travel_for_finalization_improvement: When finalized points are checked to see if they need to be nudged, they must move less than this distance to be considered.  If None, no limit is applied
+        :param int min_finalize_pass: First pass index (1-based) allowed to lock points; default 2
+        :param int finalize_stability_passes: Consecutive stable measurements required before lock; default 2
+        :param float finalize_stability_epsilon_px: Max peak change (px) to count as stable; default 0.5
+        :param float finalize_unlock_travel_multiplier: Unlock when transform disagreement exceeds max_travel * this; 0 disables
+        :param float inclusion_travel_multiplier: Free points with ‖peak‖ > max_travel * this are excluded from mesh inclusion; default 1.0
+        :param int anchor_smooth_min_locks: Minimum locked cells before mesh uses locked-anchor gap-fill; default 3
+        :param int anchor_smooth_median_radius: Median-filter radius for anchor-smooth displacement regularization; default 1
+        :param float min_alignment_overlap: Limits how far control points can be translated.  The cells from source and target space must still overlap by this minimum amount after being registered.
+        :param float min_unmasked_area: Area of cell that must be unmasked in both images to utilize that cell
+        :param bool single_thread_processing: True if the refinement should not use threads.  When set, arrays are not placed in shared memory
+        :param cupy_processing: True to store full images on the GPU, False to keep
+            the input array module. ``None`` (default) follows ``UsingCupy()``.
+        :param float ring_scale_fraction_max: Max relative scale the 9-point ring may deviate from the input pose
+        :param float ring_angle_max_degrees: Max geodesic angle (degrees) the ring may deviate from the input pose
+        :param bool ring_allow_flip_change: When False, ring flip stays locked to the input pose
+        :param int peak_ratio_exclusion_radius: Half-width (px) cleared around a cell's primary
+            correlation peak before the second peak is measured for the peak-ratio gate.
+            Default ``STOS_PEAK_RATIO_EXCLUSION_RADIUS``. Also used as the ZNCC decoy ring radius.
+        :param float zncc_prominence_min: Min ZNCC prominence (peak vs decoy shifts, in noise
+            units) for a lock candidate to become LOCKABLE. Default ``STOS_ZNCC_PROMINENCE_MIN``.
+        """
+
+        self._cupy_processing = (
+            nornir_imageregistration.UsingCupy()
+            if cupy_processing is None else bool(cupy_processing))
+        self._single_thread_processing = single_thread_processing or self._cupy_processing
+
+        if target_image is None:
+            raise ValueError("target_image must be specified")
+
+        if source_image is None:
+            raise ValueError("source_image must be specified")
+
+        if cell_size is None:
+            self.cell_size = np.array((128, 128))
+        elif isinstance(cell_size, int):
+            self.cell_size = np.array((cell_size, cell_size))
+        elif isinstance(cell_size, np.ndarray):
+            self.cell_size = cell_size
+        else:
+            self.cell_size = np.array(cell_size)
+
+        if self.cell_size.shape[0] != 2:
+            raise ValueError(f'cell_size is supposed to be an array with two entries, got: {self.cell_size}')
+
+        if grid_spacing is None:
+            self.grid_spacing = np.array((96, 96))
+        elif isinstance(grid_spacing, int):
+            self.grid_spacing = np.array((grid_spacing, grid_spacing))
+        elif isinstance(grid_spacing, np.ndarray):
+            self.grid_spacing = grid_spacing
+        else:
+            self.grid_spacing = np.array(grid_spacing)
+
+        if self.grid_spacing.shape[0] != 2:
+            raise ValueError(f'grid_spacing is supposed to be an array with two entries, got: {self.grid_spacing}')
+
+        self.target_image = target_image
+        self.source_image = source_image
+        self.target_mask = target_mask
+        self.source_mask = source_mask
+
+        self.target_image_stats = target_image_stats
+        self.source_image_stats = source_image_stats
+
+        if not self._single_thread_processing:
+            self.source_image_meta, self.source_image = nornir_imageregistration.npArrayToSharedArray(self.source_image)
+            self.target_image_meta, self.target_image = nornir_imageregistration.npArrayToSharedArray(self.target_image)
+            self.source_mask_meta, self.source_mask = nornir_imageregistration.npArrayToSharedArray(self.source_mask)  # type: ignore[arg-type]
+            self.target_mask_meta, self.target_mask = nornir_imageregistration.npArrayToSharedArray(self.target_mask)  # type: ignore[arg-type]
+        else:
+            # Under CuPy, upload full *images* once so BuildAlignmentROIs / assemble
+            # do not cp.asarray the entire source on every cell warp. Tissue masks stay
+            # on the host: grid cell masking uses CropImage / count_nonzero for small
+            # ROIs and benefits from a shared NumPy keep-mask with target/source points.
+            if self._cupy_processing:
+                self.target_image = self._as_cupy_array(self.target_image)
+                self.source_image = self._as_cupy_array(self.source_image)
+            self.source_image_meta = self.source_image
+            self.target_image_meta = self.target_image
+            self.source_mask_meta = self.source_mask
+            self.target_mask_meta = self.target_mask
+
+        self.angles_to_search = [0] if angles_to_search is None else angles_to_search
+        self.final_pass_angles = [0] if final_pass_angles is None else final_pass_angles
+        self.num_iterations = 10 if num_iterations is None else num_iterations
+        self.max_travel_for_finalization = np.sqrt(
+            np.max(self.cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization  # type: ignore[arg-type]
+        self.max_travel_for_finalization_improvement = float(
+            "inf") if max_travel_for_finalization_improvement is None else max_travel_for_finalization_improvement
+        self.min_finalize_pass = 2 if min_finalize_pass is None else int(min_finalize_pass)
+        self.finalize_stability_passes = (
+            2 if finalize_stability_passes is None else int(finalize_stability_passes))
+        self.finalize_stability_epsilon_px = (
+            0.5 if finalize_stability_epsilon_px is None else float(finalize_stability_epsilon_px))
+        self.finalize_unlock_travel_multiplier = (
+            1.5 if finalize_unlock_travel_multiplier is None
+            else float(finalize_unlock_travel_multiplier))
+        self.inclusion_travel_multiplier = (
+            1.0 if inclusion_travel_multiplier is None else float(inclusion_travel_multiplier))
+        self.anchor_smooth_min_locks = 3 if anchor_smooth_min_locks is None else int(anchor_smooth_min_locks)
+        self.anchor_smooth_median_radius = (
+            1 if anchor_smooth_median_radius is None else int(anchor_smooth_median_radius))
+        self.min_alignment_overlap = 0.5 if min_alignment_overlap is None else min_alignment_overlap
+        self.min_unmasked_area = 0.49 if min_unmasked_area is None else min_unmasked_area
+        self.ring_scale_fraction_max = (
+            RING_SCALE_FRACTION_MAX if ring_scale_fraction_max is None
+            else float(ring_scale_fraction_max))
+        self.ring_angle_max_degrees = (
+            RING_ANGLE_MAX_DEGREES if ring_angle_max_degrees is None
+            else float(ring_angle_max_degrees))
+        self.ring_allow_flip_change = (
+            RING_ALLOW_FLIP_CHANGE if ring_allow_flip_change is None
+            else bool(ring_allow_flip_change))
+        self.peak_ratio_exclusion_radius = (
+            STOS_PEAK_RATIO_EXCLUSION_RADIUS if peak_ratio_exclusion_radius is None
+            else int(peak_ratio_exclusion_radius))
+        self.zncc_prominence_min = (
+            STOS_ZNCC_PROMINENCE_MIN if zncc_prominence_min is None
+            else float(zncc_prominence_min))
+
+    @staticmethod
+    def CreateWithPreprocessedImages(target_img_data: nornir_imageregistration.ImagePermutationHelper,
+                                     source_img_data: nornir_imageregistration.ImagePermutationHelper,
+                                     num_iterations: int | None = None,
+                             cell_size: int | NDArray[np.integer] | Iterable[int] | None = None,
+                             grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
+                             angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
+                             final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                                     max_travel_for_finalization: float | None = None,
+                                     max_travel_for_finalization_improvement: float | None = None,
+                                     min_finalize_pass: int | None = None,
+                                     finalize_stability_passes: int | None = None,
+                                     finalize_stability_epsilon_px: float | None = None,
+                                     finalize_unlock_travel_multiplier: float | None = None,
+                                     inclusion_travel_multiplier: float | None = None,
+                                     anchor_smooth_min_locks: int | None = None,
+                                     anchor_smooth_median_radius: int | None = None,
+                                     min_alignment_overlap: float | None = None,
+                                     min_unmasked_area: float | None = None,
+                                     single_thread_processing: bool = False,
+                                     cupy_processing: bool | None = None,
+                                     ring_scale_fraction_max: float | None = None,
+                                     ring_angle_max_degrees: float | None = None,
+                                     ring_allow_flip_change: bool | None = None,
+                                     peak_ratio_exclusion_radius: int | None = None,
+                                     zncc_prominence_min: float | None = None) -> GridRefinement:
+        '''Creates a settings object for imags that require no further processing.  For example
+        masked areas and extrema regions have been filled with random noise.'''
+
+        return GridRefinement(target_image=target_img_data.ImageWithMaskAsNoise,
+                              source_image=source_img_data.ImageWithMaskAsNoise,
+                              target_image_stats=target_img_data.Stats,
+                              source_image_stats=source_img_data.Stats,
+                              target_mask=target_img_data.BlendedMask,
+                              source_mask=source_img_data.BlendedMask,
+                              num_iterations=num_iterations,
+                              cell_size=cell_size,
+                              grid_spacing=grid_spacing,
+                              angles_to_search=angles_to_search,
+                              final_pass_angles=final_pass_angles,
+                              max_travel_for_finalization=max_travel_for_finalization,
+                              max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                              min_finalize_pass=min_finalize_pass,
+                              finalize_stability_passes=finalize_stability_passes,
+                              finalize_stability_epsilon_px=finalize_stability_epsilon_px,
+                              finalize_unlock_travel_multiplier=finalize_unlock_travel_multiplier,
+                              inclusion_travel_multiplier=inclusion_travel_multiplier,
+                              anchor_smooth_min_locks=anchor_smooth_min_locks,
+                              anchor_smooth_median_radius=anchor_smooth_median_radius,
+                              min_alignment_overlap=min_alignment_overlap,
+                              min_unmasked_area=min_unmasked_area,
+                              single_thread_processing=single_thread_processing,
+                              cupy_processing=cupy_processing,
+                              ring_scale_fraction_max=ring_scale_fraction_max,
+                              ring_angle_max_degrees=ring_angle_max_degrees,
+                              ring_allow_flip_change=ring_allow_flip_change,
+                              peak_ratio_exclusion_radius=peak_ratio_exclusion_radius,
+                              zncc_prominence_min=zncc_prominence_min)
+
+    @staticmethod
+    def CreateWithUnproccessedImages(
+            target_image: ImageLike,
+            source_image: ImageLike,
+            target_mask: ImageLike | None = None,
+            source_mask: ImageLike | None = None,
+            extrema_mask_size_cuttoff: float | int | NDArray | None = None,
+            num_iterations: int | None = None,
+            cell_size=None,
+            grid_spacing=None,
+            angles_to_search=None,
+            final_pass_angles=None,
+            max_travel_for_finalization: float | None = None,
+            max_travel_for_finalization_improvement: float | None = None,
+            min_finalize_pass: int | None = None,
+            finalize_stability_passes: int | None = None,
+            finalize_stability_epsilon_px: float | None = None,
+            finalize_unlock_travel_multiplier: float | None = None,
+            inclusion_travel_multiplier: float | None = None,
+            anchor_smooth_min_locks: int | None = None,
+            anchor_smooth_median_radius: int | None = None,
+            min_alignment_overlap: float | None = None,
+            min_unmasked_area: float | None = None,
+            single_thread_processing: bool = False,
+            cupy_processing: bool | None = None,
+            ring_scale_fraction_max: float | None = None,
+            ring_angle_max_degrees: float | None = None,
+            ring_allow_flip_change: bool | None = None,
+            peak_ratio_exclusion_radius: int | None = None,
+            zncc_prominence_min: float | None = None) -> GridRefinement:
+        '''Creates a settings objects and adds noise to images according to the provided masks'''
+        target_img_data = nornir_imageregistration.ImagePermutationHelper(target_image, target_mask,
+                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
+        source_img_data = nornir_imageregistration.ImagePermutationHelper(source_image, source_mask,
+                                                                          extrema_mask_size_cuttoff=extrema_mask_size_cuttoff)  # type: ignore[arg-type]
+
+        return GridRefinement.CreateWithPreprocessedImages(target_img_data, source_img_data,
+                                                           num_iterations=num_iterations,
+                                                           cell_size=cell_size,
+                                                           grid_spacing=grid_spacing,
+                                                           angles_to_search=angles_to_search,
+                                                           final_pass_angles=final_pass_angles,
+                                                           max_travel_for_finalization=max_travel_for_finalization,
+                                                           max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
+                                                           min_finalize_pass=min_finalize_pass,
+                                                           finalize_stability_passes=finalize_stability_passes,
+                                                           finalize_stability_epsilon_px=finalize_stability_epsilon_px,
+                                                           finalize_unlock_travel_multiplier=finalize_unlock_travel_multiplier,
+                                                           inclusion_travel_multiplier=inclusion_travel_multiplier,
+                                                           anchor_smooth_min_locks=anchor_smooth_min_locks,
+                                                           anchor_smooth_median_radius=anchor_smooth_median_radius,
+                                                           min_alignment_overlap=min_alignment_overlap,
+                                                           min_unmasked_area=min_unmasked_area,
+                                                           single_thread_processing=single_thread_processing,
+                                                           cupy_processing=cupy_processing,
+                                                           ring_scale_fraction_max=ring_scale_fraction_max,
+                                                           ring_angle_max_degrees=ring_angle_max_degrees,
+                                                           ring_allow_flip_change=ring_allow_flip_change,
+                                                           peak_ratio_exclusion_radius=peak_ratio_exclusion_radius,
+                                                           zncc_prominence_min=zncc_prominence_min)
+
+    @staticmethod
+    def _as_cupy_array(image: NDArray) -> NDArray:
+        """Return *image* as a CuPy ndarray when it is not already one."""
+        if isinstance(image, cp.ndarray):
+            return image
+        return cp.asarray(image)
+
+    def __str__(self):
+        return f'{self.cell_size[0]}x{self.cell_size[1]} spaced {self.grid_spacing[0]}x{self.grid_spacing[1]} {self.num_iterations} iterations'

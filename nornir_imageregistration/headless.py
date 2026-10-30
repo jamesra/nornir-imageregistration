@@ -1,0 +1,123 @@
+"""
+Headless / agent-friendly plotting: save figures to PNG instead of opening UI windows.
+
+Detection is ``nornir_shared.headless.is_headless``, re-exported here (any condition is enough):
+- ``NORNIR_HEADLESS`` is ``1``, ``true``, ``yes``, or ``on`` (case-insensitive).
+- Non-Windows host with no ``DISPLAY`` (typical Linux CI / Docker agents).
+
+PNG artifacts from ``save_figure_to_png_artifact`` go under
+``<test_output_root>/_plot_artifacts`` when ``TEST_OUTPUT_DIR`` or
+``TESTOUTPUTPATH`` is set (same root as other imageregistration test outputs);
+otherwise the system temp directory.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import tempfile
+import uuid
+
+from nornir_shared.headless import is_headless
+
+__all__ = [
+    "is_headless",
+    "artifact_png_path",
+    "figure_tag",
+    "inspect_png_output",
+    "save_figure_to_png_artifact",
+    "save_current_pyplot_figure",
+]
+
+# Keep derived tags short enough that the pid/uuid suffix stays readable and the
+# whole filename stays well inside path limits on Windows hosts.
+_TAG_MAX_LENGTH = 60
+
+
+def _headless_plot_artifact_base() -> str:
+    """Root directory for headless matplotlib PNGs (``_plot_artifacts`` under test output)."""
+    root = (
+        os.environ.get("TEST_OUTPUT_DIR", "").strip()
+        or os.environ.get("TESTOUTPUTPATH", "").strip()
+    )
+    if root:
+        return os.path.join(root, "_plot_artifacts")
+    return tempfile.gettempdir()
+
+
+def artifact_png_path(prefix: str = "nornir-ir") -> str:
+    base = _headless_plot_artifact_base()
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, f"{prefix}-{os.getpid()}-{uuid.uuid4().hex}.png")
+
+
+def _slugify_tag(text: str) -> str:
+    """Reduce arbitrary figure text to a short, filesystem-safe tag."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+    if len(slug) <= _TAG_MAX_LENGTH:
+        return slug
+    return slug[:_TAG_MAX_LENGTH].rstrip("-")
+
+
+def figure_tag(fig, default: str = "fig") -> str:
+    """Derive an artifact tag from a figure's suptitle, or failing that its first axes title.
+
+    Post-run triage has to correlate each PNG back to the code that drew it. Callers
+    rarely pass an explicit tag, so without this every artifact from a given helper
+    lands under one identical prefix and the only distinguishing part of the filename
+    is a uuid.
+    """
+    try:
+        candidates = []
+        get_suptitle = getattr(fig, "get_suptitle", None)
+        if callable(get_suptitle):
+            candidates.append(get_suptitle())
+        else:
+            suptitle = getattr(fig, "_suptitle", None)
+            if suptitle is not None:
+                candidates.append(suptitle.get_text())
+        candidates.extend(ax.get_title() for ax in fig.axes)
+    except Exception:
+        return default
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        slug = _slugify_tag(candidate)
+        if slug:
+            return slug
+    return default
+
+
+def inspect_png_output(path: str) -> None:
+    """Raise AssertionError if ``path`` is not a readable, non-empty PNG."""
+    from PIL import Image
+
+    if not os.path.isfile(path):
+        raise AssertionError(f"headless PNG artifact missing: {path}")
+    if os.path.getsize(path) < 32:
+        raise AssertionError(f"headless PNG artifact too small: {path}")
+
+    with Image.open(path) as im:
+        im.load()
+        w, h = im.size
+    if w < 1 or h < 1:
+        raise AssertionError(f"headless PNG has invalid dimensions: {path}")
+
+
+def save_figure_to_png_artifact(fig, *, tag: str = "fig", dpi: int = 150) -> str:
+    """Save ``fig`` to a unique PNG path, close it, and validate the file."""
+    import matplotlib.pyplot as plt
+
+    path = artifact_png_path(tag)
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    inspect_png_output(path)
+    return path
+
+
+def save_current_pyplot_figure(*, tag: str = "plt", dpi: int = 150) -> str:
+    """Save the current pyplot figure, close it, and validate the PNG."""
+    import matplotlib.pyplot as plt
+
+    return save_figure_to_png_artifact(plt.gcf(), tag=tag, dpi=dpi)

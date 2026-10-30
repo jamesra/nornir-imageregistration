@@ -1,350 +1,753 @@
+# Check if cupy is available, and if it is not import thunks that refer to scipy/numpy
+from __future__ import annotations
 
-from nornir_imageregistration.transforms import base, triangulation
-import nornir_imageregistration.transforms.utils
-import nornir_imageregistration.transforms.factory
-from nornir_imageregistration import Rectangle
+import typing
+from collections.abc import Callable
+from typing import Sequence
 import numpy as np
+from numpy.typing import NDArray
+
+import nornir_imageregistration.type_info
+
+try:
+    import cupy as cp
+    import cupyx
+except ModuleNotFoundError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+except ImportError:
+    import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
+
+from nornir_imageregistration import VectorLike
+from nornir_imageregistration.spatial import Rectangle
+import nornir_imageregistration.transforms
+from nornir_imageregistration.transforms import DefaultTransformChangeEvents, TransformType, base
+import nornir_imageregistration.transforms.defaulttransformchangeevents
+
+from nornir_imageregistration.transforms.utils import IdentityMatrix, RotationMatrix, TranslateMatrixXY, ScaleMatrixXY, \
+    FlipMatrixY, FlipMatrixX
 
 
-class RigidNoRotation(base.Base):
-    '''This class is legacy and probably needs a deprecation warning'''
-    
-    def _transform_rectangle(self, rect):
+def _to_xp_array(arr, xp):
+    """Return *arr* on the same backend as *xp* without relying on implicit conversion.
+
+    cupy forbids ``numpy.asarray(cupy_array)``; use ``.get()`` explicitly instead.
+    """
+    if xp is np:
+        return arr.get() if hasattr(arr, 'get') else arr
+    return xp.asarray(arr)
+
+
+# Fitting a pure translation returns an angle of about -5.6e-17 rather than 0, so an
+# exact comparison sends a geometrically pure translation down the matmul branch and
+# past a device round trip. These bounds sit far below any pixel effect: at this angle
+# a point a million pixels from the centre of rotation moves less than 1e-6 of a pixel.
+_NEGLIGIBLE_ANGLE_RADIANS = 1e-12
+_NEGLIGIBLE_SCALE_DEVIATION = 1e-12
+
+
+def _flipped_rigid_to_affine_itk_string(transform: "Rigid") -> str:
+    """Encode a flip_ud rigid/CS2D as FixedCenterOfRotationAffineTransform.
+
+    ITK Rigid2D / CenteredSimilarity2D strings cannot store a Y reflection; the
+    2x2 affine linear part carries Flip @ R @ S about the rotation center.
+    """
+    F = _to_xp_array(transform.forward_matrix, np)
+    F = np.asarray(F, dtype=np.float64)
+    # Column-form linear map for [y, x]; AffineMatrixTransform uses row vectors.
+    linear = F[0:2, 0:2]
+    matrix = linear.T.copy()
+    center = np.asarray(transform.source_space_center_of_rotation, dtype=np.float64).ravel()[:2]
+    offset = np.asarray(transform.target_offset, dtype=np.float64).ravel()[:2]
+    # Match AffineMatrixTransform.ToITKString layout (8 vp + center fp).
+    return (
+        f"FixedCenterOfRotationAffineTransform_double_2_2 vp 8 "
+        f"{matrix[0, 1]} {matrix[0, 0]} {matrix[1, 1]} {matrix[1, 0]} "
+        f"{offset[1]} {offset[0]} 0 0 "
+        f"fp 2 {center[1]} {center[0]}"
+    )
+
+
+def rigid_family_to_itk_string(transform: "RigidTranslation") -> str:
+    """Serialize RigidTranslation / Rigid / CS2D to an ITK string.
+
+    Uses FixedCenterOfRotationAffine **only** when ``flip_ud`` is True.
+    Unflipped transforms always stay Rigid2D (unity scale) or CenteredSimilarity2D.
+    """
+    if bool(getattr(transform, "flip_ud", False)):
+        if not hasattr(transform, "forward_matrix"):
+            raise TypeError(
+                f"{type(transform).__name__} reports flip_ud but has no forward_matrix; "
+                "cannot persist flip without a matrix-based Rigid/CS2D")
+        return _flipped_rigid_to_affine_itk_string(transform)  # type: ignore[arg-type]
+
+    scalar = float(getattr(transform, "scalar", 1.0))
+    angle = float(getattr(transform, "angle", 0.0) or 0.0)
+    offset = np.asarray(transform.target_offset, dtype=np.float64).ravel()[:2]
+    center = np.asarray(transform.source_space_center_of_rotation, dtype=np.float64).ravel()[:2]
+    if np.isclose(scalar, 1.0):
+        return (
+            f"Rigid2DTransform_double_2_2 vp 3 {angle} {offset[1]} {offset[0]} "
+            f"fp 2 {center[1]} {center[0]}"
+        )
+    # ITK CS2D stores negated angle; ParseCenteredSimilarity2DTransform negates on load.
+    return (
+        f"CenteredSimilarity2DTransform_double_2_2 vp 6 {scalar} {-angle} "
+        f"{center[1]} {center[0]} {offset[1]} {offset[0]} fp 0"
+    )
+
+
+def _numpy_rotation_matrix_yx(rangle: float) -> NDArray[np.float32]:
+    """Return a 3x3 rotation matrix for (Y,X) homogeneous coordinates using NumPy only."""
+    angle = float(rangle)
+    cosine, sine = np.cos(angle), np.sin(angle)
+    return np.array([[cosine, sine, 0.0], [-sine, cosine, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+
+
+class RigidTranslation(base.ITransformScaling,
+                       base.ITransformTranslation,
+                       base.IRigidTransform,
+                       DefaultTransformChangeEvents):
+    """This class is legacy and probably needs a deprecation warning"""
+
+    _target_offset: NDArray[np.floating]  # Amount to translate the points after centering and rotation
+    _source_space_center_of_rotation: NDArray[np.floating]  # Where the center of rotation lies
+    _angle = 0  # Angle in radians, zero for this base class
+
+    @property
+    def angle(self):
+        """
+        :return: The angle of rotation in radians
+        """
+        return self._angle
+
+    @property
+    def flip_ud(self):
+        return False
+
+    @property
+    def type(self) -> TransformType:
+        return nornir_imageregistration.transforms.TransformType.RIGID
+
+    def _transform_rectangle(self, rect: nornir_imageregistration.spatial.Rectangle | None):
         if rect is None:
             return None
-        
-        #Transform the other bounding box
+
+        # Transform the other bounding box
         mapped_corners = self.Transform(rect.Corners)
         return Rectangle.CreateBoundingRectangleForPoints(mapped_corners)
-        
-    def _inverse_transform_rectangle(self, rect):
+
+    def _inverse_transform_rectangle(self, rect: nornir_imageregistration.spatial.Rectangle | None):
         if rect is None:
             return None
-        
-        #Transform the other bounding box
+
+        # Transform the other bounding box
         mapped_corners = self.InverseTransform(rect.Corners)
         return Rectangle.CreateBoundingRectangleForPoints(mapped_corners)
-    
-    @property
-    def MappedBoundingBox(self):
-        if self._mapped_bounding_box is None:
-            self._mapped_bounding_box = self._inverse_transform_rectangle(self._fixed_bounding_box)
-        
-        return self._mapped_bounding_box
- 
-    @property
-    def FixedBoundingBox(self):
-        if self._fixed_bounding_box is None:
-            self._fixed_bounding_box = self._transform_rectangle(self._mapped_bounding_box)
-        
-        return self._fixed_bounding_box
-    
-    @MappedBoundingBox.setter
-    def MappedBoundingBox(self, val):
-        self._fixed_bounding_box = None
-        self._mapped_bounding_box = val
- 
-    @FixedBoundingBox.setter
-    def FixedBoundingBox(self, val):
-        self._mapped_bounding_box = None
-        self._fixed_bounding_box = val
-      
-    def TranslateFixed(self, offset):
-        '''Translate all fixed points by the specified amount'''
-        self.target_offset  = self.target_offset + offset
-        self._fixed_bounding_box = None
+
+    def TranslateFixed(self, offset: NDArray[np.floating]):
+        """Translate all fixed points by the specified amount"""
+        self._target_offset = self._target_offset + np.asarray(offset, dtype=np.float32).ravel()[:2]
         self.OnTransformChanged()
 
-    def TranslateWarped(self, offset):
-        '''Translate all warped points by the specified amount'''
-        self.target_offset  = self.target_offset - offset
-        self._fixed_bounding_box = None
-        self._mapped_bounding_box = self._mapped_bounding_box.translate(offset)
+    def TranslateWarped(self, offset: NDArray[np.floating]):
+        """Translate all warped points by the specified amount"""
+        self._target_offset = self._target_offset - np.asarray(offset, dtype=np.float32).ravel()[:2]
         self.OnTransformChanged()
-        
-    def Scale(self, value):
-        self.source_space_center_of_rotation = self.source_space_center_of_rotation * value 
-        self.target_offset = self.target_offset * value
-        if self.MappedBoundingBox is not None:
-            self._fixed_bounding_box = None
-            self._mapped_bounding_box = scaled_targetRect = nornir_imageregistration.Rectangle.scale_on_origin(self._mapped_bounding_box, value)
+
+    def RotateFixed(self, rangle: float, rotation_center: NDArray[np.floating] | None):
+        """Rotate all fixed points by the specified amount."""
+        del rotation_center  # Pivot pinning uses RotateFixedAboutSourcePoint.
+        self._angle = self._angle - rangle
+        update_matrix = getattr(self, '_update_transform_matrix', None)
+        if update_matrix is not None:
+            update_matrix()
         self.OnTransformChanged()
-    
-    def __init__(self, target_offset, source_rotation_center=None, angle=None, **kwargs):
-        '''
+
+    def Scale(self, scalar: float):
+        """Scale both warped and control space by scalar"""
+        self._target_offset = (self._target_offset * scalar).astype(np.float32)
+        self._source_space_center_of_rotation = (self._source_space_center_of_rotation * scalar).astype(np.float32)
+        self.OnTransformChanged()
+
+    @property
+    def target_offset(self) -> NDArray[np.floating]:
+        return self._target_offset
+
+    @property
+    def source_space_center_of_rotation(self) -> NDArray[np.floating]:
+        return self._source_space_center_of_rotation
+
+    @property
+    def scalar(self) -> float:
+        return 1.0
+
+    def __init__(self, target_offset: VectorLike,
+                 source_rotation_center: VectorLike | None = None,
+                 angle: float | None = None):
+        """
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
         :param tuple source_rotation_center: The (Y,X) center of rotation in mapped space
         :param float angle: The angle to rotate, in radians
-        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
-        :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
-        '''
-        super(RigidNoRotation, self).__init__()
-    
+        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
+        :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
+        """
+        super(RigidTranslation, self).__init__()
+
         if angle is None:
-            angle = 0
-        
+            angle = 0.0
+
         if source_rotation_center is None:
-            source_rotation_center = [0,0]
-            
-        self.target_offset = nornir_imageregistration.EnsurePointsAre1DNumpyArray(target_offset)
-        self.source_space_center_of_rotation = nornir_imageregistration.EnsurePointsAre1DNumpyArray(source_rotation_center)
-        self._angle = angle
-        
-        self._fixed_bounding_box = kwargs.get('FixedBoundingBox', None)
-        self._mapped_bounding_box = kwargs.get('MappedBoundingBox', None)
-        
-        if self._fixed_bounding_box is not None:
-            if not isinstance(self._fixed_bounding_box, Rectangle):
-                raise ValueError("FixedBoundingBox must be a Rectangle")
-            
-        if self._mapped_bounding_box is not None:
-            if not isinstance(self._mapped_bounding_box, Rectangle):
-                raise ValueError("MappedBoundingBox must be a Rectangle") 
-            
-        
+            source_rotation_center = (0.0, 0.0)
+
+        # Always store as NumPy regardless of the active computation lib.
+        # The Transform/InverseTransform methods use xp.asarray() to convert to the
+        # appropriate device type on demand; keeping these as NumPy avoids the failure
+        # np.asarray(cupy_array) when callers pass NumPy points with CuPy active.
+        # Host boundary: CuPy forbids implicit np.asarray(cupy_array); use .get() via _to_xp_array.
+        self._target_offset = np.asarray(_to_xp_array(target_offset, np), dtype=np.float32).ravel()[:2]
+        self._source_space_center_of_rotation = np.asarray(
+            _to_xp_array(source_rotation_center, np), dtype=np.float32).ravel()[:2]
+        self._angle = angle  # type: float
+
     def __getstate__(self):
-        odict = {}
-        odict['_angle'] = self._angle
-        odict['target_offset'] = (self.target_offset[0], self.target_offset[1])
-        odict['source_space_center_of_rotation'] = (self.source_space_center_of_rotation[0],
-                                                    self.source_space_center_of_rotation[1])
-        odict['_mapped_bounding_box'] = self._mapped_bounding_box
-        odict['_fixed_bounding_box'] = self._fixed_bounding_box
+        # _target_offset and _source_space_center_of_rotation are always NumPy (see __init__).
+        odict = {'_angle': self._angle, '_target_offset': (self._target_offset[0], self._target_offset[1]),
+                 '_source_space_center_of_rotation': (self._source_space_center_of_rotation[0],
+                                                      self._source_space_center_of_rotation[1])}
 
         return odict
 
+    def GetRigidState(self) -> dict[str, typing.Any]:
+        """Snapshot the registration parameters for a later in-place restore.
+
+        Distinct from ``__getstate__``/``__setstate__`` on purpose. Those exist
+        for pickling a *fresh* object and ``__setstate__`` clears
+        ``OnChangeEventListeners``, which would silently unsubscribe every view
+        bound to a live shared model. Use this pair to undo an interactive
+        gesture without disturbing subscribers or the object's identity.
+        """
+        return {'angle': self._angle,
+                'target_offset': np.array(self._target_offset, copy=True),
+                'source_space_center_of_rotation': np.array(
+                    self._source_space_center_of_rotation, copy=True)}
+
+    def SetRigidState(self, state: dict[str, typing.Any]) -> None:
+        """Restore parameters captured by GetRigidState, keeping listeners intact."""
+        self._angle = state['angle']
+        self._target_offset = np.asarray(state['target_offset'], dtype=np.float32).ravel()[:2]
+        self._source_space_center_of_rotation = np.asarray(
+            state['source_space_center_of_rotation'], dtype=np.float32).ravel()[:2]
+
+        update_matrix = getattr(self, '_update_transform_matrix', None)
+        if update_matrix is not None:
+            update_matrix()
+
+        self.OnTransformChanged()
+
     def __setstate__(self, dictionary):
-        self.__dict__.update(dictionary)
-        
-        self.target_offset = np.asarray((self.target_offset[0], self.target_offset[1]), dtype=np.float64)
-        self.source_space_center_of_rotation = np.asarray((self.source_space_center_of_rotation[0],
-                                                           self.source_space_center_of_rotation[1]), dtype=np.float64)
-        
+        self.__dict__.update(dictionary)  # type: ignore[attr-defined]
+
+        # Always restore internal state as numpy arrays. The computation module
+        # must not be used here: process-pool workers have CuPy as the module
+        # default but cannot initialise a CUDA context after fork. The arrays
+        # work correctly in both numpy and CuPy arithmetic (CuPy accepts numpy
+        # arrays in mixed operations via __array_ufunc__).
+
+        # Check for legacy .pickle data by looking for non-underscore attributes.
+        # Legacy .pickle files  are used by TestMosaicTilesetTileOffsets.test_Alignment_RC3_0001 test
+        if 'target_offset' in dictionary:
+            self._target_offset = dictionary['target_offset']
+
+        if 'source_space_center_of_rotation' in dictionary:
+            self._source_space_center_of_rotation = dictionary['source_space_center_of_rotation']
+
+        self._target_offset = np.asarray((self._target_offset[0], self._target_offset[1]), dtype=np.float32)
+        self._source_space_center_of_rotation = np.asarray((self._source_space_center_of_rotation[0],
+                                                            self._source_space_center_of_rotation[1]), dtype=np.float32)
+
         self.OnChangeEventListeners = []
         self.OnTransformChanged()
-        
-    @staticmethod
-    def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
-        
-    def ToITKString(self):
-        #TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self._angle, self.target_offset[1], self.target_offset[0], self.source_space_center_of_rotation[1], self.source_space_center_of_rotation[0])
-    
-    def Transform(self, points, **kwargs):
-        
-        
-        if not (self.angle is None or self.angle == 0):
-            #Look at GetTransformedRigidCornerPoints for a possible implementation
-            raise NotImplemented("Rotation is not implemented")
-        
-        return points + self.target_offset
 
-    def InverseTransform(self, points, **kwargs):
-        
-        
-        if not (self.angle is None or self.angle == 0):
-            #Look at GetTransformedRigidCornerPoints for a possible implementation
-            raise NotImplemented("Rotation is not implemented")
-        
-        return points - self.target_offset
-    
     def __repr__(self):
-        return "Offset: {0}y,{1}x Angle: {2}deg Rot Center: {3}y,{4}x".format(self.target_offset[0], self.target_offset[1], self.angle, self.source_space_center_of_rotation[0], self.source_space_center_of_rotation[1])
+        return f"Offset: {self._target_offset[0]:03g}y,{self._target_offset[1]:03g}x"
+
+    @staticmethod
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | int | None = None):
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)
+
+    def ToITKString(self) -> str:
+        return rigid_family_to_itk_string(self)
+
+    def Transform(self, points: NDArray[np.floating], **kwargs):
+
+        if not (self._angle is None or self._angle == 0):
+            # Look at GetTransformedRigidCornerPoints for a possible implementation
+            raise NotImplementedError("Rotation is not implemented")
+
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
+        xp = cp.get_array_module(points)
+        transformed = points + xp.asarray(self._target_offset)
+        return transformed
+
+    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
+
+        if not (self._angle is None or self._angle == 0):
+            # Look at GetTransformedRigidCornerPoints for a possible implementation
+            raise NotImplementedError("Rotation is not implemented")
+
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
+        xp = cp.get_array_module(points)
+        itransformed = points - xp.asarray(self._target_offset)
+        return itransformed
 
 
-class Rigid(RigidNoRotation):
-    '''
+class RigidNoRotation(RigidTranslation):
+    """A deprecated class that exists only for old pickle files to work"""
+    pass
+
+
+class Rigid(base.ITransformSourceRotation, base.ITransformFlip, RigidTranslation):
+    """
     Applies a rotation+translation transform
-    '''
+    The order of operations is:
+    1. Scaling about the source rotation center (identity when scalar is 1)
+    2. Rotation about the source rotation center
+    3. Optional flip about that centered frame
+    4. Translation
+
+    Remember that matrix multiplacation is applied in reverse order, so the last operation is the first to be applied
+    """
+
+    @property
+    def source_space_center_of_rotation(self) -> NDArray[np.floating]:
+        return self._source_space_center_of_rotation
+
+    @source_space_center_of_rotation.setter
+    def source_space_center_of_rotation(self, value: NDArray[np.floating]):
+        self._source_space_center_of_rotation = value
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    @property
+    def flip_ud(self) -> bool:
+        return self._flip_ud
+
+    _flip_ud: bool  # True if the transform should flip the Y axis
+    _scalar: float = 1  # The relative scale difference between source and target space
+
+    @property
+    def scalar(self) -> float:
+        """The relative scale difference between source and target space"""
+        return self._scalar
+
+    @property
+    def _forward_rotation_matrix(self) -> NDArray[np.floating]:
+        """rotation matrix to move points to the target space"""
+        return RotationMatrix(self.angle)
+
+    @property
+    def _inverse_rotation_matrix(self) -> NDArray[np.floating]:
+        """inverse rotation to move points to the source space"""
+        return RotationMatrix(-self.angle)
+
+    @property
+    def _forward_translation_matrix(self) -> NDArray[np.floating]:
+        """translation matrix to move points to the target space"""
+        return TranslateMatrixXY(self._target_offset)
+
+    @property
+    def _inverse_translation_matrix(self) -> NDArray[np.floating]:
+        """inverse translation to move points to the source space"""
+        return TranslateMatrixXY(-self._target_offset)
+
+    @property
+    def _forward_center_of_rotation_translation(self) -> NDArray[np.floating]:
+        """Matrix to translate the center of rotation to 0,0 origin in the source space"""
+        return TranslateMatrixXY(self.source_space_center_of_rotation)
+
+    @property
+    def _inverse_center_of_rotation_translation(self) -> NDArray[np.floating]:
+        """Matrix to translate the center of rotation to original position in the source space"""
+        return TranslateMatrixXY(-self.source_space_center_of_rotation)
+
+    @property
+    def _flip_y_matrix(self) -> NDArray[np.floating]:
+        """Matrix to flip the Y axis, identity if matrix is not flipped"""
+        return FlipMatrixY() if self._flip_ud else IdentityMatrix()
+
+    @property
+    def _forward_scale_matrix(self) -> NDArray[np.floating]:
+        """Matrix to scale the points"""
+        return ScaleMatrixXY(self._scalar)
+
+    @property
+    def _inverse_scale_matrix(self) -> NDArray[np.floating]:
+        """Matrix to scale the points"""
+        return ScaleMatrixXY(1.0 / self._scalar)
+
+    forward_matrix: NDArray[np.floating]  # The composite matrix to perform the transform in a single step
+    inverse_matrix: NDArray[np.floating]  # The composite matrix to perform the inverse transform in a single step
+
     def __getstate__(self):
-        return super(Rigid, self).__getstate__()
-    
-    def __setstate__(self, dictionary):
+        data = super(Rigid, self).__getstate__()
+        data['flip_ud'] = self._flip_ud
+        return data
+
+    def __setstate__(self, dictionary: dict):
         super(Rigid, self).__setstate__(dictionary)
-        self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
-        self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
-    
-    def __init__(self, target_offset, source_rotation_center=None, angle=None, **kwargs):
-        '''
+        self._flip_ud = dictionary['flip_ud']
+        self._update_transform_matrix()
+
+    def GetRigidState(self) -> dict[str, typing.Any]:
+        state = super(Rigid, self).GetRigidState()
+        state['flip_ud'] = self._flip_ud
+        state['scalar'] = self._scalar
+        return state
+
+    def SetRigidState(self, state: dict[str, typing.Any]) -> None:
+        self._flip_ud = state['flip_ud']
+        self._scalar = state['scalar']
+        super(Rigid, self).SetRigidState(state)
+
+    def __init__(self, target_offset: VectorLike,
+                 source_rotation_center: VectorLike | None = None,
+                 angle: float | None = None, flip_ud: bool = False):
+        """
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
-        :param tuple source_rotation_center: The (Y,X) center of rotation in mapped space
+        :param tuple source_rotation_center: The (Y,X) center of rotation in mapped (source) space
         :param float angle: The angle to rotate, in radians
-        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
+        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
         :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
-        '''
-        super(Rigid, self).__init__(target_offset, source_rotation_center, angle, **kwargs)
-        
-        self.forward_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(self.angle)
-        self.inverse_rotation_matrix = nornir_imageregistration.transforms.utils.RotationMatrix(-self.angle)
-    
-    @property
-    def angle(self):
-        return self._angle
-    
+        """
+        super(Rigid, self).__init__(target_offset, source_rotation_center, angle)
+
+        self._flip_ud = flip_ud
+        self._update_transform_matrix()
+
+    def _is_pure_translation(self) -> bool:
+        """Whether this transform reduces to a vector add.
+
+        Tolerant rather than exact: see ``_NEGLIGIBLE_ANGLE_RADIANS``.
+        """
+        return (abs(self.angle) < _NEGLIGIBLE_ANGLE_RADIANS
+                and abs(self.scalar - 1.0) < _NEGLIGIBLE_SCALE_DEVIATION
+                and not self.flip_ud)
+
+    def _matrix_for(self, xp, *, inverse: bool):
+        """One directional matrix on the same backend as the caller's points.
+
+        Cached per backend. The matrices are built on whichever module
+        ``GetComputationModule`` reports, so a host-side caller working against a
+        device-resident matrix otherwise paid a device-to-host copy on every call.
+        Not part of ``__getstate__``, so the cache never travels to a pool worker.
+        """
+        key = (xp is np, inverse)
+        cached = self._matrix_cache.get(key)
+        if cached is None:
+            matrix = self.inverse_matrix if inverse else self.forward_matrix
+            cached = _to_xp_array(matrix, xp)
+            self._matrix_cache[key] = cached
+        return cached
+
+    def _matrices_for(self, xp):
+        """Forward and inverse matrices on the caller's array backend."""
+        return (
+            self._matrix_for(xp, inverse=False),
+            self._matrix_for(xp, inverse=True),
+        )
+
+    def _update_transform_matrix(self):
+        """Update the forward and inverse matrices.
+
+        Order matches ITK CenteredSimilarity2D: scale then rotate about
+        ``source_space_center_of_rotation``, then translate (and optional flip)::
+
+            p' = Flip @ R @ s @ (p - c) + c + t
+        """
+        # Right-to-left: T(-c), S, R, Flip, T(c), T(t)
+        self.forward_matrix = self._forward_translation_matrix @ self._forward_center_of_rotation_translation @ \
+                              self._flip_y_matrix @ self._forward_rotation_matrix @ \
+                              self._forward_scale_matrix @ self._inverse_center_of_rotation_translation
+        xp = cp.get_array_module(self.forward_matrix)
+        self.inverse_matrix = xp.linalg.inv(self.forward_matrix)
+        # Directional per-backend copies keyed by (wants host, inverse).
+        self._matrix_cache: dict[tuple[bool, bool], NDArray[np.floating]] = {}
+
+    def _pin_source_point_under_mutation(
+            self,
+            source_point_yx: NDArray[np.floating],
+            mutate: Callable[[], None]) -> None:
+        """Apply ``mutate`` while keeping ``Transform(source_point_yx)`` fixed in target space."""
+        source_point = np.asarray(source_point_yx, dtype=np.float32).ravel()[:2]
+        target_before = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._source_space_center_of_rotation = source_point.copy()
+        mutate()
+        self._update_transform_matrix()
+        target_after = np.squeeze(self.Transform(source_point.reshape(1, 2)))
+        self._target_offset = (
+            self._target_offset + (target_before - target_after).astype(np.float32)
+        ).astype(np.float32, copy=False)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
     @staticmethod
-    def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
-    
-    def ToITKString(self):
-        #TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "Rigid2DTransform_double_2_2 vp 3 {0} {1} {2} fp 2 {3} {4}".format(self.angle, self.target_offset[1], self.target_offset[0], self.source_space_center_of_rotation[1], self.source_space_center_of_rotation[0])
-    
-    def Transform(self, points, **kwargs):
-        
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-        
-        if self.angle == 0:
-            return points + self.target_offset
-        
-        numPoints = points.shape[0]
-        
-        centered_points = points - self.source_space_center_of_rotation
-        centered_points = np.transpose(centered_points)
-        centered_points = np.vstack((centered_points, np.ones((1, numPoints)))) #Add a row so we can multiply the matrix
-        
-        
-        centered_rotated_points = self.forward_rotation_matrix * centered_points
-        centered_rotated_points = np.transpose(centered_rotated_points)
-        centered_rotated_points = centered_rotated_points[:,0:2]
-          
-        rotated_points = centered_rotated_points + self.source_space_center_of_rotation
-        output_points = rotated_points + self.target_offset
-        return np.asarray(output_points)
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
 
-    def InverseTransform(self, points, **kwargs):
-        
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-        
-        if self.angle == 0:
-            return points - self.target_offset
-    
-        numPoints = points.shape[0]
-        
-        input_points = points - self.target_offset
-        centered_points = input_points - self.source_space_center_of_rotation
-        
-        centered_points = np.transpose(centered_points)
-        centered_points = np.vstack((centered_points, np.ones((1, numPoints))))
-        rotated_points = self.inverse_rotation_matrix * centered_points
-        rotated_points = np.transpose(rotated_points)
-        rotated_points = rotated_points[:,0:2]
-        
-        output_points = rotated_points + self.source_space_center_of_rotation
-        return np.asarray(output_points)
-    
+    def ToITKString(self) -> str:
+        """Serialize via rigid_family_to_itk_string (Affine only when flip_ud)."""
+        return rigid_family_to_itk_string(self)
+
+    def Transform(self, points: NDArray[np.floating], **kwargs):
+
+        xp = cp.get_array_module(points)
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
+
+        if self._is_pure_translation():
+            transformed = points + xp.asarray(self._target_offset)
+            return transformed
+
+        num_points = points.shape[0]
+        centered_points = xp.hstack((points, xp.ones((num_points, 1))))
+        output_points = xp.transpose(
+            xp.matmul(self._matrix_for(xp, inverse=False), xp.transpose(centered_points)))
+        output_points = output_points[:, 0:2]
+        itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
+        return itransformed
+
+    def InverseTransform(self, points: NDArray[np.floating], **kwargs):
+
+        xp = cp.get_array_module(points)
+        points = nornir_imageregistration.EnsurePointsAre2DArray(points)
+
+        if self._is_pure_translation():
+            itransformed = points - xp.asarray(self._target_offset)
+            return itransformed
+
+        num_points = points.shape[0]
+        centered_points = xp.hstack((points, xp.ones((num_points, 1))))
+        output_points = xp.transpose(
+            xp.matmul(self._matrix_for(xp, inverse=True), xp.transpose(centered_points)))
+        output_points = output_points[:, 0:2]
+        itransformed = xp.around(output_points, nornir_imageregistration.RoundingPrecision(output_points.dtype))
+        return itransformed
+
+    def RotateSourcePoints(self, rangle: float, rotation_center: NDArray[np.floating] | None):
+        """Rotate all warped points by the specified amount"""
+        self._angle = self._angle + rangle
+        xp = nornir_imageregistration.GetComputationModule()
+
+        if rotation_center is not None:
+            self._source_space_center_of_rotation = xp.array(rotation_center)
+
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def RotateFixedAboutSourcePoint(
+            self,
+            rangle: float,
+            source_point_yx: NDArray[np.floating]) -> None:
+        """Rotate the fixed layer about a source-space pivot.
+
+        Updates angle and target_offset so ``Transform(source_point_yx)`` is unchanged
+        in target space (cursor-pinned composite rotation).
+        """
+        def mutate() -> None:
+            self._angle = self._angle - rangle
+
+        self._pin_source_point_under_mutation(source_point_yx, mutate)
+
+    def Scale(self, value: float):
+
+        # We aren't changing the relative scale of either space compared to the other
+        # We are changing the scale of both spaces, so we scale the target and source center of rotation offsets
+        # Do not call super, this method is a replacement
+        # self._scalar *= value
+        self._target_offset = (self._target_offset * value).astype(np.float32)
+        self._source_space_center_of_rotation = (self._source_space_center_of_rotation * value).astype(np.float32)
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def TranslateFixed(self, offset: NDArray[np.floating]):
+        """Translate all fixed points by the specified amount"""
+        self._target_offset = self._target_offset + np.asarray(offset, dtype=np.float32).ravel()[:2]
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def TranslateWarped(self, offset: NDArray[np.floating]):
+        """Translate all warped points by the specified amount"""
+        self._target_offset = self._target_offset - np.asarray(offset, dtype=np.float32).ravel()[:2]
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def Flip(self):
+        """Flip the Y axis"""
+        self._flip_ud = not self._flip_ud
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+        return self
+
     def __repr__(self):
-        return super(Rigid, self).__repr__()
+        return f"Offset: {self._target_offset[0]:03g}y,{self._target_offset[1]:03g}x Flip: {self.flip_ud} Angle: {self.angle:03g}r Rot Center: {self.source_space_center_of_rotation[0]:03g}y,{self.source_space_center_of_rotation[1]:03g}x"
 
-class CenteredSimilarity2DTransform(Rigid):
-    '''
-    Applies a scale+rotation+translation transform
-    '''
+
+class CenteredSimilarity2DTransform(Rigid, base.ITransformRelativeScaling):
+    """
+    Applies a scaling+rotation+translation transform about the source rotation center
+    (ITK CenteredSimilarity2D semantics): ``p' = Flip @ R @ s @ (p - c) + c + t``.
+
+    The order of operations is:
+    1. Scaling about the source rotation center
+    2. Rotation about the source rotation center
+    3. Optional flip
+    4. Translation
+
+    Remember that matrix multiplacation is applied in reverse order, so the last operation is the first to be applied
+    """
+
     def __getstate__(self):
         odict = super(CenteredSimilarity2DTransform, self).__getstate__()
         odict['_scalar'] = self._scalar
         return odict
-    
-    def __setstate__(self, dictionary):
-        super(CenteredSimilarity2DTransform, self).__setstate__(dictionary)
+
+    def __setstate__(self, dictionary: dict):
         self._scalar = dictionary['_scalar']
-        
-    @property
-    def scalar(self):
-        return self._scalar
-     
-    def __init__(self, target_offset, source_rotation_center=None, angle=None, scalar=None, **kwargs):
-        '''
+        super(CenteredSimilarity2DTransform, self).__setstate__(dictionary)
+
+    def __init__(self, target_offset: VectorLike,
+                 source_rotation_center: VectorLike | None = None,
+                 angle: float | None = None, scalar: float | None = None, flip_ud: bool = False):
+        """
         Creates a Rigid Transformation.  If used only one BoundingBox parameter needs to be specified
         :param tuple target_offset:  The amount to offset points in mapped (source) space to translate them to fixed (target) space
         :param tuple source_rotation_center: The (Y,X) center of rotation in mapped space
         :param float angle: The angle to rotate, in radians
-        :param Rectangle FixedBoundingBox:  Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.  
-        :param Rectangle MappedBoundingBox: Optional, the boundaries of points expected to be mapped.  Used for informational purposes only.
-        '''
-        super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, **kwargs)
-        
-        self._scalar = scalar
-        
-    @staticmethod
-    def Load(TransformString):
-        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString)
-    
-    def ToITKString(self):
-        #TODO look at using CenteredRigid2DTransform_double_2_2 to make rotation more straightforward
-        return "CenteredSimilarity2DTransform_double_2_2 vp 6 {0} {1} {2} {3} {4} {5} fp 0".format(self._scalar,
-                                                                                       self.angle,
-                                                                                       self.source_space_center_of_rotation[1],
-                                                                                       self.source_space_center_of_rotation[0],
-                                                                                       self.target_offset[1],
-                                                                                       self.target_offset[0])
-        
-        
-    def ScaleWarped(self, scalar):
-        '''Scale source space control points by scalar'''
-        self._scalar = self._scalar / scalar
-        self._mapped_bounding_box = nornir_imageregistration.Rectangle.scale_on_origin(self._mapped_bounding_box, scalar) #self._inverse_transform_rectangle(self._fixed_bounding_box)
-        self._fixed_bounding_box = None
-        self.OnTransformChanged()
-        
-    def ScaleFixed(self, scalar):
-        '''Scale target space control points by scalar'''
-        self._scalar = self._scalar * scalar
-        #self._fixed_bounding_box = None nornir_imageregistration.Rectangle.scale_on_center(self._fixed_bounding_box, scalar) #self._inverse_transform_rectangle(self._fixed_bounding_box)
-        self._fixed_bounding_box = None
-        self.OnTransformChanged()                                                                                   
-                                                                                       
-    
-    def Transform(self, points, **kwargs):
-        
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-        
-        if self.angle == 0 and self._scalar == 1.0:
-            return points + self.target_offset
-        
-        numPoints = points.shape[0]
-        
-        centered_points = points - self.source_space_center_of_rotation
-        centered_points = np.transpose(centered_points)
-        centered_points = np.vstack((centered_points, np.ones((1, numPoints)))) #Add a row so we can multiply the matrix
-        
-        if self._scalar != 1.0:
-            centered_points = centered_points * self._scalar
-            
-        centered_rotated_points = self.forward_rotation_matrix * centered_points
-        centered_rotated_points = np.transpose(centered_rotated_points)
-        centered_rotated_points = centered_rotated_points[:,0:2]
-          
-        rotated_points = centered_rotated_points + self.source_space_center_of_rotation
-        output_points = rotated_points + self.target_offset
-        return np.asarray(output_points)
+        :param float scalar: The relative scale difference between source and target space
+        :param flip_ud: True if the transform should flip the Y axis
+        """
+        self._scalar = 1.0 if scalar is None else scalar
+        super(CenteredSimilarity2DTransform, self).__init__(target_offset, source_rotation_center, angle, flip_ud)
 
-    def InverseTransform(self, points, **kwargs):
-        
-        points = nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
-        
-        if self.angle == 0 and self._scalar == 1.0:
-            return points - self.target_offset
-    
-        numPoints = points.shape[0]
-        
-        input_points = points - self.target_offset
-        centered_points = input_points - self.source_space_center_of_rotation
-        
-        centered_points = np.transpose(centered_points)
-        centered_points = np.vstack((centered_points, np.ones((1, numPoints))))
-        
-        if self._scalar != 1.0:
-            centered_points = centered_points / self._scalar
-            
-        rotated_points = self.inverse_rotation_matrix * centered_points
-        rotated_points = np.transpose(rotated_points)
-        rotated_points = rotated_points[:,0:2]
-        
-        output_points = rotated_points + self.source_space_center_of_rotation
-        return np.asarray(output_points)
-    
+    @classmethod
+    def CreateBatch(
+            cls,
+            target_offsets: NDArray[np.floating],
+            source_rotation_centers: NDArray[np.floating],
+            angles: NDArray[np.floating],
+            scalars: NDArray[np.floating],
+            flip_ud: NDArray[np.bool_]) -> list[CenteredSimilarity2DTransform]:
+        """Create many transforms while batching device matrix inversion."""
+        offsets = np.asarray(target_offsets, dtype=np.float32)
+        centers = np.asarray(source_rotation_centers, dtype=np.float32)
+        angle_values = np.asarray(angles, dtype=np.float64)
+        scalar_values = np.asarray(scalars, dtype=np.float64)
+        flip_values = np.asarray(flip_ud, dtype=bool)
+        count = int(offsets.shape[0])
+        expected_vector_shape = (count, 2)
+        if offsets.shape != expected_vector_shape or centers.shape != expected_vector_shape:
+            raise ValueError("target offsets and source rotation centers must have shape (N, 2)")
+        if angle_values.shape != (count,) or scalar_values.shape != (count,) or flip_values.shape != (count,):
+            raise ValueError("angles, scalars, and flip_ud must have shape (N,)")
+        if count == 0:
+            return []
+
+        xp = nornir_imageregistration.GetComputationModule()
+        if xp is np:
+            return [
+                cls(
+                    target_offset=offsets[i],
+                    source_rotation_center=centers[i],
+                    angle=float(angle_values[i]),
+                    scalar=float(scalar_values[i]),
+                    flip_ud=bool(flip_values[i]))
+                for i in range(count)
+            ]
+
+        matrices = xp.broadcast_to(xp.identity(3), (count, 3, 3)).copy()
+        target_translation = matrices.copy()
+        target_translation[:, 0, 2] = xp.asarray(offsets[:, 0])
+        target_translation[:, 1, 2] = xp.asarray(offsets[:, 1])
+        center_translation = matrices.copy()
+        center_translation[:, 0, 2] = xp.asarray(centers[:, 0])
+        center_translation[:, 1, 2] = xp.asarray(centers[:, 1])
+        inverse_center_translation = matrices.copy()
+        inverse_center_translation[:, 0, 2] = xp.asarray(-centers[:, 0])
+        inverse_center_translation[:, 1, 2] = xp.asarray(-centers[:, 1])
+        flip_matrices = matrices.copy()
+        flip_matrices[:, 0, 0] = xp.where(xp.asarray(flip_values), -1.0, 1.0)
+        rotation_matrices = matrices.copy()
+        cosines = xp.asarray(np.asarray([np.cos(float(value)) for value in angle_values]))
+        sines = xp.asarray(np.asarray([np.sin(float(value)) for value in angle_values]))
+        rotation_matrices[:, 0, 0] = cosines
+        rotation_matrices[:, 0, 1] = sines
+        rotation_matrices[:, 1, 0] = -sines
+        rotation_matrices[:, 1, 1] = cosines
+        scale_matrices = matrices.copy()
+        scale_matrices[:, 0, 0] = xp.asarray(scalar_values)
+        scale_matrices[:, 1, 1] = xp.asarray(scalar_values)
+        forward = (
+            target_translation
+            @ center_translation
+            @ flip_matrices
+            @ rotation_matrices
+            @ scale_matrices
+            @ inverse_center_translation
+        )
+        inverse = xp.linalg.inv(forward)
+
+        output: list[CenteredSimilarity2DTransform] = []
+        for i in range(count):
+            transform = cls.__new__(cls)
+            RigidTranslation.__init__(
+                transform,
+                target_offset=offsets[i],
+                source_rotation_center=centers[i],
+                angle=float(angle_values[i]))
+            transform._scalar = float(scalar_values[i])
+            transform._flip_ud = bool(flip_values[i])
+            transform.forward_matrix = forward[i]
+            transform.inverse_matrix = inverse[i]
+            transform._matrix_cache = {}
+            output.append(transform)
+        return output
+
+    @staticmethod
+    def Load(TransformString: typing.Sequence[str], pixelSpacing: float | None = None) -> Rigid:
+        return nornir_imageregistration.transforms.factory.ParseRigid2DTransform(TransformString, pixelSpacing)  # type: ignore[return-value]
+
+    def ToITKString(self) -> str:
+        """Serialize via rigid_family_to_itk_string (Affine only when flip_ud)."""
+        return rigid_family_to_itk_string(self)
+
+    def ScaleWarped(self, scalar: float):
+        """Scale source space control points by scalar"""
+        self._scalar /= scalar
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
+    def ScaleWarpedAboutSourcePoint(
+            self,
+            scale_factor: float,
+            source_point_yx: NDArray[np.floating]) -> None:
+        """Scale the warped layer about a source-space pivot.
+
+        Updates scalar and target_offset so ``Transform(source_point_yx)`` is unchanged
+        in target space (cursor-pinned scale, mirroring RotateFixedAboutSourcePoint).
+        """
+        def mutate() -> None:
+            self._scalar /= scale_factor
+
+        self._pin_source_point_under_mutation(source_point_yx, mutate)
+
+    def ScaleFixed(self, scalar: float):
+        """Scale target space control points by scalar"""
+        self._scalar *= scalar
+        self._update_transform_matrix()
+        self.OnTransformChanged()
+
     def __repr__(self):
-        return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}".format(self.scalar)
+        return super(CenteredSimilarity2DTransform, self).__repr__() + " scale: {0}:04g".format(self.scalar)

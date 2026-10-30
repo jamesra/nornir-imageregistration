@@ -1,221 +1,549 @@
-'''
+"""
 Created on Oct 22, 2018
 
 @author: u0490822
 
-Contains some helper classes for organizing a grid of points placed over an image. 
+Contains some helper classes for organizing a grid of points placed over an image.
 Used with the slice-to-slice grid refinement code
-'''
+"""
 
 import numpy as np
+from numpy.typing import NDArray
+
 import nornir_imageregistration
+from nornir_imageregistration import IGrid, cp
+from nornir_imageregistration.transforms.base import ITransform
+
+from nornir_shared import prettyoutput
+from nornir_shared.mathhelper import NearestPowerOfTwo
 
 
-class GridDivisionBase(object):
-    '''Abstract class for structures that divide images into grids of possibly overlapping cells'''
-    
-    def __init__(self):
-        self.cell_size = None
-        self.grid_dims = None
-        self.grid_spacing = None
-        self.coords = None
-        self.TargetPoints = None
-        self.SourcePoints = None
-        self.source_shape = None
-        
-    def __str__(self):
-        return "grid_dims:{0},{1} grid_spacing:{2},{3} cell_size:{4},{5}".format(self.grid_dims[0],
-                                                                                 self.grid_dims[1],
-                                                                                 self.grid_spacing[0],
-                                                                                 self.grid_spacing[1],
-                                                                                 self.cell_size[0],
-                                                                                 self.cell_size[1])
-        
+def build_coords_array(grid_dims: NDArray[np.integer]) -> NDArray[np.integer]:
+    """
+    Returns a Nx2 array containing each index into the grid of dimension grid_dims
+    :param grid_dims:
+    :return:
+    """
+    coords = np.zeros((np.prod(grid_dims), 2), dtype=int)
+    col_array = np.array(range(0, grid_dims[1]), dtype=int)
+    for iRow in range(grid_dims[0]):
+        iRowStart = iRow * grid_dims[1]
+        iRowEnd = (iRow + 1) * grid_dims[1]
+        coords[iRowStart:iRowEnd, 0] = iRow
+        coords[iRowStart:iRowEnd, 1] = col_array
+
+    return coords
+
+
+def cell_unmasked_fractions(
+        mask: NDArray[np.bool_],
+        points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+) -> NDArray[np.floating]:
+    """Return the unmasked fraction of a cell-sized window around each point.
+
+    :param mask: Boolean mask image (True = unmasked / tissue).
+    :param points: Nx2 cell centers in the same space as *mask* (Y, X).
+    :param cell_size: (height, width) of the crop window around each center.
+    :return: Length-N float array of unmasked area / cell area in ``[0, 1]``.
+    """
+    points_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
+    mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
+    if points_host.shape[0] == 0:
+        raise ValueError("points must have non-zero length")
+
+    cell_size_arr = np.asarray(cell_size, dtype=np.float64)
+    half_cell = cell_size_arr / 2.0
+    cell_area = float(np.prod(cell_size_arr))
+    if cell_area <= 0:
+        raise ValueError("cell_size must have positive area")
+
+    origins = points_host - half_cell
+    fractions = np.zeros(points_host.shape[0], dtype=np.float64)
+    cell_h = int(cell_size_arr[0])
+    cell_w = int(cell_size_arr[1])
+    if cell_h < 0 or cell_w < 0:
+        raise ValueError("Negative dimensions are not allowed")
+    mask_h, mask_w = mask_host.shape[:2]
+    for i_row in range(points_host.shape[0]):
+        o = origins[i_row, :]
+        y_origin = int(o[0])
+        x_origin = int(o[1])
+        y_start = max(0, y_origin)
+        x_start = max(0, x_origin)
+        y_stop = min(mask_h, y_origin + cell_h)
+        x_stop = min(mask_w, x_origin + cell_w)
+        if y_stop <= y_start or x_stop <= x_start:
+            continue
+        fractions[i_row] = (
+            float(np.count_nonzero(mask_host[y_start:y_stop, x_start:x_stop]))
+            / cell_area
+        )
+    return fractions
+
+
+def classify_fixed_grid_points(
+        source_points: NDArray[np.floating],
+        target_points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+        min_unmasked: float,
+        source_mask: NDArray[np.bool_] | None = None,
+        target_mask: NDArray[np.bool_] | None = None,
+        source_ok: NDArray[np.bool_] | None = None,
+) -> NDArray[np.bool_]:
+    """Return True for points with enough unmasked area in both source and target.
+
+    A missing mask on either side is treated as fully unmasked (fraction 1.0).
+    A point is fixed only when both sides meet *min_unmasked*.
+
+    :param source_ok: Optional precomputed source-side pass mask. Grid SourcePoints
+        are lattice-fixed, so callers may cache this until cell size, source mask,
+        threshold, or the grid itself changes.
+    """
+    n = int(source_points.shape[0])
+    if target_points.shape[0] != n:
+        raise ValueError("source_points and target_points must have the same length")
+
+    if source_ok is not None:
+        source_pass = np.asarray(source_ok, dtype=bool)
+        if source_pass.shape[0] != n:
+            raise ValueError("source_ok length must match source_points")
+    elif source_mask is None:
+        source_pass = np.ones(n, dtype=bool)
+    else:
+        source_pass = cell_unmasked_fractions(source_mask, source_points, cell_size) >= float(min_unmasked)
+
+    if target_mask is None:
+        target_pass = np.ones(n, dtype=bool)
+    else:
+        target_pass = cell_unmasked_fractions(target_mask, target_points, cell_size) >= float(min_unmasked)
+
+    return source_pass & target_pass
+
+
+def source_ok_for_grid_points(
+        source_points: NDArray[np.floating],
+        cell_size: NDArray[np.integer] | tuple[int, int],
+        min_unmasked: float,
+        source_mask: NDArray[np.bool_] | None = None,
+) -> NDArray[np.bool_]:
+    """Return True where the source cell meets *min_unmasked* (or True if no mask)."""
+    n = int(np.asarray(source_points).shape[0])
+    if source_mask is None:
+        return np.ones(n, dtype=bool)
+    return cell_unmasked_fractions(source_mask, source_points, cell_size) >= float(min_unmasked)
+
+
+class GridDivisionBase(IGrid):
+    """Abstract class for structures that divide images into grids of possibly overlapping cells"""
+
+    _cell_size: NDArray[np.integer]
+    _grid_dims: NDArray[np.integer]
+    _grid_spacing: NDArray[np.integer]
+    _coords: NDArray[np.floating]
+    _TargetPoints: NDArray[np.floating]
+    _SourcePoints: NDArray[np.floating]
+    _source_shape: NDArray[np.integer]
+    _axis_points: list[NDArray[np.floating]]
+
     @property
-    def num_points(self):
-        return self.coords.shape[0]
-        
-    def PopulateTargetPoints(self, transform):
-        if transform is not None:
-            self.TargetPoints = np.round(transform.Transform(self.SourcePoints),0).astype(np.int64)
-            return self.TargetPoints 
-        
-    def RemoveMaskedPoints(self, mask):
-        '''
-        :param array mask: a boolean mask that determines which points are kept. 
-        '''
-        
-        self.coords = self.coords[mask,:]
-        self.SourcePoints = self.SourcePoints[mask,:]
-        
-        if self.TargetPoints is not None:
-            self.TargetPoints = self.TargetPoints[mask,:]
-        
-    def ApplyTargetImageMask(self, target_mask):
+    def cell_size(self) -> NDArray[np.integer]:
+        """Area we sample around each point in the grid.  3x3 samples 1.5 pixels in each direction from the center point"""
+        return self._cell_size
+
+    @property
+    def grid_dims(self) -> NDArray[np.integer]:
+        """Shape of the gride in rows, columns"""
+        return self._grid_dims
+
+    @property
+    def grid_spacing(self) -> NDArray[np.integer]:
+        """Spacing of the grid"""
+        return self._grid_spacing
+
+    @property
+    def coords(self) -> NDArray[np.floating]:
+        return self._coords
+
+    @property
+    def TargetPoints(self) -> NDArray[np.floating]:
+        """Location of center of each cell in target space"""
+        return self._TargetPoints
+
+    @TargetPoints.setter
+    def TargetPoints(self, value: NDArray[np.floating]):
+        if value.shape[0] != self.grid_dims.prod():
+            raise ValueError(
+                f"Number of points must match grid dimensions, got {value.shape[0]} expected {self.grid_dims.prod()}")
+        self._TargetPoints = value
+
+    @property
+    def SourcePoints(self) -> NDArray[np.floating]:
+        """Location of center of each cell in source space"""
+        return self._SourcePoints
+
+    @property
+    def source_shape(self) -> NDArray[np.integer]:
+        """(Rows, Columns) of image we are dividing"""
+        return self._source_shape
+
+    @property
+    def num_points(self) -> int:
+        return self._coords.shape[0]
+
+    @property
+    def axis_points(self):
+        """The points along the axis, in source space, where the grid lines intersect the axis"""
+        return self._axis_points
+
+    def PopulateTargetPoints(self, transform: ITransform) -> NDArray[np.floating] | None:
+        """Map source lattice through *transform*; keep the Transform output backend.
+
+        Host conversion belongs in CPU Grid/Triangulation constructors and at STOS save,
+        not here.
+        """
+        if transform is None:
+            return None
+        mapped = transform.Transform(self._SourcePoints)
+        xp = cp.get_array_module(mapped)
+        self._TargetPoints = xp.round(mapped, 3).astype(xp.float32, copy=False)
+        return self._TargetPoints
+
+    def pack_control_point_pairs(self, *, on_device: bool) -> NDArray[np.floating]:
+        """Stack (Target, Source) pairs onto host or device for a Grid constructor."""
+        if self._TargetPoints is None:
+            raise ValueError("TargetPoints must be populated before packing control points")
+        if on_device:
+            return cp.hstack((cp.asarray(self._TargetPoints), cp.asarray(self._SourcePoints)))
+        return np.hstack((
+            nornir_imageregistration.EnsureNumpyArray(self._TargetPoints),
+            nornir_imageregistration.EnsureNumpyArray(self._SourcePoints),
+        ))
+
+    @staticmethod
+    def _mask_summary(mask: NDArray) -> str:
+        """Compact mask diagnostics for operator-facing error messages."""
+        mask_host = np.asarray(nornir_imageregistration.EnsureNumpyArray(mask))
+        if mask_host.size == 0:
+            return "mask_shape=(); mask_true_fraction=n/a"
+        true_count = int(np.count_nonzero(mask_host))
+        return (
+            f"mask_shape={tuple(int(s) for s in mask_host.shape)}; "
+            f"mask_true_count={true_count}; "
+            f"mask_true_fraction={true_count / float(mask_host.size):.4f}"
+        )
+
+    def RemoveMaskedPoints(self, mask: NDArray[np.bool_], *, context: str | None = None,
+                           allow_empty: bool = False) -> int:
+        """
+        Keep only points where ``mask`` is True.
+
+        :param mask: a boolean mask that determines which points are kept.
+        :param context: optional operator-facing description of which filter emptied the grid.
+        :param allow_empty: when True, emptying the grid clears points and returns 0 instead of raising.
+        :return: number of points remaining after filtering.
+        """
+        keep = np.asarray(mask, dtype=bool).reshape(-1)
+        if keep.size != self.num_points:
+            raise ValueError(
+                f"Point keep-mask length {keep.size} does not match grid point count {self.num_points}")
+
+        if not np.any(keep):
+            msg = (
+                f"Masking operation removes all {self.num_points} points from grid refinement"
+                + (f" ({context})" if context else "")
+                + f". cell_size={np.asarray(self.cell_size).tolist()}; "
+                f"grid_spacing={np.asarray(self.grid_spacing).tolist()}. "
+                "Check that blended tissue masks still have unmasked area under the "
+                "control-point cells (extrema masking can erase thin tissue), that the "
+                "current transform places points on tissue, and that min_unmasked_area "
+                "is not set too high."
+            )
+            if allow_empty:
+                prettyoutput.Log(msg + " Continuing with an empty unfinalized set.")
+                empty_ix = np.zeros(0, dtype=bool)
+                self._coords = self._coords[empty_ix, :]
+                self._SourcePoints = self._SourcePoints[empty_ix, :]
+                if self._TargetPoints is not None:
+                    self._TargetPoints = self._TargetPoints[empty_ix, :]
+                return 0
+
+            prettyoutput.LogErr(msg)
+            raise ValueError(msg)
+
+        self._coords = self._coords[keep, :]
+        self._SourcePoints = self._SourcePoints[keep, :]
+
+        if self._TargetPoints is not None:
+            self._TargetPoints = self._TargetPoints[keep, :]
+        return int(self.num_points)
+
+    def ApplyTargetImageMask(self, target_mask: NDArray[np.bool_] | None):
         if target_mask is not None:
             self.FilterOutofBoundsTargetPoints(target_mask.shape)
-            valid = nornir_imageregistration.index_with_array(target_mask, self.TargetPoints)
-            
-            self.RemoveMaskedPoints(valid)
-            
-    def __CalculateMaskedCells(self, mask, points, min_overlap):
-        
-        cell_true_count = np.asarray([False] * points.shape[0], dtype=np.float64)
-        half_cell = (self.cell_size / 2.0).astype(np.int32)
-        cell_area = np.prod(self.cell_size)
-        
-        origins = points - half_cell
-        
-        for iRow in range(0,points.shape[0]):
-            o = origins[iRow,:]
-            
-            cell = nornir_imageregistration.CropImage(mask,
-                                                      int(o[1]), int(o[0]),
-                                                      int(self.cell_size[1]), int(self.cell_size[0]),
-                                                      cval=False)
-            cell_true_count[iRow] = np.count_nonzero(cell)
-            
-        overlaps = cell_true_count / float(cell_area)
-        valid = overlaps > min_overlap
-        return valid
-    
-            
-    def RemoveCellsUsingTargetImageMask(self, target_mask, min_overlap=0.5):
-        '''
-        :param float min_overlap: Amount of cell area that must be valid according to mask
-        '''
+            valid = nornir_imageregistration.index_with_array(target_mask, self._TargetPoints)
+
+            self.RemoveMaskedPoints(
+                valid,
+                context=f"target image mask at point centers; {self._mask_summary(target_mask)}")
+
+    @staticmethod
+    def _point_extent_summary(points: NDArray | None) -> str:
+        """Compact bbox of cell-center coordinates for operator-facing errors."""
+        if points is None:
+            return "points=None"
+        host = np.asarray(nornir_imageregistration.EnsureNumpyArray(points), dtype=np.float64)
+        if host.size == 0:
+            return "points_n=0"
+        return (
+            f"points_n={host.shape[0]}; "
+            f"y=[{float(host[:, 0].min()):.1f},{float(host[:, 0].max()):.1f}]; "
+            f"x=[{float(host[:, 1].min()):.1f},{float(host[:, 1].max()):.1f}]"
+        )
+
+    def __CalculateMaskedCells(self, mask: NDArray[np.bool_], points: NDArray, min_unmasked_area: float | None = None):
+        """
+        :param ndarray mask: mask image used for calculation
+        :param ndarray points: set of Nx2 coordinates for cell centers to test for masking
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask.  If None, any cells with a single-unmasked pixel are valid
+        """
+        if min_unmasked_area is None:
+            min_unmasked_area = 0
+        overlaps = cell_unmasked_fractions(mask, points, self._cell_size)
+        return overlaps > min_unmasked_area
+
+    def RemoveCellsUsingTargetImageMask(self, target_mask: NDArray[np.bool_], min_unmasked_area: float,
+                                        *, allow_empty: bool = False) -> int:
+        """
+        :param ndarray target_mask: mask image used for calculation
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        :param allow_empty: when True, emptying the grid is allowed (returns 0)
+        :return: number of points remaining after filtering (unchanged if mask is None)
+        """
         if target_mask is not None:
-            valid = self.__CalculateMaskedCells(mask=target_mask, points=self.TargetPoints, min_overlap=min_overlap)
-            self.RemoveMaskedPoints(valid)
-            
-    def ApplySourceImageMask(self, source_mask):
+            points_before = self.num_points
+            valid = self.__CalculateMaskedCells(mask=target_mask, points=self._TargetPoints,
+                                                min_unmasked_area=min_unmasked_area)
+            return self.RemoveMaskedPoints(
+                valid,
+                allow_empty=allow_empty,
+                context=(
+                    f"target cell tissue mask; points_before={points_before}; "
+                    f"min_unmasked_area={float(min_unmasked_area):g}; "
+                    f"{self._mask_summary(target_mask)}; "
+                    f"{self._point_extent_summary(self._TargetPoints)}"
+                ))
+        return int(self.num_points)
+
+    def ApplySourceImageMask(self, source_mask: NDArray[np.bool_] | None):
         if source_mask is not None:
             self.FilterOutofBoundsSourcePoints(source_mask.shape)
-            valid = nornir_imageregistration.index_with_array(source_mask, self.SourcePoints)
-            self.RemoveMaskedPoints(valid)
-            
-    def RemoveCellsUsingSourceImageMask(self, source_mask, min_overlap=0.5):
-        '''
-        :param float min_overlap: Amount of cell area that must be valid according to mask
-        '''
+            valid = nornir_imageregistration.index_with_array(source_mask, self._SourcePoints)
+            self.RemoveMaskedPoints(
+                valid,
+                context=f"source image mask at point centers; {self._mask_summary(source_mask)}")
+
+    def RemoveCellsUsingSourceImageMask(self, source_mask: NDArray[np.bool_], min_unmasked_area: float,
+                                        *, allow_empty: bool = False) -> int:
+        """
+        :param ndarray source_mask: mask image used for calculation
+        :param float min_unmasked_area: Amount of cell area that must be valid according to mask
+        :param allow_empty: when True, emptying the grid is allowed (returns 0)
+        :return: number of points remaining after filtering (unchanged if mask is None)
+        """
         if source_mask is not None:
-            valid = self.__CalculateMaskedCells(mask=source_mask, points=self.SourcePoints, min_overlap=min_overlap)
-            self.RemoveMaskedPoints(valid)
-        
-    def FilterOutofBoundsTargetPoints(self, target_shape=None):       
-        valid_inbounds = np.logical_and(np.all(self.TargetPoints >= np.asarray((0, 0)), 1),
-                                        np.all(self.TargetPoints < target_shape, 1))
-        self.RemoveMaskedPoints(valid_inbounds)
-        
-    def FilterOutofBoundsSourcePoints(self, source_shape):
+            points_before = self.num_points
+            valid = self.__CalculateMaskedCells(mask=source_mask, points=self._SourcePoints,
+                                                min_unmasked_area=min_unmasked_area)
+            return self.RemoveMaskedPoints(
+                valid,
+                allow_empty=allow_empty,
+                context=(
+                    f"source cell tissue mask; points_before={points_before}; "
+                    f"min_unmasked_area={float(min_unmasked_area):g}; "
+                    f"{self._mask_summary(source_mask)}"
+                ))
+        return int(self.num_points)
+
+    def FilterOutofBoundsTargetPoints(self, target_shape: NDArray[np.integer] | tuple[int, int] | None = None,
+                                      *, allow_empty: bool = False) -> int:
+
+        xp = cp.get_array_module(self._TargetPoints)
+
+        if not isinstance(target_shape, np.ndarray):
+            target_shape = xp.asarray(target_shape)
+
+        points_before = self.num_points
+        valid_inbounds = xp.logical_and(xp.all(self._TargetPoints >= xp.asarray((0, 0)), 1),
+                                        xp.all(self._TargetPoints < target_shape, 1))  # type: ignore[operator]
+        return self.RemoveMaskedPoints(
+            np.asarray(nornir_imageregistration.EnsureNumpyArray(valid_inbounds), dtype=bool),
+            allow_empty=allow_empty,
+            context=(
+                f"target out-of-bounds filter; points_before={points_before}; "
+                f"target_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(target_shape)).tolist())}; "
+                f"{self._point_extent_summary(self._TargetPoints)}"
+            ))
+
+    def FilterOutofBoundsSourcePoints(self, source_shape: NDArray | tuple[int, int] | None = None,
+                                      *, allow_empty: bool = False) -> int:
+        xp = cp.get_array_module(self._SourcePoints)
+
         if source_shape is None:
-            source_shape = self.source_shape
-            
-        valid_inbounds = np.logical_and(np.all(self.SourcePoints >= np.asarray((0, 0)), 1),
-                                        np.all(self.SourcePoints < source_shape, 1))
-        self.RemoveMaskedPoints(valid_inbounds)
+            source_shape = xp.asarray(self._source_shape)
+        elif not isinstance(source_shape, np.ndarray):
+            source_shape = xp.asarray(source_shape)
 
-class ITKGridDivision(GridDivisionBase): 
-    '''
-     Align the grid so the centers of the edge cells touch the edge of the image
-    '''
+        points_before = self.num_points
+        valid_inbounds = xp.logical_and(xp.all(self._SourcePoints >= xp.asarray((0, 0)), 1),
+                                        xp.all(self._SourcePoints < source_shape, 1))  # type: ignore[operator]
+        return self.RemoveMaskedPoints(
+            np.asarray(nornir_imageregistration.EnsureNumpyArray(valid_inbounds), dtype=bool),
+            allow_empty=allow_empty,
+            context=(
+                f"source out-of-bounds filter; points_before={points_before}; "
+                f"source_shape={tuple(int(s) for s in np.asarray(nornir_imageregistration.EnsureNumpyArray(source_shape)).tolist())}"
+            ))
 
-    def __init__(self, source_shape, cell_size, grid_dims=None, grid_spacing=None, transform = None):
-        '''
+    def __str__(self):
+        return f"grid_dims:{self._grid_dims[0]},{self._grid_dims[1]} grid_spacing:{self._grid_spacing[0]},{self._grid_spacing[1]} cell_size:{self._cell_size[0]},{self._cell_size[1]}"
+
+
+class ITKGridDivision(GridDivisionBase):
+    """
+     Align the grid so the centers of the edge cells touch the edge of the image.  This grid should have a cell center
+     at each corner of the image
+    """
+
+    def __init__(self,
+                 source_shape: NDArray[np.integer] | tuple[int, int],
+                 cell_size: NDArray[np.integer] | tuple[int, int] | None = None,
+                 grid_dims: NDArray[np.integer] | tuple[int, int] | None = None,
+                 grid_spacing: NDArray[np.integer] | tuple[int, int] | None = None,
+                 transform=None):
+        """
         Divides an image into a grid, of possibly overlapping cells.
-        
-        :param tuple source_shape: (Rows, Columns) of image we are dividing 
-        :param tuple cell_size: The dimensions of each grid cell
-        :param tuple grid_dims: The number of (Rows, Columns) in the grid
-        :param tuple grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
-        
-        '''
-        
-        self.cell_size = np.asarray(cell_size, np.int32)
+
+        :param source_shape: (Rows, Columns) of image we are dividing
+        :param cell_size: The dimensions of each grid cell
+        :param grid_dims: The number of (Rows, Columns) in the grid
+        :param grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
+
+        """
+        super(ITKGridDivision, self).__init__()
+
         source_shape = np.asarray(source_shape, np.int64)
-        
+
         if cell_size is None:
-            raise ValueError("cell_size must be specified")
-        
+            if grid_dims is None and grid_spacing is None:
+                raise ValueError("cell_size must be specified if grid_dims and grid_spacing are not specified")
+        else:
+            self._cell_size = np.asarray(cell_size, np.int32)
+
         if grid_dims is not None and grid_spacing is not None:
             raise ValueError("Either grid_dims or grid_spacing must be specified but not both")
-        
-        #We want the coordinates of grid centers to go from edge to edge in the image because ITK expects this behavior
-        #Due to this fact we do not guarantee the grid_spacing requested        
-        if grid_dims is None and grid_spacing is None: 
-            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, cell_size) + 1 #Add one because we center the boundary points on the edge and not the center
+
+        # We want the coordinates of grid centers to go from edge to edge in the image because ITK expects this behavior
+        # Due to this fact we do not guarantee the grid_spacing requested
+        if grid_dims is None and grid_spacing is None:
+            self._grid_dims = nornir_imageregistration.TileGridShape(source_shape,
+                                                                     cell_size) + 1  # type: ignore[arg-type]  # Add one because ITK Grid transform centers the boundary points on the edge and not the center
         elif grid_spacing is None:
-            self.grid_dims =  np.asarray(grid_dims, np.int32)
+            self._grid_dims = np.asarray(grid_dims, np.int32)
         elif grid_dims is None:
-            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
-            
-        self.grid_spacing = (source_shape-1) / (self.grid_dims-1)
-            
-        self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in range(self.grid_dims[1])]
-        self.coords = np.vstack(self.coords)
-        
-        self.SourcePoints = self.coords * self.grid_spacing
-        self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
-        
-        self.source_shape = source_shape
-        
-        if transform is not None:
-            self.TargetPoints = self.PopulateTargetPoints(transform)
-        else:
-            self.TargetPoints = None
-            
+            self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing) + 1
+
+        if cell_size is None:  # Estimate a reasonable cell_size with overlap if it has not been determined, (passed grid dimensions only perhaps)
+            self._cell_size = NearestPowerOfTwo(self._grid_dims)
+
+        # Future Jamie, you spent a lot of time getting the grid spacing calculation correct for some reason.  It should have been obvious but don't mess with it again.
+        self._grid_spacing = source_shape / (  # type: ignore[assignment]
+                self._grid_dims - 1)  # - 1 on grid_dims because we want the points at the edges of the image
+
+        self._axis_points = [range(n) * self._grid_spacing[i] for i, n in enumerate(self._grid_dims)]
+
+        self._coords = build_coords_array(self._grid_dims)  # type: ignore[assignment]
+
+        self._SourcePoints = self._coords * self._grid_spacing  # type: ignore[assignment]
+        # self.SourcePoints = np.floor(self.SourcePoints).astype(np.int64)
+
+        if self._SourcePoints.shape[0] == 0:
+            raise ValueError(
+                "No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
+
+        self._source_shape = source_shape
+
+        self._TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None  # type: ignore[assignment]
+
+
 class CenteredGridDivision(GridDivisionBase):
-    '''
+    """
     Align the grid so the edges of the edge cells touch the edge of the image
-    '''
+    """
 
-    def __init__(self, source_shape, cell_size, grid_dims=None, grid_spacing=None, transform = None):
-        '''
+    def __init__(self, source_shape: NDArray[np.integer] | tuple[int, int],
+                 cell_size: NDArray[np.integer] | tuple[int, int],
+                 grid_dims: NDArray[np.integer] | tuple[int, int] | None = None,
+                 grid_spacing: NDArray[np.integer] | tuple[int, int] | None = None,
+                 transform=None):
+        """
         Divides an image into a grid, of possibly overlapping cells.
-        
-        :param tuple source_shape: (Rows, Columns) of image we are dividing 
-        :param tuple cell_size: The dimensions of each grid cell
-        :param tuple grid_dims: The number of (Rows, Columns) in the grid
-        :param tuple grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
-        '''
-        
-        self.cell_size = np.asarray(cell_size, np.int32)
+
+        :param source_shape: (Rows, Columns) of image we are dividing
+        :param cell_size: The dimensions of each grid cell
+        :param grid_dims: The number of (Rows, Columns) in the grid
+        :param grid_spacing: The distance between the centers of grid cells, possibly allowing overlapping cells
+        """
+        super(CenteredGridDivision, self).__init__()
+
+        self._cell_size = np.asarray(cell_size, np.int32)
         source_shape = np.asarray(source_shape, np.int64)
-        
+
         if cell_size is None:
-            raise ValueError("cell_size must be specified")
-        
+            if grid_dims is None and grid_spacing is None:
+                raise ValueError("cell_size must be specified if grid_dims and grid_spacing are not specified")
+
         if grid_dims is not None and grid_spacing is not None:
             raise ValueError("Either grid_dims or grid_spacing must be specified but not both")
-        
-        #We want the coordinates of grid centers to go from edge to edge in the image because ITK expects this behavior
-        #Due to this fact we do not guarantee the grid_spacing requested        
-        if grid_dims is None and grid_spacing is None: 
-            self.grid_spacing = cell_size
-            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, self.grid_spacing) 
+
+        if grid_dims is None and grid_spacing is None:
+            self._grid_spacing = cell_size  # type: ignore[assignment]
+            self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, self._grid_spacing)
         elif grid_spacing is None:
-            self.grid_dims =  np.asarray(grid_dims, np.int32)
-            self.grid_spacing = np.asarray( (source_shape-1) / self.grid_dims, np.int64)
+            self._grid_dims = np.asarray(grid_dims, np.int32)
+            self._grid_spacing = np.asarray((source_shape - 1) / self._grid_dims, np.int64)  # type: ignore[assignment]
         elif grid_dims is None:
-            self.grid_spacing = np.asarray(grid_dims, np.int64)
-            self.grid_dims = nornir_imageregistration.TileGridShape(source_shape, grid_spacing)
-             
-        self.coords = [np.asarray((iRow, iCol), dtype=np.int64) for iRow in range(self.grid_dims[0]) for iCol in range(self.grid_dims[1])]
-        self.coords = np.vstack(self.coords)
-        
-        
-        
-        self.SourcePoints = self.coords * self.grid_spacing
-        self.SourcePoints = self.SourcePoints + (self.grid_spacing / 2.0)
-        #Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
-        overage = ((self.grid_dims * self.grid_spacing) - source_shape) / 2.0
-        self.SourcePoints = np.round(self.SourcePoints - overage).astype(np.int64)
-        
-        self.source_shape = source_shape
-        
-        if transform is not None:
-            self.TargetPoints = self.PopulateTargetPoints(transform)
-        else:
-            self.TargetPoints = None
-            
-    
+            self._grid_spacing = np.asarray(grid_spacing, np.int64)
+            self._grid_dims = nornir_imageregistration.TileGridShape(source_shape, self._grid_spacing)
+
+        self._axis_points = [range(n) * self._grid_spacing[i] for i, n in enumerate(self._grid_dims)]
+
+        self._coords = build_coords_array(self._grid_dims)  # type: ignore[assignment]
+
+        self._SourcePoints = self._coords * self._grid_spacing  # type: ignore[assignment]
+        self._SourcePoints = self._SourcePoints + (self._grid_spacing / 2.0)
+        # Grid dimensions round up, so if we are larger than image find out by how much and adjust the points so they are centered on the image
+        overage = ((self._grid_dims * self._grid_spacing) - source_shape) / 2.0
+        # Scale the overage amount according to cell position on the grid so the cells remain on the grid but have uniform additional overlap
+        # An axis with a single grid point has no spread to ramp the overage across: its
+        # coordinate max is zero and the ramp is 0/0, which raises under this package's numpy
+        # error state.  Such a point is coordinate 0, and coordinate 0 is left unadjusted on
+        # every axis that does have spread, so it gets no adjustment here either.  A lone cell
+        # can then overhang a smaller image, the same way the last cell of a multi-cell axis
+        # already does.  (#251)
+        # Clamping the divisor to 1 is exact rather than approximate: every coordinate on a
+        # single-point axis is 0, so 0/1 yields the 0 we want, and an axis with spread has a
+        # max of at least 1 already, so its ramp is untouched.
+        coord_max = np.maximum(np.max(self._coords, 0), 1)
+        overage_adjustment = overage * (self._coords / coord_max)
+        self._SourcePoints -= overage_adjustment
+        # self.SourcePoints = np.round(self.SourcePoints - overage_adjustment).astype(np.int64)
+
+        self._source_shape = source_shape
+
+        if self._SourcePoints.shape[0] == 0:
+            raise ValueError(
+                "No source points generated.  Source Shape: {source_shape} Cell Size: {cell_size} Grid Dims: {grid_dims} Grid Spacing: {grid_spacing}")
+
+        # self._SourcePoints = cp.asarray(self._SourcePoints) if nornir_imageregistration.UsingCupy() else self._SourcePoints
+        self._TargetPoints = self.PopulateTargetPoints(transform) if transform is not None else None  # type: ignore[assignment]

@@ -1,17 +1,21 @@
 import os
 import sys
 
-from nornir_shared import checksum, prettyoutput
 import nornir_shared.images as images
+from nornir_shared import checksum, prettyoutput
+import nornir_imageregistration
 
 
 class MosaicFile(object):
-    """description of class"""
+    """Represents mosaic metadata and the image-to-transform map; handles I/O for mosaic description files."""
 
     @classmethod
     def LoadChecksum(cls, path):
-        assert(os.path.exists(path))
+        # assert(os.path.exists(path))
         mosaicObj = MosaicFile.Load(path)
+        if mosaicObj is None:
+            return None
+
         return mosaicObj.Checksum
 
     @property
@@ -21,7 +25,7 @@ class MosaicFile(object):
 
     @property
     def NumberOfImages(self):
-        if(self.ImageToTransformString is None):
+        if self.ImageToTransformString is None:
             return 0
 
         return len(list(self.ImageToTransformString.keys()))
@@ -47,20 +51,20 @@ class MosaicFile(object):
         for InvalidImage in InvalidImages:
             if InvalidImage in self.ImageToTransformString:
                 InvalidImageFullPath = os.path.join(TileDir, InvalidImage)
-                if os.path.exists(InvalidImageFullPath):
-                    prettyoutput.Log('Removing invalid image from disk:')
-
+                try:
                     os.remove(InvalidImageFullPath)
+                    prettyoutput.Log(f'Removed invalid image from disk: {InvalidImage}')
+                except FileNotFoundError:
+                    pass
 
-                prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
+                prettyoutput.Log('Removing invalid/missing image from mosaic: %s' % InvalidImage)
                 del self.ImageToTransformString[InvalidImage]
                 FoundInvalid = True
 
-               # prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
-               # del self.ImageToTransformString[InvalidImage]
+            # prettyoutput.Log('Removing invalid image from mosaic: %s' % InvalidImage)
+            # del self.ImageToTransformString[InvalidImage]
 
         return FoundInvalid
-
 
     @classmethod
     def GetInfo(cls, filename):
@@ -68,90 +72,98 @@ class MosaicFile(object):
            <SECTION>_<CHANNEL>_<MosaicSource>_<DOWNSAMPLE>.mosaic
            [SectionNumber, Channel, MosaicSource, Downsample]'''
 
-        if(os.path.exists(filename) == False):
+        if not os.path.exists(filename):
             prettyoutput.LogErr("mosaic file not found: " + filename)
             return
 
         baseName = os.path.basename(filename)
         [baseName, ext] = os.path.splitext(baseName)
 
-
         parts = baseName.split("_")
 
         try:
             SectionNumber = int(parts[0])
-        except:
+        except (ValueError, IndexError):
             # We really can't recover from this, so maybe an exception should be thrown instead
             SectionNumber = None
             prettyoutput.Log('Could not determine mosaic section number: ' + str(filename))
 
         try:
             MosaicType = parts[-2]
-        except:
+        except IndexError:
             MosaicType = None
             prettyoutput.Log('Could not determine mosaic source: ' + str(filename))
 
-        if(len(parts) > 3):
+        if len(parts) > 3:
             try:
                 Channel = parts[1]
-            except:
+            except IndexError:
                 Channel = None
                 prettyoutput.Log('Could not determine mosaic channel: ' + str(filename))
+        else:
+            Channel = None
 
         # If we don't have a valid downsample value we assume 1
         try:
             DownsampleStrings = parts[-1].split(".")
             Downsample = int(DownsampleStrings[0])
-        except:
+        except (ValueError, IndexError):
             Downsample = None
             prettyoutput.Log('Could not determine mosaic downsample: ' + str(filename))
 
-        return [SectionNumber, Channel, MosaicType, Downsample]
-
+        return SectionNumber, Channel, MosaicType, Downsample
 
     @classmethod
     def Load(cls, filename):
-        if(os.path.exists(filename) == False):
-            prettyoutput.LogErr("Mosaic file not found: " + filename)
-            return
 
         lines = []
-        with open(filename, 'r') as fMosaic:
-            lines = fMosaic.readlines()
-            fMosaic.close()
+        try:
+            with open(filename, 'r') as fMosaic:
+                lines = fMosaic.readlines()
+                fMosaic.close()
+        except FileNotFoundError:
+            prettyoutput.LogErr(f"Mosaic file not found: {filename}")
+            return
+        except Exception as error:
+            prettyoutput.LogErr(f"Unexpected error {error} while opening Mosaic file {filename}")
+            return
 
         obj = MosaicFile()
 
         iLine = 0
-        while iLine < len(lines):
-            line = lines[iLine]
-            line = line.strip()
-            [text, value] = line.split(':', 1)
+        try:
+            while iLine < len(lines):
+                line = lines[iLine]
+                line = line.strip()
+                [text, value] = line.split(':', 1)
 
-            if(text.startswith('number_of_images')):
-                value.strip()
-                obj.FileReportedNumberOfImages = int(value)
-            elif(text.startswith('pixel_spacing')):
-                value.strip()
-                obj.pixel_spacing = int(float(value))
-            elif(text.startswith('use_std_mask')):
-                obj.use_std_mask = int(value)
-            elif(text.startswith('format_version_number')):
-                obj.format_version_number = int(value)
-            elif(text.startswith('image')):
-                if(obj.format_version_number == 0):
-                    [filename, transform] = value.split(None, 1)
-                    filename = filename.strip()
-                    filename = os.path.basename(filename)
-                    transform = transform.strip()
-                    obj.ImageToTransformString[filename] = transform
-                else:
-                    filename = os.path.basename(lines[iLine + 1].strip())
-                    transform = lines[iLine + 2].strip()
-                    obj.ImageToTransformString[filename] = transform
-                    iLine = iLine + 2
+                if text.startswith('number_of_images'):
+                    value.strip()
+                    obj.FileReportedNumberOfImages = int(value)
+                elif text.startswith('pixel_spacing'):
+                    value.strip()
+                    obj.pixel_spacing = int(float(value))
+                elif text.startswith('use_std_mask'):
+                    obj.use_std_mask = int(value)
+                elif text.startswith('format_version_number'):
+                    obj.format_version_number = int(value)
+                elif text.startswith('image'):
+                    if obj.format_version_number == 0:
+                        [filename, transform] = value.split(None, 1)
+                        filename = filename.strip()
+                        filename = os.path.basename(filename)
+                        transform = transform.strip()
+                        obj.ImageToTransformString[filename] = transform
+                    else:
+                        filename = os.path.basename(lines[iLine + 1].strip())
+                        transform = lines[iLine + 2].strip()
+                        obj.ImageToTransformString[filename] = transform
+                        iLine += 2
 
-            iLine = iLine + 1
+                iLine += 1
+        except:
+            prettyoutput.LogErr(f"Error in {filename} on or above line #{iLine}\n{lines[iLine]}\n")
+            raise
 
         return obj
 
@@ -162,18 +174,18 @@ class MosaicFile(object):
         Dictionary (Entries) at the specified Downsample rate.  Entries should have the key=filename
         and values should be a tuple with pixel coordinates
     
-        Setting Flip to True will invert all X coordinates
-        Setting Flop to True will invert all Y coordinates
+        Setting Flip to True will invert all Y coordinates
+        Setting Flop to True will invert all X coordinates
         '''
 
         if ImageSize is None:
             ImageSize = [(4080, 4080)] * len(Entries)
         elif not isinstance(ImageSize, list):
-            assert(len(ImageSize) == 2)  # Expect tuple or list indicating image size
-            ImageSize = ImageSize * len(Entries)
+            assert (len(ImageSize) == 2), "Expect tuple or list indicating image size"
+            ImageSize = [tuple(ImageSize)] * len(Entries)
         else:
-            # A list of two entries for the size
-            if len(ImageSize) == 2 and not isinstance(ImageSize[0], list):
+            # A list: either a single (w, h) as two scalars, or one size per entry.
+            if len(ImageSize) == 2 and isinstance(ImageSize[0], (int, float)):
                 ImageSize = [(ImageSize[0], ImageSize[1])] * len(Entries)
             elif len(ImageSize) == len(Entries):
                 ImageSize = ImageSize
@@ -181,7 +193,6 @@ class MosaicFile(object):
                 raise Exception("Unexpected list format for ImageSize argument")
 
         prettyoutput.CurseString('Stage', "WriteMosaicFile " + OutfilePath)
-
 
         # TODO - find min/max values and center image in .mosaic file
         minX = sys.maxsize
@@ -194,13 +205,13 @@ class MosaicFile(object):
 
         for key in keys:
             Coord = Entries[key]
-            if(Coord[0] < minX):
+            if Coord[0] < minX:
                 minX = Coord[0]
-            if(Coord[0] > maxX):
+            if Coord[0] > maxX:
                 maxX = Coord[0]
-            if(Coord[1] < minY):
+            if Coord[1] < minY:
                 minY = Coord[1]
-            if(Coord[1] > maxY):
+            if Coord[1] > maxY:
                 maxY = Coord[1]
 
         prettyoutput.Log('MinX:\t' + str(minX) + '\tMaxX:\t' + str(maxX))
@@ -214,7 +225,7 @@ class MosaicFile(object):
             OutFile.write('pixel_spacing: ' + str(Downsample) + '\n')
             OutFile.write('use_std_mask: 0\n')
 
-        #    prettyoutput.Log( "Keys: " + str(Entries.keys())
+            #    prettyoutput.Log( "Keys: " + str(Entries.keys())
             keys = list(Entries.keys())
             keys.sort()
 
@@ -225,7 +236,7 @@ class MosaicFile(object):
                 # prettyoutput.Log( str(key) + " : " + str(Coord)
 
                 # Centering is nice, but it seems to break multi mrc sections
-        #            Coord = (Coord[0] - (minX + CenterXOffset), Coord[1] - (minY + CenterYOffset))
+                #            Coord = (Coord[0] - (minX + CenterXOffset), Coord[1] - (minY + CenterYOffset))
                 Coord = (Coord[0], Coord[1])
 
                 X = Coord[0]
@@ -238,8 +249,13 @@ class MosaicFile(object):
                 # Remove dirname from key
                 key = os.path.basename(key)
 
-                outstr = 'image:\n' + key + '\n' + 'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 ' + str(X) + ' ' + str(Y) + ' ' + str(tilesize[0] / 2) + ' ' + str(tilesize[1] / 2)
-                OutFile.write(outstr + '\n')
+                tile_transform = nornir_imageregistration.transforms.RigidTranslation((Y, X))
+
+                transform_string = tile_transform.ToITKString()
+
+                # transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {X} {Y} {tilesize[0] / 2} {tilesize[1] / 2}'
+                outstr = f'image:\n{key}\n{transform_string}\n'
+                OutFile.write(outstr)
 
             OutFile.close()
 
@@ -257,7 +273,7 @@ class MosaicFile(object):
 
                 NeededSpace = " "
                 # Figure out if we add a space after the line
-                if(i == len(parts) - 1):
+                if i == len(parts) - 1:
                     NeededSpace = ""
 
                 floatVal = float()
@@ -265,7 +281,7 @@ class MosaicFile(object):
                 try:
                     floatVal = float(part)
                 except:
-     #               prettyoutput.Log( "Skip: " + part)
+                    #               prettyoutput.Log( "Skip: " + part)
                     # Can't convert it to a number.  Write the old value and move on
                     # Don't leave a space after the last entry on a line.  This breaks
                     # filenames on the mac because Mac's can have a filename end in a
@@ -282,25 +298,74 @@ class MosaicFile(object):
 
                 # Figure out if we can write number as an int
                 outStr = ""
-                if(not intVal is None):
+                if not intVal is None:
                     OutputTransformStr = OutputTransformStr + str(intVal) + NeededSpace
                 else:
                     # outStr = "%.2f" % (floatVal)
 
-                    outStr = "%g" % (floatVal)
+                    outStr = "%g" % floatVal
                     OutputTransformStr = OutputTransformStr + outStr + NeededSpace
 
             self.ImageToTransformString[FileKey] = OutputTransformStr
 
+    def HasTransformsNotUnderstoodByIrTools(self):
+        outputMosaic = MosaicFile()
+        output = outputMosaic.ImageToTransformString
+
+        for (image, transformStr) in self.ImageToTransformString.items():
+            if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
+                return True
+
+        return False
+
+    def CreateCorrectedXYMosaicForStupidITKWorkaround(self):
+        """For some reason the original SCI ir-refine-grid, and probably other tools,
+        appears to reverse the X,Y coordinates compared to the ITK documentation in
+        serialized transforms in string for certain transform types.  This function
+        generates a copy of the mosaic file with the X,Y coordinates swapped"""
+        outputMosaic = MosaicFile()
+        output = outputMosaic.ImageToTransformString
+
+        for (image, transformStr) in self.ImageToTransformString.items():
+            if transformStr.startswith('Rigid2DTransform') or transformStr.startswith('CenteredSimilarity2DTransform'):
+                t = nornir_imageregistration.transforms.LoadTransform(transformStr, pixelSpacing=self.pixel_spacing)
+                outTrans = None
+                if isinstance(t, nornir_imageregistration.transforms.RigidTranslation):
+                    outTrans = nornir_imageregistration.transforms.RigidTranslation(
+                        (t._target_offset[1], t._target_offset[0]))
+                elif isinstance(t, nornir_imageregistration.transforms.Rigid):
+                    outTrans = nornir_imageregistration.transforms.Rigid(
+                        target_offset=(t._target_offset[1], t._target_offset[0]),
+                        source_rotation_center=(
+                            t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                        angle=t.angle)
+                elif isinstance(t, nornir_imageregistration.transforms.CenteredSimilarity2DTransform):
+                    outTrans = nornir_imageregistration.transforms.CenteredSimilarity2DTransform(
+                        target_offset=(t._target_offset[1], t._target_offset[0]),
+                        source_rotation_center=(
+                            t.source_space_center_of_rotation[1], t.source_space_center_of_rotation[0]),
+                        angle=t.angle,
+                        scalar=t.scalar)
+                else:
+                    raise ValueError(f"Unexpected transform type: {t.__class__}")
+
+                # output[image] = outTrans.ToITKString()
+                transform_string = f'LegendrePolynomialTransform_double_2_2_1 vp 6 1 0 1 1 1 0 fp 4 {t._target_offset[1]} {t._target_offset[0]} 1 1'
+                output[image] = transform_string
+            else:
+                output[image] = transformStr
+
+        return outputMosaic
+
     def Save(self, filename):
 
-        if(len(self.ImageToTransformString) <= 0):
+        if len(self.ImageToTransformString) <= 0:
             prettyoutput.LogErr("No tiles present in mosaic " + filename + "\nThe save request was aborted")
             return
 
-        fMosaic = open(filename, 'w')
-        fMosaic.write(self.MosaicStr())
-        fMosaic.close()
+        with open(filename, 'w') as fMosaic:
+            fMosaic.write(self.MosaicStr())
+            fMosaic.close()
 
     def MosaicStr(self):
         OutStrList = list()
@@ -319,4 +384,3 @@ class MosaicFile(object):
 
         OutStr = ''.join(OutStrList)
         return OutStr
-
