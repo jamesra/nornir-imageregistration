@@ -17,7 +17,11 @@ Shared helpers live in `nornir_imageregistration.refine_shared`.
 ## Algorithm summary
 
 **Mosaic:** prewarp tiles into mosaic space → translation-only phase correlation
-at each mesh vertex vs overlapping neighbors → spatial regularization
+at each mesh vertex vs overlapping neighbors, with the ir-refine-grid estimator
+(`refine_shared/legacy_cell_match.py`: low-passed phase-correlation PDF, clustered
+peaks, more than 10 rejects the vertex, zero shift and wrap permutations scored by
+-NCC against the whole fixed tile; `NORNIR_REFINE_LEGACY_MATCH=0` for the single-peak
+estimator) → spatial regularization
 (median / gap-fill / Gaussian) → mass-weighted blend → add shifts to grid target
 points. Stops when the mean |shift component| over all vertices ≤ threshold or fails to improve on the prior pass
 (the legacy `avg`, in full-resolution mosaic pixels because legacy `-sp` sets the tile pixel spacing; the max is

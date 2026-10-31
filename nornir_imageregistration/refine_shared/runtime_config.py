@@ -50,6 +50,10 @@ class RefineRuntimeConfig:
     zncc_prominence_min: float
     low_content_std_min: float
     finalized_recheck_mode: str
+    # Mosaic refine measures vertices with the ir-refine-grid estimator (legacy_cell_match).
+    # Default on (RC3 0800 seam MAE 0.0859 against C++ 0.0857; 0.1007 without it);
+    # NORNIR_REFINE_LEGACY_MATCH=0 restores the single-peak estimator.
+    legacy_match: bool = True
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -150,6 +154,7 @@ class RefineRuntimeConfig:
             zncc_prominence_min=prominence,
             low_content_std_min=low_content_std,
             finalized_recheck_mode=finalized_recheck_mode,
+            legacy_match=not is_falsey(env_flag('NORNIR_REFINE_LEGACY_MATCH', '')),
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:

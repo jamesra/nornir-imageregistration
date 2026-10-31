@@ -95,6 +95,7 @@ from nornir_imageregistration.refine_shared.adaptive_cell_size import (
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+from nornir_imageregistration.refine_shared import legacy_cell_match
 from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     finite_peak_ratio,
     PEAK_RATIO_EARLY,
@@ -2477,6 +2478,21 @@ def _clipped_window_counts(table: NDArray[np.integer],
             - table[high[:, 0], low[:, 1]] + table[low[:, 0], low[:, 1]])
 
 
+def _gather_cells_with_inside(image: NDArray[np.floating],
+                              starts: NDArray[np.int64],
+                              cell_shape: NDArray[np.integer]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """``_gather_cells`` plus the ``(n, h, w)`` mask of pixels inside the image buffer."""
+    xp = cp.get_array_module(image)
+    starts = xp.asarray(starts)
+    rows = starts[:, 0:1] + xp.arange(int(cell_shape[0]), dtype=np.int64)
+    cols = starts[:, 1:2] + xp.arange(int(cell_shape[1]), dtype=np.int64)
+    inside = (((rows >= 0) & (rows < image.shape[0]))[:, :, None] &
+              ((cols >= 0) & (cols < image.shape[1]))[:, None, :])
+    stack = image[xp.clip(rows, 0, image.shape[0] - 1)[:, :, None],
+                  xp.clip(cols, 0, image.shape[1] - 1)[:, None, :]]
+    return xp.where(inside, stack, xp.zeros((), dtype=image.dtype)), inside
+
+
 def _gather_cells(image: NDArray[np.floating],
                   starts: NDArray[np.int64],
                   cell_shape: NDArray[np.integer]) -> NDArray[np.floating]:
@@ -2488,17 +2504,40 @@ def _gather_cells(image: NDArray[np.floating],
     image's device: host-to-device copies wait on all queued GPU work, so callers upload
     a batch's starts once.
     """
-    xp = cp.get_array_module(image)
-    starts = xp.asarray(starts)
-    rows = starts[:, 0:1] + xp.arange(int(cell_shape[0]), dtype=np.int64)
-    cols = starts[:, 1:2] + xp.arange(int(cell_shape[1]), dtype=np.int64)
-    rows_inside = (rows >= 0) & (rows < image.shape[0])
-    cols_inside = (cols >= 0) & (cols < image.shape[1])
-    rows = xp.clip(rows, 0, image.shape[0] - 1)
-    cols = xp.clip(cols, 0, image.shape[1] - 1)
-    stack = image[rows[:, :, None], cols[:, None, :]]
-    inside = rows_inside[:, :, None] & cols_inside[:, None, :]
-    return xp.where(inside, stack, xp.zeros((), dtype=image.dtype))
+    return _gather_cells_with_inside(image, starts, cell_shape)[0]
+
+
+def _gather_grouped(images: Sequence[NDArray[np.floating]],
+                    host_starts: NDArray[np.int64],
+                    bounds: NDArray[np.integer],
+                    cell_shape: NDArray[np.integer]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """Gather a batch's cells with one gather per distinct source image.
+
+    Rows ``bounds[i]:bounds[i + 1]`` of the result are pair ``i``'s cells from ``images[i]``.
+    A batch holds a few moving tiles, each paired with its neighbors, and neighboring tiles
+    share fixed tiles, so grouping by image replaced ~13,000 per-pair gathers per RC3 pass
+    with a few hundred. One upload of starts and row order per batch: host-to-device copies
+    wait on all queued GPU work. Returns ``(stack, inside)``; follows the images' backend.
+    """
+    xp = cp.get_array_module(images[0])
+    groups: dict[int, list[int]] = {}
+    for i, image in enumerate(images):
+        groups.setdefault(id(image), []).append(i)
+    order = np.concatenate([np.arange(bounds[i], bounds[i + 1]) for members in groups.values() for i in members])
+    order_dev = xp.asarray(order)
+    starts_dev = xp.asarray(host_starts[order])
+    total = int(bounds[-1])
+    h, w = int(cell_shape[0]), int(cell_shape[1])
+    stack = xp.empty((total, h, w), dtype=images[0].dtype)
+    inside = xp.empty((total, h, w), dtype=bool)
+    offset = 0
+    for members in groups.values():
+        count = int(sum(bounds[i + 1] - bounds[i] for i in members))
+        rows = order_dev[offset:offset + count]
+        stack[rows], inside[rows] = _gather_cells_with_inside(
+            images[members[0]], starts_dev[offset:offset + count], cell_shape)
+        offset += count
+    return stack, inside
 
 
 @dataclass
@@ -2515,20 +2554,36 @@ class _PairCells:
 
 def _correlate_pair_cells(pairs: Sequence[_PairCells],
                           cell_shape: NDArray[np.integer],
-                          min_overlap: float) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Gather and phase-correlate the cells of several pairs in one batch; returns host arrays."""
-    xp = cp.get_array_module(pairs[0].fixed_image)
+                          min_overlap: float,
+                          legacy_match: bool = False) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Gather and phase-correlate the cells of several pairs in one batch; returns host arrays.
+
+    ``legacy_match`` uses the ir-refine-grid estimator (``refine_shared.legacy_cell_match``);
+    its weights are 1 for a measured vertex and 0 otherwise.
+    """
     with _PHASE_TIMER.section('cell_extract'):
-        # One upload of every window start in the batch, then per-pair device slices.
         bounds = np.cumsum([0] + [int(p.vertices.size) for p in pairs])
-        fixed_starts = xp.asarray(np.concatenate([p.fixed_starts for p in pairs], axis=0))
-        moving_starts = xp.asarray(np.concatenate([p.moving_starts for p in pairs], axis=0))
-        fixed_stack = xp.concatenate(
-            [_gather_cells(p.fixed_image, fixed_starts[bounds[i]:bounds[i + 1]], cell_shape)
-             for i, p in enumerate(pairs)], axis=0)
-        moving_stack = xp.concatenate(
-            [_gather_cells(p.moving_image, moving_starts[bounds[i]:bounds[i + 1]], cell_shape)
-             for i, p in enumerate(pairs)], axis=0)
+        host_fixed_starts = np.concatenate([p.fixed_starts for p in pairs], axis=0)
+        host_moving_starts = np.concatenate([p.moving_starts for p in pairs], axis=0)
+        fixed_stack, _ = _gather_grouped([p.fixed_image for p in pairs], host_fixed_starts, bounds, cell_shape)
+        moving_stack, moving_inside = _gather_grouped(
+            [p.moving_image for p in pairs], host_moving_starts, bounds, cell_shape)
+    if legacy_match:
+        with _PHASE_TIMER.section('fft'):
+            pdf = legacy_cell_match.legacy_pdf(fixed_stack, moving_stack)
+        with _PHASE_TIMER.section('host_sync'):
+            found = legacy_cell_match.legacy_find_peaks(pdf)
+        del pdf, fixed_stack
+        with _PHASE_TIMER.section('fft'):
+            fixed_tiles = [p.fixed_image for p in pairs]
+            batch = legacy_cell_match.LegacyCellBatch(
+                fixed_tile_index=np.repeat(np.arange(len(pairs)), np.diff(bounds)),
+                fixed_starts=host_fixed_starts,
+                moving_inside=nornir_imageregistration.EnsureNumpyArray(moving_inside))
+            shifts, ok = legacy_cell_match.legacy_choose_shifts(
+                found, batch, fixed_tiles, moving_stack, _gather_cells_with_inside)
+        return shifts, ok.astype(np.float64)
+    del moving_inside
     with _PHASE_TIMER.section('fft'):
         peaks_dev, weights_dev, _peak_ratios_dev = measure_translation_cells_batched(
             fixed_stack,
@@ -2551,7 +2606,8 @@ def _measure_pass_vertex_displacements(
         prewarped: dict[int, _PrewarpedTile],
         centers_by_tile: dict[int, NDArray[np.floating]],
         cell_shape: NDArray[np.integer],
-        min_overlap: float) -> dict[int, list[tuple[NDArray[np.floating], NDArray[np.bool_]]]]:
+        min_overlap: float,
+        legacy_match: bool = False) -> dict[int, list[tuple[NDArray[np.floating], NDArray[np.bool_]]]]:
     """Measure every (tile, neighbor) pair's vertex shifts for one pass in large batches.
 
     Same gating and correlation as ``_measure_grid_vertex_displacements_batched``, but cells
@@ -2560,6 +2616,10 @@ def _measure_pass_vertex_displacements(
     summed-area table and cells are gathered with one indexing op per pair, so no per-cell
     copies or per-pair host syncs remain. On NumPy the batches run on a bounded thread pool
     (NumPy's FFT releases the GIL) so the CPU path uses every core.
+
+    ``legacy_match`` measures with the ir-refine-grid estimator and, as that tool runs without
+    tile masks, counts a cell pixel as valid when it lies inside the warped tile's buffer
+    rather than inside its warp coverage.
 
     Returns, per tile, ``(shifts, measured)`` for each neighbor in ``neighbors`` order.
     """
@@ -2587,17 +2647,34 @@ def _measure_pass_vertex_displacements(
             pair_starts[(tile.ID, position)] = np.floor(centers - fixed.origin - half_cell).astype(np.int64)
             pairs_by_fixed[neighbor.ID].append((tile.ID, position))
 
-    # Valid-pixel counts, one summed-area table alive at a time: each tile's table answers
-    # its own vertices (as moving) and every pair that uses it as the fixed tile.
+    # Valid-pixel counts, one summed-area table alive per worker: each tile's table answers
+    # its own vertices (as moving) and every pair that uses it as the fixed tile. Tables are
+    # built on a thread pool (NumPy's cumsum releases the GIL); one thread took ~15 ms per
+    # RC3 tile, 13 s per pass.
+    def tile_counts(tile: nornir_imageregistration.Tile):
+        if legacy_match:
+            # Inside the buffer: the window area clipped to the tile image.
+            shape = np.asarray(prewarped[tile.ID].image.shape[:2], dtype=np.int64)
+
+            def counts(starts: NDArray[np.int64]) -> NDArray[np.integer]:
+                low = np.clip(starts, 0, shape)
+                high = np.maximum(np.clip(starts + cell_shape, 0, shape), low)
+                return np.prod(high - low, axis=1)
+        else:
+            table = _validity_integral(prewarped[tile.ID])
+
+            def counts(starts: NDArray[np.int64]) -> NDArray[np.integer]:
+                return _clipped_window_counts(table, starts, cell_shape)
+        return (tile.ID, counts(moving_starts[tile.ID]),
+                {key: counts(pair_starts[key]) for key in pairs_by_fixed[tile.ID]})
+
     moving_counts: dict[int, NDArray[np.integer]] = {}
     pair_counts: dict[tuple[int, int], NDArray[np.integer]] = {}
-    with _PHASE_TIMER.section('cell_extract'):
-        for tile in list_tiles:
-            table = _validity_integral(prewarped[tile.ID])
-            moving_counts[tile.ID] = _clipped_window_counts(table, moving_starts[tile.ID], cell_shape)
-            for key in pairs_by_fixed[tile.ID]:
-                pair_counts[key] = _clipped_window_counts(table, pair_starts[key], cell_shape)
-            del table
+    with _PHASE_TIMER.section('cell_extract'), \
+            ThreadPoolExecutor(max_workers=min(len(list_tiles), os.cpu_count() or 1)) as executor:
+        for tile_id, own, as_fixed in executor.map(tile_counts, list_tiles):
+            moving_counts[tile_id] = own
+            pair_counts.update(as_fixed)
 
     results: dict[int, list[tuple[NDArray[np.floating], NDArray[np.bool_]]]] = {}
     batches: list[list[_PairCells]] = []
@@ -2611,7 +2688,9 @@ def _measure_pass_vertex_displacements(
             key = (tile.ID, position)
             results[tile.ID].append((np.zeros((num_vertices, 2), dtype=np.float64),
                                      np.zeros(num_vertices, dtype=bool)))
-            eligible = pair_inside[key] & (pair_counts[key] / cell_area >= min_overlap) & moving_ok
+            eligible = (pair_counts[key] / cell_area >= min_overlap) & moving_ok
+            if not legacy_match:
+                eligible &= pair_inside[key]
             vertices = np.flatnonzero(eligible)
             if vertices.size == 0:
                 continue
@@ -2626,12 +2705,12 @@ def _measure_pass_vertex_displacements(
         batches.append(batch)
 
     if on_gpu or len(batches) <= 1:
-        outputs = [_correlate_pair_cells(b, cell_shape, min_overlap) for b in batches]
+        outputs = [_correlate_pair_cells(b, cell_shape, min_overlap, legacy_match) for b in batches]
     else:
         workers = min(len(batches), os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             outputs = list(executor.map(
-                lambda b: _correlate_pair_cells(b, cell_shape, min_overlap), batches))
+                lambda b: _correlate_pair_cells(b, cell_shape, min_overlap, legacy_match), batches))
 
     for pair_batch, (peaks, weights) in zip(batches, outputs):
         offset = 0
@@ -2729,7 +2808,8 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
             pair_shifts = _measure_pass_vertex_displacements(
                 list_tiles, neighbors, prewarped,
                 {tile_id: centers for tile_id, (_, centers) in tile_targets.items()},
-                cell_shape, min_overlap)
+                cell_shape, min_overlap,
+                legacy_match=get_runtime_config(refresh=True).legacy_match)
             tile_results = [
                 _blend_tile_grid_update(tile, tile_targets[tile.ID][0], pair_shifts[tile.ID], median_radius)
                 for tile in list_tiles]
