@@ -153,13 +153,15 @@ class RefineRuntimeConfig:
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:
-        """Return True when per-tile prewarp should use the shared thread pool."""
+        """Return True when per-tile prewarp should use the shared thread pool.
+
+        Opt-in only (``thread``). The default is the process pool on both backends: it warped
+        Grid690 in 7.9 s against 19-21 s for CuPy from threads (2026-10-30).
+        """
         mode = self.prewarp_mode
         if 'serial' in mode:
             return False
-        if 'thread' in mode:
-            return True
-        return using_cupy
+        return 'thread' in mode
 
     def prewarp_cache_enabled(self, using_cupy: bool) -> bool:
         """Return True when cross-pass prewarp caching is allowed."""
@@ -185,9 +187,9 @@ class RefineRuntimeConfig:
         """Return the pool used for mosaic prewarp dispatch when parallelized."""
         import nornir_pools
 
-        if using_cupy and self.prewarp_thread_dispatch_enabled(using_cupy):
+        if self.prewarp_thread_dispatch_enabled(using_cupy):
             return nornir_pools.GetGlobalThreadPool()
-        if using_cupy:
+        if 'serial' in self.prewarp_mode:
             return nornir_pools.GetGlobalSerialPool()
         return nornir_pools.GetGlobalMultithreadingPool()
 

@@ -19,7 +19,9 @@ Shared helpers live in `nornir_imageregistration.refine_shared`.
 **Mosaic:** prewarp tiles into mosaic space → translation-only phase correlation
 at each mesh vertex vs overlapping neighbors → spatial regularization
 (median / gap-fill / Gaussian) → mass-weighted blend → add shifts to grid target
-points. Stops when max displacement ≤ threshold or a pass fails to improve.
+points. Stops when the mean |shift component| over all vertices ≤ threshold or fails to improve on the prior pass
+(the legacy `avg`, in full-resolution mosaic pixels because legacy `-sp` sets the tile pixel spacing; the max is
+logged only, because it follows the single noisiest vertex).
 
 **STOS:** grid on source image → per-cell brute rigid registration (optional
 rotation) → `estimate_cutoff` on registration weights → rebuild
