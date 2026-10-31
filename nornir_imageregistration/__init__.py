@@ -338,6 +338,9 @@ from nornir_imageregistration.spatial import *
 
 import nornir_imageregistration.pillow_helpers as pillow_helpers
 
+import nornir_imageregistration.noise_crush as noise_crush
+from nornir_imageregistration.noise_crush import CrushParams
+
 import nornir_imageregistration.image_stats as image_stats
 from nornir_imageregistration.image_stats import ImageStats, Prune, Histogram
 

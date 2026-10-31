@@ -20,6 +20,7 @@ import time
 import threading
 import contextlib
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence, cast
 
@@ -93,6 +94,8 @@ from nornir_imageregistration.refine_shared.adaptive_cell_size import (
     pass_found_registrations,
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
+from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+from nornir_imageregistration.refine_shared import legacy_cell_match
 from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     finite_peak_ratio,
     PEAK_RATIO_EARLY,
@@ -196,7 +199,8 @@ class DistortionCorrection:
 class MosaicRefinementDiagnostics:
     iterations_completed: int
     converged: bool
-    # Per-pass convergence metric: max |shift component| over all vertices (working-res px).
+    # Per-pass convergence metric, legacy ir-refine-grid ``avg``: mean |shift component|
+    # (|sx| and |sy| of every vertex of every tile), in full-resolution mosaic pixels.
     average_displacement_per_iteration: list[float]
     overlap_count_per_iteration: list[int]
     control_points_per_tile: dict[int, int]
@@ -205,6 +209,8 @@ class MosaicRefinementDiagnostics:
     # Per pass, per tile: counts of mesh vertices measured by FFT, filled by
     # regularization gap-fill, and updated with a non-zero shift.
     vertex_diagnostics_per_pass: list[dict[int, dict[str, int]]] = field(default_factory=list)
+    # Per pass: largest |shift component| of any vertex (legacy "Max Displacement"); reported only.
+    max_displacement_per_iteration: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -414,6 +420,8 @@ class _PrewarpedTile:
     image: NDArray[np.floating]  # invalid pixels are zero, matching legacy extraction
     valid_mask: NDArray[np.bool_]
     origin: NDArray[np.int64]  # (y, x) of pixel [0, 0] in scaled target space
+    # Host copy of valid_mask when the warp ran on the host and was uploaded for measurement.
+    host_valid_mask: NDArray[np.bool_] | None = None
 
 
 def _prewarp_tile_for_grid_refine(
@@ -561,11 +569,13 @@ def _prewarp_all_tiles_for_grid_refine(
     if len(tiles_to_prewarp) == 0:
         return prewarped
 
-    # Thread dispatch overlaps host tile-load + coord compute (CPU SciPy inverse)
-    # with warp kernels. It is the CuPy default (output-neutral, ~20% faster);
-    # 'serial' opts out. CPU keeps its multiprocess-pool path unless 'thread'.
+    # Prewarp is the binding cost of a refine pass (93-96% on Grid690, both backends), and
+    # the CPU process pool warps faster than CuPy from threads (7.9 s vs 19-21 s, Grid690,
+    # 3 passes, 2026-10-30), so both backends default to the process pool. Workers run NumPy
+    # and receive host copies of any device arrays (computational_lib's CuPy reducer); a CuPy
+    # session uploads the warped tiles for measurement. 'thread' and 'serial' opt out.
     use_thread_dispatch = _prewarp_thread_dispatch_enabled()
-    if len(tiles_to_prewarp) <= 1 or (nornir_imageregistration.UsingCupy() and not use_thread_dispatch):
+    if len(tiles_to_prewarp) <= 1 or 'serial' in _prewarp_dispatch_mode():
         for tile in tiles_to_prewarp:
             warped = _prewarp_tile_for_grid_refine(tile, target_space_scale)
             if use_cache:
@@ -587,8 +597,14 @@ def _prewarp_all_tiles_for_grid_refine(
         for tile in tiles_to_prewarp
     ]
     pool.wait_completion()
+    upload = nornir_imageregistration.UsingCupy() and not use_thread_dispatch
     for tile, task in zip(tiles_to_prewarp, tasks):
         warped = task.wait_return()
+        if upload:
+            warped = _PrewarpedTile(image=cp.asarray(warped.image),
+                                    valid_mask=cp.asarray(warped.valid_mask),
+                                    origin=warped.origin,
+                                    host_valid_mask=warped.valid_mask)
         if use_cache:
             warped._revision = revision_cache.get(tile.ID, 0)  # type: ignore[attr-defined]
             _store_prewarped_tile_cache(prewarp_cache, tile.ID, warped)
@@ -891,16 +907,20 @@ def _grid_refine_neighbors(
 
     Recomputed each mosaic-refine pass because ``FixedBoundingBox`` moves with the
     grid. Caching the pair graph across passes would miss new/lost overlaps (#185).
+    Same strict test as ``Rectangle.contains`` on two rectangles, vectorized: the
+    pairwise Python loop made ~730k calls per pass on an 853-tile RC3 section.
     """
-    neighbors: dict[int, list[nornir_imageregistration.Tile]] = {tile.ID: [] for tile in list_tiles}
-    for i, tile_i in enumerate(list_tiles):
-        for j, tile_j in enumerate(list_tiles):
-            if i == j:
-                continue
-            if nornir_imageregistration.Rectangle.contains(
-                    tile_i.FixedBoundingBox, tile_j.FixedBoundingBox):
-                neighbors[tile_i.ID].append(tile_j)
-    return neighbors
+    boxes = np.asarray([tile.FixedBoundingBox.BoundingBox for tile in list_tiles], dtype=np.float64)
+    min_y = boxes[:, nornir_imageregistration.iRect.MinY]
+    min_x = boxes[:, nornir_imageregistration.iRect.MinX]
+    max_y = boxes[:, nornir_imageregistration.iRect.MaxY]
+    max_x = boxes[:, nornir_imageregistration.iRect.MaxX]
+    disjoint = ((max_x[:, None] <= min_x[None, :]) | (min_x[:, None] >= max_x[None, :]) |
+                (max_y[:, None] <= min_y[None, :]) | (min_y[:, None] >= max_y[None, :]))
+    overlaps = ~disjoint
+    np.fill_diagonal(overlaps, False)
+    return {tile_i.ID: [list_tiles[int(j)] for j in np.flatnonzero(overlaps[i])]
+            for i, tile_i in enumerate(list_tiles)}
 
 
 def _legacy_overlap_target_region(
@@ -2364,6 +2384,22 @@ def _measure_tile_grid_update(tile: nornir_imageregistration.Tile,
 
     Returns ``(targets, applied_scaled, measured_count, diagnostics)``.
     """
+    targets, centers_scaled = _tile_grid_targets(tile, target_space_scale)
+    per_neighbor = [
+        measure_vertex_displacements(
+            moving=prewarped[tile.ID],
+            fixed=prewarped[neighbor.ID],
+            centers_scaled=centers_scaled,
+            cell_shape=cell_shape,
+            cell_min_overlap=min_overlap)
+        for neighbor in tile_neighbors]
+    return _blend_tile_grid_update(tile, targets, per_neighbor, median_radius)
+
+
+def _tile_grid_targets(
+        tile: nornir_imageregistration.Tile,
+        target_space_scale: float) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Return a tile's grid target points and their scaled mosaic positions."""
     grid_transform = tile.Transform
     if not isinstance(grid_transform, nornir_imageregistration.transforms.IGridTransform):
         raise ValueError(f"Tile {tile.ID} transform is not a grid transform after initialization")
@@ -2372,8 +2408,22 @@ def _measure_tile_grid_update(tile: nornir_imageregistration.Tile,
         nornir_imageregistration.EnsureNumpyArray(
             grid_transform.TargetPoints),  # type: ignore[attr-defined]
         dtype=np.float64)
-    centers_scaled = targets * float(target_space_scale)
-    mesh_dims = (int(grid_transform.grid.grid_dims[0]), int(grid_transform.grid.grid_dims[1]))
+    return targets, targets * float(target_space_scale)
+
+
+def _blend_tile_grid_update(
+        tile: nornir_imageregistration.Tile,
+        targets: NDArray[np.floating],
+        per_neighbor: Sequence[tuple[NDArray[np.floating], NDArray[np.bool_]]],
+        median_radius: int):
+    """Regularize each neighbor's vertex shifts and blend them into one tile update.
+
+    ``per_neighbor`` holds ``(shifts, measured)`` per neighbor in neighbor order; the sum
+    runs in that order so results match however the shifts were measured.
+    Returns ``(targets, applied_scaled, measured_count, diagnostics)``.
+    """
+    grid_transform = cast(nornir_imageregistration.transforms.IGridTransform, tile.Transform)
+    mesh_dims = (int(grid_transform.grid.grid_dims[0]), int(grid_transform.grid.grid_dims[1]))  # type: ignore[attr-defined]
     num_vertices = targets.shape[0]
 
     total_shift = np.zeros((num_vertices, 2), dtype=np.float64)
@@ -2381,13 +2431,7 @@ def _measure_tile_grid_update(tile: nornir_imageregistration.Tile,
     measured_count = 0
     filled_count = 0
 
-    for neighbor in tile_neighbors:
-        shifts, measured = measure_vertex_displacements(
-            moving=prewarped[tile.ID],
-            fixed=prewarped[neighbor.ID],
-            centers_scaled=centers_scaled,
-            cell_shape=cell_shape,
-            cell_min_overlap=min_overlap)
+    for shifts, measured in per_neighbor:
         measured_count += int(np.count_nonzero(measured))
         with _PHASE_TIMER.section('regularize'):
             regularized_shifts, regularized_db = _regularize_displacements(
@@ -2406,6 +2450,288 @@ def _measure_tile_grid_update(tile: nornir_imageregistration.Tile,
     return targets, applied_scaled, measured_count, diagnostics
 
 
+def _validity_integral(prewarped: _PrewarpedTile) -> NDArray[np.int32]:
+    """Host summed-area table of a prewarped tile's valid mask, shape ``(H + 1, W + 1)``.
+
+    Counts the valid pixels of any clipped cell window with four lookups, so a pass can
+    gate every vertex of every pair without extracting mask cells. Integer, so each count
+    equals ``count_nonzero`` of the extracted window exactly. Built on the host: a few
+    milliseconds per tile, where device kernels queued behind other GPU work.
+    """
+    mask = prewarped.host_valid_mask
+    if mask is None:
+        mask = nornir_imageregistration.EnsureNumpyArray(prewarped.valid_mask)
+    table = np.zeros((mask.shape[0] + 1, mask.shape[1] + 1), dtype=np.int32)
+    np.cumsum(mask, axis=0, dtype=np.int32, out=table[1:, 1:])
+    np.cumsum(table[1:, 1:], axis=1, out=table[1:, 1:])
+    return table
+
+
+def _clipped_window_counts(table: NDArray[np.integer],
+                           starts: NDArray[np.int64],
+                           cell_shape: NDArray[np.integer]) -> NDArray[np.int64]:
+    """Valid-pixel count of each window ``[start, start + cell_shape)`` clipped to the tile."""
+    shape = np.asarray(table.shape, dtype=np.int64) - 1
+    low = np.clip(starts, 0, shape)
+    high = np.maximum(np.clip(starts + cell_shape, 0, shape), low)
+    return (table[high[:, 0], high[:, 1]] - table[low[:, 0], high[:, 1]]
+            - table[high[:, 0], low[:, 1]] + table[low[:, 0], low[:, 1]])
+
+
+def _gather_cells_with_inside(image: NDArray[np.floating],
+                              starts: NDArray[np.int64],
+                              cell_shape: NDArray[np.integer]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """``_gather_cells`` plus the ``(n, h, w)`` mask of pixels inside the image buffer."""
+    xp = cp.get_array_module(image)
+    starts = xp.asarray(starts)
+    rows = starts[:, 0:1] + xp.arange(int(cell_shape[0]), dtype=np.int64)
+    cols = starts[:, 1:2] + xp.arange(int(cell_shape[1]), dtype=np.int64)
+    inside = (((rows >= 0) & (rows < image.shape[0]))[:, :, None] &
+              ((cols >= 0) & (cols < image.shape[1]))[:, None, :])
+    stack = image[xp.clip(rows, 0, image.shape[0] - 1)[:, :, None],
+                  xp.clip(cols, 0, image.shape[1] - 1)[:, None, :]]
+    return xp.where(inside, stack, xp.zeros((), dtype=image.dtype)), inside
+
+
+def _gather_cells(image: NDArray[np.floating],
+                  starts: NDArray[np.int64],
+                  cell_shape: NDArray[np.integer]) -> NDArray[np.floating]:
+    """Copy the ``cell_shape`` window at each start into an ``(n, h, w)`` stack, zero off the tile.
+
+    Same values as ``_extract_refinement_cell_and_mask``, but one gather for the whole
+    stack instead of a slice copy per cell (two kernel launches per cell on CuPy).
+    Accepts NumPy or CuPy; follows ``cp.get_array_module(image)``. Pass ``starts`` on the
+    image's device: host-to-device copies wait on all queued GPU work, so callers upload
+    a batch's starts once.
+    """
+    return _gather_cells_with_inside(image, starts, cell_shape)[0]
+
+
+def _gather_grouped(images: Sequence[NDArray[np.floating]],
+                    host_starts: NDArray[np.int64],
+                    bounds: NDArray[np.integer],
+                    cell_shape: NDArray[np.integer]) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
+    """Gather a batch's cells with one gather per distinct source image.
+
+    Rows ``bounds[i]:bounds[i + 1]`` of the result are pair ``i``'s cells from ``images[i]``.
+    A batch holds a few moving tiles, each paired with its neighbors, and neighboring tiles
+    share fixed tiles, so grouping by image replaced ~13,000 per-pair gathers per RC3 pass
+    with a few hundred. One upload of starts and row order per batch: host-to-device copies
+    wait on all queued GPU work. Returns ``(stack, inside)``; follows the images' backend.
+    """
+    xp = cp.get_array_module(images[0])
+    groups: dict[int, list[int]] = {}
+    for i, image in enumerate(images):
+        groups.setdefault(id(image), []).append(i)
+    order = np.concatenate([np.arange(bounds[i], bounds[i + 1]) for members in groups.values() for i in members])
+    order_dev = xp.asarray(order)
+    starts_dev = xp.asarray(host_starts[order])
+    total = int(bounds[-1])
+    h, w = int(cell_shape[0]), int(cell_shape[1])
+    stack = xp.empty((total, h, w), dtype=images[0].dtype)
+    inside = xp.empty((total, h, w), dtype=bool)
+    offset = 0
+    for members in groups.values():
+        count = int(sum(bounds[i + 1] - bounds[i] for i in members))
+        rows = order_dev[offset:offset + count]
+        stack[rows], inside[rows] = _gather_cells_with_inside(
+            images[members[0]], starts_dev[offset:offset + count], cell_shape)
+        offset += count
+    return stack, inside
+
+
+@dataclass
+class _PairCells:
+    """One (moving tile, neighbor) pair's eligible vertices awaiting correlation."""
+    tile_id: int
+    neighbor_position: int
+    vertices: NDArray[np.int64]
+    fixed_image: NDArray[np.floating]
+    fixed_starts: NDArray[np.int64]
+    moving_image: NDArray[np.floating]
+    moving_starts: NDArray[np.int64]
+
+
+def _correlate_pair_cells(pairs: Sequence[_PairCells],
+                          cell_shape: NDArray[np.integer],
+                          min_overlap: float,
+                          legacy_match: bool = False) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Gather and phase-correlate the cells of several pairs in one batch; returns host arrays.
+
+    ``legacy_match`` uses the ir-refine-grid estimator (``refine_shared.legacy_cell_match``);
+    its weights are 1 for a measured vertex and 0 otherwise.
+    """
+    with _PHASE_TIMER.section('cell_extract'):
+        bounds = np.cumsum([0] + [int(p.vertices.size) for p in pairs])
+        host_fixed_starts = np.concatenate([p.fixed_starts for p in pairs], axis=0)
+        host_moving_starts = np.concatenate([p.moving_starts for p in pairs], axis=0)
+        fixed_stack, _ = _gather_grouped([p.fixed_image for p in pairs], host_fixed_starts, bounds, cell_shape)
+        moving_stack, moving_inside = _gather_grouped(
+            [p.moving_image for p in pairs], host_moving_starts, bounds, cell_shape)
+    if legacy_match:
+        with _PHASE_TIMER.section('fft'):
+            pdf = legacy_cell_match.legacy_pdf(fixed_stack, moving_stack)
+        with _PHASE_TIMER.section('host_sync'):
+            found = legacy_cell_match.legacy_find_peaks(pdf)
+        del pdf, fixed_stack
+        with _PHASE_TIMER.section('fft'):
+            fixed_tiles = [p.fixed_image for p in pairs]
+            batch = legacy_cell_match.LegacyCellBatch(
+                fixed_tile_index=np.repeat(np.arange(len(pairs)), np.diff(bounds)),
+                fixed_starts=host_fixed_starts,
+                moving_inside=nornir_imageregistration.EnsureNumpyArray(moving_inside))
+            shifts, ok = legacy_cell_match.legacy_choose_shifts(
+                found, batch, fixed_tiles, moving_stack, _gather_cells_with_inside)
+        return shifts, ok.astype(np.float64)
+    del moving_inside
+    with _PHASE_TIMER.section('fft'):
+        peaks_dev, weights_dev, _peak_ratios_dev = measure_translation_cells_batched(
+            fixed_stack,
+            moving_stack,
+            cell_shape,
+            min_overlap=min_overlap,
+            max_overlap=1.0)
+    del fixed_stack, moving_stack
+    with _PHASE_TIMER.section('host_sync'):
+        peaks = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(peaks_dev), dtype=np.float64).reshape(-1, 2)
+        weights = np.asarray(
+            nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1)
+    return peaks, weights
+
+
+def _measure_pass_vertex_displacements(
+        list_tiles: Sequence[nornir_imageregistration.Tile],
+        neighbors: dict[int, list[nornir_imageregistration.Tile]],
+        prewarped: dict[int, _PrewarpedTile],
+        centers_by_tile: dict[int, NDArray[np.floating]],
+        cell_shape: NDArray[np.integer],
+        min_overlap: float,
+        legacy_match: bool = False) -> dict[int, list[tuple[NDArray[np.floating], NDArray[np.bool_]]]]:
+    """Measure every (tile, neighbor) pair's vertex shifts for one pass in large batches.
+
+    Same gating and correlation as ``_measure_grid_vertex_displacements_batched``, but cells
+    from many pairs share each batched FFT. Per-pair batches of about 121 cells left the
+    GPU ~10% busy on 850-tile RC3 sections (srv-45, 2026-10-30). Validity comes from a
+    summed-area table and cells are gathered with one indexing op per pair, so no per-cell
+    copies or per-pair host syncs remain. On NumPy the batches run on a bounded thread pool
+    (NumPy's FFT releases the GIL) so the CPU path uses every core.
+
+    ``legacy_match`` measures with the ir-refine-grid estimator and, as that tool runs without
+    tile masks, counts a cell pixel as valid when it lies inside the warped tile's buffer
+    rather than inside its warp coverage.
+
+    Returns, per tile, ``(shifts, measured)`` for each neighbor in ``neighbors`` order.
+    """
+    cell_shape = np.asarray(cell_shape, dtype=np.int64)
+    cell_area = float(cell_shape.prod())
+    half_cell = cell_shape.astype(np.float64) / 2.0
+    chunk_cells = batched_fft_cell_chunk_size(cell_shape)
+    on_gpu = cp.get_array_module(next(iter(prewarped.values())).image) is not np
+
+    # Window starts per tile (as moving) and per pair (as fixed). Legacy: origin =
+    # center - 0.5 * cell; same float64 ops as _refinement_cell_window.
+    moving_starts: dict[int, NDArray[np.int64]] = {}
+    pair_starts: dict[tuple[int, int], NDArray[np.int64]] = {}
+    pair_inside: dict[tuple[int, int], NDArray[np.bool_]] = {}
+    pairs_by_fixed: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for tile in list_tiles:
+        centers = centers_by_tile[tile.ID]
+        moving_starts[tile.ID] = np.floor(centers - prewarped[tile.ID].origin - half_cell).astype(np.int64)
+        for position, neighbor in enumerate(neighbors[tile.ID]):
+            fixed = prewarped[neighbor.ID]
+            local_fixed = centers - fixed.origin
+            # Legacy skips vertices whose center is outside the fixed tile's buffer.
+            pair_inside[(tile.ID, position)] = np.all(local_fixed >= 0, axis=1) & np.all(
+                local_fixed < np.asarray(fixed.image.shape, dtype=np.float64), axis=1)
+            pair_starts[(tile.ID, position)] = np.floor(centers - fixed.origin - half_cell).astype(np.int64)
+            pairs_by_fixed[neighbor.ID].append((tile.ID, position))
+
+    # Valid-pixel counts, one summed-area table alive per worker: each tile's table answers
+    # its own vertices (as moving) and every pair that uses it as the fixed tile. Tables are
+    # built on a thread pool (NumPy's cumsum releases the GIL); one thread took ~15 ms per
+    # RC3 tile, 13 s per pass.
+    def tile_counts(tile: nornir_imageregistration.Tile):
+        if legacy_match:
+            # Inside the buffer: the window area clipped to the tile image.
+            shape = np.asarray(prewarped[tile.ID].image.shape[:2], dtype=np.int64)
+
+            def counts(starts: NDArray[np.int64]) -> NDArray[np.integer]:
+                low = np.clip(starts, 0, shape)
+                high = np.maximum(np.clip(starts + cell_shape, 0, shape), low)
+                return np.prod(high - low, axis=1)
+        else:
+            table = _validity_integral(prewarped[tile.ID])
+
+            def counts(starts: NDArray[np.int64]) -> NDArray[np.integer]:
+                return _clipped_window_counts(table, starts, cell_shape)
+        return (tile.ID, counts(moving_starts[tile.ID]),
+                {key: counts(pair_starts[key]) for key in pairs_by_fixed[tile.ID]})
+
+    moving_counts: dict[int, NDArray[np.integer]] = {}
+    pair_counts: dict[tuple[int, int], NDArray[np.integer]] = {}
+    with _PHASE_TIMER.section('cell_extract'), \
+            ThreadPoolExecutor(max_workers=min(len(list_tiles), os.cpu_count() or 1)) as executor:
+        for tile_id, own, as_fixed in executor.map(tile_counts, list_tiles):
+            moving_counts[tile_id] = own
+            pair_counts.update(as_fixed)
+
+    results: dict[int, list[tuple[NDArray[np.floating], NDArray[np.bool_]]]] = {}
+    batches: list[list[_PairCells]] = []
+    batch: list[_PairCells] = []
+    batch_cells = 0
+    for tile in list_tiles:
+        num_vertices = centers_by_tile[tile.ID].shape[0]
+        moving_ok = moving_counts[tile.ID] / cell_area >= min_overlap
+        results[tile.ID] = []
+        for position, neighbor in enumerate(neighbors[tile.ID]):
+            key = (tile.ID, position)
+            results[tile.ID].append((np.zeros((num_vertices, 2), dtype=np.float64),
+                                     np.zeros(num_vertices, dtype=bool)))
+            eligible = (pair_counts[key] / cell_area >= min_overlap) & moving_ok
+            if not legacy_match:
+                eligible &= pair_inside[key]
+            vertices = np.flatnonzero(eligible)
+            if vertices.size == 0:
+                continue
+            batch.append(_PairCells(tile.ID, position, vertices,
+                                    prewarped[neighbor.ID].image, pair_starts[key][vertices],
+                                    prewarped[tile.ID].image, moving_starts[tile.ID][vertices]))
+            batch_cells += int(vertices.size)
+            if batch_cells >= chunk_cells:
+                batches.append(batch)
+                batch, batch_cells = [], 0
+    if batch:
+        batches.append(batch)
+
+    if on_gpu or len(batches) <= 1:
+        outputs = [_correlate_pair_cells(b, cell_shape, min_overlap, legacy_match) for b in batches]
+    else:
+        workers = min(len(batches), os.cpu_count() or 1)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            outputs = list(executor.map(
+                lambda b: _correlate_pair_cells(b, cell_shape, min_overlap, legacy_match), batches))
+
+    for pair_batch, (peaks, weights) in zip(batches, outputs):
+        offset = 0
+        for pair in pair_batch:
+            count = int(pair.vertices.size)
+            pair_peaks = peaks[offset:offset + count]
+            pair_weights = weights[offset:offset + count]
+            offset += count
+            shifts, measured = results[pair.tile_id][pair.neighbor_position]
+            # Same test as the per-pair path: reject weight <= 0 or a NaN peak (a NaN weight passes).
+            keep = ~(pair_weights <= 0) & ~np.any(np.isnan(pair_peaks), axis=1)
+            kept_vertices = pair.vertices[keep]
+            shifts[kept_vertices, :] = pair_peaks[keep]
+            measured[kept_vertices] = True
+            weight_field = np.zeros(shifts.shape[0], dtype=np.float64)
+            weight_field[kept_vertices] = pair_weights[keep]
+            results[pair.tile_id][pair.neighbor_position] = _apply_optional_mosaic_weight_cutoff(
+                shifts, measured, weight_field)
+    return results
+
+
 def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset,
                     target_space_scale: float,
                     iterations: int,
@@ -2422,8 +2748,8 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     shift at every mesh vertex against each overlapping neighbor, regularize the
     per-neighbor displacement fields (median + gap-fill + Gaussian blur), blend with
     1/(1+mass) normalization, then add the blended shifts to every tile's grid target
-    points.  Stops early when the max vertex displacement reaches the threshold or stops
-    improving (dual condition; legacy C++ uses mean for the threshold comparison).
+    points.  Stops early when the mean |shift component| reaches the threshold or stops
+    improving (legacy dual condition, same metric as ir-refine-grid).
     """
     del merge_distance  # retained for API compatibility; unused by the legacy-parity model
     list_tiles = list(tiles.values())
@@ -2437,6 +2763,7 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
     cell_shape = np.asarray(resolved_cell_size, dtype=np.int64)
 
     average_displacement_per_iteration: list[float] = []
+    max_displacement_per_iteration: list[float] = []
     overlap_count_per_iteration: list[int] = []
     control_points_per_tile = {tile.ID: 0 for tile in list_tiles}
     vertex_diagnostics_per_pass: list[dict[int, dict[str, int]]] = []
@@ -2470,20 +2797,26 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
         pending_updates: list[tuple[nornir_imageregistration.Tile, NDArray[np.floating], NDArray[np.floating]]] = []
         all_applied_components: list[NDArray[np.floating]] = []
 
-        measure_vertex_displacements = (
-            _measure_grid_vertex_displacements_batched
-            if _use_batched_vertex_measurement()
-            else _measure_grid_vertex_displacements)
-
         def _measure(tile):
             return _measure_tile_grid_update(
                 tile, neighbors[tile.ID], prewarped, target_space_scale,
-                cell_shape, min_overlap, median_radius, measure_vertex_displacements)
+                cell_shape, min_overlap, median_radius, _measure_grid_vertex_displacements)
 
-        # Each tile's measurement is independent; optionally dispatch across a
+        if _use_batched_vertex_measurement():
+            # One pass-wide batch: cells from every pair share each FFT launch.
+            tile_targets = {tile.ID: _tile_grid_targets(tile, target_space_scale) for tile in list_tiles}
+            pair_shifts = _measure_pass_vertex_displacements(
+                list_tiles, neighbors, prewarped,
+                {tile_id: centers for tile_id, (_, centers) in tile_targets.items()},
+                cell_shape, min_overlap,
+                legacy_match=get_runtime_config(refresh=True).legacy_match)
+            tile_results = [
+                _blend_tile_grid_update(tile, tile_targets[tile.ID][0], pair_shifts[tile.ID], median_radius)
+                for tile in list_tiles]
+        # Each tile's serial measurement is independent; optionally dispatch across a
         # thread pool. Results are always assembled in list_tiles order so the
         # reductions below are bit-for-bit identical to the serial path.
-        if _tile_measure_parallel_enabled() and len(list_tiles) > 1:
+        elif _tile_measure_parallel_enabled() and len(list_tiles) > 1:
             pool = nornir_pools.GetGlobalThreadPool()
             tasks = [pool.add_task(f"grid_measure_{tile.ID}", _measure, tile)
                      for tile in list_tiles]
@@ -2516,12 +2849,18 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
 
         vertex_diagnostics_per_pass.append(pass_vertex_diagnostics)
 
-        # Convergence metric: max |sy| or |sx| over all vertices of all tiles, in
-        # working-resolution (scaled) pixels. Legacy C++ uses mean; max is stricter and
-        # keeps refining while any vertex still moves above the threshold.
-        components = np.concatenate(all_applied_components) if all_applied_components else np.zeros(0)
-        pass_displacement = float(np.max(components)) if components.size > 0 else 0.0
+        # Convergence metric, as legacy ir-refine-grid (IRMosaicRefinementCommon.h
+        # refine_mosaic_mt): the mean of |sx| and |sy| over every vertex of every tile, in
+        # full-resolution mosaic pixels. Legacy `-sp` sets the tile pixel spacing, so its
+        # shifts and threshold are full-res; comparing working-res shifts against the same
+        # threshold stopped RC3 0800 after 2 passes. Both stops use the mean. The max over
+        # all vertices follows the single noisiest vertex and is not monotonic, so using it
+        # for the no-improvement stop ended RC3 0800 after 4 of 10 passes; it is reported only.
+        components = (np.concatenate(all_applied_components) * downsample
+                      if all_applied_components else np.zeros(0))
+        pass_displacement = float(np.mean(components)) if components.size > 0 else 0.0
         average_displacement_per_iteration.append(pass_displacement)
+        max_displacement_per_iteration.append(float(np.max(components)) if components.size > 0 else 0.0)
 
         if components.size > 0:
             if pass_displacement <= displacement_threshold:
@@ -2546,7 +2885,8 @@ def _refine_tileset(tiles: nornir_imageregistration.mosaic_tileset.MosaicTileset
         control_points_per_tile=control_points_per_tile,
         resolved_cell_size=resolved_cell_size,
         resolved_mesh_shape=resolved_mesh_shape,
-        vertex_diagnostics_per_pass=vertex_diagnostics_per_pass)
+        vertex_diagnostics_per_pass=vertex_diagnostics_per_pass,
+        max_displacement_per_iteration=max_displacement_per_iteration)
 
 
 def RefineGridMosaic(
@@ -2591,9 +2931,9 @@ def RefineGridMosaic(
     mesh_shape:
         Optional `(rows, cols)` mesh density. If omitted, derived from `cell_size` using legacy equations.
     displacement_threshold:
-        Early-stop threshold on the max |shift component| per pass, in working-resolution
-        pixels (legacy `-displacement_threshold` applies to mean; this port uses max).
-        Refinement also stops when a pass fails to improve on the prior pass.
+        Early-stop threshold on the mean |shift component| over all vertices per pass, in
+        full-resolution mosaic pixels (legacy `-displacement_threshold` with `-sp`). Refinement also stops
+        when that mean fails to improve on the prior pass.
     min_overlap:
         Minimum valid-pixel fraction required of each cell-sized vertex neighborhood
         (legacy hardcodes 0.25).

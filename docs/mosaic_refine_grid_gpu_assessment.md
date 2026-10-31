@@ -544,6 +544,42 @@ for the NumPy flip: CPU-serial vs CPU-batched 0.226 px mean / 0.253 max
 (limits 1.0 / 3.0), golden 1.857 -> 1.880 (< 2.2), functional + legacy-parity
 tests pass under the batched default.
 
+## Full-section throughput (RC3, 2026-10-30)
+
+The numbers above came from Grid690 (4-5 tiles of 255x255) and one RPC3 section, where per-tile
+work is small. On RC3 sections (853-900 tiles, mesh 11x11, cell 128) the refine host sat at
+1-2% CPU and the GPU at a median 10% SM (srv-45 dmon, 128 cores, RTX 4500 Ada, no other GPU
+users). Phase timing for RC3 1061, 2 passes, HEAD: cupy wall 257 s (prewarp 188, fft 37,
+cell_extract 21) against numpy 196 s (prewarp 17, fft 150). Two causes:
+
+- **Prewarp from threads under CuPy** is 11x slower than the NumPy process pool on a
+  many-core host; the Grid690 "thread +24%" result did not carry over. Both backends now
+  default to the process pool. Pool workers always run NumPy, and a `ForkingPickler`
+  reducer (`computational_lib._reduce_cupy_array_to_host`) sends them host copies of any
+  CuPy arrays in a tile's transform; a CuPy session uploads the warped tiles.
+  `NORNIR_REFINE_PREWARP_MODE=thread` or `serial` still opts out.
+- **Per-pair FFT batches** of about 121 cells. `_measure_pass_vertex_displacements` now
+  gathers every pair's cells for a pass into chunks sized by `batched_fft_cell_chunk_size`:
+  validity from a host summed-area table per tile (one alive at a time), one gather per pair,
+  one upload of window starts per chunk. NumPy chunks run on a thread pool (NumPy's FFT
+  releases the GIL). Neighbor finding is vectorized (it was ~730k Python rectangle tests per
+  pass). `NORNIR_REFINE_BATCHED=0` keeps the serial per-cell path.
+
+Parity: target points bit-identical to HEAD on Grid690 (1 pass NumPy, 3 passes CuPy); RC3 0800
+CuPy vs NumPy after 2 passes differ by 2e-7 px mean, 0.008 px max.
+
+Timing on a 16-core workstation whose GPU is shared with other services (RC3 0800, 2 passes):
+new NumPy 392 s, new CuPy 299 s (prewarp 195, cell_extract 70, fft 21). The CuPy FFT phase
+fell from per-pair batches to 21 s for ~280k cells per pass. Translate (`_FindTileOffsets`)
+also moved off the serial pool under CuPy for the same reason; it was 7-10 min per RC3
+section at ~150 ms per pair on one thread.
+
+| flag / path                         | backend | default after this change |
+|-------------------------------------|---------|---------------------------|
+| `NORNIR_REFINE_PREWARP_MODE` (unset) | both   | process pool (CuPy: was threads) |
+| pass-wide vertex batches            | both    | on with `NORNIR_REFINE_BATCHED` |
+| translate pair offsets              | CuPy    | process pool (was serial) |
+
 ## Related comparison
 
 For STOS vs mosaic safeguard differences, shared `refine_shared` helpers, and

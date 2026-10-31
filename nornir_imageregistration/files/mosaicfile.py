@@ -24,6 +24,11 @@ class MosaicFile(object):
         return checksum.DataChecksum(sorted(self.ImageToTransformString.values()))
 
     @property
+    def LegacyChecksum(self):
+        """``Checksum`` as computed before 2026-08-10, for checksums stored in older volume metadata."""
+        return checksum.LegacyListChecksum(sorted(self.ImageToTransformString.values()))
+
+    @property
     def NumberOfImages(self):
         if self.ImageToTransformString is None:
             return 0

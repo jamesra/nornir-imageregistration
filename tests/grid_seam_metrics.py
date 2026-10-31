@@ -704,7 +704,7 @@ def refine_grid_input_section_passes(
     Run chained single-iteration refines and record seam scores after each pass.
 
     Pass 0 scores the translated input; passes 1..max_passes apply RefineGridMosaic once each.
-    Matching legacy ir-refine-grid, chaining stops once a pass's max displacement falls
+    Matching legacy ir-refine-grid, chaining stops once a pass's mean displacement falls
     to or below the displacement threshold, or when a chained pass fails to improve on
     the prior pass (dual stop across the chain).
     """

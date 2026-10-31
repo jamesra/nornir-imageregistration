@@ -630,7 +630,11 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
 
     # _CalculateImageFFTs(tiles)
 
-    if len(tile_overlaps) == 1 or nornir_imageregistration.UsingCupy():
+    # Each pair is a tile decode plus a small FFT, which the CPU handles well, so spread
+    # pairs across every core even in a CuPy session. Pool workers always run NumPy
+    # (nornir_pools.init_pool_process), so they never open a CUDA context. Running
+    # serially under CuPy left srv-45 at ~2% CPU for 7-10 min per RC3 section.
+    if len(tile_overlaps) == 1:
         pool = nornir_pools.GetGlobalSerialPool()
     else:
         pool = nornir_pools.GetGlobalMultithreadingPool()

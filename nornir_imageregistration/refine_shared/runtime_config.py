@@ -50,6 +50,10 @@ class RefineRuntimeConfig:
     zncc_prominence_min: float
     low_content_std_min: float
     finalized_recheck_mode: str
+    # Mosaic refine measures vertices with the ir-refine-grid estimator (legacy_cell_match).
+    # Default on (RC3 0800 seam MAE 0.0859 against C++ 0.0857; 0.1007 without it);
+    # NORNIR_REFINE_LEGACY_MATCH=0 restores the single-peak estimator.
+    legacy_match: bool = True
 
     @classmethod
     def from_env(cls) -> RefineRuntimeConfig:
@@ -150,16 +154,19 @@ class RefineRuntimeConfig:
             zncc_prominence_min=prominence,
             low_content_std_min=low_content_std,
             finalized_recheck_mode=finalized_recheck_mode,
+            legacy_match=not is_falsey(env_flag('NORNIR_REFINE_LEGACY_MATCH', '')),
         )
 
     def prewarp_thread_dispatch_enabled(self, using_cupy: bool) -> bool:
-        """Return True when per-tile prewarp should use the shared thread pool."""
+        """Return True when per-tile prewarp should use the shared thread pool.
+
+        Opt-in only (``thread``). The default is the process pool on both backends: it warped
+        Grid690 in 7.9 s against 19-21 s for CuPy from threads (2026-10-30).
+        """
         mode = self.prewarp_mode
         if 'serial' in mode:
             return False
-        if 'thread' in mode:
-            return True
-        return using_cupy
+        return 'thread' in mode
 
     def prewarp_cache_enabled(self, using_cupy: bool) -> bool:
         """Return True when cross-pass prewarp caching is allowed."""
@@ -185,9 +192,9 @@ class RefineRuntimeConfig:
         """Return the pool used for mosaic prewarp dispatch when parallelized."""
         import nornir_pools
 
-        if using_cupy and self.prewarp_thread_dispatch_enabled(using_cupy):
+        if self.prewarp_thread_dispatch_enabled(using_cupy):
             return nornir_pools.GetGlobalThreadPool()
-        if using_cupy:
+        if 'serial' in self.prewarp_mode:
             return nornir_pools.GetGlobalSerialPool()
         return nornir_pools.GetGlobalMultithreadingPool()
 

@@ -11,6 +11,7 @@ __all__ = [
 from enum import Enum
 import logging
 import multiprocessing
+import multiprocessing.reduction
 import os
 
 # One-time setup so CUDA DLLs (e.g. curand64_*.dll) are found when CUDA_PATH is set.
@@ -200,6 +201,22 @@ except ImportError:
     cp = None
     _has_cupy = False
     _active_lib = ComputationLib.numpy if _active_lib is None else _active_lib
+
+
+def _reduce_cupy_array_to_host(array):
+    """Pickle a CuPy array as its NumPy copy.
+
+    Pool workers always run NumPy (``ConfigureForkPoolWorker``) and must never open a CUDA
+    context, so whatever a CuPy session sends them, such as a tile whose grid transform holds
+    device points, arrives as host arrays. This is what lets GPU sessions hand CPU-bound work
+    (tile prewarp) to the process pools instead of running it serially.
+    """
+    import numpy
+    return numpy.asarray, (array.get(),)
+
+
+if cp is not None:
+    multiprocessing.reduction.ForkingPickler.register(cp.ndarray, _reduce_cupy_array_to_host)
 
 
 def _probe_cupy_runtime() -> bool:

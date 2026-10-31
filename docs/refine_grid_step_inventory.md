@@ -47,6 +47,9 @@ flowchart TD
 | 12 | Finalize stable candidates | `finalize.py` | has this cell converged under the current field | keep |
 | 13 | Diagnostics, cell history, timing | `pass_diagnostics.py`, `cell_history.py`, `phase_timer.py` | observability | keep |
 | 14 | GPU batch budget and ROI/null caches | `gpu_batch_budget.py`, `MeasuredRoiSink`, `ZnccNullCache` | performance | keep |
+| 15 | Mosaic: cell inside both tile buffers by >= `min_overlap` (no centre rule) | `local_distortion_correction.py` (`_measure_pass_vertex_displacements`) | is there tissue to measure | keep; legacy ir-refine-grid rule (no masks, so buffer, not warp coverage) |
+| 16 | Mosaic: more than 10 PDF peaks within 2x of the best rejects the vertex | `legacy_cell_match.py` | is this peak unique | keep (2026-10-31); `NORNIR_REFINE_LEGACY_MATCH=0` restores the single-peak estimator |
+| 17 | Mosaic: zero shift scored with the peaks by -NCC against the whole fixed tile | `legacy_cell_match.py` | does this peak beat its local null | keep (2026-10-31); RC3 0800 seam MAE 0.0859 vs C++ 0.0857 (0.1007 without 15-17) |
 
 ## Retired inventory rows
 
