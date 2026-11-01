@@ -48,6 +48,11 @@ MIN_SCORED_PIXELS = 64
 # small groups is as likely to be low texture as a misplacement.
 MIN_FLAGGED_JOIN_PAIRS = 2
 
+# A matched group of at least this many tiles, besides the largest, is a block that does not hold
+# together with the rest even when no overlap joins them directly (RC3 1637: the two halves are
+# separated by a strip of poorly matched tiles). RC3 0800 has none: 849 of 853 tiles in one group.
+MIN_SECONDARY_BLOCK_TILES = 10
+
 
 @dataclasses.dataclass
 class FailedPair:
@@ -94,6 +99,11 @@ class TranslateReport:
     def needs_review(self) -> bool:
         return len(self.review_reasons) > 0
 
+    @property
+    def secondary_blocks(self) -> list[list[int]]:
+        """Matched groups of MIN_SECONDARY_BLOCK_TILES or more, other than the largest, largest first."""
+        return [g for g in self.matched_groups[1:] if len(g) >= MIN_SECONDARY_BLOCK_TILES]
+
     def set_known_offsets(self, used: Iterable[TileOffset], skipped: Iterable[tuple[TileOffset, str]]) -> None:
         """Record the manual offsets translate applied, and the ones it could not, with why."""
         self.known_offsets = [_tile_offset_to_dict(o) for o in used]
@@ -139,6 +149,12 @@ class TranslateReport:
             self.joins.append(JoinCheck(groups=(group_a, group_b), group_sizes=sizes, pairs=len(join_scores),
                                         scored_pairs=len(join_finite), ncc_median=median, flagged=flagged))
 
+        if self.secondary_blocks:
+            self.review_reasons.append(
+                f"Besides its main block of {len(self.matched_groups[0])} tiles, the mosaic has blocks of "
+                f"{', '.join(str(len(g)) for g in self.secondary_blocks)} tiles that no matching overlap "
+                f"connects to it.")
+
         flagged_joins = sorted((j for j in self.joins if j.flagged), key=lambda j: -min(j.group_sizes))
         if flagged_joins:
             blocks = sorted({g for j in flagged_joins for g in j.groups})
@@ -151,7 +167,13 @@ class TranslateReport:
                 f"for the section. A block is probably misplaced; see joins in the report.")
 
         if len(self.groups) > 1:
+            # The largest group is the reference the others were placed against; "overlaps no
+            # other tile" only means something for the rest (RC3 0633: an 848-tile main group was
+            # flagged because the one stray tile beside it did not overlap it).
+            largest = max(self.groups, key=len)
             for group in self.groups:
+                if group is largest:
+                    continue
                 members = set(group)
                 touches_others = any((int(o.A.ID) in members) != (int(o.B.ID) in members) for o in overlaps)
                 if len(group) >= MIN_FLAGGED_GROUP_TILES and not touches_others:

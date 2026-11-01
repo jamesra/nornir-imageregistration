@@ -20,12 +20,13 @@ import shutil
 import tempfile
 import unittest
 from typing import ClassVar
+from unittest import mock
 
 import nornir_imageregistration
 import nornir_imageregistration.transforms.factory as tfactory
 import numpy as np
 import scipy.ndimage
-from nornir_imageregistration import arrange_mosaic
+from nornir_imageregistration import arrange_mosaic, translate_report
 from nornir_imageregistration.settings import (
     LoadMosaicOffsets,
     MosaicOffsetsChecksum,
@@ -178,6 +179,22 @@ class TestJoinCheck(_TextureTiles):
         self.assertEqual(1, len(report.joins))
         self.assertFalse(report.joins[0].flagged)
         self.assertFalse(report.needs_review)
+
+    def test_a_secondary_block_is_flagged_even_without_a_direct_join(self):
+        # RC3 1637: the two halves meet only through a strip of poorly matched tiles, so no
+        # overlap joins them directly. Far apart here, so there is no join at all.
+        with mock.patch.object(translate_report, 'MIN_SECONDARY_BLOCK_TILES', 3):
+            report = self.check(self.right_column_moved((_FAR, 0)))
+            self.assertEqual([[2, 5, 8]], report.secondary_blocks)
+        self.assertTrue(any('Besides its main block of 6 tiles' in r for r in report.review_reasons))
+
+    def test_the_main_translate_group_is_not_flagged_for_a_stray_tile(self):
+        # RC3 0633: translate's 848-tile main group "overlapped no other tile" because the one
+        # stray tile beside it did not overlap it.
+        positions = [_true_position(i) for i in range(9)]
+        positions[8] = positions[8] + (_FAR, 0)
+        report = self.check(positions, [list(range(8)), [8]])
+        self.assertFalse(report.needs_review, report.review_reasons)
 
 
 class TestArrangeTilesWithTranslateFillsTheReport(_TextureTiles):
