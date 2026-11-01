@@ -846,6 +846,42 @@ def _use_cupy_for_scoring(use_gpu: bool | None = None) -> bool:
     )
 
 
+# CuPyX's affine_transform compiles its kernel with the output shape baked in, and a
+# reshape=True rotation has a different output shape for almost every angle, so each new
+# angle paid an NVRTC compile (~70% of StosBrute time on srv, py-spy 2026-11-01). Rotating
+# into an output rounded up to this many pixels per axis, then cropping, reuses one kernel
+# per bucket. Every output pixel depends only on the matrix, offset and its own index, so the
+# cropped result is identical to cupyx.scipy.ndimage.rotate(reshape=True).
+_ROTATE_OUTPUT_BUCKET = 64
+
+
+def _rotate_reshape_bucketed_cupy(image: NDArray, angle: float, cval: float) -> NDArray:
+    """``cupyx.scipy.ndimage.rotate(image, angle, axes=(1, 0), cval=cval)`` for a 2-D CuPy image,
+    computed into a bucketed output shape so CuPyX compiles one kernel per bucket, not per angle.
+
+    CuPy only. Matrix, offset and output shape follow CuPyX ``rotate`` (reshape=True, order 3,
+    mode 'constant', prefilter on); the bucket is cropped back to the exact rotate shape.
+    """
+    rad = np.deg2rad(angle)
+    sin = math.sin(rad)
+    cos = math.cos(rad)
+    rot_matrix = np.array([[cos, sin], [-sin, cos]])
+    in_shape = np.asarray(image.shape)
+    iy, ix = in_shape
+    out_bounds = rot_matrix @ [[0, 0, iy, iy], [0, ix, 0, ix]]
+    out_shape = (np.ptp(out_bounds, axis=1) + 0.5).astype(np.int64)
+    offset = (in_shape - 1) / 2 - rot_matrix @ ((out_shape - 1) / 2)
+
+    bucket = _ROTATE_OUTPUT_BUCKET
+    bucketed_shape = tuple(int(-(-int(s) // bucket) * bucket) for s in out_shape)
+    ndimage = cupyx.scipy.get_array_module(image).ndimage
+    rotated = ndimage.affine_transform(image, cp.asarray(rot_matrix), cp.asarray(offset),
+                                       output_shape=bucketed_shape, order=3,
+                                       mode='constant', cval=cval, prefilter=True)
+    # Contiguous copy, as rotate returned: callers mask-assign and FFT the result.
+    return cp.ascontiguousarray(rotated[:int(out_shape[0]), :int(out_shape[1])])
+
+
 def rotate_image(image: NDArray,
                  angle: float,
                  image_stats: nornir_imageregistration.ImageStats | None) -> NDArray:
@@ -874,7 +910,10 @@ def rotate_image(image: NDArray,
     # with the inverse transform.  Hence negating the angle here.
     with IgnoreUnderflow():
         if xp is not np:
-            im_rotated = rotate(image, axes=(1, 0), angle=-angle, cval=np.nan)
+            if image.ndim == 2:
+                im_rotated = _rotate_reshape_bucketed_cupy(image, -angle, cval=np.nan)
+            else:
+                im_rotated = rotate(image, axes=(1, 0), angle=-angle, cval=np.nan)
         else:
             im_rotated = rotate(image.astype(np.float32, copy=False), axes=(1, 0), angle=-angle,
                                 cval=np.nan).astype(image.dtype, copy=False)  # Numpy cannot rotate float16 images
