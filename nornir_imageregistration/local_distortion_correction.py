@@ -1672,10 +1672,10 @@ def _attempt_align_points_translation_batched(
     When *roi_sink* is given, the winning ROI stacks are stored there for the ZNCC lock
     gate so it does not re-warp the cells it scores.
 
-    Returns ``None`` only when the batched path could not run: ROI extraction
-    failed for too many cells, cell shapes disagree, or too few cells survive to
-    batch. The caller treats ``None`` as "batched unavailable" and re-measures the
-    whole grid with the serial peak finder.
+    Returns ``None`` only when the batched path could not run: the per-cell ROI
+    fallback produced cells of different shapes. The caller treats ``None`` as
+    "batched unavailable" and re-measures the whole grid with the serial peak finder.
+    Any number of cells is batched, down to one.
 
     Returns an empty list when the batched path *did* run and legitimately found
     nothing to align -- every cell rejected as unalignable, or every measured peak
@@ -1735,8 +1735,9 @@ def _attempt_align_points_translation_batched(
                 nan_masks.append(nan_mask)
                 kept_indices.append(i)
 
-            if len(kept_indices) < 3:
-                return None
+            if not kept_indices:
+                # Every ROI failed to build; the serial path skips the same cells.
+                return []
 
             shapes = {tuple(int(s) for s in cell.shape) for cell in fixed_cells + moving_cells}
             if len(shapes) != 1:
@@ -1753,9 +1754,6 @@ def _attempt_align_points_translation_batched(
                     for mask in nan_masks], axis=0)
             else:
                 nan_mask_stack = None
-
-        if len(kept_indices) < 3:
-            return None
 
         xp = cp.get_array_module(fixed_stack)
         # Batched runs at the caller's precision floored at float32; an upcast to
@@ -1774,17 +1772,15 @@ def _attempt_align_points_translation_batched(
         min_std = float(low_content_std_min_threshold())
         rigid_ok = _cells_alignable_batched(fixed_stack, moving_stack, nan_mask_stack, min_std)
 
-        if exact_transform is None:
-            if not np.any(rigid_ok):
-                # Decided, not unavailable: the serial path applies the same
-                # alignability gate, so re-measuring the grid can only spend a full
-                # serial pass to arrive back at nothing.
-                return []
-            # Genuinely unavailable rather than empty: batching needs at least three
-            # cells. The serial pass will reject the same cells this gate rejected, so
-            # it arrives at the same records, only slower.
-            if int(np.count_nonzero(rigid_ok)) < 3:
-                return None
+        if exact_transform is None and not np.any(rigid_ok):
+            # Decided, not unavailable: the serial path applies the same
+            # alignability gate, so re-measuring the grid can only spend a full
+            # serial pass to arrive back at nothing.
+            return []
+        # Any number of alignable cells is batched, down to one. Late passes often
+        # have only one or two unlocked cells; sending those to the per-cell
+        # AttemptAlignPoint cost about 1-2 s per cell against milliseconds here
+        # (RC3 1503-1502: 4.3 s of a 9 s pair).
 
     n_cells = len(kept_indices)
 
@@ -1872,8 +1868,6 @@ def _attempt_align_points_translation_batched(
         alignable = rigid_ok | exact_ok
         if not np.any(alignable):
             return []
-        if int(np.count_nonzero(alignable)) < 3:
-            return None
 
     if roi_sink is not None:
         roi_sink.store(MeasuredCellRois(
@@ -5386,6 +5380,18 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         if batched is not None:
             return batched
 
+    # A translation-only search must stay translation-only here, as it is in the
+    # batched path. AttemptAlignPoint's defaults add a log-polar angle estimate and a
+    # scale search inherited from StosBrute, about 1 s per cell instead of one FFT.
+    translation_only = _angles_are_translation_only(settings.angles_to_search)
+    search_kwargs = {'estimate_angle': not translation_only, 'search_scale': not translation_only}
+    if translation_only and nPoints > 0:
+        # Translation-only cells are meant to be batched; say so when they are not, so a
+        # slow fallback shows up in build logs instead of only in profiles.
+        prettyoutput.LogErr(
+            f'Refine: measuring {nPoints} translation-only cells one at a time; '
+            f'the batched path was unavailable')
+
     if settings.single_thread_processing:
         target_image = settings.target_image
         source_image = settings.source_image
@@ -5409,7 +5415,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                 target_controlpoint=targetPoint,
                 alignmentArea=settings.cell_size,
                 anglesToSearch=settings.angles_to_search,
-                min_alignment_overlap=settings.min_alignment_overlap)
+                min_alignment_overlap=settings.min_alignment_overlap,
+                **search_kwargs)
             if arecord is None:
                 continue
 
@@ -5467,7 +5474,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                                   target_controlpoint=targetPoint,
                                   alignmentArea=settings.cell_size,
                                   anglesToSearch=settings.angles_to_search,
-                                  min_alignment_overlap=settings.min_alignment_overlap)
+                                  min_alignment_overlap=settings.min_alignment_overlap,
+                                  **search_kwargs)
         # AlignTask = StartAttemptAlignPoint(pool,
         # f"Align {key}",
         # rigid_transforms[i],

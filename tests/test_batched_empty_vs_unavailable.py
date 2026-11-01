@@ -11,9 +11,9 @@ depended on whether the batched result happened to come back empty.  With the
 weights forced to zero on textured cells, the pre-fix caller discarded the empty
 batched answer and returned four serial records with weight ~52 instead.
 
-``None`` is now reserved for "the batched path could not run": ROI extraction
-failed for too many cells, cell shapes disagree, or fewer than three cells
-survive.  Those still fall back, because the serial pass reaches the same records.
+``None`` is now reserved for "the batched path could not run": the per-cell ROI
+fallback produced cells of different shapes.  That still falls back to the serial
+pass, which stays translation-only.  Any number of cells is batched, down to one.
 """
 from __future__ import annotations
 
@@ -208,19 +208,66 @@ class TestCallerHonoursEmptyResult(_SerialSpyCase):
         self.assertEqual(len(records), 0)
 
 
+class TestFewCellsAreBatched(_SerialSpyCase):
+    """One or two cells are batched too; they used to fall back to ``AttemptAlignPoint``.
+
+    Late refine passes often have one or two unlocked cells. The serial fallback ran a
+    log-polar angle estimate and scale search per cell, about 1-2 s each against
+    milliseconds batched: 4.3 s of a 9 s RC3 1503-1502 Grid32 refine (2026-11-01).
+    """
+
+    def test_one_and_two_cells_are_measured_batched(self):
+        for count in (1, 2):
+            with self.subTest(count=count):
+                records = _run_batched(_textured(), count=count)
+
+                self.assertIsNotNone(records)
+                assert records is not None
+                self.assertEqual(len(records), count)
+
+    def test_caller_does_not_reach_the_serial_peak_finder_for_few_cells(self):
+        for count in (1, 2):
+            with self.subTest(count=count):
+                records, serial_calls = self._refine_counting_serial_calls(_textured(), count=count)
+
+                self.assertEqual(serial_calls, 0)
+                self.assertEqual(len(records), count)
+
+    def test_few_cells_match_the_same_cells_in_a_full_batch(self):
+        full = _run_batched(_textured(), count=4)
+        few = _run_batched(_textured(), count=2)
+        assert full is not None and few is not None
+        for one, other in zip(few, full[:2]):
+            np.testing.assert_allclose(one.peak, other.peak, atol=1e-6)
+            # float32 FFTs: batch size changes the last bits (4e-6 on a weight of 45).
+            self.assertAlmostEqual(float(one.weight), float(other.weight), delta=1e-6 * float(other.weight))
+
+
 class TestUnavailableStillFallsBack(_SerialSpyCase):
     """``None`` must keep meaning "could not run", or batching becomes mandatory."""
 
-    def test_too_few_cells_to_batch_falls_back_to_serial(self):
-        records = _run_batched(_textured(), count=2)
+    def test_serial_fallback_stays_translation_only(self):
+        """The fallback must not add StosBrute's angle estimate and scale search."""
+        seen: list[dict] = []
+        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
 
-        self.assertIsNone(records, 'fewer than three cells cannot be batched')
+        def spy(*args, **kwargs):
+            seen.append(kwargs)
+            return real_rigid(*args, **kwargs)
 
-    def test_caller_measures_serially_when_batched_is_unavailable(self):
-        points = _grid_points(2)
-        _records, serial_calls = self._refine_counting_serial_calls(_textured(), count=2)
+        real_batched = ldc._attempt_align_points_translation_batched
+        ldc._attempt_align_points_translation_batched = lambda **kwargs: None
+        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
+        try:
+            self._refine_counting_serial_calls(_textured())
+        finally:
+            ldc._attempt_align_points_translation_batched = real_batched
+            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
 
-        self.assertEqual(serial_calls, len(points))
+        self.assertTrue(seen)
+        for kwargs in seen:
+            self.assertIs(kwargs['estimate_angle'], False)
+            self.assertIs(kwargs['search_scale'], False)
 
     def test_caller_measures_serially_when_batched_returns_none(self):
         real = ldc._attempt_align_points_translation_batched
