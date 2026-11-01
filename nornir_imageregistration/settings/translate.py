@@ -4,10 +4,6 @@ Created on Aug 4, 2022
 @author: u0490822
 """
 
-import numpy as np
-from numpy.typing import NDArray
-
-
 class TranslateSettings(object):
     """
     Settings for translating a mosaic
@@ -28,7 +24,7 @@ class TranslateSettings(object):
     excess_scalar: float
     use_feature_score: bool
     exclude_diagonal_overlaps: bool
-    known_offsets: list[NDArray[np.floating]]
+    known_offsets: list  # TileOffset, or (A, B, Y, X[, comment]) rows / dicts from settings JSON
     mask_extrema: bool = True
 
     @property
@@ -69,7 +65,7 @@ class TranslateSettings(object):
         :param int excess_scalar:  How much additional area should we pad the overlapping regions with.  Increase this value if you want larger offsets to be found.
         :param bool use_feature_score:  Multiply the alignment quality metric for the registration by the min power spectral density of the overlapping regions.  The idea is to down-weight featureless regions.  However the latest peak weight currently down-weights itself if there were many strong peaks to choose from.
         :param bool exclude_diagonal_overlaps:  Do not include overlaps between rectangles whose center is outside the min/max range of the partner rectangle along both axes.  Reduces calculations by eliminating calculations for small overlapping corner regions.
-        :param list known_offsets: Optional list of known tile offsets to prevent seams from opening up with questionable input with areas of low overlap.
+        :param list known_offsets: Optional list of known tile offsets (B's position minus A's, Y X in full-resolution pixels). Translate holds each one with a weight that dominates measured offsets, so it links tile groups whose overlaps fail and is not undone by relaxation.
         :param bool mask_extrema:  If True, mask the extrema min/max values of each overlapping region in the translate step with random noise.  Useful for images with large regions of background such as found in CMP light microscopy images
         """
 

@@ -18,9 +18,11 @@ import nornir_imageregistration.type_info
 import nornir_pools
 import nornir_shared.prettyoutput
 
+from nornir_imageregistration.settings.mosaic_tile_offset import TileOffset
 from nornir_imageregistration.tile_overlap import TileOverlap
 from nornir_imageregistration.mosaic_tileset import MosaicTileset
 from nornir_imageregistration.tile import Tile
+from nornir_imageregistration.translate_report import FailedPair, TranslateReport
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                             'overlap_ID iTile overlapping_rect')
@@ -30,6 +32,55 @@ TileToOverlap = collections.namedtuple('TileToOverlap',
 
 TileOverlapFeatureScore = collections.namedtuple('TileOverlapFeatureScore',
                                                  'overlap_ID iTile image feature_score')
+
+# A known (manual) offset outweighs every measured offset by this factor. Relaxation moves each
+# node toward the weight-averaged pull of its springs, so this lets a known offset dominate the
+# pull on its two tiles without making the solve degenerate.
+KNOWN_OFFSET_WEIGHT_SCALE = 10.0
+
+
+def _known_offset_links(known_offsets: Iterable[Any] | None,
+                        tileset: MosaicTileset) -> tuple[list[TileOffset], list[tuple[TileOffset, str]]]:
+    """Split the configured known offsets into those translate can apply and those it cannot."""
+    usable: list[TileOffset] = []
+    skipped: list[tuple[TileOffset, str]] = []
+    for value in known_offsets or []:
+        offset = TileOffset.FromValue(value)
+        missing = [tile_id for tile_id in (offset.A, offset.B) if tile_id not in tileset]
+        if missing:
+            skipped.append((offset, f"tile(s) {missing} not in the mosaic"))
+        elif offset.A == offset.B:
+            skipped.append((offset, "both IDs name the same tile"))
+        else:
+            usable.append(offset)
+
+    for offset, reason in skipped:
+        nornir_shared.prettyoutput.LogErr(
+            f"Known offset {offset.A} -> {offset.B} ignored: {reason}.")
+
+    return usable, skipped
+
+
+def _apply_known_offsets(layout: Layout, known_offsets: Sequence[TileOffset], tileset: MosaicTileset) -> None:
+    """Set each known offset as a spring, replacing any measured offset for that pair.
+
+    Weights are capped at 1 (LayoutPosition.WeightedNetTensionVector asserts it), so the measured
+    weights are scaled down instead and the known offsets take weight 1. Relaxation normalizes
+    weights per node, so the scaling changes nothing for a node without a known offset.
+    """
+    if not known_offsets:
+        return
+
+    for node in layout.nodes.values():
+        if not node.IsIsolated:
+            node.Weights = node.Weights / KNOWN_OFFSET_WEIGHT_SCALE
+
+    for offset in known_offsets:
+        for tile_id in (offset.A, offset.B):
+            if not layout.Contains(tile_id):
+                layout.CreateNode(tile_id, tileset[tile_id].FixedBoundingBox.Center)
+
+        layout.SetOffset(offset.A, offset.B, np.asarray(offset.Offset, dtype=np.float64), 1.0)
 
 
 def CreateTileToOverlapsDict(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverlap]) -> \
@@ -104,18 +155,31 @@ def TranslateTiles(transforms, imagepaths, excess_scalar, imageScale=None, max_r
 
 
 def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTileset,
-                    config: nornir_imageregistration.settings.TranslateSettings):
+                    config: nornir_imageregistration.settings.TranslateSettings,
+                    report: TranslateReport | None = None):
     """
     Finds the optimal translation of a set of tileset to construct a larger seemless mosaic.
     :param tileset:
     :param config:
+    :param report: If given, filled with the tile groups, failed pairs and known offsets used.
+        Its join check needs the final tile positions, so ArrangeTilesWithTranslate runs it.
     """
+
+    if report is not None:
+        report.tile_count = len(tileset)
+        report.image_to_source_space_scale = float(tileset.image_to_source_space_scale)
 
     if len(tileset) == 1:
         # If there is only one tile then just return it
         single_tile_layout = nornir_imageregistration.layout.Layout()
         single_tile_layout.CreateNode(tileset[0].ID, np.zeros(2))
+        if report is not None:
+            report.groups = [[int(tileset[0].ID)]]
         return single_tile_layout, tileset
+
+    known_offsets, skipped_known_offsets = _known_offset_links(config.known_offsets, tileset)
+    failed_pairs: dict[tuple[int, int], str] = {}
+    translated_final_layouts: list[Layout] = []
 
     last_pass_overlaps = None
     translated_layout = None
@@ -194,13 +258,18 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
                                              image_to_source_space_scale=tileset.image_to_source_space_scale,
                                              existing_layout=translated_layout,
                                              use_feature_score=config.use_feature_score,
-                                             mask_extrema=config.mask_extrema)
+                                             mask_extrema=config.mask_extrema,
+                                             failed_pairs=failed_pairs)
 
         scaled_translated_layout = translated_layout.copy()
         # nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
         nornir_imageregistration.layout.NormalizeOffsetWeights(scaled_translated_layout,
                                                                min_allowed_weight=config.min_offset_weight,
                                                                max_allowed_weight=config.max_offset_weight)
+
+        # Applied after normalization so the measured weights cannot rescale them. Every pass,
+        # because each pass rebuilds this copy and may have re-measured the same pair.
+        _apply_known_offsets(scaled_translated_layout, known_offsets, tileset)
         # nornir_imageregistration.layout.ScaleOffsetWeightsByPopulationRank(scaled_translated_layout,
         #                                                                    min_allowed_weight=min_offset_weight,
         #                                                                    max_allowed_weight=max_offset_weight)
@@ -270,6 +339,18 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
         relaxed_layout = nornir_imageregistration.layout.Layout()
         for tile in tileset.values():
             relaxed_layout.CreateNode(tile.ID, tile.FixedBoundingBox.Center)
+
+    if report is not None:
+        report.passes = pass_count
+        # Each group was assembled from measured or known offsets; groups were joined to one
+        # another only by stage offsets. Tiles in no group had no qualifying overlap at all.
+        report.groups = [sorted(int(i) for i in layout.nodes) for layout in translated_final_layouts]
+        grouped = {tile_id for group in report.groups for tile_id in group}
+        report.groups.extend([int(tile_id)] for tile_id in sorted(tileset.keys()) if tile_id not in grouped)
+        report.groups.sort(key=lambda group: (-len(group), group[0]))
+        report.failed_pairs = [FailedPair(A=int(a), B=int(b), reason=reason)
+                               for (a, b), reason in sorted(failed_pairs.items())]
+        report.set_known_offsets(known_offsets, skipped_known_offsets)
 
     # Create a mosaic file using the tile paths and transforms
     relaxed_layout.TranslateToZeroOrigin()
@@ -605,13 +686,16 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
                      image_to_source_space_scale: float | None = None,
                      existing_layout: Layout | None = None,
                      use_feature_score: bool = False,
-                     mask_extrema: bool = True):
+                     mask_extrema: bool = True,
+                     failed_pairs: dict[tuple[int, int], str] | None = None):
     """Populates the OffsetToTile dictionary for tiles
     :param tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param image_to_source_space_scale: downsample level if known.  None causes it to be calculated.
     :param excess_scalar: How much additional area should we pad the overlapping rectangles with.
     :param existing_layout: A layout object to update with the new offsets.  If None a new layout object is created.
     :param use_feature_score: True if the feature score of the overlapping region should be included in the results and factored into the alignment score
+    :param failed_pairs: If given, records why each pair could not be measured, keyed by pair ID;
+        a pair measured successfully is removed, so across passes it holds the latest outcome.
     :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
     """
 
@@ -697,11 +781,22 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
             # offset. (#122)
             offset = None
             layout.RemoveOverlap(tile_overlap)
+            if failed_pairs is not None:
+                failed_pairs[tile_overlap.ID] = f"FloatingPointError: {e}"
         except ValueError as e:
             nornir_shared.prettyoutput.LogErr(
                 f"Could not find overlap between:\n\t{t.tile_overlap.A.ImagePath}\n\t{t.tile_overlap.B.ImagePath,}\nConsider using a feature threshold for this section if results are poor.  This message often caused by aligning blank tiles.\n{e}")
             offset = None
             layout.RemoveOverlap(tile_overlap)
+            if failed_pairs is not None:
+                failed_pairs[tile_overlap.ID] = f"ValueError: {e}"
+
+        if failed_pairs is not None and offset is not None:
+            if offset.weight == 0:
+                # __tile_offset_remote returns weight 0 when either overlap region is one solid value.
+                failed_pairs[tile_overlap.ID] = "Overlap region is a single value on one side (weight 0)"
+            else:
+                failed_pairs.pop(tile_overlap.ID, None)
 
         if offset is not None:
             # Figure out what offset we found vs. what offset we expected

@@ -398,6 +398,8 @@ import nornir_imageregistration.tileset_functions as tileset_functions
 import nornir_imageregistration.views as views
 import nornir_imageregistration.volume as volume
 
+import nornir_imageregistration.translate_report as translate_report
+from nornir_imageregistration.translate_report import TranslateReport
 import nornir_imageregistration.arrange_mosaic as arrange_mosaic
 from nornir_imageregistration.arrange_mosaic import TranslateTiles2
 

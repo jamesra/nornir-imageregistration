@@ -71,7 +71,7 @@ def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image
     return obj
 
 
-def Create(transforms, imagepaths, image_to_source_space_scale: float) -> dict[int, nornir_imageregistration.tile.Tile]:
+def Create(transforms, imagepaths, image_to_source_space_scale: float) -> MosaicTileset:
     """
     :param transforms:
     :param imagepaths:
@@ -415,11 +415,21 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         return
 
     def ArrangeTilesWithTranslate(self,
-                                  config: nornir_imageregistration.settings.TranslateSettings):
+                                  config: nornir_imageregistration.settings.TranslateSettings,
+                                  report: nornir_imageregistration.translate_report.TranslateReport | None = None):
+        """Translate the tiles into a seamless mosaic.
+
+        :param report: If given, filled with how the layout was assembled, including a check of
+            every join between tile groups on the final positions.
+        """
 
         # We don't need to sort, but it makes debugging easier, and I suspect ensuring tiles are registered in the same order may increase reproducability
-        (layout, tiles) = nornir_imageregistration.TranslateTiles2(self, config=config)
-        return layout.ToMosaicTileset(tiles)  # type: ignore[union-attr]
+        (layout, tiles) = nornir_imageregistration.TranslateTiles2(self, config=config, report=report)
+        translated = layout.ToMosaicTileset(tiles)  # type: ignore[union-attr]
+        if report is not None:
+            report.check_joins(translated, min_overlap=config.min_overlap,
+                               exclude_diagonal_overlaps=config.exclude_diagonal_overlaps)
+        return translated
 
     def RefineLayout(self):
 
