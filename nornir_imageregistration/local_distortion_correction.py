@@ -5029,11 +5029,15 @@ def RefineTransform(stosTransform: nornir_imageregistration.ITransform,
             # Log after classify / zncc_secondary so PHASE_TIMING buckets are non-zero.
             _log_phase_breakdown(f'RefineTransform pass {i}', pass_phase_baseline)
 
-            if len(combined_records_this_pass) > 2:
+            post_finalize_points = AlignRecordsToControlPoints(combined_records_this_pass.values())
+            if len(combined_records_this_pass) > 2 and not _control_points_span_plane(post_finalize_points):
+                prettyoutput.Log(
+                    f'{len(combined_records_this_pass)} mesh points are colinear; '
+                    f'keeping the current transform for the next round')
+            elif len(combined_records_this_pass) > 2:
                 prettyoutput.Log(
                     f'Building transform for next round with {len(included_alignment_records)} '
                     f'provisional and {len(finalized_points)} locked points')
-                post_finalize_points = AlignRecordsToControlPoints(combined_records_this_pass.values())
                 post_finalize_canonical = canonical_control_point_array(post_finalize_points)
                 if (
                         first_mesh_canonical is not None
@@ -5584,6 +5588,22 @@ def _fixed_point_count(fixed_points: NDArray | None) -> int:
     return int(fixed_points.shape[0])
 
 
+def _control_points_span_plane(points: NDArray) -> bool:
+    """Whether ``(N, 4)`` control pairs can define a 2-D mesh: three or more, not colinear.
+
+    Host-only. Uses the same colinear test that makes the mesh's RBF fallback raise
+    ("Colinear points detected"), so a set that passes here does not fail there. A
+    colinear set cannot be triangulated either, so it is no better than fewer than
+    three points (1680-1679 Grid32, RC3: three locked cells on one grid row).
+    """
+    host = nornir_imageregistration.EnsureNumpyArray(points)
+    if host.ndim != 2 or host.shape[0] < 3:
+        return False
+    relation = nornir_imageregistration.transforms.calculate_control_points_relationship(
+        np.asarray(host[:, 2:4], dtype=np.float64), np.asarray(host[:, 0:2], dtype=np.float64))
+    return relation != nornir_imageregistration.transforms.ControlPointRelation.COLINEAR
+
+
 def _build_mesh_transform_or_keep(
         alignment_records: AlignmentRecordList,
         *,
@@ -5596,14 +5616,18 @@ def _build_mesh_transform_or_keep(
     """Build a mesh transform, or keep *prior_transform* when too few points exist.
 
     Prevents hard failures when residual recovery / travel filters leave fewer
-    than three control points for triangulation.
+    than three control points for triangulation, or only colinear ones.
     """
     records = list(alignment_records)
     n_fixed = _fixed_point_count(fixed_points)
-    if len(records) + n_fixed < 3:
+    candidate_points = AlignRecordsToControlPoints(records)
+    if n_fixed:
+        candidate_points = np.vstack((candidate_points, nornir_imageregistration.EnsureNumpyArray(fixed_points)))
+    if len(records) + n_fixed < 3 or not _control_points_span_plane(candidate_points):
         prettyoutput.Log(
             f'Insufficient points for mesh update '
-            f'({len(records)} alignments + {n_fixed} fixed); keeping prior transform')
+            f'({len(records)} alignments + {n_fixed} fixed, need three not on one line); '
+            f'keeping prior transform')
         if records:
             scores = _alignment_records_to_composite_scores(records)
         else:

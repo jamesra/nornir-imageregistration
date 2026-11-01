@@ -24,6 +24,7 @@ from nornir_imageregistration import local_distortion_correction as ldc
 from nornir_imageregistration.local_distortion_correction import (
     should_finish_on_empty_alignment_pass,
 )
+from nornir_imageregistration.transforms.meshwithrbffallback import MeshWithRBFFallback
 from nornir_imageregistration.transforms.rigid import RigidTranslation
 
 
@@ -367,6 +368,51 @@ class TestBuildMeshTransformOrKeep(unittest.TestCase):
         self.assertEqual(ldc._control_point_count(transform), 3)
         self.assertEqual(used, [])
         self.assertEqual(scores.shape, (0, 3))
+
+    # 1680-1679 Grid32 (RC3): a near-random brute pair locked three cells on one grid
+    # row. The mesh built from them could not be triangulated, and its inverse RBF
+    # fallback raised "Colinear points detected", which failed the pair.
+    _ROW_OF_LOCKS = ((0, 0), (0, 1), (0, 2))
+
+    def test_colinear_mesh_inverse_raises(self) -> None:
+        """Documents the failure: a colinear mesh cannot serve InverseTransform."""
+        fixed = ldc.AlignRecordsToControlPoints(
+            [_rec(key, peak=(3.0, -2.0)) for key in self._ROW_OF_LOCKS])
+        mesh = MeshWithRBFFallback(fixed)
+        with self.assertRaisesRegex(ValueError, 'Colinear'):
+            mesh.InverseTransform(np.asarray([[100.0, 100.0], [-50.0, 7.0]]))
+
+    def test_keeps_prior_when_fixed_points_are_colinear(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        fixed = ldc.AlignRecordsToControlPoints(
+            [_rec(key, peak=(3.0, -2.0)) for key in self._ROW_OF_LOCKS])
+        transform, used, scores = ldc._build_mesh_transform_or_keep(
+            [], prior_transform=prior, fixed_points=fixed)
+        self.assertIs(transform, prior)
+        self.assertEqual(used, [])
+        self.assertEqual(scores.shape, (0, 3))
+
+    def test_keeps_prior_when_records_and_fixed_points_are_colinear(self) -> None:
+        prior = RigidTranslation(np.asarray((1.0, 2.0), dtype=np.float64))
+        fixed = ldc.AlignRecordsToControlPoints([_rec((0, 0), peak=(3.0, -2.0))])
+        records = [_rec((0, 1), peak=(3.0, -2.0)), _rec((0, 2), peak=(3.0, -2.0))]
+        transform, used, _scores = ldc._build_mesh_transform_or_keep(
+            records, prior_transform=prior, fixed_points=fixed)
+        self.assertIs(transform, prior)
+        self.assertEqual(len(used), 2)
+
+    def test_control_points_span_plane(self) -> None:
+        row = ldc.AlignRecordsToControlPoints(
+            [_rec(key, peak=(0.0, 0.0)) for key in self._ROW_OF_LOCKS])
+        corner = ldc.AlignRecordsToControlPoints(
+            [_rec(key, peak=(0.0, 0.0)) for key in ((0, 0), (0, 1), (1, 0))])
+        self.assertFalse(ldc._control_points_span_plane(row))
+        self.assertFalse(ldc._control_points_span_plane(corner[:2]))
+        self.assertTrue(ldc._control_points_span_plane(corner))
+        # Colinear in target space only (a degenerate map) is still unusable.
+        squashed = corner.copy()
+        squashed[:, 0] = 5.0
+        self.assertFalse(ldc._control_points_span_plane(squashed))
 
 
 if __name__ == '__main__':

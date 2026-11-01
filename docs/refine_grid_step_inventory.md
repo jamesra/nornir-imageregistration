@@ -2,7 +2,8 @@
 
 Current as of September 2026. The governing rule is: **only trusted cells shape
 the field**. LOCKED and PROVISIONAL records may enter the mesh; UNTRUSTED records
-may not. Where fewer than three records are trusted, the input transform stands.
+may not. Where fewer than three records are trusted, or the trusted records all lie
+on one line (no mesh can be triangulated from them), the input transform stands.
 
 ## Current flow
 
