@@ -75,6 +75,194 @@ def _is_cupy_degenerate_triangulation_error(exc: BaseException) -> bool:
     return 'degenerate' in message or 'coplanar' in message
 
 
+def _orient2d(points: NDArray[np.floating], simplices: NDArray[np.integer]) -> NDArray[np.floating]:
+    """Signed parallelogram area for each triangle (positive = CCW)."""
+    a = points[simplices[:, 0]]
+    b = points[simplices[:, 1]]
+    c = points[simplices[:, 2]]
+    return (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+
+
+def _incircle2d(
+        a: NDArray[np.floating],
+        b: NDArray[np.floating],
+        c: NDArray[np.floating],
+        d: NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """InCircle determinant; positive when *d* is inside circumcircle of CCW triangle abc."""
+    ad = a - d
+    bd = b - d
+    cd = c - d
+    return (
+            (ad[:, 0] * ad[:, 0] + ad[:, 1] * ad[:, 1]) * (bd[:, 0] * cd[:, 1] - bd[:, 1] * cd[:, 0])
+            - (bd[:, 0] * bd[:, 0] + bd[:, 1] * bd[:, 1]) * (ad[:, 0] * cd[:, 1] - ad[:, 1] * cd[:, 0])
+            + (cd[:, 0] * cd[:, 0] + cd[:, 1] * cd[:, 1]) * (ad[:, 0] * bd[:, 1] - ad[:, 1] * bd[:, 0])
+    )
+
+
+def delaunay_topology_still_valid(
+        points: NDArray[np.floating],
+        simplices: NDArray[np.integer],
+        neighbors: NDArray[np.integer],
+        *,
+        orient_eps: float = 1e-14,
+        incircle_eps: float = 1e-12,
+) -> bool:
+    """Return True when *simplices* remain a non-inverted Delaunay triangulation of *points*.
+
+    Cost is O(number of triangles): orientation of every simplex plus the Lawson
+    InCircle test across every internal edge. That is always cheaper than rebuilding
+    Delaunay (O(n log n) typical, much worse on near-degenerate TargetPoints), so
+    callers should run this whenever a cached triangulation exists — there is no
+    useful "too many points moved, skip the check" cutoff.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    sim = np.asarray(simplices, dtype=np.int64)
+    neigh = np.asarray(neighbors, dtype=np.int64)
+    if pts.ndim != 2 or pts.shape[1] != 2 or sim.ndim != 2 or sim.shape[1] != 3:
+        return False
+    if not np.all(np.isfinite(pts)):
+        return False
+
+    orient = _orient2d(pts, sim)
+    if np.any(np.abs(orient) <= orient_eps):
+        return False
+
+    # Normalize to CCW so InCircle sign is consistent.
+    sim_ccw = sim.copy()
+    cw = orient < 0
+    if np.any(cw):
+        sim_ccw[cw, 1], sim_ccw[cw, 2] = sim[cw, 2], sim[cw, 1]
+
+    # neighbors[t, i] is the triangle across the edge opposite vertex simplices[t, i].
+    for apex_slot in range(3):
+        opp = neigh[:, apex_slot]
+        internal = opp >= 0
+        if not np.any(internal):
+            continue
+        tri_idx = np.flatnonzero(internal)
+        nbr_idx = opp[internal].astype(np.int64, copy=False)
+        a = pts[sim_ccw[tri_idx, (apex_slot + 1) % 3]]
+        b = pts[sim_ccw[tri_idx, (apex_slot + 2) % 3]]
+        c = pts[sim_ccw[tri_idx, apex_slot]]
+        # Foreign vertex = the neighbor simplex vertex not shared with this triangle.
+        nbr_verts = sim[nbr_idx]
+        tri_verts = sim[tri_idx]
+        foreign = np.full(tri_idx.shape[0], -1, dtype=np.int64)
+        for j in range(3):
+            cand = nbr_verts[:, j]
+            shared = (
+                    (cand == tri_verts[:, 0])
+                    | (cand == tri_verts[:, 1])
+                    | (cand == tri_verts[:, 2])
+            )
+            foreign = np.where((foreign < 0) & ~shared, cand, foreign)
+        if np.any(foreign < 0):
+            return False
+        d = pts[foreign]
+        if np.any(_incircle2d(a, b, c, d) > incircle_eps):
+            return False
+    return True
+
+
+class _FixedSimplicesLinearND:
+    """Vector LinearND using predetermined triangles (no Qhull / cupyx Delaunay).
+
+    SciPy's ``Delaunay`` cannot safely accept new vertex coordinates without
+    rebuilding ``equations`` / ``find_simplex`` caches, so topology-preserving
+    updates bind values through matplotlib's ``Triangulation`` instead.
+    """
+
+    tri: Any | None
+    _ys: Any
+    _xs: Any
+
+    def __init__(
+            self,
+            points: NDArray[np.floating],
+            values: NDArray[np.floating],
+            simplices: NDArray[np.integer],
+    ) -> None:
+        from matplotlib.tri import LinearTriInterpolator, Triangulation
+
+        pts = np.asarray(points, dtype=np.float64)
+        vals = np.asarray(values, dtype=np.float64)
+        sim = np.asarray(simplices, dtype=np.int32)
+        # Control points are (Y, X); matplotlib triangulation is (x, y).
+        triang = Triangulation(x=pts[:, 1], y=pts[:, 0], triangles=sim)
+        self._ys = LinearTriInterpolator(triang, vals[:, 0])
+        self._xs = LinearTriInterpolator(triang, vals[:, 1])
+        self.tri = None
+
+    def __call__(self, query: NDArray[np.floating]) -> NDArray[np.floating]:
+        q = np.asarray(query, dtype=np.float64)
+        single = q.ndim == 1
+        if single:
+            q = q.reshape(1, 2)
+        y_out = np.ma.filled(self._ys(q[:, 1], q[:, 0]), np.nan).astype(np.float64, copy=False)
+        x_out = np.ma.filled(self._xs(q[:, 1], q[:, 0]), np.nan).astype(np.float64, copy=False)
+        out = np.column_stack([np.asarray(y_out, dtype=np.float64),
+                               np.asarray(x_out, dtype=np.float64)])
+        return out[0] if single else out
+
+
+def _linear_nd_from_fixed_simplices(
+        points: NDArray[np.floating],
+        values: NDArray[np.floating],
+        simplices: NDArray[np.integer],
+) -> _FixedSimplicesLinearND:
+    """Build an inverse interpolator that reuses *simplices* with new vertex coords."""
+    return _FixedSimplicesLinearND(points, values, simplices)
+
+
+def _rebuild_fixedtri_scipy(transform: Any) -> None:
+    """Replace ``_fixedtri`` with a fresh SciPy Delaunay of TargetPoints."""
+    try:
+        target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
+        if target_np.shape[0] < 3 or not np.all(np.isfinite(target_np)):
+            transform._fixedtri = None
+            return
+        transform._fixedtri = scipy.spatial.Delaunay(target_np, incremental=False)
+    except Exception:
+        _logger.debug('SciPy Delaunay rebuild after target edit failed', exc_info=True)
+        transform._fixedtri = None
+
+
+def _fixedtri_kept_across_clear(transform: Any) -> Any | None:
+    """Return the cached Delaunay when its simplices remain valid for TargetPoints.
+
+    ``OnTransformChanged`` calls ``ClearDataStructures``, which nulls ``_fixedtri``.
+    Run the Lawson check *before* that clear, then assign the returned object back
+    onto the transform afterward. Interpolation uses live TargetPoints with
+    ``_linear_nd_from_fixed_simplices``, not ``tri.points``.
+    """
+    tri = getattr(transform, '_fixedtri', None)
+    if tri is None:
+        return None
+    try:
+        target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
+        if not delaunay_topology_still_valid(target_np, tri.simplices, tri.neighbors):
+            return None
+        return tri
+    except Exception:
+        _logger.debug('Failed to preserve fixed triangulation; will rebuild', exc_info=True)
+        return None
+
+
+def _cache_fixedtri_from_inverse(transform: Any, interp: Any, uses_scipy: bool) -> None:
+    """Store a SciPy Delaunay on *transform* for later topology-preserving updates."""
+    if getattr(transform, '_fixedtri', None) is not None or interp is None:
+        return
+    try:
+        if uses_scipy and getattr(interp, 'tri', None) is not None:
+            transform._fixedtri = interp.tri
+            return
+        target_np = nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints)
+        transform._fixedtri = scipy.spatial.Delaunay(target_np, incremental=False)
+    except Exception:
+        _logger.debug('Could not cache fixed triangulation after inverse build', exc_info=True)
+
+
 def _build_scipy_linear_nd_interpolator(
         target_points: NDArray[np.floating],
         source_values: NDArray[np.floating],
@@ -546,20 +734,25 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
 
     def OnFixedPointChanged(self):
         super(GridTransform, self).OnFixedPointChanged()
+        # Lawson check before OnTransformChanged → ClearDataStructures nulls _fixedtri.
+        kept_tri = _fixedtri_kept_across_clear(self)
+        # Interactive-edit OnTransformChanged skips ClearDataStructures; still drop
+        # interpolators so the next query rebinds to relocated vertices / new values.
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+        self._FixedKDTree = None
         try:
             from nornir_imageregistration import interactive_edit
             if interactive_edit.in_progress():
-                self._ForwardInterpolator = None
-                self._InverseInterpolator = None
                 super(ControlPointBase, self).OnTransformChanged()
-                return
+            else:
+                super(GridTransform, self).OnTransformChanged()
         except ImportError:
-            pass
-        self._ForwardInterpolator = None
-        self._InverseInterpolator = None
-        self._fixedtri = None
-        self._FixedKDTree = None
-        super(GridTransform, self).OnTransformChanged()
+            super(GridTransform, self).OnTransformChanged()
+        if kept_tri is not None:
+            self._fixedtri = kept_tri
+        else:
+            _rebuild_fixedtri_scipy(self)
 
     def OnWarpedPointChanged(self):
         raise NotImplementedError("Grid transforms have a fixed grid of points, they should not change")
@@ -810,7 +1003,18 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
     @property
     def InverseInterpolator(self):
         if self._InverseInterpolator is None:
-            import nornir_imageregistration
+            # Topology-preserving path: reuse cached simplices with live TargetPoints
+            # (no Qhull / cupyx Delaunay). Used after Spacebar / point edits when the
+            # Lawson certificate kept ``_fixedtri``.
+            if self._fixedtri is not None:
+                self._InverseInterpolator = _linear_nd_from_fixed_simplices(
+                    nornir_imageregistration.EnsureNumpyArray(self.TargetPoints),
+                    nornir_imageregistration.EnsureNumpyArray(self.SourcePoints),
+                    self._fixedtri.simplices,
+                )
+                self._scipy_inverse_interp = True
+                return self._InverseInterpolator
+
             force_scipy = (
                     nornir_imageregistration.GetActiveComputationLib()
                     == nornir_imageregistration.ComputationLib.cupy
@@ -822,6 +1026,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
             )
             self._InverseInterpolator = interp
             self._scipy_inverse_interp = uses_scipy
+            _cache_fixedtri_from_inverse(self, interp, uses_scipy)
 
         return self._InverseInterpolator
 
@@ -911,20 +1116,23 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
 
     def OnFixedPointChanged(self):
         super(GridTransform_GPUComponent, self).OnFixedPointChanged()
+        # Lawson check before OnTransformChanged → ClearDataStructures nulls _fixedtri.
+        kept_tri = _fixedtri_kept_across_clear(self)
+        self._ForwardInterpolator = None
+        self._InverseInterpolator = None
+        self._FixedKDTree = None
         try:
             from nornir_imageregistration import interactive_edit
             if interactive_edit.in_progress():
-                self._ForwardInterpolator = None
-                self._InverseInterpolator = None
                 super(ControlPointBase_GPUComponent, self).OnTransformChanged()
-                return
+            else:
+                super(GridTransform_GPUComponent, self).OnTransformChanged()
         except ImportError:
-            pass
-        self._ForwardInterpolator = None
-        self._InverseInterpolator = None
-        self._fixedtri = None
-        self._FixedKDTree = None
-        super(GridTransform_GPUComponent, self).OnTransformChanged()
+            super(GridTransform_GPUComponent, self).OnTransformChanged()
+        if kept_tri is not None:
+            self._fixedtri = kept_tri
+        else:
+            _rebuild_fixedtri_scipy(self)
 
     def OnWarpedPointChanged(self):
         raise NotImplementedError("Grid transforms have a fixed grid of points, they should not change")
