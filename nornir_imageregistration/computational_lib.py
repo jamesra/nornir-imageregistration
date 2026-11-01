@@ -40,6 +40,30 @@ NORNIR_COMPUTATIONAL_LIBRARY_ENV = 'NORNIR_COMPUTATIONAL_LIBRARY'
 NORNIR_COMPUTATIONAL_LIBRARY_REQUESTED_ENV = 'NORNIR_COMPUTATIONAL_LIBRARY_REQUESTED'
 NORNIR_POOL_WORKER_ENV = 'NORNIR_POOL_WORKER'
 
+# True once ``SetActiveComputationLib(cupy, allow_in_child=True)`` opts this child process
+# in to CuPy; the CUDA preload and pathfinder patch, skipped in children by default, then run.
+_cupy_child_opt_in = False  # type: bool
+
+# Set in a child created by ``os.fork`` (fork or forkserver start methods). Such a child
+# may inherit CUDA driver state from its parent, so CuPy stays refused there even with the
+# opt-in; only spawned children (a fresh interpreter, the only method on Windows) qualify.
+_forked_child = False  # type: bool
+
+
+def _mark_forked_child() -> None:
+    global _forked_child
+    _forked_child = True
+
+
+_register_at_fork = getattr(os, 'register_at_fork', None)  # POSIX only; Windows has no fork
+if _register_at_fork is not None:
+    _register_at_fork(after_in_child=_mark_forked_child)
+
+
+def _skip_cuda_setup_in_child() -> bool:
+    """True in a multiprocessing child that has not opted in to CuPy."""
+    return multiprocessing.parent_process() is not None and not _cupy_child_opt_in
+
 
 def _set_effective_computational_library_env(value: str) -> None:
     os.environ[NORNIR_COMPUTATIONAL_LIBRARY_ENV] = value
@@ -83,7 +107,7 @@ def _patch_pathfinder_canary_subprocess() -> None:
     global _pathfinder_canary_patched
     if _pathfinder_canary_patched:
         return
-    if multiprocessing.parent_process() is not None:
+    if _skip_cuda_setup_in_child():
         return
     try:
         import functools
@@ -132,7 +156,7 @@ def _preload_cuda_runtime_libs() -> None:
     global _cuda_runtime_preloaded
     if _cuda_runtime_preloaded:
         return
-    if multiprocessing.parent_process() is not None:
+    if _skip_cuda_setup_in_child():
         return
     if not (os.environ.get('CUDA_PATH') or os.environ.get('CUDA_HOME')):
         return
@@ -326,24 +350,38 @@ def TryInitCupyContext() -> bool:
     return False
 
 
-def SetActiveComputationLib(lib: ComputationLib) -> None:
+def SetActiveComputationLib(lib: ComputationLib, *, allow_in_child: bool = False) -> None:
     """Set the active computation backend (numpy or cupy).
 
     Updates ``NORNIR_COMPUTATIONAL_LIBRARY`` for this process only. Does not
     modify ``CUDA_VISIBLE_DEVICES``; GPU visibility remains under container /
     orchestrator control.
 
+    Multiprocessing children run NumPy and refuse CuPy unless ``allow_in_child`` is
+    True. That opt-in is for workers of a **spawn**-context pool (e.g. GPU pair workers
+    sharing one device): the child then does the CUDA runtime preload and pathfinder
+    patch the main process does at import. A child created by ``fork`` / ``forkserver``
+    is still refused, since it may inherit the parent's CUDA state.
+
     :param lib: ComputationLib.numpy or ComputationLib.cupy.
+    :param allow_in_child: Permit CuPy in a spawned multiprocessing child.
     :raises ModuleNotFoundError: If cupy is requested but not available.
-    :raises RuntimeError: If cupy is requested from a child process.
+    :raises RuntimeError: If cupy is requested from a child process without
+        ``allow_in_child``, or from a forked child.
     """
-    global _active_lib, _cupy_runtime_probed
+    global _active_lib, _cupy_runtime_probed, _cupy_child_opt_in
 
     if lib == ComputationLib.cupy and not _has_cupy:
         raise ModuleNotFoundError("Cupy is not available")
 
     if lib == ComputationLib.cupy and multiprocessing.parent_process() is not None:
-        raise RuntimeError("Cupy untested in a child process")
+        if not allow_in_child:
+            raise RuntimeError("Cupy untested in a child process; pass allow_in_child=True "
+                               "from a spawn-context worker to opt in")
+        if _forked_child:
+            raise RuntimeError("Cupy refused in a forked child process (it may inherit the "
+                               "parent's CUDA state); use a spawn-context pool")
+        _cupy_child_opt_in = True
 
     if lib == ComputationLib.cupy:
         if _cupy_runtime_probed and _active_lib == ComputationLib.cupy:
