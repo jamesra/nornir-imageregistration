@@ -296,6 +296,32 @@ def remove_duplicate_points(points: NDArray, columns: Iterable[int] = ()) -> NDA
     return sorted_point_pairs
 
 
+# CuPyX zoom compiles its kernel with the output shape baked in, and the StosBrute scale search
+# asks for a new shape at almost every scale, so each scale paid an NVRTC compile (12% of
+# AlignSections time on srv after the rotate fix, py-spy 2026-11-01). The zoom factors are a
+# runtime argument, so zooming into an output rounded up to this many pixels per axis and
+# cropping reuses one kernel per bucket and is bitwise identical to cupyx zoom.
+_SCALE_OUTPUT_BUCKET = 64
+
+
+def _zoom_bucketed_cupy(image: NDArray, scalar: float, order: int) -> NDArray:
+    """``cupyx.scipy.ndimage.zoom(image, zoom=scalar, order=order)`` for a CuPy image, computed
+    into a bucketed output shape so CuPyX compiles one kernel per bucket, not per scale.
+
+    CuPy only. Output shape and per-axis factors follow CuPyX ``zoom`` (mode 'constant',
+    grid_mode off, prefilter on); the bucket is cropped back to the exact zoom shape.
+    """
+    out_shape = tuple(int(round(s * scalar)) for s in image.shape)  # noqa: RUF046 scalar may be a NumPy float
+    factors = [((i - 1) / (o - 1)) if o > 1 else 0.0 for i, o in zip(image.shape, out_shape)]
+    bucket = _SCALE_OUTPUT_BUCKET
+    bucketed_shape = tuple(-(-o // bucket) * bucket for o in out_shape)
+    ndimage = cupyx.scipy.get_array_module(image).ndimage
+    zoomed = ndimage.affine_transform(image, cp.asarray(factors, dtype=cp.float64), 0.0,
+                                      output_shape=bucketed_shape, order=order, mode='constant',
+                                      cval=0.0, prefilter=True)
+    return cp.ascontiguousarray(zoomed[tuple(slice(0, o) for o in out_shape)])
+
+
 def ScaleImage(image: NDArray, scalar: float) -> NDArray:
     """
     Returns a scaled array using spline interpolation (CPU/GPU agnostic function)
@@ -309,6 +335,8 @@ def ScaleImage(image: NDArray, scalar: float) -> NDArray:
     order = 0 if scalar < 0.5 else order
     if arr_xp is np:
         return sp.ndimage.zoom(image.astype(np.float32, copy=False), zoom=scalar, order=order)
+    if 0 not in image.shape:
+        return _zoom_bucketed_cupy(image, scalar, order)
     return sp.ndimage.zoom(image, zoom=scalar, order=order)
 
 
