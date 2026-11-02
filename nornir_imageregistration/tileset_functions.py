@@ -168,7 +168,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
     should_cleanup_executor = executor is None
     if executor is None:
-        executor = ThreadPoolExecutor()
+        executor = nornir_pools.InstrumentedThreadPoolExecutor('tileset')
 
     try:
         LevelDir = os.path.basename(os.path.dirname(TopLeft))
@@ -300,7 +300,7 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
 
     should_cleanup_executor = executor is None
     if executor is None:
-        executor = ThreadPoolExecutor()
+        executor = nornir_pools.InstrumentedThreadPoolExecutor('tileset')
 
     try:
         TileSize = numpy.asarray((TileDims[1], TileDims[0]),

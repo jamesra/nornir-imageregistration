@@ -39,6 +39,7 @@ import scipy
 import nornir_pools
 import nornir_imageregistration
 from nornir_imageregistration.background_file_writer import BackgroundFileWriter
+from nornir_imageregistration.transforms import hull_extrapolation
 from nornir_imageregistration.transforms import ITransform, IRigidTransform, factory, triangulation
 from nornir_imageregistration.transforms.utils import InvalidIndices
 
@@ -195,6 +196,22 @@ def write_to_source_roi_coords(transform: ITransform,
     return valid_read_space_coords, valid_write_space_coords
 
 
+def _fill_outside_hull(transform: ITransform, write_space_coords: NDArray, read_space_coords: NDArray) -> NDArray:
+    """Replace the NaN rows of *read_space_coords* with the nearest hull triangle's affine map.
+
+    Accepts NumPy or CuPy; the extrapolation itself runs on the host for the outside rows only.
+    """
+    xp = cp.get_array_module(read_space_coords)
+    outside = xp.isnan(read_space_coords).any(axis=1)
+    outside_host = nornir_imageregistration.EnsureNumpyArray(outside)
+    if not outside_host.any():
+        return read_space_coords
+    points = nornir_imageregistration.EnsureNumpyArray(write_space_coords)[outside_host]
+    filled = hull_extrapolation.inverse_extrapolator(transform)(points).astype(np.float32, copy=False)
+    read_space_coords[outside] = xp.asarray(filled)
+    return read_space_coords
+
+
 def write_to_target_roi_coords(transform: ITransform,
                                botleft: tuple[float, float] | NDArray,
                                area: tuple[float, float] | NDArray,
@@ -227,9 +244,15 @@ e coordinates.
     else:
         write_space_coords = GetROICoords(botleft, area)
 
+    # Warping extrapolates mesh and grid transforms with the nearest hull triangle's
+    # affine rather than their RBF fallback (James, 2026-11-02): the RBF cost grows with
+    # pixels times control points and dominated RC2 Grid32 overlays.
+    use_hull_affine = extrapolate and hull_extrapolation.supports_hull_extrapolation(transform)
     read_space_coords = transform.InverseTransform(
-        write_space_coords, extrapolate=extrapolate,
+        write_space_coords, extrapolate=extrapolate and not use_hull_affine,
     ).astype(np.float32, copy=False)
+    if use_hull_affine:
+        read_space_coords = _fill_outside_hull(transform, write_space_coords, read_space_coords)
 
     # IRigidTransform.InverseTransform (translation/rigid/similarity) is a closed-form
     # affine op on finite input and can never produce NaN rows. Skip InvalidIndices'
@@ -1089,6 +1112,24 @@ def _host_grid_division_from_grid(grid: nornir_imageregistration.ITKGridDivision
     )
     host_grid.TargetPoints = nornir_imageregistration.EnsureNumpyArray(target_points)
     return host_grid
+
+
+def precompute_forward_fallback(transform: ITransform) -> None:
+    """Solve *transform*'s forward RBF fallback now, so pickled copies carry the weights.
+
+    Grid and mesh transforms solve their RBF fallback lazily, and the weights travel
+    with the object only once solved. MosaicToVolume pickles one slice-to-volume
+    transform into every tile task, so each of ~900 tasks per section re-solved the same
+    system: on srv (RC3, 2026-11-02) ~40 s per section on all 128 cores, with
+    scipy.linalg.solve at 98% of every worker. Does nothing for other transforms.
+    """
+    continuous = getattr(transform, '_continuous_transform', None)
+    rbf = getattr(continuous, '_forward_rbf', None)
+    if rbf is None and hasattr(type(transform), 'ForwardRBFInstance'):
+        rbf = transform.ForwardRBFInstance  # type: ignore[attr-defined]
+    precompute = getattr(rbf, 'PrecomputeWeights', None)
+    if callable(precompute):
+        precompute()
 
 
 def transform_for_host_assembly(transform: ITransform) -> ITransform:

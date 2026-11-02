@@ -9,7 +9,7 @@ import nornir_pools
 
 class DefaultTransformChangeEvents(ITransformChangeEvents, metaclass=ABCMeta):
     # Static thread pool executor
-    _executor = ThreadPoolExecutor()
+    _executor = nornir_pools.InstrumentedThreadPoolExecutor('transform-change-events')
     OnChangeEventListeners: List[Callable[[], None]]
 
     def __init__(self):

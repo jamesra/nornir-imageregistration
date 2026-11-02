@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 
 from nornir_imageregistration import assemble
 from nornir_imageregistration.background_file_writer import (
@@ -145,3 +146,52 @@ class TestStosPreviewsUnchanged(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestShareErrors(unittest.TestCase):
+    """Network shares drop connections; RC2 lost a six-hour overlay stage to one (2026-11-02)."""
+
+    def setUp(self) -> None:
+        from nornir_imageregistration import background_file_writer as bfw
+        self.bfw = bfw
+        self._delay = bfw._COPY_RETRY_BASE_S
+        bfw._COPY_RETRY_BASE_S = 0.0
+
+    def tearDown(self) -> None:
+        self.bfw._COPY_RETRY_BASE_S = self._delay
+
+    def _save(self, path: str) -> None:
+        with open(path, 'wb') as handle:
+            handle.write(b'png')
+
+    def test_a_transient_copy_error_is_retried(self):
+        real_replace = os.replace
+        failures = [ConnectionAbortedError(103, 'Software caused connection abort')]
+
+        def flaky_replace(src, dst):
+            if failures and str(src).endswith('.partial'):
+                raise failures.pop()
+            return real_replace(src, dst)
+
+        with tempfile.TemporaryDirectory() as out_dir:
+            dest = os.path.join(out_dir, 'a.png')
+            with unittest.mock.patch.object(self.bfw.os, 'replace', side_effect=flaky_replace):
+                write_via_local_temp(dest, self._save)
+            self.assertEqual(_read(dest), b'png')
+            self.assertEqual(os.listdir(out_dir), ['a.png'])
+
+    def test_without_raise_errors_a_failed_write_is_listed_not_raised(self):
+        def always_fails(src, dst):
+            raise ConnectionAbortedError(103, 'Software caused connection abort')
+
+        with tempfile.TemporaryDirectory() as out_dir:
+            bad, good = os.path.join(out_dir, 'bad.png'), os.path.join(out_dir, 'good.png')
+            writer = BackgroundFileWriter(max_workers=1, raise_errors=False)
+            with unittest.mock.patch.object(self.bfw.os, 'replace', side_effect=always_fails):
+                writer.submit(bad, self._save)
+                writer.drain()
+            writer.submit(good, self._save)
+            writer.close()
+
+            self.assertEqual(writer.failed_paths, [bad])
+            self.assertEqual(sorted(os.listdir(out_dir)), ['good.png'], 'no partial left for the failed one')

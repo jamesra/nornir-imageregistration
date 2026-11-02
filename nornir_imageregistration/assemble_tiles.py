@@ -448,7 +448,7 @@ def TilesToImage(mosaic_tileset: nornir_imageregistration.MosaicTileset,
     prefetch_executor: ThreadPoolExecutor | None = None
     prefetch_futures: dict[int, Future[None]] = {}
     if prefetch_enabled and work_items:
-        prefetch_executor = ThreadPoolExecutor(max_workers=_PREFETCH_WORKERS)
+        prefetch_executor = nornir_pools.InstrumentedThreadPoolExecutor('assemble-prefetch', max_workers=_PREFETCH_WORKERS)
 
         def _schedule_prefetch(index: int) -> None:
             if index >= len(work_items) or index in prefetch_futures:
@@ -613,7 +613,7 @@ def TilesToImageThreaded(mosaic_tileset: nornir_imageregistration.MosaicTileset,
             if hasattr(scaled_transform, 'InverseInterpolator'):
                 _ = scaled_transform.InverseInterpolator
 
-        with ThreadPoolExecutor(max_workers=_TRANSFORM_WORKERS) as transform_executor:
+        with nornir_pools.InstrumentedThreadPoolExecutor('assemble-transform', max_workers=_TRANSFORM_WORKERS) as transform_executor:
             # Composite in work_items order so z-buffer ties match serial
             # TilesToImage (as_completed is nondeterministic).
             #

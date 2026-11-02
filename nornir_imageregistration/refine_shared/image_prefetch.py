@@ -36,6 +36,7 @@ from numpy.typing import DTypeLike, NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration import cp
+import nornir_pools
 
 _FileSignature = tuple[int, int]
 _Key = tuple[str, str]
@@ -134,7 +135,7 @@ def _submit_batch(requests: list[tuple[str, DTypeLike]]) -> None:
                     if future is not None:
                         future.cancel()
         if _executor is None:
-            _executor = concurrent.futures.ThreadPoolExecutor(
+            _executor = nornir_pools.InstrumentedThreadPoolExecutor('refine-prefetch', 
                 max_workers=_DECODE_THREADS, thread_name_prefix='refine-prefetch')
         keys: set[_Key] = set()
         for path, dtype in requests:

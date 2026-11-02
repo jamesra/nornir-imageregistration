@@ -13,6 +13,7 @@ from nornir_shared import prettyoutput
 
 from nornir_imageregistration import Rectangle, RectLike
 from nornir_imageregistration.env_flags import env_is_truthy
+import nornir_pools
 
 
 def _assemble_serial_gpu_enabled() -> bool:
@@ -344,7 +345,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # canvases near-fill VRAM on large sections (RPC3 601 measured ~22 GB).
         use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         strip_workers = 1 if use_cp else 2
-        with ThreadPoolExecutor(max_workers=strip_workers) as executor:
+        with nornir_pools.InstrumentedThreadPoolExecutor('mosaic-strips', max_workers=strip_workers) as executor:
             iColumn = 0
             assemble_tasks = []
             while iColumn < grid_dims[1]:

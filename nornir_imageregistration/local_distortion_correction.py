@@ -2670,7 +2670,7 @@ def _measure_pass_vertex_displacements(
     moving_counts: dict[int, NDArray[np.integer]] = {}
     pair_counts: dict[tuple[int, int], NDArray[np.integer]] = {}
     with _PHASE_TIMER.section('cell_extract'), \
-            ThreadPoolExecutor(max_workers=min(len(list_tiles), os.cpu_count() or 1)) as executor:
+            nornir_pools.InstrumentedThreadPoolExecutor('refine-tiles', max_workers=min(len(list_tiles), os.cpu_count() or 1)) as executor:
         for tile_id, own, as_fixed in executor.map(tile_counts, list_tiles):
             moving_counts[tile_id] = own
             pair_counts.update(as_fixed)
@@ -2707,7 +2707,7 @@ def _measure_pass_vertex_displacements(
         outputs = [_correlate_pair_cells(b, cell_shape, min_overlap, legacy_match) for b in batches]
     else:
         workers = min(len(batches), os.cpu_count() or 1)
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        with nornir_pools.InstrumentedThreadPoolExecutor('refine-tiles', max_workers=workers) as executor:
             outputs = list(executor.map(
                 lambda b: _correlate_pair_cells(b, cell_shape, min_overlap, legacy_match), batches))
 
