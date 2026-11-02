@@ -1929,16 +1929,21 @@ def _log_refinement_gpu_memory(label: str) -> None:
         f'GPU mem [{label}]: used_bytes={used_bytes} total_bytes={total_label}')
 
 
-def _release_refinement_worker_memory(*, reclaim_caches: bool = True) -> None:
+def _release_refinement_worker_memory(*, reclaim_caches: bool = True,
+                                      collect_garbage: bool = True) -> None:
     """Drop transient warp allocations after refinement work.
 
     When *reclaim_caches* is False (between mosaic refine passes that reuse the
     same buffer shapes), skip ``gc.collect`` / CuPy ``free_all_blocks`` so the
     allocator can reuse next-pass stacks (#186 / C03-P009).
+
+    *collect_garbage* False skips only the full ``gc.collect``. Its cost grows with
+    every live object in the process, not with the refine's own garbage.
     """
     if not reclaim_caches:
         return
-    gc.collect()
+    if collect_garbage:
+        gc.collect()
     if nornir_imageregistration.UsingCupy():
         free_all_blocks = getattr(cp, 'get_default_memory_pool', None)
         if free_all_blocks is not None:
@@ -3441,7 +3446,12 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
                                                progress_depth_base=progress_depth_base,
                                                quality_flag_out=quality_flag_holder)
         finally:
-            _release_refinement_worker_memory()
+            # No gc.collect per pair: after a refine it found nothing to free (GPU pool
+            # use unchanged), but it walks every live object in the process, and
+            # buildmanager holds the whole volume model. With 3M live objects it cost
+            # 0.65 s a pair (RC3/RC2 Grid32, CuPy, 2026-11-01). Releasing the GPU pool
+            # costs ~0.04 s and keeps ~2 GB from staying held between pairs.
+            _release_refinement_worker_memory(collect_garbage=False)
 
         InputStos.Transform = nornir_imageregistration.transforms.ConvertTransformToGridTransform(
             output_transform,
