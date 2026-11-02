@@ -3594,6 +3594,17 @@ _CARDINAL_DECOY_COUNT: int = 4
 #: same-cell cardinal shifts; one neighbor gives no spread to estimate sigma from.
 _MIN_NEIGHBORS_FOR_NULL: int = 2
 
+#: Target bytes of one float64 ROI stack per ZNCC scoring chunk. Rows are scored
+#: independently, so chunking changes peak memory only: a ds16 refine on RC2 scored
+#: ~2,000 512x512 cells at once and asked CuPy for 3-4.6 GB single allocations.
+_ZNCC_CHUNK_BYTES: int = 256 * 1024 * 1024
+
+
+def _zncc_chunk_rows(stack: NDArray) -> int:
+    """Rows of *stack* per ZNCC scoring chunk, sized from ``_ZNCC_CHUNK_BYTES`` at float64."""
+    row_bytes = max(1, int(np.prod(stack.shape[1:], dtype=np.int64)) * 8)
+    return max(1, _ZNCC_CHUNK_BYTES // row_bytes)
+
 
 def _decoy_peak_offsets(radius: float) -> NDArray[np.float64]:
     """Four cardinal offsets at *radius* (relative to the claimed peak)."""
@@ -3784,6 +3795,19 @@ def _zncc_prominence_stack(
         empty = np.zeros(0, dtype=np.float64)
         return empty, empty, empty, empty
 
+    chunk = _zncc_chunk_rows(fixed_stack)
+    if n > chunk:
+        peaks_np = np.asarray(peaks, dtype=np.float64).reshape(-1, 2)
+        parts = [
+            _zncc_prominence_stack(
+                fixed_stack[start:start + chunk], moving_stack[start:start + chunk],
+                peaks_np[start:start + chunk],
+                valid_mask=None if valid_mask is None else valid_mask[start:start + chunk],
+                decoy_radius=decoy_radius, travel_eps=travel_eps)
+            for start in range(0, n, chunk)
+        ]
+        return tuple(np.concatenate([part[i] for part in parts]) for i in range(4))
+
     z_peak, z_identity = _zncc_peak_and_identity(
         fixed_stack, moving_stack, peaks,
         valid_mask=valid_mask, decoy_radius=decoy_radius, travel_eps=travel_eps)
@@ -3848,17 +3872,33 @@ def _zncc_scores_from_measured_rois(
     """
     scores: dict[tuple[int, int], ZnccScore] = {}
     present = [i for i, key in enumerate(keys) if key in measured.row_of]
-    if not present:
-        return scores
+    chunk = _zncc_chunk_rows(measured.fixed)
+    for start in range(0, len(present), chunk):
+        part = present[start:start + chunk]
+        scores.update(_zncc_scores_for_measured_rows(
+            measured, [keys[i] for i in part], peaks[part],
+            decoy_radius=decoy_radius, travel_eps=travel_eps, null_cache=null_cache))
+    return scores
+
+
+def _zncc_scores_for_measured_rows(
+        measured: MeasuredCellRois,
+        cand_keys: Sequence[tuple[int, int]],
+        peaks_c: NDArray[np.float64],
+        *,
+        decoy_radius: float,
+        travel_eps: float,
+        null_cache: ZnccNullCache | None,
+) -> dict[tuple[int, int], ZnccScore]:
+    """Score one chunk of ``_zncc_scores_from_measured_rois``; every key is in *measured*."""
+    scores: dict[tuple[int, int], ZnccScore] = {}
     xp = cp.get_array_module(measured.fixed)
-    rows = np.asarray([measured.row_of[keys[i]] for i in present], dtype=np.int64)
+    rows = np.asarray([measured.row_of[key] for key in cand_keys], dtype=np.int64)
     rows_dev = xp.asarray(rows)
     fixed_c = measured.fixed[rows_dev]
     moving_c = measured.moving[rows_dev]
     valid_c = None if measured.valid is None else measured.valid[rows_dev]
-    peaks_c = peaks[present]
-    cand_keys = [keys[i] for i in present]
-    n = len(present)
+    n = len(cand_keys)
 
     z_peak, z_identity = _zncc_peak_and_identity(
         fixed_c, moving_c, peaks_c,

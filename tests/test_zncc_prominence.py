@@ -452,5 +452,38 @@ class TestZnccNullCache(unittest.TestCase):
         self.assertEqual(len(cache), 0)
 
 
+class TestZnccChunking(unittest.TestCase):
+    """Scoring in row chunks bounds peak memory and returns the same scores (RC2 ds16, 2026-11-02)."""
+
+    def _one_row_chunks(self):
+        # One 32x32 float64 row is 8 KiB, so this budget gives single-row chunks.
+        return patch.object(ldc, '_ZNCC_CHUNK_BYTES', _CELL * _CELL * 8)
+
+    def test_measured_rois_chunked_scores_match(self) -> None:
+        ids = _GRID_3X3 + _SPARSE
+        measured = _measured_grid(np.random.default_rng(30), ids)
+        peaks = np.tile(_TRUE_PEAK, (len(ids), 1))
+        whole = ldc._zncc_scores_from_measured_rois(
+            measured, ids, peaks, decoy_radius=_RADIUS, travel_eps=0.5, null_cache=None)
+        with self._one_row_chunks():
+            chunked = ldc._zncc_scores_from_measured_rois(
+                measured, ids, peaks, decoy_radius=_RADIUS, travel_eps=0.5, null_cache=None)
+        self.assertEqual(whole, chunked)
+
+    def test_prominence_stack_chunked_scores_match(self) -> None:
+        rng = np.random.default_rng(31)
+        fixed = rng.normal(size=(7, _CELL, _CELL)).astype(np.float32)
+        moving = np.roll(fixed, (-2, 1), axis=(1, 2))
+        valid = rng.random(size=fixed.shape) > 0.1
+        peaks = np.tile(_TRUE_PEAK, (fixed.shape[0], 1))
+        whole = ldc._zncc_prominence_stack(
+            fixed, moving, peaks, valid_mask=valid, decoy_radius=_RADIUS, travel_eps=0.5)
+        with self._one_row_chunks():
+            chunked = ldc._zncc_prominence_stack(
+                fixed, moving, peaks, valid_mask=valid, decoy_radius=_RADIUS, travel_eps=0.5)
+        for a, b in zip(whole, chunked):
+            np.testing.assert_array_equal(a, b)
+
+
 if __name__ == '__main__':
     unittest.main()
