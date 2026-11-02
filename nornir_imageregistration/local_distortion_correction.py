@@ -19,6 +19,7 @@ import copy
 import time
 import threading
 import contextlib
+import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -1217,6 +1218,47 @@ def _exact_sample_bounds(transform: nornir_imageregistration.ITransform,
             int(min(src_w, maxs[1] + 1)))
 
 
+#: On-device inverse interpolators for host meshes sampled by the exact-ROI sampler, keyed
+#: by transform object; the value also carries a digest of the control points so a mesh
+#: edited in place is rebuilt.
+_DEVICE_INVERSE_CACHE: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _device_inverse_interpolator(transform: nornir_imageregistration.ITransform, xp) -> Any | None:
+    """On-device piecewise-linear target->source map for a host control-point mesh, or None.
+
+    The exact-ROI sampler inverse-maps every pixel of every cell; through a host mesh that
+    is SciPy's barycentric lookup on the CPU, about 33% of the STOS refine main thread on
+    srv (RC3 Grid16, 2026-11-02). With ``NORNIR_REFINE_GPU_TRANSFORM`` on (the default)
+    under CuPy, the mesh's control points feed cupyx ``LinearNDInterpolator`` instead:
+    the same piecewise-linear map, NaN outside the mesh like ``extrapolate=False``, and
+    no RBF. cupyx triangulates on its own, so mapped coordinates are not bit-identical to
+    SciPy's. Returns None (use the host path) for NumPy runs, transforms that already
+    take device points, non-mesh transforms, or a mesh cupyx rejects as degenerate.
+    """
+    if xp is np or _transform_wants_device_points(transform):
+        return None
+    if not isinstance(transform, Triangulation) or not _refine_gpu_transform_enabled():
+        return None
+    from nornir_imageregistration.transforms.gridtransform import cuLinearNDInterpolator
+    target = np.ascontiguousarray(nornir_imageregistration.EnsureNumpyArray(transform.TargetPoints),
+                                  dtype=np.float64)
+    source = np.ascontiguousarray(nornir_imageregistration.EnsureNumpyArray(transform.SourcePoints),
+                                  dtype=np.float64)
+    digest = hash((target.shape, target.tobytes(), source.tobytes()))
+    cached = _DEVICE_INVERSE_CACHE.get(transform)
+    if cached is not None and cached[0] == digest:
+        return cached[1]
+    try:
+        interpolator = cuLinearNDInterpolator(xp.asarray(target), xp.asarray(source), fill_value=np.nan)
+    except ValueError as e:
+        # cupyx rejects degenerate (e.g. perfectly regular) point sets that Qhull accepts.
+        logging.getLogger(__name__).debug('Exact-ROI sampler stays on the host mesh: %s', e)
+        interpolator = None
+    _DEVICE_INVERSE_CACHE[transform] = (digest, interpolator)
+    return interpolator
+
+
 def _sample_source_rois_batched_exact(source_image: NDArray,
                                       transform: nornir_imageregistration.ITransform,
                                       botlefts: NDArray,
@@ -1233,15 +1275,19 @@ def _sample_source_rois_batched_exact(source_image: NDArray,
     is what ``BuildAlignmentROIs`` → ``SourceImageToTargetSpace`` does per cell.
     """
     wants_device = _transform_wants_device_points(transform)
+    device_inverse = _device_inverse_interpolator(transform, xp)
 
     def sample_bounds(relative: NDArray, botlefts_dev: NDArray, src_h: int, src_w: int) -> tuple[int, int, int, int]:
         return _exact_sample_bounds(transform, botlefts_dev, cell_h, cell_w, src_h, src_w, xp)
 
     def map_chunk(start: int, stop: int, write: NDArray) -> NDArray:
         flat = write.reshape(-1, 2)
-        if not wants_device:
-            flat = nornir_imageregistration.EnsureNumpyArray(flat)
-        mapped = transform.InverseTransform(flat, extrapolate=False)
+        if device_inverse is not None:
+            mapped = device_inverse(xp.asarray(flat, dtype=np.float64))
+        else:
+            if not wants_device:
+                flat = nornir_imageregistration.EnsureNumpyArray(flat)
+            mapped = transform.InverseTransform(flat, extrapolate=False)
         mapped = _ensure_on_array_module(mapped, xp).astype(np.float64, copy=False)
         mapped = xp.where(xp.isnan(mapped), xp.asarray(-1.0e9, dtype=np.float64), mapped)
         return mapped.reshape(write.shape)

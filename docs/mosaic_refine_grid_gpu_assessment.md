@@ -447,6 +447,23 @@ golden gate and the GPU path is the more accurate of the two.
   fallback parity, STOS wiring; pass-1 degeneracy could later be avoided with a
   tiny lattice joggle to push that last 20 % on-device.
 
+### Default on (2026-11)
+
+James approved turning `NORNIR_REFINE_GPU_TRANSFORM` on by default (unset = on; only an
+explicit falsey value keeps the host transform). It now also covers STOS refine: the
+exact-ROI sampler (`_sample_source_rois_batched_exact`) maps cells through cupyx
+`LinearNDInterpolator` built from the host mesh's control points, piecewise-linear with
+NaN outside the mesh and no RBF (`_device_inverse_interpolator`).
+
+Measured on RC3 1503-1502 (ds32, cell 256, workstation RTX 4500 Ada shared with another
+run): steady-state sampler time per cell 6.6-20 ms on the host vs 2.9-3.2 ms on device;
+output transform identical (0.00 px apart; both 0.73 px median from the reference Grid32).
+The first interpolator in a process costs ~5 s of kernel compilation, paid once per
+process. Isolated, mapping 6.6 M points took 6.45 s on the host and 0.07 s on device
+(build 0.03 s). RBF is still reachable in STOS refine through extrapolating calls outside
+the sampler (`ApproximateRigidTransformByTargetPoints`, `finalized_recheck`, serial
+`AttemptAlignPoint`, the sampler's 25-point bounds probe).
+
 ## Equalizing the CPU and GPU paths (RPC3/0601, ds4)
 
 Earlier phases optimized one backend at a time, so each path had a lever the

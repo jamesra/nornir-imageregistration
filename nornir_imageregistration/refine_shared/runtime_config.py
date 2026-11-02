@@ -82,7 +82,10 @@ class RefineRuntimeConfig:
             tile_parallel = False
 
         gpu_flag = env_flag('NORNIR_REFINE_GPU_TRANSFORM', '')
-        gpu_transform = not (is_falsey(gpu_flag) or gpu_flag == '')
+        # Default ON when unset (2026-11, James): mosaic prewarp +57% cells/s and closer to the
+        # C++ golden (docs/mosaic_refine_grid_gpu_assessment.md); STOS exact-ROI sampling on
+        # device. Only an explicit falsey value keeps the host transform.
+        gpu_transform = not is_falsey(gpu_flag)
 
         sharp_flag = env_flag('NORNIR_REFINE_SHARP_WARPS', '')
         # Default ON when unset; only an explicit falsey disables.
