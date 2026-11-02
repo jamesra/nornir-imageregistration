@@ -95,7 +95,7 @@ from nornir_imageregistration.refine_shared.adaptive_cell_size import (
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
 from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
-from nornir_imageregistration.refine_shared import legacy_cell_match
+from nornir_imageregistration.refine_shared import image_prefetch, legacy_cell_match
 from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     finite_peak_ratio,
     PEAK_RATIO_EARLY,
@@ -3397,15 +3397,19 @@ def RefineStosFile(InputStos: str | nornir_imageregistration.StosFile,
     if stosTransform is None:
         raise ValueError(f"Could not load transform: {InputStos} - {InputStos.Transform}")
 
-    target_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.ControlImageFullPath,
-                                                                        mask=InputStos.ControlMaskFullPath,
-                                                                        extrema_mask_size_cuttoff=None,
-                                                                        dtype=nornir_imageregistration.default_image_dtype())
+    # Arrays the pipeline prefetched while the previous pair ran, else the paths.
+    image_dtype = nornir_imageregistration.default_image_dtype()
+    target_image_data = nornir_imageregistration.ImagePermutationHelper(
+        img=image_prefetch.take_image(InputStos.ControlImageFullPath, image_dtype),
+        mask=image_prefetch.take_image(InputStos.ControlMaskFullPath, bool),
+        extrema_mask_size_cuttoff=None,
+        dtype=image_dtype)
 
-    source_image_data = nornir_imageregistration.ImagePermutationHelper(img=InputStos.MappedImageFullPath,
-                                                                        mask=InputStos.MappedMaskFullPath,
-                                                                        extrema_mask_size_cuttoff=None,
-                                                                        dtype=nornir_imageregistration.default_image_dtype())
+    source_image_data = nornir_imageregistration.ImagePermutationHelper(
+        img=image_prefetch.take_image(InputStos.MappedImageFullPath, image_dtype),
+        mask=image_prefetch.take_image(InputStos.MappedMaskFullPath, bool),
+        extrema_mask_size_cuttoff=None,
+        dtype=image_dtype)
 
     with nornir_imageregistration.settings.GridRefinement.CreateWithPreprocessedImages(
             target_img_data=target_image_data,
