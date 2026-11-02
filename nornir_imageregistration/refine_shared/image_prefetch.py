@@ -13,7 +13,9 @@ claim, and up to two ahead. The pipeline calls refine once per section mapping, 
 it prefetches the next mapping's image files with :func:`prefetch_image_files` (the
 next mapping's input stos does not exist yet), and a mapping with several pairs also
 prefetches its next pair's stos. Anything older and still unclaimed is discarded.
-Files are decoded to host (NumPy) arrays on one background thread;
+Files are decoded to host (NumPy) arrays on a few background threads, one file each
+(a pair is two images and two masks; on srv Grid16 one thread decoding them in turn
+left refine waiting on fast pairs);
 :func:`take_image` moves them to the device when CuPy is active, which is what
 ``LoadImage`` does on the calling thread. Any miss, error or file changed since
 the prefetch returns the path instead, so the caller loads it the usual way.
@@ -46,6 +48,9 @@ _pending: dict[_Key, concurrent.futures.Future[tuple[_FileSignature, NDArray]]] 
 # _pending only when no batch still wants it.
 _batches: collections.deque[set[_Key]] = collections.deque()
 _KEEP_PREFETCHES = 3
+# One per file of a pair (two images, two masks). PIL and NumPy release the GIL while
+# decoding and scaling, so these overlap; peak memory is the same batch either way.
+_DECODE_THREADS = 4
 
 
 def prefetch_enabled() -> bool:
@@ -130,7 +135,7 @@ def _submit_batch(requests: list[tuple[str, DTypeLike]]) -> None:
                         future.cancel()
         if _executor is None:
             _executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix='refine-prefetch')
+                max_workers=_DECODE_THREADS, thread_name_prefix='refine-prefetch')
         keys: set[_Key] = set()
         for path, dtype in requests:
             key = _key(path, dtype)
