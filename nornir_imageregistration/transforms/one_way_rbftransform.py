@@ -359,8 +359,13 @@ class OneWayRBFWithLinearCorrection(Triangulation):
             with nornir_imageregistration.IgnoreLinAlgWarning() as context:
                 # Solve both axes on this thread. Parallelize Forward/Reverse RBF builds at
                 # MeshWithRBFFallback.InitializeDataStructures instead of nesting pool waits.
-                WeightsX = scipy.linalg.solve(BetaMatrix, SolutionMatrix_X, overwrite_b=True, check_finite=False)
-                WeightsY = scipy.linalg.solve(BetaMatrix, SolutionMatrix_Y, overwrite_b=True, check_finite=False)
+                # One factorization for both axes: two solves factorized the same (N+3)^2
+                # matrix twice, about 15% of a Grid16 refine pair on srv (2026-11-02). The
+                # weights differ from separate solves only in rounding (~1e-11).
+                WeightsXY = scipy.linalg.solve(BetaMatrix, np.column_stack((SolutionMatrix_X, SolutionMatrix_Y)),
+                                               overwrite_b=True, check_finite=False)
+                WeightsX = np.ascontiguousarray(WeightsXY[:, 0])
+                WeightsY = np.ascontiguousarray(WeightsXY[:, 1])
 
             if np.allclose(WeightsX[0:-3], 0) and np.allclose(WeightsY[0:-3], 0):
                 # prettyoutput.Log("RBF transform is approximately Rigid")

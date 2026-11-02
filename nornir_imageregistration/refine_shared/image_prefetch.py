@@ -7,10 +7,13 @@ the GPU idle meanwhile. The pipeline knows the next pair, so it calls
 :func:`prefetch_stos_images` with it before refining the current one, and
 ``RefineStosFile`` collects the arrays with :func:`take_image`.
 
-The pipeline prefetches the next pair just before it refines the current one, so
-the two most recent prefetches are kept: the current pair's, which ``RefineStosFile``
-is about to claim, and the next pair's. Anything older and still unclaimed is
-discarded, so at most one pair is held beyond the one being refined. Files are decoded to host (NumPy) arrays on one background thread;
+The pipeline prefetches ahead of the pair it is about to refine, so the three most
+recent prefetches are kept: the current pair's, which ``RefineStosFile`` is about to
+claim, and up to two ahead. The pipeline calls refine once per section mapping, so
+it prefetches the next mapping's image files with :func:`prefetch_image_files` (the
+next mapping's input stos does not exist yet), and a mapping with several pairs also
+prefetches its next pair's stos. Anything older and still unclaimed is discarded.
+Files are decoded to host (NumPy) arrays on one background thread;
 :func:`take_image` moves them to the device when CuPy is active, which is what
 ``LoadImage`` does on the calling thread. Any miss, error or file changed since
 the prefetch returns the path instead, so the caller loads it the usual way.
@@ -42,7 +45,7 @@ _pending: dict[_Key, concurrent.futures.Future[tuple[_FileSignature, NDArray]]] 
 # section, so a key can sit in both batches; it is loaded once and dropped from
 # _pending only when no batch still wants it.
 _batches: collections.deque[set[_Key]] = collections.deque()
-_KEEP_PREFETCHES = 2
+_KEEP_PREFETCHES = 3
 
 
 def prefetch_enabled() -> bool:
@@ -88,14 +91,35 @@ def prefetch_stos_images(stos_path: str | None) -> None:
     older that was never claimed. Never raises: a prefetch that cannot start just
     leaves the caller to load normally.
     """
-    global _executor
     if not stos_path or not prefetch_enabled():
         return
     try:
         requests = stos_image_requests(stos_path)
     except Exception:  # noqa: BLE001 - best effort; the refine itself reports a bad stos
         return
+    _submit_batch(requests)
 
+
+def prefetch_image_files(requests: list[tuple[str, DTypeLike]]) -> None:
+    """Start loading these ``(path, dtype)`` files in the background as one prefetch.
+
+    For callers that know a pair's image files before its stos exists. Use the dtypes
+    ``RefineStosFile`` loads with (:func:`refine_image_dtype` for images, ``bool`` for
+    masks), or the prefetch is never claimed.
+    """
+    if not requests or not prefetch_enabled():
+        return
+    _submit_batch([(path, dtype) for path, dtype in requests if path])
+
+
+def refine_image_dtype() -> np.dtype:
+    """The dtype ``RefineStosFile`` loads images with."""
+    return np.dtype(nornir_imageregistration.default_image_dtype())
+
+
+def _submit_batch(requests: list[tuple[str, DTypeLike]]) -> None:
+    """Queue one prefetch batch, discarding the oldest unclaimed batches beyond the kept number."""
+    global _executor
     with _lock:
         while len(_batches) >= _KEEP_PREFETCHES:
             evicted = _batches.popleft()

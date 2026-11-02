@@ -126,17 +126,36 @@ class TestStaleAndBounded(_PrefetchCase):
         for path, dtype in image_prefetch.stos_image_requests(self.stos):
             self.assertNotIsInstance(image_prefetch.take_image(path, dtype), str)
 
-    def test_a_third_prefetch_discards_the_oldest_unclaimed(self):
+    def test_the_current_pair_survives_two_prefetches_ahead(self):
+        """The pipeline prefetches the next mapping's images and a mapping's next pair."""
         image_prefetch.prefetch_stos_images(self.stos)
         image_prefetch.prefetch_stos_images(self._second_pair('second'))
-        third = self._second_pair('third')
-        image_prefetch.prefetch_stos_images(third)
+        image_prefetch.prefetch_stos_images(self._second_pair('third'))
+
+        path, dtype = image_prefetch.stos_image_requests(self.stos)[0]
+        self.assertNotIsInstance(image_prefetch.take_image(path, dtype), str)
+
+    def test_a_fourth_prefetch_discards_the_oldest_unclaimed(self):
+        image_prefetch.prefetch_stos_images(self.stos)
+        image_prefetch.prefetch_stos_images(self._second_pair('second'))
+        image_prefetch.prefetch_stos_images(self._second_pair('third'))
+        fourth = self._second_pair('fourth')
+        image_prefetch.prefetch_stos_images(fourth)
 
         path, dtype = image_prefetch.stos_image_requests(self.stos)[0]
         self.assertEqual(image_prefetch.take_image(path, dtype), path)
         self.assertNotIn(image_prefetch._key(path, dtype), image_prefetch._pending)
-        third_path, third_dtype = image_prefetch.stos_image_requests(third)[0]
-        self.assertNotIsInstance(image_prefetch.take_image(third_path, third_dtype), str)
+        fourth_path, fourth_dtype = image_prefetch.stos_image_requests(fourth)[0]
+        self.assertNotIsInstance(image_prefetch.take_image(fourth_path, fourth_dtype), str)
+
+    def test_image_files_prefetched_without_a_stos_are_taken_by_path(self):
+        """The next mapping's stos does not exist yet, so its image files are named directly."""
+        requests = [(path, image_prefetch.refine_image_dtype() if dtype is not bool else bool)
+                    for path, dtype in image_prefetch.stos_image_requests(self.stos)]
+        image_prefetch.prefetch_image_files(requests)
+
+        for path, dtype in image_prefetch.stos_image_requests(self.stos):
+            self.assertNotIsInstance(image_prefetch.take_image(path, dtype), str)
 
     def test_file_shared_by_consecutive_pairs_is_loaded_once_and_given_to_both(self):
         """1503-1502 then 1502-1501 both read section 1502."""
@@ -161,8 +180,9 @@ class TestStaleAndBounded(_PrefetchCase):
         shutil.copy(self.stos, same_images)
         image_prefetch.prefetch_stos_images(self.stos)
         image_prefetch.prefetch_stos_images(same_images)
-        # The first pair never claims its images; a third prefetch evicts it.
+        # The first pair never claims its images; a fourth prefetch evicts it.
         image_prefetch.prefetch_stos_images(self._second_pair('third'))
+        image_prefetch.prefetch_stos_images(self._second_pair('fourth'))
 
         for path, dtype in image_prefetch.stos_image_requests(same_images):
             self.assertNotIsInstance(image_prefetch.take_image(path, dtype), str)
