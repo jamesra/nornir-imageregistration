@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import functools
 from numpy._typing._array_like import NDArray
 from numpy import floating
 import os
 import threading
+from collections.abc import Callable
 from typing import Any
 import warnings
 import logging
@@ -36,6 +38,7 @@ import scipy
 
 import nornir_pools
 import nornir_imageregistration
+from nornir_imageregistration.background_file_writer import BackgroundFileWriter
 from nornir_imageregistration.transforms import ITransform, IRigidTransform, factory, triangulation
 from nornir_imageregistration.transforms.utils import InvalidIndices
 
@@ -980,6 +983,11 @@ def _resize_image_to_shape(image: NDArray, target_shape: tuple[int, int]) -> NDA
     return scipy.ndimage.zoom(image, factors, order=1)
 
 
+def _save_gray_png(path: str, *, image: NDArray, **kwargs: Any) -> None:
+    """Write a 2D image as an 8-bit grayscale PNG (``SaveImage`` with ``bpp=8``)."""
+    nornir_imageregistration.SaveImage(path, image, bpp=8, **kwargs)
+
+
 def _save_rgb_png(path: str, rgb: NDArray) -> None:
     """Write an HxWx3 uint8 array as an RGB PNG."""
     dirname = os.path.dirname(path)
@@ -1000,7 +1008,8 @@ def WriteStosPreviewImages(transformData,
                            fixedImage=None,
                            warpedImage=None,
                            scalar: float = 1.0,
-                           CropUndefined: bool = False) -> NDArray:
+                           CropUndefined: bool = False,
+                           writer: BackgroundFileWriter | None = None) -> NDArray:
     """Warp mapped→control and optionally write overlay, difference, and warped PNGs.
 
     Overlay uses Pyre ChannelDodge colors: mapped/source → magenta (R+B),
@@ -1008,6 +1017,10 @@ def WriteStosPreviewImages(transformData,
     Any of ``overlay_path``, ``diff_path``, or ``warped_path`` that is ``None``
     skips that product. Performs a single warp regardless of how many outputs
     are requested.
+
+    With a *writer*, the PNGs are encoded and written on its threads and may not
+    exist yet when this returns; the caller waits on the writer before relying on
+    them. Output bytes are the same either way.
 
     :returns: Host NumPy warped image array (control/target space).
     """
@@ -1039,8 +1052,14 @@ def WriteStosPreviewImages(transformData,
             nornir_imageregistration.ImageParamToImageArray(control_param))
         control_host = _resize_image_to_shape(control_host, target_shape)
 
+    def write(path: str, save: Callable[[str], None]) -> None:
+        if writer is None:
+            save(path)
+        else:
+            writer.submit(path, save)
+
     if warped_path is not None:
-        nornir_imageregistration.SaveImage(warped_path, warped_host, cmap='gray', bpp=8)
+        write(warped_path, functools.partial(_save_gray_png, image=warped_host, cmap='gray'))
 
     if overlay_path is not None:
         assert control_host is not None
@@ -1048,14 +1067,14 @@ def WriteStosPreviewImages(transformData,
         control_u8 = nornir_imageregistration.image_to_uint8(control_host)
         # Mapped/source → magenta (R+B); control/target → green (G)
         rgb = np.stack([warped_u8, control_u8, warped_u8], axis=-1)
-        _save_rgb_png(overlay_path, rgb)
+        write(overlay_path, functools.partial(_save_rgb_png, rgb=rgb))
 
     if diff_path is not None:
         assert control_host is not None
         warped_u8 = nornir_imageregistration.image_to_uint8(warped_host).astype(np.float32)
         control_u8 = nornir_imageregistration.image_to_uint8(control_host).astype(np.float32)
         diff = np.abs(control_u8 - warped_u8).astype(np.uint8)
-        nornir_imageregistration.SaveImage(diff_path, diff, bpp=8)
+        write(diff_path, functools.partial(_save_gray_png, image=diff))
 
     return warped_host
 
