@@ -715,17 +715,64 @@ def _scale_search_candidates(metadata_applied: float,
     return sorted(candidates)
 
 
-def _refine_scale_initial_center(settings: StosBruteSettings,
-                                 metadata_scale_iso: float,
-                                 logpolar_detected_scale: float,
-                                 resolved_residual_hint: float | None) -> float:
-    """Scale center for local refinement: user hint beats log-polar estimate."""
+def _refine_scale_seeds(settings: StosBruteSettings,
+                        metadata_scale_iso: float,
+                        measured_scale: float,
+                        resolved_residual_hint: float | None) -> list[float]:
+    """Residual scales to start the final local refinement from.
+
+    A caller's ``initial_scale_hint`` is the only seed. Otherwise the scale the search
+    measured is tried, and so is the resolved hint when it differs (with known
+    metadata that is 1.0, i.e. the metadata ratio). The resolved hint used to win
+    outright, so the measured scale was thrown away and the refine, limited to a few
+    percent around 1.0, returned exactly the metadata ratio: 266 of 766 RC3 brute
+    results, and 39 of the 52 cross-camera pairs no run registered (2026-11-02).
+    """
     if settings.initial_scale_hint is not None:
         meta = metadata_scale_iso if abs(metadata_scale_iso) > 1e-12 else 1.0
-        return float(settings.initial_scale_hint) / meta
-    if resolved_residual_hint is not None:
-        return float(resolved_residual_hint)
-    return float(logpolar_detected_scale)
+        return [float(settings.initial_scale_hint) / meta]
+    seeds = [float(measured_scale)]
+    if resolved_residual_hint is not None and abs(float(resolved_residual_hint) - seeds[0]) > 0.005:
+        seeds.append(float(resolved_residual_hint))
+    return seeds
+
+
+def _refine_scale_from_seeds(pair: _RegistrationPair,
+                             angle: float,
+                             seeds: Sequence[float],
+                             *,
+                             wide_search: bool) -> float:
+    """Refine from each seed and keep the result ``ScoreOneAngle`` weights highest.
+
+    Picking by score means a poor seed can only cost time: the result is never worse
+    than refining from the best of the seeds alone.
+    """
+    best_scale = _refine_scale_local(pair, angle, seeds[0], wide_search=wide_search)
+    if len(seeds) == 1:
+        return best_scale
+
+    def _weight(scale: float) -> float:
+        return float(ScoreOneAngle(
+            target_original=pair.target_image,
+            source_original=pair.source_image,
+            target_image_shape=pair.target_image.shape,
+            source_image_shape=pair.source_image.shape,
+            angle=angle,
+            target_stats=pair.target_stats,
+            source_stats=pair.source_stats,
+            min_overlap=pair.min_overlap,
+            source_scale=float(scale),
+        ).weight)
+
+    best_weight = _weight(best_scale)
+    for seed in seeds[1:]:
+        scale = _refine_scale_local(pair, angle, seed, wide_search=wide_search)
+        if abs(scale - best_scale) < 1e-9:
+            continue
+        weight = _weight(scale)
+        if weight > best_weight:
+            best_scale, best_weight = scale, weight
+    return best_scale
 
 
 def _refine_scale_local(pair: _RegistrationPair,
@@ -1368,9 +1415,10 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             angle_range = _logpolar_narrow_angle_range(final_angle, seed.diagnostics)
             angle_refined = _find_best_angle_common_random(pair, angle_range)
             final_angle = float(angle_refined.angle)
-        refine_initial = _refine_scale_initial_center(
-            settings, metadata_scale_iso, detected, resolved_scale_hint)
-        detected = _refine_scale_local(pair, final_angle, refine_initial, wide_search=False)
+        detected = _refine_scale_from_seeds(
+            pair, final_angle,
+            _refine_scale_seeds(settings, metadata_scale_iso, detected, resolved_scale_hint),
+            wide_search=False)
         translation_results = ScoreOneAngle(
             source_original=candidate_source,
             target_original=target_image,
@@ -1420,15 +1468,15 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 refined = seed
 
         if settings.search_scale:
-            refine_initial = _refine_scale_initial_center(
-                settings, metadata_scale_iso, seed_scale, resolved_scale_hint)
             use_wide_scale_search = (
                 (force_scale_search or resolved_scale_hint is None)
                 and settings.initial_scale_hint is None)
-            detected = _refine_scale_local(
+            detected = _refine_scale_from_seeds(
                 _RegistrationPair(candidate_source, target_image, source_stats, target_stats,
                                   settings.min_overlap),
-                float(refined.angle), refine_initial, wide_search=use_wide_scale_search)
+                float(refined.angle),
+                _refine_scale_seeds(settings, metadata_scale_iso, seed_scale, resolved_scale_hint),
+                wide_search=use_wide_scale_search)
         else:
             detected = 1.0
         translation_results = ScoreOneAngle(
@@ -2276,16 +2324,23 @@ def _find_angle_and_scale_with_logpolar(source_image: NDArray[np.floating],
             scale_seed <= _SCALE_REFINE_MIN or scale_seed >= _SCALE_REFINE_MAX),
     )
 
-    shift_scale = float(scale_seed)
+    # The radial estimate is the size of the source relative to the target: a source
+    # that is the target shrunk to 0.93 reads 0.93. Everything downstream (ScoreOneAngle's
+    # source_scale, AngleScaleResult.scale, the brute's scale hints) is the factor that
+    # resamples the source onto the target, i.e. 1/0.93. Feeding the estimate in
+    # unconverted pushed cross-camera seeds the wrong way: RC3 153-154 (true 0.928 after
+    # metadata) was seeded at 1.086 and stayed off by ~200 px at ds32 (2026-11-02).
+    source_scale_seed = float(np.clip(1.0 / scale_seed, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
+    shift_scale = source_scale_seed
     refine_threshold = _RPC3_MANUAL_ABS_PCT_CHANGE_MIN / 100.0
-    if rotated_180 or abs(scale_seed - 1.0) > refine_threshold:
+    if rotated_180 or abs(source_scale_seed - 1.0) > refine_threshold:
         shift_scale = _scale_at_final_angle(
             _RegistrationPair(source_image, target_image, source_stats, target_stats, min_overlap),
-            recovered_angle, scale_seed, wide_search=False)
+            recovered_angle, source_scale_seed, wide_search=False)
         if nornir_imageregistration.in_debug_mode():
             logging.getLogger(__name__).debug(
                 'B1 fixed-angle scale: seed=%.6f refined=%.6f angle=%.4f',
-                scale_seed, shift_scale, recovered_angle)
+                source_scale_seed, shift_scale, recovered_angle)
     elif nornir_imageregistration.in_debug_mode():
         logging.getLogger(__name__).debug(
             'B1 scale seed=%.6f angle=%.4f peak_ratio=%.3f',
