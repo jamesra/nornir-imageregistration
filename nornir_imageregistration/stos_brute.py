@@ -180,24 +180,21 @@ _RPC3_MANUAL_ABS_PCT_CHANGE_MODE = 7.5
 # Margin beyond observed min/max scalar for blind search (~2%).
 _RPC3_SCALE_SEARCH_MARGIN = 0.02
 
-# 1D scale search at fixed angle (ScoreOneAngle weight). The RPC3 manual envelope plus the
-# margin gave 0.90-1.12; RC3 cross-camera manual registrations (2026-11-02, James) put true
-# residual scales at 0.830 (168-170) and ~0.873 (1231-1232), and clamped log-polar seeds
-# reached 0.80 and 1.17-1.33, so the band is widened to 0.80-1.20 (James, 2026-11).
-_SCALE_REFINE_MIN = 0.80
-_SCALE_REFINE_MAX = 1.20
-# Ratio between neighbouring tissue-grid scales. 11 points over the old 0.90-1.12 band were
-# 2.2% apart; keeping that spacing over the wider band avoids the coarser grid that let a
-# slightly wrong scale win on healthy RC3 pair 49-51 (44 -> 82 ds32 px) in a 0.75-1.30 test.
-_SCALE_REFINE_GRID_STEP = 1.022
+# 1D scale search at fixed angle (ScoreOneAngle weight), envelope from RPC3 manual stats.
+# A 0.80-1.20 band (20 scales at 2.2% spacing) was tried 2026-11-03 and reverted: on srv it lost
+# James's RC3 manual pairs 1040-1041 (6 -> 642 ds64 px), 168-170 (55 -> 689) and 332-333
+# (2 -> 28), and degraded 49-51 (23 -> 40), with lower final weights, while the 25-pair
+# regression set was unchanged. Widening needs a seed/score fix first, not just a wider band.
+_SCALE_REFINE_MIN = _RPC3_MANUAL_SCALE_MIN - _RPC3_SCALE_SEARCH_MARGIN  # 0.9046 -> 0.90
+_SCALE_REFINE_MAX = _RPC3_MANUAL_SCALE_MAX + _RPC3_SCALE_SEARCH_MARGIN  # 1.1216 -> 1.12
+_SCALE_REFINE_MIN = round(_SCALE_REFINE_MIN, 2)
+_SCALE_REFINE_MAX = round(_SCALE_REFINE_MAX, 2)
 _SCALE_REFINE_COARSE_DELTAS: tuple[float, ...] = (
     -0.08, -0.06, -0.04, -0.02, -0.01, 0.0, 0.01, 0.02, 0.04, 0.06, 0.08,
 )
 _SCALE_REFINE_NARROW_DELTAS: tuple[float, ...] = (-0.04, -0.02, -0.01, 0.0, 0.01, 0.02, 0.04)
 _SCALE_REFINE_TISSUE_GRID: tuple[float, ...] = tuple(
-    float(s) for s in np.geomspace(
-        _SCALE_REFINE_MIN, _SCALE_REFINE_MAX,
-        int(np.ceil(np.log(_SCALE_REFINE_MAX / _SCALE_REFINE_MIN) / np.log(_SCALE_REFINE_GRID_STEP))) + 1)
+    float(s) for s in np.geomspace(_SCALE_REFINE_MIN, _SCALE_REFINE_MAX, 11)
 )
 _SCALE_REFINE_LOCAL_HALF_WIDTH = 0.02
 _SCALE_REFINE_TERNARY_ITERATIONS = 14
