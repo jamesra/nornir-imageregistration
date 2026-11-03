@@ -177,10 +177,12 @@ class TestTheBestScaleSurvivesDecimation(unittest.TestCase):
             nornir_imageregistration.ComputationLib.numpy)
         nornir_imageregistration.seed_random_data(_SEED)
 
-    def test_the_grid_still_has_eleven_candidates_with_no_hint(self):
-        """The 11x the issue reports; if this changes, the arithmetic above is stale."""
+    def test_the_grid_has_one_candidate_per_tissue_grid_scale_with_no_hint(self):
+        """The issue's 11x was the 0.90-1.12 band; since 2026-11 the 0.80-1.20 band has 20 scales
+        2.2% apart, so the timings above scale by 20/11."""
         candidates = stos_brute._scale_search_candidates(1.0, None)
-        self.assertEqual(11, len(list(candidates)))
+        self.assertEqual(len(stos_brute._SCALE_REFINE_TISSUE_GRID), len(list(candidates)))
+        self.assertEqual(20, len(stos_brute._SCALE_REFINE_TISSUE_GRID))
 
     def test_512_ranks_the_full_resolution_best_scale_first(self):
         target, source = _load(512)
@@ -190,9 +192,13 @@ class TestTheBestScaleSurvivesDecimation(unittest.TestCase):
             scaled = source if scale == 1.0 else _resize(source, scale)
             weights.append(_score(target, scaled, _BEST_ANGLE))
         best = scales[int(np.argmax(weights))]
-        self.assertAlmostEqual(_BEST_SCALE, best, places=3,
+        # _BEST_SCALE was measured on the old 11-point grid; on the current grid the winner
+        # must be the grid scale nearest to it.
+        expected = min(scales, key=lambda s: abs(s - _BEST_SCALE))
+        self.assertAlmostEqual(expected, best, places=4,
                                msg=f'the 74x-cheaper level ranks scale {best:.4f} first, not '
-                                   f'the full-resolution best {_BEST_SCALE:.4f}')
+                                   f'{expected:.4f}, the grid scale nearest the full-resolution '
+                                   f'best {_BEST_SCALE:.4f}')
 
 
 @pytest.mark.slow
