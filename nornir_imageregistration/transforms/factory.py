@@ -75,11 +75,9 @@ def _TransformToIRToolsGridString(Transform: IControlPoints, XDim: int, YDim: in
     # template = " %(cx).3f %(cy).3f"
     template = " %(cx)s %(cy)s"
 
-    NumAdded = int(0)
-    for CY, CX, MY, MX in Transform.points:
-        pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-        output.append(pstr)
-        NumAdded += 1
+    # One host copy; iterating CuPy points read each element from the device.
+    for CY, CX in nornir_imageregistration.EnsureNumpyArray(Transform.points)[:, :2].tolist():
+        output.append(template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)})
 
     # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
     # then 1024 should be written to the file.
@@ -115,7 +113,9 @@ def _MeshTransformToIRToolsString(Transform: IControlPoints, bounds=None) -> str
     width = right - left
     height = top - bottom
 
-    for CY, CX, MY, MX in Transform.points:
+    # One host copy (NumPy scalars keep the arithmetic's dtype); iterating CuPy points
+    # read each element from the device.
+    for CY, CX, MY, MX in nornir_imageregistration.EnsureNumpyArray(Transform.points):
         pstr = template % {'cx': float_to_shortest_string(CX, 3),
                            'cy': float_to_shortest_string(CY, 3),
                            'mx': float_to_shortest_string((MX - left) / width, 10),

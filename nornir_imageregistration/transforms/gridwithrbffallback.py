@@ -24,8 +24,8 @@ from numpy.typing import NDArray
 
 import nornir_imageregistration
 import nornir_imageregistration.transforms
-from nornir_imageregistration.transforms import float_to_shortest_string
 from nornir_imageregistration.grid_subdivision import ITKGridDivision
+from nornir_imageregistration.transforms.gridtransform import itk_control_point_strings
 from nornir_imageregistration.transforms.base import IDiscreteTransform, ITransformScaling, \
     ITransformRelativeScaling, ITransformTargetRotation, ITargetSpaceControlPointEdit, IControlPoints, IGridTransform, \
     ITriangulatedTargetSpace, ITransformTranslation 
@@ -827,12 +827,7 @@ class GridWithRBFInterpolator_Direct_GPU(Landmark_GPU):
         XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded = NumAdded + 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -963,12 +958,7 @@ class GridWithRBFInterpolator_Direct_CPU(Landmark_CPU):
         XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded = NumAdded + 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -1096,12 +1086,7 @@ class GridWithRBFInterpolator_GPU(Landmark_GPU):
         XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded = NumAdded + 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -1276,12 +1261,7 @@ class GridWithRBFInterpolator_CPU(Landmark_CPU):
         XDim = int(self._grid._grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded = NumAdded + 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.

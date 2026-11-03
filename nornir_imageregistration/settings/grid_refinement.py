@@ -51,6 +51,7 @@ class GridRefinement:
     grid_spacing: NDArray[np.integer]
     angles_to_search: list[int] | Iterable[float] | NDArray[np.floating]
     final_pass_angles: list[int] | Iterable[float] | NDArray[np.floating]
+    estimate_angle: bool
     num_iterations: int
     max_travel_for_finalization: float
     max_travel_for_finalization_improvement: float
@@ -126,6 +127,7 @@ class GridRefinement:
                  grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
                  angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
                  final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                 estimate_angle: bool = False,
                  max_travel_for_finalization: float | None = None,
                  max_travel_for_finalization_improvement: float | None = None,
                  min_finalize_pass: int | None = None,
@@ -158,6 +160,8 @@ class GridRefinement:
         :param tuple grid_spacing: (width, height) of separation between control points on the grid
         :param array angles_to_search: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is used on all registrations.  Can have a performance impact.
         :param array final_pass_angles: An array of floats or None.  Images are rotated by the degrees indicated in the array.  The single best alignment across all angles is selected.  This set is usually a reduced range to fine tune a registration. Can have a performance impact.
+        :param bool estimate_angle: When True, run a log-polar angle estimate per cell and
+            append that angle to ``angles_to_search`` (0 and any given range stay in the list).
         :param float max_travel_for_finalization: The maximum amount of travel a point can have from its predicted position for it to be considered "good enough" and considered for finalization
         :param max_travel_for_finalization_improvement: When finalized points are checked to see if they need to be nudged, they must move less than this distance to be considered.  If None, no limit is applied
         :param int min_finalize_pass: First pass index (1-based) allowed to lock points; default 2
@@ -245,6 +249,7 @@ class GridRefinement:
 
         self.angles_to_search = [0] if angles_to_search is None else angles_to_search
         self.final_pass_angles = [0] if final_pass_angles is None else final_pass_angles
+        self.estimate_angle = bool(estimate_angle)
         self.num_iterations = 10 if num_iterations is None else num_iterations
         self.max_travel_for_finalization = np.sqrt(
             np.max(self.cell_size)) if max_travel_for_finalization is None else max_travel_for_finalization  # type: ignore[arg-type]
@@ -289,6 +294,7 @@ class GridRefinement:
                              grid_spacing: int | NDArray[np.integer] | Iterable[int] | None = None,
                              angles_to_search: Iterable[float] | NDArray[np.floating] | None = None,
                              final_pass_angles: Iterable[float] | NDArray[np.floating] | None = None,
+                                     estimate_angle: bool = False,
                                      max_travel_for_finalization: float | None = None,
                                      max_travel_for_finalization_improvement: float | None = None,
                                      min_finalize_pass: int | None = None,
@@ -321,6 +327,7 @@ class GridRefinement:
                               grid_spacing=grid_spacing,
                               angles_to_search=angles_to_search,
                               final_pass_angles=final_pass_angles,
+                              estimate_angle=estimate_angle,
                               max_travel_for_finalization=max_travel_for_finalization,
                               max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                               min_finalize_pass=min_finalize_pass,
@@ -352,6 +359,7 @@ class GridRefinement:
             grid_spacing=None,
             angles_to_search=None,
             final_pass_angles=None,
+            estimate_angle: bool = False,
             max_travel_for_finalization: float | None = None,
             max_travel_for_finalization_improvement: float | None = None,
             min_finalize_pass: int | None = None,
@@ -382,6 +390,7 @@ class GridRefinement:
                                                            grid_spacing=grid_spacing,
                                                            angles_to_search=angles_to_search,
                                                            final_pass_angles=final_pass_angles,
+                                                           estimate_angle=estimate_angle,
                                                            max_travel_for_finalization=max_travel_for_finalization,
                                                            max_travel_for_finalization_improvement=max_travel_for_finalization_improvement,
                                                            min_finalize_pass=min_finalize_pass,

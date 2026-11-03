@@ -269,6 +269,63 @@ class TestUnavailableStillFallsBack(_SerialSpyCase):
             self.assertIs(kwargs['estimate_angle'], False)
             self.assertIs(kwargs['search_scale'], False)
 
+    def test_angle_search_refine_does_not_enable_stosbrute_extras(self):
+        """Non-zero angles alone must not auto-enable log-polar estimate or scale search."""
+        seen: list[dict] = []
+        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs)
+            return real_rigid(*args, **kwargs)
+
+        points = _grid_points(2)
+        settings = _settings(_textured())
+        settings.angles_to_search = np.asarray([-3.0, 0.0, 3.0], dtype=np.float64)
+        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
+        try:
+            ldc._RefinePointsForTwoImages(
+                _identity(),
+                [(i, 0) for i in range(len(points))],
+                points.copy(),
+                points,
+                settings)
+        finally:
+            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
+
+        self.assertTrue(seen)
+        for kwargs in seen:
+            self.assertIs(kwargs['estimate_angle'], False)
+            self.assertIs(kwargs['search_scale'], False)
+
+    def test_estimate_angle_setting_forwards_without_scale_search(self):
+        """Opt-in estimate_angle appends a log-polar seed; scale search stays off."""
+        seen: list[dict] = []
+        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs)
+            return real_rigid(*args, **kwargs)
+
+        points = _grid_points(2)
+        settings = _settings(_textured())
+        settings.angles_to_search = np.asarray([-3.0, 0.0, 3.0], dtype=np.float64)
+        settings.estimate_angle = True
+        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
+        try:
+            ldc._RefinePointsForTwoImages(
+                _identity(),
+                [(i, 0) for i in range(len(points))],
+                points.copy(),
+                points,
+                settings)
+        finally:
+            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
+
+        self.assertTrue(seen)
+        for kwargs in seen:
+            self.assertIs(kwargs['estimate_angle'], True)
+            self.assertIs(kwargs['search_scale'], False)
+
     def test_caller_measures_serially_when_batched_returns_none(self):
         real = ldc._attempt_align_points_translation_batched
         ldc._attempt_align_points_translation_batched = lambda **kwargs: None

@@ -5462,8 +5462,10 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             ring_angle_max_degrees=settings.ring_angle_max_degrees,
             ring_allow_flip_change=settings.ring_allow_flip_change)
 
+    estimate_angle = bool(getattr(settings, 'estimate_angle', False))
     if (_use_batched_stos_cell_measurement()
             and _angles_are_translation_only(settings.angles_to_search)
+            and not estimate_angle
             and nPoints > 0):
         batched = _attempt_align_points_translation_batched(
             keys=keys,
@@ -5480,11 +5482,11 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
         if batched is not None:
             return batched
 
-    # A translation-only search must stay translation-only here, as it is in the
-    # batched path. AttemptAlignPoint's defaults add a log-polar angle estimate and a
-    # scale search inherited from StosBrute, about 1 s per cell instead of one FFT.
+    # AttemptAlignPoint defaults also enable StosBrute's scale search (~1 s/cell);
+    # grid refine never wants that. estimate_angle is opt-in: when True, log-polar
+    # appends one angle to the caller's list (0 and any max/step range stay).
     translation_only = _angles_are_translation_only(settings.angles_to_search)
-    search_kwargs = {'estimate_angle': not translation_only, 'search_scale': not translation_only}
+    search_kwargs = {'estimate_angle': estimate_angle, 'search_scale': False}
     if translation_only and nPoints > 0:
         # Translation-only cells are meant to be batched; say so when they are not, so a
         # slow fallback shows up in build logs instead of only in profiles.

@@ -45,6 +45,17 @@ from .base import ITransformScaling, ITransformRelativeScaling, \
 _logger = logging.getLogger(__name__)
 
 
+def itk_control_point_strings(points: NDArray) -> list[str]:
+    """``" X Y"`` for each control point's target position, as ``ToITKString`` writes them.
+
+    One host copy, then Python floats: iterating a CuPy array row by row read every
+    element from the device, and MoveMosaicsToZeroOrigin spent ~4-5 s per RC3 section
+    in it (srv, 2026-11-02). Python floats format exactly as the NumPy/CuPy scalars did.
+    """
+    target_yx = nornir_imageregistration.EnsureNumpyArray(points)[:, :2].tolist()
+    return [f" {float_to_shortest_string(x, 3)} {float_to_shortest_string(y, 3)}" for y, x in target_yx]
+
+
 def _assemble_inverse_use_scipy() -> bool:
     """When True on CuPy, build grid inverse interpolators with SciPy Qhull instead of CuPy Delaunay.
 
@@ -498,12 +509,7 @@ class GridTransform(ITransformScaling, ITransformRelativeScaling, ITransformTran
             raise ValueError("Grid transform number of points does not match grid dimensions")
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded += 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -838,12 +844,7 @@ class GridTransform_GPUComponent(ITransformScaling, ITransformRelativeScaling, I
         XDim = int(self.grid.grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded += 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.
@@ -1215,12 +1216,7 @@ class GridTransform_GPU(ITransformScaling, ITransformRelativeScaling, ITransform
         XDim = int(self.grid.grid_dims[1]) - 1  # For whatever reason ITK subtracts one from the dimensions
 
         output = ["GridTransform_double_2_2 vp " + str(numPoints * 2)]
-        template = " %(cx)s %(cy)s"
-        NumAdded = int(0)
-        for CY, CX, MY, MX in self.points:
-            pstr = template % {'cx': float_to_shortest_string(CX, 3), 'cy': float_to_shortest_string(CY, 3)}
-            output.append(pstr)
-            NumAdded += 1
+        output.extend(itk_control_point_strings(self.points))
 
         # ITK expects the image dimensions to be the actual dimensions of the image.  So if an image is 1024 pixels wide
         # then 1024 should be written to the file.

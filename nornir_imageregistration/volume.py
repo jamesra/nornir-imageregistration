@@ -7,6 +7,7 @@ Created on Jan 27, 2014
 import numpy as np
 
 import nornir_imageregistration.transforms.utils
+from nornir_shared import prettyoutput
 
 
 def _SortArrayByColumn(arr, SortColumn=None):
@@ -109,5 +110,29 @@ class Volume(object):
         return nornir_imageregistration.transforms.utils.IsOriginAtZero(self._SectionToVolumeTransforms.values())
 
     def TranslateToZeroOrigin(self):
-        '''Ensure that the transforms in the mosaic do not map to negative coordinates'''
-        return nornir_imageregistration.transforms.utils.TranslateToZeroOrigin(list(self._SectionToVolumeTransforms.values()))
+        '''Ensure that the sections do not map to negative coordinates.
+
+        Sections may be mosaics, which ``utils.TranslateToZeroOrigin`` measures but does not
+        move (it only translates ``ITransformTranslation`` objects). It used to be called
+        here, returning the offset while leaving every mosaic in place, so callers
+        found a negative origin "after translation" on every run.
+
+        :return: The offset applied, or None if the origin was already at zero.
+        '''
+        sections = list(self._SectionToVolumeTransforms.values())
+        try:
+            origin = nornir_imageregistration.transforms.utils.FixedOriginOffset(sections)
+        except ValueError:
+            prettyoutput.LogErr("Could not determine origin of volume sections, continuing")
+            return None
+
+        if origin is None or not np.any(nornir_imageregistration.EnsureNumpyArray(origin)):
+            return None
+
+        offset = -origin
+        for section in sections:
+            # Mosaics and ITransformTranslation transforms; anything else was never moved.
+            if hasattr(section, 'TranslateFixed'):
+                section.TranslateFixed(offset)
+
+        return offset
