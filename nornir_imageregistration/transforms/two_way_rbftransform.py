@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 import nornir_imageregistration
 from nornir_imageregistration.transforms.base import ITransform, IControlPoints, \
     ITransformScaling, ITransformRelativeScaling, ITransformTargetRotation, \
-    ITransformSourceRotation, IControlPointEdit
+    ITransformSourceRotation, IControlPointEdit, IControlPointAddRemove
 from nornir_imageregistration.transforms.defaulttransformchangeevents import DefaultTransformChangeEvents
 from nornir_imageregistration.transforms.one_way_rbftransform import OneWayRBFWithLinearCorrection, \
     OneWayRBFWithLinearCorrection_GPUComponent
@@ -15,7 +15,8 @@ from nornir_imageregistration.transforms.transform_type import TransformType
 
 class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
                                     ITransformTargetRotation,
-                                    ITransformSourceRotation, IControlPointEdit, DefaultTransformChangeEvents):
+                                    ITransformSourceRotation, IControlPointEdit, IControlPointAddRemove,
+                                    DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
                  BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         super(TwoWayRBFWithLinearCorrection, self).__init__()
@@ -36,8 +37,8 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._inverse_rbf = dictionary['_inverse_rbf']
 
     def _reset_inverse_transform(self):
-        self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=self._forward_rbf.SourcePoints,
-                                                          FixedPoints=self._forward_rbf.TargetPoints,
+        self._inverse_rbf = OneWayRBFWithLinearCorrection(WarpedPoints=self._forward_rbf.TargetPoints,
+                                                          FixedPoints=self._forward_rbf.SourcePoints,
                                                           BasisFunction=self._forward_rbf.BasisFunction)
 
     def Transform(self, point: NDArray[np.floating], **kwargs) -> NDArray:
@@ -67,6 +68,12 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
     @property
     def points(self) -> NDArray:
         return self._forward_rbf.points
+
+    @points.setter
+    def points(self, value: NDArray[np.floating]):
+        self._forward_rbf.points = value
+        self._reset_inverse_transform()
+        self.OnTransformChanged()
 
     def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle):
         '''Return the point pairs inside the rectangle defined in target space'''
@@ -164,10 +171,11 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self._inverse_rbf.TranslateFixed(offset)
         self.OnTransformChanged()
 
-    def AddPoint(self, pointpair: NDArray[np.floating]):
-        self._forward_rbf.AddPoint(pointpair)
+    def AddPoint(self, pointpair: NDArray[np.floating]) -> int:
+        index = self._forward_rbf.AddPoint(pointpair)
         self._reset_inverse_transform()
         self.OnTransformChanged()
+        return index
 
     def AddPoints(self, new_points: NDArray[np.floating]):
         self._forward_rbf.AddPoints(new_points)
@@ -231,9 +239,9 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
         self.OnTransformChanged()
         return result
 
-    def RemovePoint(self, index: int):
+    def RemovePoint(self, index: int | NDArray[np.integer]):
         self._forward_rbf.RemovePoint(index)
-        self._inverse_rbf.RemovePoint(index)
+        self._reset_inverse_transform()
         self.OnTransformChanged()
 
     def OnFixedPointChanged(self):
@@ -254,7 +262,7 @@ class TwoWayRBFWithLinearCorrection(ITransform, IControlPoints, ITransformScalin
 class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITransformScaling,
                                                  ITransformRelativeScaling, ITransformTargetRotation,
                                                  ITransformSourceRotation, IControlPointEdit,
-                                                 DefaultTransformChangeEvents):
+                                                 IControlPointAddRemove, DefaultTransformChangeEvents):
     def __init__(self, WarpedPoints: NDArray[np.floating], FixedPoints: NDArray[np.floating],
                  BasisFunction: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None):
         super(TwoWayRBFWithLinearCorrection_GPUComponent, self).__init__()
@@ -277,8 +285,8 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self._inverse_rbf = dictionary['_inverse_rbf']
 
     def _reset_inverse_transform(self):
-        self._inverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=self._forward_rbf.SourcePoints,
-                                                                       FixedPoints=self._forward_rbf.TargetPoints,
+        self._inverse_rbf = OneWayRBFWithLinearCorrection_GPUComponent(WarpedPoints=self._forward_rbf.TargetPoints,
+                                                                       FixedPoints=self._forward_rbf.SourcePoints,
                                                                        BasisFunction=self._forward_rbf.BasisFunction)
 
     def Transform(self, point: NDArray[np.floating], **kwargs) -> NDArray:
@@ -308,6 +316,12 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
     @property
     def points(self) -> NDArray:
         return self._forward_rbf.points
+
+    @points.setter
+    def points(self, value: NDArray[np.floating]):
+        self._forward_rbf.points = value
+        self._reset_inverse_transform()
+        self.OnTransformChanged()
 
     def GetPointPairsInTargetRect(self, bounds: nornir_imageregistration.Rectangle):
         '''Return the point pairs inside the rectangle defined in target space'''
@@ -403,10 +417,11 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self._inverse_rbf.TranslateFixed(offset)
         self.OnTransformChanged()
 
-    def AddPoint(self, pointpair: NDArray[np.floating]):
-        self._forward_rbf.AddPoint(pointpair)
+    def AddPoint(self, pointpair: NDArray[np.floating]) -> int:
+        index = self._forward_rbf.AddPoint(pointpair)
         self._reset_inverse_transform()
         self.OnTransformChanged()
+        return index
 
     def AddPoints(self, new_points: NDArray[np.floating]):
         self._forward_rbf.AddPoints(new_points)
@@ -470,9 +485,9 @@ class TwoWayRBFWithLinearCorrection_GPUComponent(ITransform, IControlPoints, ITr
         self.OnTransformChanged()
         return result
 
-    def RemovePoint(self, index: int):
+    def RemovePoint(self, index: int | NDArray[np.integer]):
         self._forward_rbf.RemovePoint(index)
-        self._inverse_rbf.RemovePoint(index)
+        self._reset_inverse_transform()
         self.OnTransformChanged()
 
     def OnFixedPointChanged(self):
