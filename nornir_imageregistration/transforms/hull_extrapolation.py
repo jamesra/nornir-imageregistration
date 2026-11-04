@@ -92,20 +92,34 @@ class HullAffineExtrapolator:
 
 _lock = threading.Lock()
 _cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_forward_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def inverse_extrapolator(transform) -> HullAffineExtrapolator:
     """Target -> source extrapolator for *transform*, built once per transform and set of points."""
+    return _cached_extrapolator(_cache, transform, forward=False)
+
+
+def forward_extrapolator(transform) -> HullAffineExtrapolator:
+    """Source -> target extrapolator for *transform*, built once per transform and set of points.
+
+    Pyre maps mesh points this way for display and cursor mapping (2026-11-03);
+    registration keeps the RBF fallback.
+    """
+    return _cached_extrapolator(_forward_cache, transform, forward=True)
+
+
+def _cached_extrapolator(cache: weakref.WeakKeyDictionary, transform, *, forward: bool) -> HullAffineExtrapolator:
     target = np.asarray(_host(transform.TargetPoints), dtype=np.float64)
     source = np.asarray(_host(transform.SourcePoints), dtype=np.float64)
     signature = (target.shape, hash(target.tobytes()), hash(source.tobytes()))
     with _lock:
-        cached = _cache.get(transform)
+        cached = cache.get(transform)
         if cached is not None and cached[0] == signature:
             return cached[1]
-    extrapolator = HullAffineExtrapolator(target, source)
+    extrapolator = HullAffineExtrapolator(source, target) if forward else HullAffineExtrapolator(target, source)
     with _lock:
-        _cache[transform] = (signature, extrapolator)
+        cache[transform] = (signature, extrapolator)
     return extrapolator
 
 

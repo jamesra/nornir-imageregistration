@@ -75,6 +75,23 @@ class TestHullAffineExtrapolator(_NumpyCase):
     def test_built_once_per_transform(self):
         mesh = _affine_mesh()
         self.assertIs(hull_extrapolation.inverse_extrapolator(mesh), hull_extrapolation.inverse_extrapolator(mesh))
+        self.assertIs(hull_extrapolation.forward_extrapolator(mesh), hull_extrapolation.forward_extrapolator(mesh))
+        self.assertIsNot(hull_extrapolation.forward_extrapolator(mesh), hull_extrapolation.inverse_extrapolator(mesh))
+
+    def test_forward_reproduces_a_global_affine_far_outside_the_hull(self):
+        mesh = _affine_mesh()
+        far = np.array([[-300.0, -200.0], [900.0, 40.0], [50.0, 1200.0], [1000.0, 1000.0]])
+        np.testing.assert_allclose(
+            hull_extrapolation.forward_extrapolator(mesh)(far), far @ _AFFINE + _OFFSET, atol=1e-2)
+
+    def test_forward_rebuilds_after_points_move(self):
+        mesh = _affine_mesh()
+        before = hull_extrapolation.forward_extrapolator(mesh)
+        mesh.TranslateFixed(np.array([10.0, 0.0]))
+        after = hull_extrapolation.forward_extrapolator(mesh)
+        self.assertIsNot(before, after)
+        far = np.array([[-300.0, -200.0]])
+        np.testing.assert_allclose(after(far), before(far) + np.array([10.0, 0.0]), atol=1e-2)
 
 
 def scipy_hull_points(transform) -> np.ndarray:
