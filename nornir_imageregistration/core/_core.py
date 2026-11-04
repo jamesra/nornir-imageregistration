@@ -2937,7 +2937,7 @@ def CreateExtremaMask(image: np.ndarray, mask: np.ndarray | None = None, size_cu
 
         label_sums = sp.ndimage.sum_labels(
             extrema_mask.astype(xp.int32), extrema_mask_label,
-            xp.arange(0, nLabels, dtype=xp.int32))
+            xp.arange(0, nLabels + 1, dtype=xp.int32))  # Labels run 0..nLabels; omitting nLabels masked the last region regardless of size
 
         cutoff_value = None
         # if cutoff value is less than one treat it as a fraction of total area
