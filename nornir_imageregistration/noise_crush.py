@@ -22,6 +22,8 @@ import dataclasses
 import json
 import math
 import os
+import struct
+import zlib
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -216,3 +218,71 @@ def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, 
 
     os.makedirs(os.path.dirname(target_path) or '.', exist_ok=True)
     save_crushed_png(target_path, crush(image, params), params)
+
+
+def codes_from_unit_image(image: NDArray, params: CrushParams) -> NDArray:
+    """
+    Round an image of codes scaled to 0-1 by ``max_code`` back to stored codes.
+
+    Assembly loads crushed tiles with ``value_scale=max_code`` (one shared unit, no stretch),
+    so interpolated and composited pixels are ``code / max_code``; this is the single
+    rounding step. Host-only: accepts NumPy or CuPy and returns NumPy.
+    """
+    if hasattr(image, 'get'):
+        image = image.get()
+    scaled = np.rint(np.asarray(image, dtype=np.float32) * params.max_code)
+    np.clip(scaled, 0, params.max_code, out=scaled)
+    return scaled.astype(params.storage_dtype)
+
+
+_PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
+_STAMP_HEAD_BYTES = 1 << 16
+
+
+def _png_has_crush_text(data: bytes) -> bool:
+    """True when a tEXt chunk keyed ``nornir_crush`` precedes the image data."""
+    pos = len(_PNG_SIGNATURE)
+    while pos + 8 <= len(data):
+        length, chunk_type = struct.unpack('>I4s', data[pos:pos + 8])
+        if chunk_type == b'IDAT':
+            return False
+        if chunk_type == b'tEXt' and data[pos + 8:pos + 8 + length].split(b'\0', 1)[0] == PNG_TEXT_KEY.encode():
+            return True
+        pos += 12 + length
+    return False
+
+
+def stamp_crush_png(path: str, params: CrushParams) -> bool:
+    """
+    Add the ``nornir_crush`` tEXt chunk to an existing PNG without decoding its pixels.
+
+    For crushed tiles written before pyramid levels carried the chunk. The chunk goes right
+    after IHDR and the file is replaced atomically. Returns False when the file already has
+    the chunk. Raises ValueError for a file that is not a PNG.
+    """
+    with open(path, 'rb') as f:
+        # Pillow writes text chunks before the image data, so the head usually settles it
+        # without reading a full-resolution tile over the network.
+        data = f.read(_STAMP_HEAD_BYTES)
+        if not data.startswith(_PNG_SIGNATURE):
+            raise ValueError(f'Not a PNG file: {path}')
+        if _png_has_crush_text(data):
+            return False
+        data += f.read()
+    if _png_has_crush_text(data):
+        return False
+
+    ihdr_length = struct.unpack('>I', data[8:12])[0]
+    insert_at = len(_PNG_SIGNATURE) + 12 + ihdr_length
+    body = b'tEXt' + PNG_TEXT_KEY.encode('latin-1') + b'\0' + params.to_json().encode('latin-1')
+    chunk = struct.pack('>I', len(body) - 4) + body + struct.pack('>I', zlib.crc32(body) & 0xFFFFFFFF)
+
+    temp_path = path + '.crushstamp'
+    with open(temp_path, 'wb') as f:
+        f.write(data[:insert_at])
+        f.write(chunk)
+        f.write(data[insert_at:])
+    os.replace(temp_path, path)
+    return True

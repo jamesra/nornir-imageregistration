@@ -25,6 +25,7 @@ from typing import Literal, cast
 import numpy as np
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 import nornir_shared.prettyoutput as prettyoutput
 
@@ -421,6 +422,12 @@ def _ShrinkPillowImageFile(InFile: str, OutFile: str, Scalar: float, **kwargs):
             resample = Image.Resampling.LANCZOS
 
     with Image.open(InFile, mode='r') as img:
+        if 'pnginfo' not in kwargs and str(OutFile).lower().endswith('.png'):
+            crush_text = img.info.get(nornir_imageregistration.noise_crush.PNG_TEXT_KEY)
+            if crush_text:
+                # A shrunk crushed tile holds the same codes, so it keeps the crush parameters.
+                kwargs['pnginfo'] = PngInfo()
+                kwargs['pnginfo'].add_text(nornir_imageregistration.noise_crush.PNG_TEXT_KEY, crush_text)
 
         dims = np.asarray(img.size).astype(dtype=np.float32, copy=False)
         desired_dims = dims * Scalar
@@ -2492,7 +2499,7 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 # Legacy: SaveImage_JPeg2000_Tile (PIL tile save) not used; current save path uses other methods.
 #
 
-def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
+def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None):
     """Load an image, retrying when the filesystem asks us to try again.
 
     CIFS returns ``EAGAIN`` (errno 11) when too many opens are in flight.
@@ -2500,7 +2507,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
     """
     for attempt in range(6):
         try:
-            return _load_image_by_extension_once(ImageFullPath, dtype)
+            return _load_image_by_extension_once(ImageFullPath, dtype, value_scale)
         except OSError as exc:
             transient = getattr(exc, "errno", None) in (
                 errno.EAGAIN, errno.EWOULDBLOCK, errno.EBUSY)
@@ -2512,10 +2519,11 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None):
     raise OSError(f"Unable to load image: {ImageFullPath}")
 
 
-def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None):
+def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None):
     """
     Loads an image file and returns an ndarray of dtype
     :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide.
+    :param value_scale: For integer images loaded as float, divide by this fixed value instead of the image's own maximum
     """
     (root, ext) = os.path.splitext(ImageFullPath)
 
@@ -2546,7 +2554,7 @@ def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None):
                         else:
                             image = image.astype(dtype)
 
-                        max_val = image.max()
+                        max_val = image.max() if value_scale is None else value_scale
                         if max_val != 0:
                             image /= max_val
                     elif nornir_imageregistration.IsFloatArray(dtype):
@@ -2586,7 +2594,8 @@ def LoadImage(ImageFullPath: str,
               ImageMaskFullPath: str | None = None,
               MaxDimension: float | None = None,
               dtype: DTypeLike | None = None,
-              backend: Literal["numpy", "cupy"] | None = None):
+              backend: Literal["numpy", "cupy"] | None = None,
+              value_scale: float | None = None):
     """
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
 
@@ -2595,6 +2604,8 @@ def LoadImage(ImageFullPath: str,
     :param str ImageMaskFullPath: Path to mask, dimension should match input image
     :param MaxDimension: Limit the largest dimension of the returned image to this size.  Downsample if necessary.
     :param backend: If "numpy", return a NumPy array (error if conversion fails). If "cupy", return a CuPy array (error if CuPy not available). If None, use the active computation backend (current behaviour).
+    :param value_scale: When an integer image is loaded as a float dtype, divide by this fixed value instead of the
+        image's own maximum, so tiles that share a value unit (crushed codes) keep it. None keeps the per-image maximum.
     :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
     :rtype: ndimage
     """
@@ -2605,7 +2616,7 @@ def LoadImage(ImageFullPath: str,
 
     (root, ext) = os.path.splitext(ImageFullPath)
 
-    image = _LoadImageByExtension(ImageFullPath, dtype)
+    image = _LoadImageByExtension(ImageFullPath, dtype, value_scale)
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)

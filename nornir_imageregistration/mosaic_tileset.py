@@ -31,9 +31,10 @@ def tile_id_from_filename(path: str, default: int) -> int:
 
 
 def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image_folder: str,
-                     image_to_source_space_scale: float) -> MosaicTileset:
+                     image_to_source_space_scale: float, tile_value_scale: float | None = None) -> MosaicTileset:
     """
     :param mosaic: The mosaic we are pulling transforms and image filenames from
+    :param tile_value_scale: Fixed divisor for integer tile pixels (see :class:`Tile`); None divides each tile by its own maximum
     :param image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
     4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
     """
@@ -66,7 +67,7 @@ def CreateFromMosaic(mosaic: str | nornir_imageregistration.mosaic.Mosaic, image
 
         tile = nornir_imageregistration.tile.Tile(transfrom, filename,
                                                   image_to_source_space_scale=image_to_source_space_scale,
-                                                  ID=tile_number)
+                                                  ID=tile_number, value_scale=tile_value_scale)
         obj[tile_number] = tile
 
     return obj

@@ -40,6 +40,7 @@ class Tile:
     _image_size: NDArray | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
     _fftimage: NDArray | None  # The FFT of the padded image data
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
+    _value_scale: float | None  # Fixed divisor for integer pixels (crushed codes); None divides by each image's maximum
 
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
@@ -102,7 +103,8 @@ class Tile:
             try:
                 assert self._imagepath is not None
                 self._image = nornir_imageregistration.LoadImage(self._imagepath,
-                                                                 dtype=nornir_imageregistration.default_image_dtype())
+                                                                 dtype=nornir_imageregistration.default_image_dtype(),
+                                                                 value_scale=self._value_scale)
             except IOError:
                 prettyoutput.LogErr(f'Unable to load {self._imagepath}')
                 raise
@@ -238,13 +240,16 @@ class Tile:
     def __init__(self, transform: nornir_imageregistration.ITransform,
                  imagepath: str | NDArray,
                  image_to_source_space_scale: float,
-                 ID: int | None):
+                 ID: int | None,
+                 value_scale: float | None = None):
         """
         :param transform: The transform object
         :param imagepath: Full path to the image to be transformed.  This can also be a NumPy or CuPy ndarray for testing purposes, but the tile will not marshall across process boundaries.
         :param float image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
         4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
+        :param value_scale: Divide integer pixels by this fixed value when loading instead of the image's own maximum,
+        so every tile keeps the same value unit (crushed codes). None keeps the per-image maximum.
         """
 
         if transform is None:
@@ -258,6 +263,7 @@ class Tile:
                 "This might be OK... but images are almost always downsampled.  This exception was added to migrate from old code to this class because at that time all scalars were positive.  For example a downsampled by 4 image must have coordinates multiplied by 4 to match the full-res source space of the transform.")
 
         self._transform = transform
+        self._value_scale = value_scale
 
         if isinstance(imagepath, str):
             self._imagepath = imagepath
@@ -291,7 +297,7 @@ class Tile:
         odict = {'_transform': self._transform, '_imagepath': self._imagepath,
                  '_source_bounding_box': self._source_bounding_box, '_target_bounding_box': self._target_bounding_box,
                  'image_to_source_space_scale': self.image_to_source_space_scale, '_image_size': self._image_size,
-                 '_ID': self._ID}
+                 '_ID': self._ID, '_value_scale': self._value_scale}
 
         return odict
 
