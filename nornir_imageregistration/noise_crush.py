@@ -222,9 +222,17 @@ def load_raw_tile(path: str) -> NDArray:
                               base_delay=RAW_READ_BASE_DELAY, description=path)
 
 
-def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, flip: bool = False) -> None:
+@dataclasses.dataclass
+class CrushTileStats:
+    """What one crushed tile contained: built during conversion, so no separate histogram pass is needed."""
+    code_histogram: NDArray  # count of pixels per code, length max_code + 1
+    clipped_high: int  # raw values above the top code (stored as max_code)
+    clipped_low: int  # raw values below the offset (stored as 0)
+
+
+def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, flip: bool = False) -> CrushTileStats:
     """
-    Crush one source tile file into a target PNG.
+    Crush one source tile file into a target PNG and return the tile's code histogram and clip counts.
 
     Top-level and picklable so process pools can run it. ``flip`` mirrors rows,
     matching ``Flip`` in ``ConvertImagesInDict`` (``xp.flip(image, 0)``).
@@ -234,7 +242,12 @@ def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, 
         image = np.flip(image, 0)
 
     os.makedirs(os.path.dirname(target_path) or '.', exist_ok=True)
-    save_crushed_png(target_path, crush(image, params), params)
+    codes = crush(image, params)
+    save_crushed_png(target_path, codes, params)
+    shifted = np.asarray(image).astype(np.int64) - params.offset
+    return CrushTileStats(code_histogram=np.bincount(codes.ravel(), minlength=params.max_code + 1),
+                          clipped_high=int(np.count_nonzero(shifted >= (params.max_code + 1) * params.step)),
+                          clipped_low=int(np.count_nonzero(shifted < 0)))
 
 
 def codes_from_unit_image(image: NDArray, params: CrushParams) -> NDArray:
