@@ -962,6 +962,7 @@ get_space_scale: Optional pre-calculated scalar to apply to the transforms targe
         cval=[0, _distance_cval],
         extrapolate=_assemble_grid_extrapolate(),
         return_shared_memory=False,
+        warp_whole_source=True,  # identical pixels whatever region or strip width the tile is assembled into
     )
 
     source_image_dtype = source_image.dtype

@@ -121,6 +121,20 @@ def _assemble_distance_warp_order() -> int | None:
     return int(raw)
 
 
+#: With ``warp_whole_source``, sources up to this many pixels are warped whole when the warp uses a spline prefilter, so
+#: the result does not depend on the output region. A 4080 x 4080 TEM tile is 16.6 Mpx; larger sources are still cropped
+#: to the region they feed, since prefiltering all of them would cost far more than the crop saves.
+EXACT_WARP_MAX_SOURCE_PIXELS = 64 * 1024 * 1024
+
+
+def _crop_changes_warp(interpolation_order: int | None) -> bool:
+    """True when cropping the source can change warped values: any order above 1 prefilters the source.
+
+    ``None`` means the default cubic warp (order 1 only for NaN or bool sources, decided after the crop), so it counts.
+    """
+    return interpolation_order is None or int(interpolation_order) > 1
+
+
 def GetROICoords(botleft: tuple[float, float] | NDArray, area: tuple[float, float] | NDArray,
                  *, xp=None) -> NDArray[np.floating]:
     """Integer YX meshgrid for a rectangle origin and area.
@@ -462,7 +476,8 @@ def _TransformImageUsingCoords(target_coords: NDArray,
                                return_shared_memory: bool = False,
                                interpolation_order: int | None = None,
                                return_valid_mask: bool = False,
-                               clamp_source_coords: bool = False):
+                               clamp_source_coords: bool = False,
+                               warp_whole_source: bool = False):
     """Use the passed coordinates to create a warped image
     :Param fixed_coords: 2D coordinates in fixed space
     :Param warped_coords: 2D coordinates in warped space
@@ -537,7 +552,16 @@ def _TransformImageUsingCoords(target_coords: NDArray,
     subroi_warpedImage = None
     # For large images we only need a specific range of the image, but the entire image is passed through a spline filter by map_coordinates
     # In this case use only a subset of the warpedimage
-    if np.prod(source_image.shape) > source_coords.shape[0]:
+    source_pixels = int(np.prod(source_image.shape))
+    crop_source = source_pixels > source_coords.shape[0]
+    if (warp_whole_source and crop_source and _crop_changes_warp(interpolation_order)
+            and source_pixels <= EXACT_WARP_MAX_SOURCE_PIXELS):
+        # The spline prefilter of a cropped image depends on where the crop ends, and the crop follows the output region,
+        # so a tile cut by the region edge warped differently from the same tile warped whole (optimized tiles assembled
+        # in strips of different widths differed by up to 80 DN, RC2 1240, 2026-11-05). Take the whole-source path a
+        # warp of the tile's full footprint already takes, so every output pixel is independent of the region.
+        crop_source = False
+    if crop_source:
         # if not area[0] == FixedImageArea[0] and area[1] == FixedImageArea[1]:
         # if area[0] <= FixedImageArea[0] or area[1] <= FixedImageArea[1]:
         (subroi_warpedImage, filtered_source_coords, source_coord_mask) = _CropImageToFitCoords(source_image,  # type: ignore[misc]
@@ -819,7 +843,7 @@ def SourceImageToTargetSpace(transform: ITransform,
                              output_area: NDArray | tuple[float, float] | None = None,
                              cval=None, extrapolate=False, return_shared_memory: bool = False,
                              return_valid_mask: bool = False, clamp_source_coords: bool = False,
-                             interpolation_order: int | None = None):
+                             interpolation_order: int | None = None, warp_whole_source: bool = False):
     """Warps every image in the DataToTransform list using the provided transform.
     :param transform: transform to pass warped space coordinates through to obtain fixed space coordinates
     :param output_shape: shape of the output image
@@ -834,6 +858,9 @@ def SourceImageToTargetSpace(transform: ITransform,
     :Param area: Expected dimensions of output
     :Param cval: Value to place in unmappable regions, defaults to zero.
     :param bool extrapolate: If true map points that fall outside the bounding box of the transform
+    :param bool warp_whole_source: Warp tile-sized sources (up to ``EXACT_WARP_MAX_SOURCE_PIXELS``) whole instead of
+        cropped to the output region, so each output pixel does not depend on the region requested. Mosaic tile
+        assembly sets it; the region crop changes cubic-spline values near the crop edge.
     """
 
     ImagesToTransform = _ReplaceFilesWithImages(DataToTransform)
@@ -889,6 +916,7 @@ def SourceImageToTargetSpace(transform: ITransform,
                                                 return_shared_memory=return_shared_memory,
                                                 return_valid_mask=return_valid_mask and i == 0,
                                                 clamp_source_coords=clamp_source_coords,
+                                                warp_whole_source=warp_whole_source,
                                                 interpolation_order=warp_order if warp_order is not None else interpolation_order)
                 output_list.append(fi)
                 # nornir_imageregistration.close_shared_memory(DataToTransform[i])
@@ -901,6 +929,7 @@ def SourceImageToTargetSpace(transform: ITransform,
                                                 return_shared_memory=return_shared_memory,
                                                 return_valid_mask=return_valid_mask,
                                                 clamp_source_coords=clamp_source_coords,
+                                                warp_whole_source=warp_whole_source,
                                                 interpolation_order=interpolation_order)
         # nornir_imageregistration.close_shared_memory(DataToTransform)
         return result
