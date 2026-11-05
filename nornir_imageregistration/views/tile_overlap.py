@@ -6,8 +6,10 @@ Created on Apr 29, 2019
 # pyright: reportCallIssue=false
 from matplotlib.collections import PatchCollection
 import matplotlib.gridspec as gridspec
+import matplotlib.figure
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from nornir_imageregistration.headless import is_headless, save_current_pyplot_figure
 import numpy
@@ -98,7 +100,14 @@ def _create_tile_target_space_patch(tile, **kwargs):
 
 
 def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlaps=True):
-    fig = plt.figure(dpi=600)
+    # Saving uses a figure of its own on the Agg canvas, with no pyplot state: safe on any thread and under any
+    # backend (nornir-build on a desktop used to run with QtAgg).
+    owns_agg_figure = OutputFilename is not None
+    if owns_agg_figure:
+        fig = matplotlib.figure.Figure(dpi=600)
+        FigureCanvasAgg(fig)
+    else:
+        fig = plt.figure(dpi=600)
     gs = gridspec.GridSpec(nrows=1, ncols=1)
 
     # fig, ax = plt.subplots(nrows=2, ncols=2)
@@ -192,16 +201,18 @@ def plot_tile_overlaps(overlaps, colors=None, OutputFilename=None, label_overlap
     ax.axis('equal')
 
     ax.set_title('Overlaps')
-    plt.tight_layout()
+    fig.tight_layout()
     if bbox is not None:
         ax.set_xlim(bbox.MinX, bbox.MaxX)
         ax.set_ylim(bbox.MinY, bbox.MaxY)
 
     ax.invert_yaxis()
 
-    if OutputFilename is not None:
-        plt.savefig(OutputFilename)
-    elif is_headless():
+    if owns_agg_figure:
+        fig.savefig(OutputFilename)
+        return
+
+    if is_headless():
         save_current_pyplot_figure(tag="plot_tile_overlaps", dpi=150)
     else:
         plt.show(block=True)

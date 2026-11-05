@@ -59,7 +59,9 @@ import matplotlib
 
 from nornir_imageregistration.headless import is_headless
 
-matplotlib.use("Agg" if is_headless() else "qtAgg")
+# An explicit MPLBACKEND wins: forcing qtAgg here overrode MPLBACKEND=Agg for every batch run on a desktop.
+if not os.environ.get("MPLBACKEND"):
+    matplotlib.use("Agg" if is_headless() else "qtAgg")
 
 import matplotlib.pyplot as plt
 
