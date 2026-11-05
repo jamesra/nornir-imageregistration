@@ -46,6 +46,8 @@ import nornir_shared.histogram
 import nornir_shared.prettyoutput as prettyoutput
 import nornir_pools
 import nornir_imageregistration
+from nornir_imageregistration import noise_crush
+from nornir_imageregistration.io_retry import call_with_io_retry
 
 
 class ImageStats:
@@ -623,11 +625,14 @@ def __HistogramFileSciPy__(filename: str,
                            MinVal: float | None = None,
                            MaxVal: float | None = None,
                            stride: int | None = None) -> nornir_shared.histogram.Histogram:
-    """Return the histogram of an image"""
+    """Return the histogram of an image. Transient share errors on the read are retried (``io_retry``)."""
 
-    with Image.open(filename, mode='r') as img:
-        img_I = img.convert("I")
-        Im = np.asarray(img_I)
+    def read() -> NDArray:
+        with Image.open(filename, mode='r') as img:
+            return np.asarray(img.convert("I"))
+
+    Im = call_with_io_retry(read, attempts=noise_crush.RAW_READ_ATTEMPTS,
+                            base_delay=noise_crush.RAW_READ_BASE_DELAY, description=filename)
 
     return HistogramOfArray(Im, bpp=Bpp, num_samples=NumSamples, num_bins=numBins, scale=Scale,
                             min_val=MinVal, max_val=MaxVal, stride=stride)

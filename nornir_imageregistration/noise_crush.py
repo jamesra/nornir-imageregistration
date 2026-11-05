@@ -32,6 +32,8 @@ from numpy.typing import DTypeLike, NDArray
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
+from nornir_imageregistration.io_retry import call_with_io_retry
+
 CRUSH_VERSION = 1
 DEFAULT_CRUSH_K = 2.5
 SIGMA_METHOD = 'haar_hh_mad_center2048'
@@ -199,10 +201,25 @@ def read_crush_params(path: str) -> CrushParams | None:
     return CrushParams.from_json(text) if text else None
 
 
-def load_raw_tile(path: str) -> NDArray:
-    """Load a source tile with its native integer dtype (no contrast, masking or rescaling)."""
+#: Raw-tile reads retry transient share errors (EBUSY/EAGAIN) this many times in all, waiting
+#: RAW_READ_BASE_DELAY seconds before the first retry and doubling: 0.5 + 1 + 2 + 4 = 7.5 s at most.
+RAW_READ_ATTEMPTS = 5
+RAW_READ_BASE_DELAY = 0.5
+
+
+def _load_raw_tile_once(path: str) -> NDArray:
     with Image.open(path) as im:
         return np.asarray(im)
+
+
+def load_raw_tile(path: str) -> NDArray:
+    """Load a source tile with its native integer dtype (no contrast, masking or rescaling).
+
+    Retries transient share errors (``io_retry``): a raw TIF on an SMB share can answer EBUSY for a
+    moment and read fine seconds later, and one refusal used to abort a whole section import.
+    """
+    return call_with_io_retry(lambda: _load_raw_tile_once(path), attempts=RAW_READ_ATTEMPTS,
+                              base_delay=RAW_READ_BASE_DELAY, description=path)
 
 
 def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, flip: bool = False) -> None:
